@@ -4884,10 +4884,7 @@ export class GelRelationalQuery<
           : [idLookup.id];
 
       const fetched = await this._mapWithConcurrency(ids, async (id) => {
-        if (id === null || id === undefined) {
-          return null;
-        }
-        return this.db.get(id as any);
+        return this._getById(this.tableConfig.name, id);
       });
 
       let rows = fetched.filter((row): row is any => !!row);
@@ -6275,6 +6272,16 @@ export class GelRelationalQuery<
     return this._allEdges.filter((edge) => edge.sourceTable === tableName);
   }
 
+  private async _getById(tableName: string, id: unknown): Promise<any | null> {
+    if (id === null || id === undefined) {
+      return null;
+    }
+    const normalizedId = this.db.normalizeId(tableName as any, id as any);
+    return normalizedId === null
+      ? null
+      : await this.db.get(normalizedId as any);
+  }
+
   private _getRelationConcurrency(): number {
     const value = this.relationLoading?.concurrency;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -6720,7 +6727,7 @@ export class GelRelationalQuery<
         async ({ values, occurrences }) => {
           let target: any | null = null;
           if (useGetById) {
-            target = await this.db.get(values[0] as any);
+            target = await this._getById(edge.targetTable, values[0]);
           } else {
             const query = this._queryByFields(
               this.db.query(edge.targetTable),
@@ -6947,7 +6954,7 @@ export class GelRelationalQuery<
       async ([key, values]) => {
         let target: any | null = null;
         if (useGetById) {
-          target = await this.db.get(values[0] as any);
+          target = await this._getById(edge.targetTable, values[0]);
         } else {
           const query = this._queryByFields(
             this.db.query(edge.targetTable),
@@ -7264,7 +7271,7 @@ export class GelRelationalQuery<
           async ([key, values]) => {
             let target: any | null = null;
             if (useGetById) {
-              target = await this.db.get(values[0] as any);
+              target = await this._getById(edge.targetTable, values[0]);
             } else {
               const query = this._queryByFields(
                 this.db.query(edge.targetTable),
