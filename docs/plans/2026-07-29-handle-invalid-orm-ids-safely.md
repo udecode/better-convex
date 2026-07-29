@@ -90,10 +90,10 @@ Blocked condition:
 Task state:
 - task_type: public package runtime bug
 - task_complexity: non-trivial, bounded
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: review and closeout
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: final handoff
+- goal_status: complete
 
 Current verdict:
 - verdict: valid
@@ -206,10 +206,10 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
+- [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
       new branch needed, or N/A with reason.
@@ -263,17 +263,17 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | wrong-table normalization risk and proof recorded |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling changes |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: failure was deterministic generated fixture drift, not install corruption |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `d9a850f4` created from the entire checkout |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | PR #308 created after passing `bun check` |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 308 --json body` confirms auto-release block, emoji lines/table/sections, and no self-link |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof |
 | GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no GitHub issue supplied |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | contract filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` passed; final `bun check` lint passed |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | broad commands were capped; full required gate was noisy but streamed in bounded chunks |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | final local review clean, 0 findings, overall confidence 0.93 |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-29-handle-invalid-orm-ids-safely.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-29-handle-invalid-orm-ids-safely.md` | final mechanical check follows this closure edit |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | public shape/exports unchanged; runtime semantics match `findFirst(): T or null` |
 | Convex bundle/import proof | yes | Audit affected function-entry static graphs or record N/A | no imports added; package build and full runtime gate passed |
 | CLI/scaffold/generated proof | yes | Prove command contract and regenerate owned output or record N/A | ORM change N/A; generated fixture drift refreshed by `fixtures:sync` and verified |
@@ -290,8 +290,8 @@ Phase / pass table:
 | Intake and source read | complete | source, owner, five cases, contradiction, and RED verdict recorded | implementation |
 | Implementation | complete | table-aware `_getById` owns all four direct lookup sites | verification |
 | Verification | complete | 15 focused tests, typechecks, lint, package build, fixture regeneration, full `bun check`, and final autoreview pass | commit and PR |
-| Commit / PR / GitHub sync | in_progress | branch ready; commit/PR pending | final response |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | complete | commit `d9a850f4` pushed; PR #308 body verified; no issue sync applies | closeout |
+| Closeout | complete | all acceptance, proof, review, release, git, and handoff gates resolved | final response |
 
 Findings:
 - Source confirms the top-level ID fast path and three relation target-ID paths
@@ -362,22 +362,27 @@ Source-listed case matrix:
 | Filtered through count | relation count target-ID read throws on malformed FK | `with._count` with target filter over mixed through rows | RED rejects at `_countRelationForRow` | counts only valid matching targets | focused RED then GREEN | passed |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: `d9a850f4 fix orm invalid id lookups`
+- PR line: `#308 Fix ORM invalid ID lookups`
+- Issue line: N/A: source was a pasted Discord report
+- Confidence line: 95-100% for the delivered package claim
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: RED production-semantic package test, browser N/A
+  - Verified: 15 focused tests and full `bun check`, browser N/A
+- Browser check: N/A: server-side package runtime
+- Outcome: malformed/wrong-table IDs are missing across primary equality/`in`,
+  one relations, many-through relations, and filtered through counts
+- Caveat: `convex-test` masks the production raw-ID rejection; six generated
+  fixture dependency snapshots were refreshed for unrelated upstream shadcn
+  drift required by the full gate
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: one table-aware ORM `_getById` helper
+  - Why not quick patch: caller validation duplicates Convex table-ID rules
+  - Why not broader change: raw `db.get`, vector hits, and public shape are out
+    of scope
+- Verified: focused red-green tests, typechecks, package build, lint, fixture
+  sync, full repo check, and clean autoreview
+- PR body verified: `gh pr view 308 --json body`
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -400,26 +405,30 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
-- Browser proof: pending
-- Caveats: pending
+- Commit: `d9a850f4`
+- PR: https://github.com/udecode/kitcn/pull/308
+- Issue: N/A: no GitHub issue supplied
+- Browser proof: N/A: server runtime only
+- Caveats: CI/Vercel were still running at creation; local full gate passed
 
 Timeline:
 - 2026-07-29T20:51:13.000Z Task goal plan created.
+- 2026-07-29 RED/GREEN completed for five invalid-ID cases.
+- 2026-07-29 Full `bun check` passed after generated fixture refresh.
+- 2026-07-29 Final autoreview clean with 0 findings.
+- 2026-07-29 Commit pushed and PR #308 body verified.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Intake and source read |
-| Where am I going? | Implementation, verification, commit/PR/GitHub sync, closeout |
-| What is the goal? | TODO: Fill from Objective |
-| What have I learned? | See Findings |
-| What have I done? | See Timeline |
+| Where am I? | Closeout complete |
+| Where am I going? | Final handoff |
+| What is the goal? | Invalid ORM IDs behave as missing across every reported path |
+| What have I learned? | Production and `convex-test` differ on malformed raw IDs |
+| What have I done? | Fixed owner, proved five cases, passed gates, shipped PR #308 |
 
 Open risks:
-- Pending.
+- External PR CI/Vercel were still running at creation; no local acceptance gap.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
