@@ -1,5 +1,14 @@
 # kitcn
 
+## 0.15.18
+
+### Patch Changes
+
+- [#308](https://github.com/udecode/kitcn/pull/308) [`65a331b`](https://github.com/udecode/kitcn/commit/65a331b7b9cb541b46c031e9afabdadd4d9d0c91) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Patches
+
+  - Fix ORM ID queries and relation loading to treat malformed IDs as missing
+    records.
+
 ## 0.15.17
 
 ### Patch Changes
