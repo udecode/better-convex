@@ -14,7 +14,7 @@ export type RunMutationCtx<DataModel extends GenericDataModel> = (
   | GenericMutationCtx<DataModel>
   | GenericActionCtx<DataModel>
 ) & {
-  runMutation: GenericMutationCtx<DataModel>['runMutation'];
+  runMutation: GenericActionCtx<DataModel>['runMutation'];
 };
 
 export type SchedulerCtx<TCtx> = TCtx extends {

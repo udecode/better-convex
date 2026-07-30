@@ -16,6 +16,7 @@
   "include": ["src", "../../tooling/global.d.ts"],
   "exclude": [
     "src/**/*.test.ts",
+    "src/**/*.test-d.ts",
     "src/**/*.test.tsx",
     "src/**/*.vitest.ts",
     "src/**/*.vitest.tsx"

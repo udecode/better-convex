@@ -80,6 +80,48 @@ describe('handlePagination', () => {
     expect(state.docs).toEqual([]);
     expect(state.isDone).toBe(true);
   });
+
+  test('continues unbounded pagination beyond the first 200 rows', async () => {
+    let index = 0;
+    const state = await handlePagination(async ({ paginationOpts }) => {
+      if (paginationOpts.numItems === 0) {
+        throw new Error('pagination requested zero rows');
+      }
+
+      index++;
+      return {
+        continueCursor: `cursor-${index}`,
+        isDone: index === 2,
+        page:
+          index === 1
+            ? Array.from({ length: 200 }, (_, id) => ({ id }))
+            : [{ id: 200 }],
+        pageStatus: 'Done' as const,
+      };
+    });
+
+    expect(state.docs).toHaveLength(201);
+  });
+
+  test('aborts a page that cannot make forward progress', async () => {
+    let calls = 0;
+
+    await expect(
+      handlePagination(async () => {
+        calls++;
+        if (calls > 1) {
+          throw new Error('test query cap reached');
+        }
+
+        return {
+          continueCursor: null,
+          isDone: false,
+          page: [],
+          pageStatus: 'Done' as const,
+        };
+      })
+    ).rejects.toThrow('Pagination made no forward progress');
+  });
 });
 
 describe('adapterConfig', () => {

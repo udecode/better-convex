@@ -70,17 +70,26 @@ export const handlePagination = async (
   };
 
   do {
+    const cursorBeforePage = state.cursor;
     const result = await next({
       paginationOpts: {
         cursor: state.cursor,
         numItems: Math.min(
           numItems ?? 200,
-          (limit ?? 200) - state.docs.length,
+          limit === undefined
+            ? Number.POSITIVE_INFINITY
+            : limit - state.docs.length,
           200
         ),
       },
     });
     onResult(result);
+
+    const advanced = state.cursor !== cursorBeforePage;
+    const produced = (result.page?.length ?? 0) > 0 || (result.count ?? 0) > 0;
+    if (!(state.isDone || advanced || produced)) {
+      throw new Error('Pagination made no forward progress');
+    }
   } while (!state.isDone);
 
   return state;
