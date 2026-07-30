@@ -36,9 +36,9 @@ Timed checkpoint:
 - semantics: N/A: no timed request
 - initial confidence score: 95%
 - improvement loop: red-green each source-listed case, then full verification
-- final score / loop closure: 99%; the autoreview finding is repaired, all
-  repeated local gates pass, and final rereview is clean; GitHub delivery and
-  remote checks remain
+- final score / loop closure: 100%; the autoreview finding is repaired, all
+  repeated local gates pass, final rereview is clean, and authoritative GitHub
+  checks pass
 
 Completion threshold:
 - Both source-listed cases fail before their fix and pass after it against the
@@ -109,10 +109,10 @@ Blocked condition:
 Task state:
 - task_type: package runtime and type compatibility bugfix
 - task_complexity: non-trivial measurable
-- current_phase: GitHub delivery
-- current_phase_status: final autoreview clean
-- next_phase: commit, PR, and remote checks
-- goal_status: resumed after explicit user approval
+- current_phase: closeout
+- current_phase_status: local and authoritative remote checks green
+- next_phase: validate plans and push closeout evidence
+- goal_status: ready for completion after plan validation and closeout push
 
 Current verdict:
 - verdict: valid
@@ -237,7 +237,7 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
@@ -298,17 +298,17 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | Failure modes are infinite pagination and mutation-only options exposed to actions; shared-owner red/green proof covers both. |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling files changed. |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption-shaped failure; `bun install` was used only to restore the lockfile baseline after the Convex 1.42 type repro. |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Entire checkout committed as `e4d7c985ec97963bdfb745cccee81991fde0a744`. |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Pushed branch and opened ready PR `https://github.com/udecode/kitcn/pull/311`. |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 311 --json body` confirms the release block, fix/confidence lines, exact proof table, four required sections, and no self-link. |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof applies. |
 | GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: this task originates from the fork sync, not a KitCN issue. |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | Filled below with commit, PR, issue N/A, confidence, flow proof, browser N/A, outcome, caveat, design, verification, and body proof. |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | Final `bun lint:fix` checked 874 files with no fixes. |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Broad command output was redirected to temporary logs and tailed; searches and diffs were capped. |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested. |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | Final local rereview: TruffleHog clean, no accepted/actionable findings, patch correct at 0.91. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-fix-auth-adapter-runtime-sync.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-fix-auth-adapter-runtime-sync.md` | Final closeout validator exited 0. |
 | Docs source-backed claim audit | yes | Verify docs claims against current source or record N/A | Internal solution claims match frozen upstream commits, local source, and focused regressions. |
 | Docs links / routes / previews | no | Verify leaf links, routes, anchors, and preview names or record N/A | N/A: no links, routes, anchors, or previews changed. |
 | Docs MDX/content parser | no | Run the relevant `www` docs parser/build for MDX/content changes, or record N/A | N/A: no `www` or MDX content changed. |
@@ -329,8 +329,8 @@ Phase / pass table:
 | Intake and source read | complete | source, owner, regressions, branch, and release path recorded | done |
 | Implementation | complete | three red-green cycles at shared owners | done |
 | Verification | complete | review finding repaired with red/green type proof; repeated full `bun check` and final rereview pass | done |
-| Commit / PR / GitHub sync | pending | | final response |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | complete | implementation commit pushed; ready PR #311 open and body verified | remote checks |
+| Closeout | complete | all local gates, final rereview, PR body proof, and authoritative GitHub checks pass | validate plans and push evidence |
 
 Findings:
 - The upstream pagination fix maps byte-for-byte to KitCN's shared helper, which
@@ -438,22 +438,31 @@ Source-listed case matrix:
 | no forward progress | A non-done empty page with the same cursor can loop forever. | `adapter.test.ts` exported-helper regression with two-query cap | failed with test cap instead of invariant | helper throws clear error after first page | focused red/green command | verified |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: `e4d7c985ec97963bdfb745cccee81991fde0a744`
+- PR line: `https://github.com/udecode/kitcn/pull/311`
+- Issue line: N/A: upstream sync task, no KitCN issue
+- Confidence line: 🟢 95-100% confidence
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: 🔴 three focused source/type regressions; browser N/A
+  - Verified: 🟢 31 focused tests, real Convex 1.42 type lane, package build,
+    repeated full `bun check`; browser N/A
+- Browser check: N/A: package runtime/type behavior has no UI route
+- Outcome: unbounded auth queries continue after 200 rows, stalled pages abort,
+  and shared mutation callers expose only the action-safe call shape.
+- Caveat: six generated shadcn fixture manifests advanced only
+  `lucide-react ^1.27.0` to `^1.28.0` after explicit approval; all targeted
+  checks and the full gate pass.
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: shared pagination helper and shared context utility.
+  - Why not quick patch: caller-level guards would leave other HTTP/database
+    adapter consumers vulnerable and preserve the invalid union method type.
+  - Why not broader change: no dependency, wrapper, example, or public API
+    migration is required; the dedicated type alias is test-only.
+- Verified: focused red/green tests, Convex 1.38 package gates, pinned Convex
+  1.42 type lane with production-revert failure proof, all six fixture checks,
+  repeated `bun check`, final lint, and clean final autoreview.
+- PR body verified: `gh pr view 311 --repo udecode/kitcn --json body` matches the
+  required task format and release block.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -476,12 +485,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
-- Browser proof: pending
-- Caveats: the user approved regenerating the five additional shadcn-owned
-  fixture snapshots for `lucide-react ^1.28.0`; final gates are in progress.
+- Commit: `e4d7c985ec97963bdfb745cccee81991fde0a744`
+- PR: `https://github.com/udecode/kitcn/pull/311`
+- Issue: N/A: upstream sync task, no KitCN issue
+- Browser proof: N/A: no browser surface
+- Caveats: browser proof is N/A; CI, Vercel, and release-policy checks pass.
 
 Timeline:
 - 2026-07-30T12:05:36.311Z Task goal plan created.
@@ -507,18 +515,23 @@ Timeline:
   repair.
 - 2026-07-30T15:18:00+0200 Final local autoreview found no accepted/actionable
   issues and judged the patch correct.
+- 2026-07-30T15:20:00+0200 Committed and pushed the entire checkout, opened
+  ready PR #311, and verified its task-style body.
+- 2026-07-30T15:30:00+0200 Authoritative GitHub CI passed in 8m34s; Vercel and
+  release-policy checks are also green.
+- 2026-07-30T15:31:00+0200 Final child and parent goal validators exited 0.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Final verification and review |
-| Where am I going? | Commit, PR, remote checks, closeout |
+| Where am I? | Final plan validation |
+| Where am I going? | Push closeout evidence and confirm PR head |
 | What is the goal? | Fix terminating auth pagination and action-safe mutation typing, then ship a verified task-style PR. |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
 
 Open risks:
-- Pending.
+- None.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless

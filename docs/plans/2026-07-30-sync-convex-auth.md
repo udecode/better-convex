@@ -238,9 +238,9 @@ Completion Gates:
 | Package/scaffold/docs gates delegated | yes | Ensure delegated prompt includes package build, fixture, docs, or skills checks when applicable | Changeset, solution note, package build, typecheck, review, full check, and user-approved generated-fixture checks are required. |
 | Workspace authority proof | yes | Record cwd/tool for every proof surface | Upstream Git evidence comes from `../convex-better-auth`; KitCN source evidence comes from this checkout. |
 | Autoreview for local implementation patch | yes | Run autoreview if this sync plan itself changes implementation code; otherwise N/A | Linked task final local rereview: TruffleHog clean, no accepted/actionable findings, patch correct at 0.91. |
-| Final output contract | pending | Record terse audit table and delegation/no-action result | pending |
+| Final output contract | yes | Record terse audit table and delegation/no-action result | Fork refs/range, seven-commit ledger, selected slice, skipped scope, implementation evidence, and PR #311 are recorded. |
 | Output budget discipline | yes | Verify no unbounded high-volume output was streamed, or record recovery | One broad PR-comments read and one broad local search were truncated; all subsequent evidence used commit metadata and exact file slices. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-sync-convex-auth.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-sync-convex-auth.md` | Final closeout validator exited 0. |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -250,7 +250,7 @@ Phase / pass table:
 | Upstream diff audit | complete | all seven commits and 17 files classified | done |
 | Local KitCN impact audit | complete | exact copied owners and institutional notes read | done |
 | Classification and decision | complete | compatibility + pagination slice selected | delegated task |
-| Delegation / closeout | in progress | review P2 repaired; repeated full `bun check` and final rereview green | ship PR |
+| Delegation / closeout | complete | PR #311 open; body verified; CI, Vercel, and release-policy checks green | validate plans and push evidence |
 
 Findings:
 - Kitcn doctrine favors direct upstream ownership and deletion of obsolete auth
@@ -328,6 +328,9 @@ Verification evidence:
   `lucide-react ^1.27.0` to `^1.28.0`.
 - command, this checkout: repeated post-fix `bun check` passes all repository
   gates.
+- command, GitHub: PR #311 is open from the expected branch at implementation
+  commit `e4d7c985`; task-style body verified with `gh pr view`.
+- command, GitHub: CI passed in 8m34s; Vercel and release-policy checks pass.
 
 Final handoff / sync:
 - Fork/upstream: `zbeyens/convex-better-auth` / `get-convex/better-auth`
@@ -336,19 +339,22 @@ Final handoff / sync:
 - Fork sync: fast-forward complete; `fork/main` equals upstream at `c628916`.
 - Decision: delegate the two exact local runtime matches; skip upstream-owned
   plugin typing, examples, release metadata, and CI churn.
-- Decision: pending
-- Delegated PR: pending
-- Fork sync: pending
-- Caveats: pending
+- Decision: shipped terminating pagination and action-safe shared mutation
+  typing; no other upstream changes require local code.
+- Delegated PR: `https://github.com/udecode/kitcn/pull/311`
+- Fork sync: direct fast-forward complete; post-sync 0 behind / 0 ahead.
+- Caveats: browser proof is N/A; six user-approved generated fixture manifests
+  moved only `lucide-react ^1.27.0` to `^1.28.0`; all local and remote checks
+  pass.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Linked task final review |
-| Where am I going? | Commit, PR, remote checks, closeout |
+| Where am I? | Final plan validation |
+| Where am I going? | Push closeout evidence and confirm PR head |
 | What is the goal? | Safely sync the fork, classify the frozen upstream range, and ship one useful kitcn auth slice or prove no action. |
 | What have I learned? | Two upstream fixes map exactly to shared KitCN owners; the remaining changes are no-ops locally. |
-| What have I done? | Fast-forwarded the fork, classified all seven commits, implemented the selected slice, and verified all affected generated fixtures. |
+| What have I done? | Fast-forwarded the fork, classified all seven commits, implemented and verified the selected slice, and opened PR #311. |
 
 Open risks:
-- PR creation and remote checks remain.
+- None.
