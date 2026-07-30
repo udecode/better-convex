@@ -4775,12 +4775,6 @@ function didConvexInitCreateConfiguration(output: string) {
   return CONVEX_INIT_CREATED_CONFIG_RE.test(output);
 }
 
-function isLocalBackendUpgradePrompt(output: string): boolean {
-  return output.includes(
-    'This deployment is using an older version of the Convex backend. Upgrade now?'
-  );
-}
-
 export async function runConvexInitIfNeeded(params: {
   execaFn: typeof execa;
   backendAdapter: BackendAdapter;
@@ -4802,12 +4796,6 @@ export async function runConvexInitIfNeeded(params: {
     };
   }
 
-  const shouldUseLocalDevPreflight =
-    getAggregateBackfillDeploymentKey(
-      params.targetArgs ?? [],
-      process.cwd(),
-      params.env
-    ) === 'local';
   const runCommand = async (commandArgs: string[]) =>
     normalizeConvexCommandResult(
       await params.execaFn(params.backendAdapter.command, commandArgs, {
@@ -4822,27 +4810,7 @@ export async function runConvexInitIfNeeded(params: {
     'init',
     ...(params.targetArgs ?? []),
   ];
-  let result = await runCommand(initCommandArgs);
-
-  if (
-    shouldUseLocalDevPreflight &&
-    result.exitCode !== 0 &&
-    isLocalBackendUpgradePrompt(`${result.stdout}\n${result.stderr}`)
-  ) {
-    result = await runCommand([
-      ...params.backendAdapter.argsPrefix,
-      'dev',
-      '--local',
-      '--once',
-      '--skip-push',
-      '--local-force-upgrade',
-      '--typecheck',
-      'disable',
-      '--codegen',
-      'disable',
-      ...(params.targetArgs ?? []),
-    ]);
-  }
+  const result = await runCommand(initCommandArgs);
 
   if (params.echoOutput !== false || result.exitCode !== 0) {
     writeConvexCommandOutput(result);

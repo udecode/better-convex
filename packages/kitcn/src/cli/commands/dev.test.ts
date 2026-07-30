@@ -147,15 +147,6 @@ async function postChunked(port: number) {
   return response.status;
 }
 
-function isLocalUpgradePreflightCommand(args: string[]): boolean {
-  return (
-    args[1] === 'dev' &&
-    args.includes('--local') &&
-    args.includes('--skip-push') &&
-    args.includes('--local-force-upgrade')
-  );
-}
-
 function isConvexInitCommand(args: string[]): boolean {
   return args[1] === 'init';
 }
@@ -163,9 +154,6 @@ function isConvexInitCommand(args: string[]): boolean {
 function isRuntimeDevCommand(args: string[]): boolean {
   return args[1] === 'dev' && !args.includes('--skip-push');
 }
-
-const LOCAL_BACKEND_UPGRADE_PROMPT =
-  'This deployment is using an older version of the Convex backend. Upgrade now?';
 
 async function waitFor(
   predicate: () => boolean,
@@ -853,13 +841,6 @@ describe('cli/commands/dev', () => {
       if (args[1] === 'init') {
         return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
       }
-      if (
-        args[1] === 'dev' &&
-        args.includes('--skip-push') &&
-        args.includes('--local-force-upgrade')
-      ) {
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
-      }
       return convexProcess.process;
     });
     const generateMetaStub = mock(async () => {});
@@ -915,206 +896,6 @@ describe('cli/commands/dev', () => {
           }),
         },
       });
-    } finally {
-      process.chdir(oldCwd);
-      onSpy.mockRestore();
-    }
-  });
-
-  test('handleDevCommand falls back to local upgrade preflight when convex init hits upgrade prompt', async () => {
-    const dir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'kitcn-dev-anonymous-agent-upgrade-')
-    );
-    const oldCwd = process.cwd();
-    const onSpy = spyOn(process, 'on').mockImplementation(() => process as any);
-    fs.mkdirSync(path.join(dir, 'convex', 'shared'), {
-      recursive: true,
-    });
-    fs.writeFileSync(
-      path.join(dir, 'convex', '.env'),
-      'SITE_URL=http://localhost:3000\n'
-    );
-    fs.writeFileSync(
-      path.join(dir, '.env.local'),
-      'CONVEX_DEPLOYMENT=anonymous:anonymous-agent\n'
-    );
-
-    const watcherProcess = createPendingProcess();
-    const convexProcess = createPersistentProcess();
-    const calls: Array<{ cmd: string; args: string[]; opts?: any }> = [];
-
-    const execaStub = mock((cmd: string, args: string[], opts?: any): any => {
-      calls.push({ cmd, args, opts });
-      if (cmd === 'bun' && (args[0] as string).endsWith('/watcher.ts')) {
-        return watcherProcess.process;
-      }
-      if (args[1] === 'init') {
-        return Promise.resolve({
-          exitCode: 1,
-          stdout: '',
-          stderr: `✖ Cannot prompt for input in non-interactive terminals. (${LOCAL_BACKEND_UPGRADE_PROMPT})`,
-        });
-      }
-      if (isLocalUpgradePreflightCommand(args)) {
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
-      }
-      return convexProcess.process;
-    });
-    const generateMetaStub = mock(async () => {});
-    const syncEnvStub = mock(async () => {});
-    const loadConfigStub = mock(() => ({
-      ...createDefaultConfig(),
-      dev: {
-        ...createDefaultConfig().dev,
-        aggregateBackfill: {
-          ...createDefaultConfig().dev.aggregateBackfill,
-          enabled: 'off' as const,
-        },
-        migrations: {
-          ...createDefaultConfig().dev.migrations,
-          enabled: 'off' as const,
-        },
-      },
-    }));
-
-    process.chdir(dir);
-
-    try {
-      const runPromise = handleDevCommand(['dev', '--once'], {
-        realConvex: '/fake/convex/main.js',
-        execa: execaStub as any,
-        generateMeta: generateMetaStub as any,
-        syncEnv: syncEnvStub as any,
-        loadCliConfig: loadConfigStub as any,
-      });
-      await waitFor(() => calls.some(({ args }) => isRuntimeDevCommand(args)));
-
-      convexProcess.emitStdout('13:35:25 Convex functions ready! (1.22s)\n');
-      convexProcess.resolveExit({ exitCode: 0 });
-
-      const exitCode = await runPromise;
-
-      expect(exitCode).toBe(0);
-      expect(calls[0]?.args).toEqual(['/fake/convex/main.js', 'init']);
-      expect(calls[1]?.args).toEqual([
-        '/fake/convex/main.js',
-        'dev',
-        '--local',
-        '--once',
-        '--skip-push',
-        '--local-force-upgrade',
-        '--typecheck',
-        'disable',
-        '--codegen',
-        'disable',
-      ]);
-      expect(calls[3]?.args).toEqual(['/fake/convex/main.js', 'dev', '--once']);
-    } finally {
-      process.chdir(oldCwd);
-      onSpy.mockRestore();
-    }
-  });
-
-  test('handleDevCommand preserves component target args in local upgrade preflight fallback', async () => {
-    const dir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'kitcn-dev-local-component-target-')
-    );
-    const oldCwd = process.cwd();
-    const onSpy = spyOn(process, 'on').mockImplementation(() => process as any);
-    fs.mkdirSync(path.join(dir, 'convex', 'shared'), {
-      recursive: true,
-    });
-    fs.writeFileSync(
-      path.join(dir, 'convex', '.env'),
-      'SITE_URL=http://localhost:3000\n'
-    );
-
-    const watcherProcess = createPendingProcess();
-    const convexProcess = createPersistentProcess();
-    const calls: Array<{ cmd: string; args: string[]; opts?: any }> = [];
-
-    const execaStub = mock((cmd: string, args: string[], opts?: any): any => {
-      calls.push({ cmd, args, opts });
-      if (cmd === 'bun' && (args[0] as string).endsWith('/watcher.ts')) {
-        return watcherProcess.process;
-      }
-      if (args[1] === 'init') {
-        return Promise.resolve({
-          exitCode: 1,
-          stdout: '',
-          stderr: `✖ Cannot prompt for input in non-interactive terminals. (${LOCAL_BACKEND_UPGRADE_PROMPT})`,
-        });
-      }
-      if (isLocalUpgradePreflightCommand(args)) {
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
-      }
-      return convexProcess.process;
-    });
-    const generateMetaStub = mock(async () => {});
-    const syncEnvStub = mock(async () => {});
-    const loadConfigStub = mock(() => ({
-      ...createDefaultConfig(),
-      dev: {
-        ...createDefaultConfig().dev,
-        aggregateBackfill: {
-          ...createDefaultConfig().dev.aggregateBackfill,
-          enabled: 'off' as const,
-        },
-        migrations: {
-          ...createDefaultConfig().dev.migrations,
-          enabled: 'off' as const,
-        },
-      },
-    }));
-
-    process.chdir(dir);
-
-    try {
-      const runPromise = handleDevCommand(
-        ['dev', '--once', '--component', 'plugins'],
-        {
-          realConvex: '/fake/convex/main.js',
-          execa: execaStub as any,
-          generateMeta: generateMetaStub as any,
-          syncEnv: syncEnvStub as any,
-          loadCliConfig: loadConfigStub as any,
-        }
-      );
-      await waitFor(() => calls.some(({ args }) => isRuntimeDevCommand(args)));
-
-      convexProcess.emitStdout('13:35:25 Convex functions ready! (1.22s)\n');
-      convexProcess.resolveExit({ exitCode: 0 });
-
-      const exitCode = await runPromise;
-
-      expect(exitCode).toBe(0);
-      expect(calls[0]?.args).toEqual([
-        '/fake/convex/main.js',
-        'init',
-        '--component',
-        'plugins',
-      ]);
-      expect(calls[1]?.args).toEqual([
-        '/fake/convex/main.js',
-        'dev',
-        '--local',
-        '--once',
-        '--skip-push',
-        '--local-force-upgrade',
-        '--typecheck',
-        'disable',
-        '--codegen',
-        'disable',
-        '--component',
-        'plugins',
-      ]);
-      expect(calls[3]?.args).toEqual([
-        '/fake/convex/main.js',
-        'dev',
-        '--once',
-        '--component',
-        'plugins',
-      ]);
     } finally {
       process.chdir(oldCwd);
       onSpy.mockRestore();
@@ -1493,9 +1274,6 @@ describe('cli/commands/dev', () => {
     const execaStub = mock((cmd: string, args: string[], _opts?: any): any => {
       if (cmd === 'bun' && (args[0] as string).endsWith('/watcher.ts')) {
         return watcherProcess;
-      }
-      if (isLocalUpgradePreflightCommand(args)) {
-        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
       }
       return convexProcess;
     });
