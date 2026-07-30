@@ -66,6 +66,11 @@ export default defineConfig({
             'packages/**/*.vitest.ts',
             'packages/**/*.vitest.tsx',
           ],
+          typecheck: {
+            enabled: true,
+            include: ['packages/**/*.test-d.ts'],
+            tsconfig: 'packages/kitcn/tsconfig.type-tests.json',
+          },
           exclude: ['**/node_modules/**', '**/tmp/**', '**/src/solid/**'],
         },
       },
