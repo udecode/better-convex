@@ -240,7 +240,7 @@ Completion Gates:
 | Autoreview for local implementation patch | yes | Run autoreview if this sync plan itself changes implementation code; otherwise N/A | Linked task final local rereview: TruffleHog clean, no accepted/actionable findings, patch correct at 0.91. |
 | Final output contract | yes | Record terse audit table and delegation/no-action result | Fork refs/range, seven-commit ledger, selected slice, skipped scope, implementation evidence, and PR #311 are recorded. |
 | Output budget discipline | yes | Verify no unbounded high-volume output was streamed, or record recovery | One broad PR-comments read and one broad local search were truncated; all subsequent evidence used commit metadata and exact file slices. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-sync-convex-auth.md` | Prior closeout validator exited 0; rerun after the Vercel retry resolves. |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-sync-convex-auth.md` | Retry resolved; final validator exited 0. |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -250,7 +250,7 @@ Phase / pass table:
 | Upstream diff audit | complete | all seven commits and 17 files classified | done |
 | Local KitCN impact audit | complete | exact copied owners and institutional notes read | done |
 | Classification and decision | complete | compatibility + pagination slice selected | delegated task |
-| Delegation / closeout | in progress | implementation-head checks green; closeout head hit pre-build Vercel `git_info_fail` | trigger fresh head and wait for checks |
+| Delegation / closeout | complete | fresh retry head `cadc6e5b` passed CI, Vercel, and release-policy checks | validate plans and push immutable closeout |
 
 Findings:
 - Kitcn doctrine favors direct upstream ownership and deletion of obsolete auth
@@ -290,7 +290,7 @@ Error attempts:
 | Broad `gh pr view --comments` included bot deployment logs and was truncated | 1 | Read PR title/body/files and exact source commits instead | Relevant human-authored fix intent was recovered from commit patches. |
 | Broad local auth search produced a capped result | 1 | Read exact owner files and prior plans/solutions | Local ownership and no-op decisions are now sourced. |
 | `bun check` reached repeated external shadcn fixture drift | 2 | Regenerated and verified only `next`, then stopped when `next-auth` proved a five-fixture expansion | User approved the five exact one-line generated refreshes. |
-| Closeout-head Vercel failed before build startup | 1 | Inspect the deployment record and trigger a fresh Git-backed head | `git_info_fail`; no build/error events exist, so this is not a code-build failure. |
+| Closeout-head Vercel failed before build startup | 1 | Inspect the deployment record and trigger a fresh Git-backed head | `git_info_fail` had no build/error events; fresh retry head `cadc6e5b` passed Vercel and CI. |
 
 Timeline:
 - 2026-07-30T11:57:57.509Z Sync audit plan created.
@@ -333,7 +333,8 @@ Verification evidence:
   commit `e4d7c985`; task-style body verified with `gh pr view`.
 - command, GitHub: implementation-head CI passed in 8m34s; Vercel and
   release-policy checks passed. The closeout head then hit pre-build
-  `git_info_fail` and requires a fresh attempt.
+  `git_info_fail`; fresh retry head `cadc6e5b` passed CI in 6m32s plus Vercel
+  and release-policy checks.
 
 Final handoff / sync:
 - Fork/upstream: `zbeyens/convex-better-auth` / `get-convex/better-auth`
@@ -347,8 +348,8 @@ Final handoff / sync:
 - Delegated PR: `https://github.com/udecode/kitcn/pull/311`
 - Fork sync: direct fast-forward complete; post-sync 0 behind / 0 ahead.
 - Caveats: browser proof is N/A; six user-approved generated fixture manifests
-  moved only `lucide-react ^1.27.0` to `^1.28.0`; implementation-head checks
-  pass, while a fresh closeout-head Vercel attempt remains.
+  moved only `lucide-react ^1.27.0` to `^1.28.0`; the one Vercel
+  `git_info_fail` was transient, and the fresh retry head passed all checks.
 
 Reboot status:
 | Question | Answer |
@@ -360,4 +361,4 @@ Reboot status:
 | What have I done? | Fast-forwarded the fork, classified all seven commits, implemented and verified the selected slice, and opened PR #311. |
 
 Open risks:
-- Fresh closeout-head Vercel and CI checks must pass.
+- None.
