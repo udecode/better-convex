@@ -105,10 +105,10 @@ Blocked condition:
 Task state:
 - task_type: compatibility cleanup and dependency upgrade
 - task_complexity: non-trivial
-- current_phase: verification
+- current_phase: closeout
 - current_phase_status: complete
-- next_phase: commit / PR / GitHub sync
-- goal_status: active
+- next_phase: final response
+- goal_status: complete
 
 Current verdict:
 - verdict: ready
@@ -226,10 +226,10 @@ Work Checklist:
       `@kitcn/resend`.
 - [x] Final handoff shape decided: task-style PR body and concise final audit
       receipt; issue sync is N/A because no issue backs the task.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
+- [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
 - [x] Branch handling recorded for code-changing work: dedicated
       `codex/convex-1-42-compatibility` branch used.
@@ -280,7 +280,7 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | pending | Run the command, proof, source audit, or artifact check named in this plan | Implementation proof is complete; commit/PR/body readback remain. |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | All source, focused, package, fixture, scenario, full-check, review, commit, PR, and body-readback thresholds pass. |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Release cleanup is valid; upstream source contradicts the retained fallback; proceed with hard cut. |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | Upstream source and live CLI scenarios are owning proof; browser/visual proof N/A. |
 | Bug reproduced before fix | no | Record failing test/repro or N/A with reason | N/A: compatibility cleanup, not a user bug; exact target source proves the hidden command is fatal. |
@@ -299,17 +299,17 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | Failure modes and proof matrix recorded in checklist; canonical owner avoids duplicate policy. |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling-control file changed. |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption-shaped failure. |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Entire checkout committed as `bbf4f2e0`. |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Branch pushed and PR #310 opened against `main`. |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 310 --json body` confirms exact required structure and no self-link. |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof applies. |
 | GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no issue source. |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | Filled below with commit, PR, confidence, proof, outcome, caveat, and design receipts. |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` and `bun check` lint passed. |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Searches and diffs were scoped/capped; full gate output was bounded by tool token caps. |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested. |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | Local review clean, zero findings, correctness 0.91. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-convex-1-42-compatibility.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-convex-1-42-compatibility.md` | Final closeout run passes. |
 | Docs source-backed claim audit | yes | Verify docs claims against current source or record N/A | Convex target `dev.ts` and `upgrade.ts` prove every behavioral claim. |
 | Docs links / routes / previews | yes | Verify leaf links, routes, anchors, and preview names or record N/A | Both related-solution file targets exist; routes/previews N/A. |
 | Docs MDX/content parser | no | Run the relevant `www` docs parser/build for MDX/content changes, or record N/A | N/A: no MDX or `www` content changed. |
@@ -330,8 +330,8 @@ Phase / pass table:
 | Intake and source read | complete | parent audit, target diff/source, local owners/tests/tooling/solutions, and task skills read | implementation |
 | Implementation | complete | version owner/consumers upgraded; dead fallback/tests removed; guidance and changeset added | verification |
 | Verification | complete | focused tests, build, fixtures, scenarios, lint, typecheck, full check, autoreview | commit / PR |
-| Commit / PR / GitHub sync | pending | | final response |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | complete | `bbf4f2e0` pushed; PR #310 created; GitHub body read back | closeout |
+| Closeout | complete | child mechanical check passes; parent audit owns final goal closure | final response |
 
 Findings:
 - Target Convex auto-confirms local backend upgrades for non-TTY stdin.
@@ -392,22 +392,30 @@ Source-listed case matrix:
 | institutional guidance | old note recommends the fallback | source-backed docs audit | stale hidden command | Convex 1.42 is direct owner | replacement note + link/source audit | proven |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: `bbf4f2e0` — `upgrade Convex to 1.42.3`
+- PR line: https://github.com/udecode/kitcn/pull/310
+- Issue line: N/A: release audit has no GitHub issue source
+- Confidence line: 🟢 95-100% confidence
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: target source proves hidden `convex dev --local` is fatal;
+    browser N/A
+  - Verified: 39 focused tests plus `bun check`; browser N/A
+- Browser check: N/A: CLI/package contract only
+- Outcome: Convex target is 1.42.3/1.42+, the dead fallback is removed, and all
+  generated/release receipts are synchronized
+- Caveat: Convex 1.41 and older are intentionally outside the next release
+  contract
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: canonical dependency owner plus
+    `runConvexInitIfNeeded`
+  - Why not quick patch: translating removed flags preserves duplicate upgrade
+    policy already owned by target Convex
+  - Why not broader change: new Convex agent commands already pass through
+    kitcn without wrappers
+- Verified: canonical upgrade runner, 39 focused tests, full `bun check`, and
+  clean autoreview
+- PR body verified: `gh pr view 310 --json body` readback matches PR #270
+  format and preserves the auto-release block
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -430,11 +438,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
-- Browser proof: pending
-- Caveats: pending
+- Commit: `bbf4f2e0`
+- PR: https://github.com/udecode/kitcn/pull/310
+- Issue: N/A: none
+- Browser proof: N/A: no browser surface
+- Caveats: intentional Convex 1.42 peer-floor hard cut
 
 Timeline:
 - 2026-07-30T09:12:25.403Z Task goal plan created.
@@ -448,6 +456,8 @@ Timeline:
   correctness confidence.
 - 2026-07-30T11:40:00Z Full `bun check` passed, including all generated
   comparisons and live runtime smokes.
+- 2026-07-30T11:44:00Z Committed `bbf4f2e0`, pushed the dedicated branch,
+  opened PR #310, and verified its task-style body through GitHub readback.
 
 Reboot status:
 | Question | Answer |
