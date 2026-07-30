@@ -36,9 +36,9 @@ Timed checkpoint:
 - semantics: N/A: no timed request
 - initial confidence score: 95%
 - improvement loop: red-green each source-listed case, then full verification
-- final score / loop closure: 100%; the autoreview finding is repaired, all
-  repeated local gates pass, final rereview is clean, and authoritative GitHub
-  checks pass
+- final score / loop closure: 99%; implementation-head checks passed, but the
+  closeout head hit a Vercel `git_info_fail` before build startup and requires a
+  fresh deployment attempt
 
 Completion threshold:
 - Both source-listed cases fail before their fix and pass after it against the
@@ -110,9 +110,10 @@ Task state:
 - task_type: package runtime and type compatibility bugfix
 - task_complexity: non-trivial measurable
 - current_phase: closeout
-- current_phase_status: local and authoritative remote checks green
-- next_phase: validate plans and push closeout evidence
-- goal_status: ready for completion after plan validation and closeout push
+- current_phase_status: closeout-head Vercel retry required
+- next_phase: push recorded retry state, wait for fresh remote checks, and
+  revalidate plans
+- goal_status: active until the fresh PR head is green
 
 Current verdict:
 - verdict: valid
@@ -308,7 +309,7 @@ Completion Gates:
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Broad command output was redirected to temporary logs and tailed; searches and diffs were capped. |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested. |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | Final local rereview: TruffleHog clean, no accepted/actionable findings, patch correct at 0.91. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-fix-auth-adapter-runtime-sync.md` | Final closeout validator exited 0. |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-07-30-fix-auth-adapter-runtime-sync.md` | Prior closeout validator exited 0; rerun after the Vercel retry resolves. |
 | Docs source-backed claim audit | yes | Verify docs claims against current source or record N/A | Internal solution claims match frozen upstream commits, local source, and focused regressions. |
 | Docs links / routes / previews | no | Verify leaf links, routes, anchors, and preview names or record N/A | N/A: no links, routes, anchors, or previews changed. |
 | Docs MDX/content parser | no | Run the relevant `www` docs parser/build for MDX/content changes, or record N/A | N/A: no `www` or MDX content changed. |
@@ -330,7 +331,7 @@ Phase / pass table:
 | Implementation | complete | three red-green cycles at shared owners | done |
 | Verification | complete | review finding repaired with red/green type proof; repeated full `bun check` and final rereview pass | done |
 | Commit / PR / GitHub sync | complete | implementation commit pushed; ready PR #311 open and body verified | remote checks |
-| Closeout | complete | all local gates, final rereview, PR body proof, and authoritative GitHub checks pass | validate plans and push evidence |
+| Closeout | in progress | implementation-head checks passed; closeout head failed before Vercel build startup with `git_info_fail` | push retry evidence and wait for fresh checks |
 
 Findings:
 - The upstream pagination fix maps byte-for-byte to KitCN's shared helper, which
@@ -392,6 +393,7 @@ Error attempts:
 | First type fixture omitted the required `RunMutationCtx` data-model generic | 1 | Use `GenericDataModel` explicitly | Remaining red errors isolated the intended invalid third argument. |
 | Final autoreview proved the type lane was false-green on Convex 1.38 | 1 | Resolve the dedicated lane against a pinned Convex version that exposes mutation-only options and add a positive control | Convex 1.42.3 lane fails on a production revert and passes on the fix. |
 | Normal package typecheck compiled the Convex 1.42-only positive control against Convex 1.38 | 1 | Isolate `*.test-d.ts` to the dedicated config instead of weakening either assertion | Package typecheck and the dedicated Convex 1.42 lane both pass. |
+| Closeout-head Vercel deployment failed at `build-container-init` | 1 | Inspect the deployment owner, then push the recorded external failure to trigger a fresh Git-backed deployment | Vercel reports `git_info_fail` with no build/error log; fresh head required. |
 | First `bun check` failed on `fixtures/next` lucide registry drift | 1 | Use the scenarios-owned target sync/check instead of hand editing | `fixtures/next/package.json` regenerated to `^1.28.0`; targeted check passed. |
 | Second `bun check` failed on the same drift in `fixtures/next-auth` | 1 | Stop before broad fixture expansion and request approval as required by the sync skill | Remaining affected fixtures: `next-auth`, `start`, `start-auth`, `vite`, `vite-auth`. |
 
@@ -489,7 +491,9 @@ Final handoff / sync:
 - PR: `https://github.com/udecode/kitcn/pull/311`
 - Issue: N/A: upstream sync task, no KitCN issue
 - Browser proof: N/A: no browser surface
-- Caveats: browser proof is N/A; CI, Vercel, and release-policy checks pass.
+- Caveats: implementation-head CI, Vercel, and release-policy checks passed;
+  the closeout head needs a fresh Vercel attempt after pre-build
+  `git_info_fail`.
 
 Timeline:
 - 2026-07-30T12:05:36.311Z Task goal plan created.
@@ -520,6 +524,9 @@ Timeline:
 - 2026-07-30T15:30:00+0200 Authoritative GitHub CI passed in 8m34s; Vercel and
   release-policy checks are also green.
 - 2026-07-30T15:31:00+0200 Final child and parent goal validators exited 0.
+- 2026-07-30T15:33:00+0200 Closeout-head Vercel failed at
+  `build-container-init` with `git_info_fail` and no build logs; recorded the
+  external failure before triggering a fresh head.
 
 Reboot status:
 | Question | Answer |
@@ -531,7 +538,7 @@ Reboot status:
 | What have I done? | See Timeline |
 
 Open risks:
-- None.
+- Fresh closeout-head Vercel and CI checks must pass.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
