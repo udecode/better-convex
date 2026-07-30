@@ -100,12 +100,12 @@ rg -n "CONVEX_AGENT_MODE|anonymous-agent|local-force-upgrade" \
   packages tooling docs
 ```
 
-Do not remove the local backend upgrade fallback just because anonymous setup
-improved. `--local-force-upgrade` still covers the older-backend upgrade prompt,
-which is a different upstream gap.
+For Convex 1.42 and newer, remove the separate local backend upgrade fallback.
+Piped `convex init` owns upgrade confirmation, and `convex dev --local` is
+rejected. See the current local-upgrade note below.
 
 ## Related
 
 - [Published CLI bootstrap must keep TypeScript off the cold path and use anonymous Convex init](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/published-cli-bootstrap-must-ship-runtime-deps-and-anonymous-convex-init-20260331.md)
 - [Verify must prove local runtime without leaking Convex agent plumbing](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/verify-command-must-prove-local-runtime-without-leaking-convex-agent-plumbing-20260325.md)
-- [dev local preflight must auto-upgrade local Convex backend](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/dev-local-preflight-must-auto-upgrade-local-convex-backend-20260410.md)
+- [Convex 1.42 owns non-interactive local backend upgrades](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/convex-142-owns-local-backend-upgrades-20260730.md)

@@ -93,7 +93,7 @@
     "@tanstack/react-start": ">=1",
     "@tanstack/solid-query": ">=5",
     "better-auth": ">=1.6.11 <1.7.0",
-    "convex": ">=1.38",
+    "convex": ">=1.42",
     "hono": "4.12.9",
     "next": ">=14",
     "react": ">=18",

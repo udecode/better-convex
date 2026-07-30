@@ -106,4 +106,4 @@ split-brain behavior.
 ## Related Issues
 
 - [auth-env-push-must-be-auth-aware-and-dev-bootstrap-must-stay-two-phase-20260324](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/auth-env-push-must-be-auth-aware-and-dev-bootstrap-must-stay-two-phase-20260324.md)
-- [dev-local-preflight-must-auto-upgrade-local-convex-backend-20260410](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/dev-local-preflight-must-auto-upgrade-local-convex-backend-20260410.md)
+- [Convex 1.42 owns non-interactive local backend upgrades](/Users/zbeyens/git/better-convex/docs/solutions/integration-issues/convex-142-owns-local-backend-upgrades-20260730.md)

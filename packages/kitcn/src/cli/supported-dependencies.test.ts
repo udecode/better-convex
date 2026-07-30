@@ -57,7 +57,7 @@ describe('cli/supported-dependencies', () => {
     expect(SUPPORTED_DEPENDENCY_VERSIONS.convex.range).toBe(
       `^${SUPPORTED_DEPENDENCY_VERSIONS.convex.exact}`
     );
-    expect(SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum).toBe('>=1.38');
+    expect(SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum).toBe('>=1.42');
   });
 
   test('resolves local install spec overrides for supported packages', () => {
@@ -92,7 +92,7 @@ describe('cli/supported-dependencies', () => {
       {
         packageName: 'convex',
         current: '^1.33.0',
-        minimum: '>=1.38',
+        minimum: '>=1.42',
         installSpec: `convex@${SUPPORTED_DEPENDENCY_VERSIONS.convex.exact}`,
       },
     ]);
@@ -104,7 +104,7 @@ describe('cli/supported-dependencies', () => {
       `${dir}/package.json`,
       JSON.stringify({
         dependencies: {
-          convex: '^1.38.0',
+          convex: '^1.42.0',
         },
       })
     );
@@ -132,7 +132,7 @@ describe('cli/supported-dependencies', () => {
       `${dir}/package.json`,
       JSON.stringify({
         dependencies: {
-          convex: '<1.38.0',
+          convex: '<1.42.0',
         },
       })
     );
@@ -140,8 +140,8 @@ describe('cli/supported-dependencies', () => {
     expect(resolveSupportedDependencyWarnings(dir)).toEqual([
       {
         packageName: 'convex',
-        current: '<1.38.0',
-        minimum: '>=1.38',
+        current: '<1.42.0',
+        minimum: '>=1.42',
         installSpec: `convex@${SUPPORTED_DEPENDENCY_VERSIONS.convex.exact}`,
       },
     ]);
@@ -154,7 +154,7 @@ describe('cli/supported-dependencies', () => {
       `${dir}/package.json`,
       JSON.stringify({
         dependencies: {
-          convex: '<1.38.0',
+          convex: '<1.42.0',
         },
       })
     );
@@ -162,15 +162,15 @@ describe('cli/supported-dependencies', () => {
       `${dir}/node_modules/convex/package.json`,
       JSON.stringify({
         name: 'convex',
-        version: '1.37.0',
+        version: '1.41.0',
       })
     );
 
     expect(resolveSupportedDependencyWarnings(dir)).toEqual([
       {
         packageName: 'convex',
-        current: '1.37.0',
-        minimum: '>=1.38',
+        current: '1.41.0',
+        minimum: '>=1.42',
         installSpec: `convex@${SUPPORTED_DEPENDENCY_VERSIONS.convex.exact}`,
       },
     ]);
