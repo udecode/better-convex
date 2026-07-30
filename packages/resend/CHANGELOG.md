@@ -1,5 +1,21 @@
 # @kitcn/resend
 
+## 0.16.0
+
+### Minor Changes
+
+- [#310](https://github.com/udecode/kitcn/pull/310) [`a229128`](https://github.com/udecode/kitcn/commit/a229128a94605c229d0ba9a5e9e7f2f98ee76e7e) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Breaking changes
+
+  - Require Convex 1.42 or newer.
+
+    ```bash
+    # Before
+    bun add convex@1.38.0
+
+    # After
+    bun add convex@1.42.3
+    ```
+
 ## 0.15.18
 
 ## 0.15.17

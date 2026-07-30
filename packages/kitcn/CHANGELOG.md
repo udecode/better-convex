@@ -1,5 +1,28 @@
 # kitcn
 
+## 0.16.0
+
+### Minor Changes
+
+- [#310](https://github.com/udecode/kitcn/pull/310) [`a229128`](https://github.com/udecode/kitcn/commit/a229128a94605c229d0ba9a5e9e7f2f98ee76e7e) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Breaking changes
+
+  - Require Convex 1.42 or newer.
+
+    ```bash
+    # Before
+    bun add convex@1.38.0
+
+    # After
+    bun add convex@1.42.3
+    ```
+
+### Patch Changes
+
+- [#311](https://github.com/udecode/kitcn/pull/311) [`644ed41`](https://github.com/udecode/kitcn/commit/644ed41f38db3796790a947019ea089c224bf83d) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Patches
+
+  - Fix unbounded auth queries hanging after 200 rows.
+  - Prevent action contexts from exposing mutation-only transaction options.
+
 ## 0.15.18
 
 ### Patch Changes
