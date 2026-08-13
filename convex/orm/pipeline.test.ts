@@ -340,3 +340,63 @@ test('findMany pipeline mode is removed', async () => {
     ).toThrow(/findmany\(\{ pipeline \}\) is removed/i);
   });
 });
+
+test('select flatMap pagination walks every child exactly once', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    // Insert in reverse name order so `_id` order differs from `name` order.
+    // The cursor's inner-key bound then belongs to a parent that is not first.
+    for (const name of ['Cara', 'Bob', 'Alice']) {
+      const user = await baseCtx.db.insert('users', {
+        name,
+        email: `${name.toLowerCase()}-flatmap@example.com`,
+      });
+      for (const suffix of [1, 2]) {
+        await baseCtx.db.insert('posts', {
+          text: `${name}-${suffix}`,
+          numLikes: suffix,
+          type: 'note',
+          authorId: user,
+        });
+      }
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const buildQuery = () =>
+      ctx.orm.query.users
+        .select()
+        .orderBy({ name: 'asc' })
+        .flatMap('posts', { includeParent: false });
+
+    const singlePage = await buildQuery().paginate({
+      cursor: null,
+      limit: 100,
+    });
+    expect(singlePage.page.map((row) => row.text)).toEqual([
+      'Alice-1',
+      'Alice-2',
+      'Bob-1',
+      'Bob-2',
+      'Cara-1',
+      'Cara-2',
+    ]);
+
+    // Walking the same stream three rows at a time must yield the same rows,
+    // in the same order, with no duplicates and nothing dropped.
+    const walked: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await buildQuery().paginate({ cursor, limit: 3 });
+      walked.push(...result.page.map((row) => row.text));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(singlePage.page.map((row) => row.text));
+  });
+});

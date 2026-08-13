@@ -138,6 +138,25 @@ import {
   WhereClauseCompiler,
 } from './where-clause-compiler';
 
+/**
+ * Operators that Convex's `.filter()` cannot express, so `_toConvexExpression`
+ * compiles them to a `() => true` placeholder and `_evaluatePostFetchFilter`
+ * applies the real predicate in JavaScript after the rows are read.
+ * Keep in sync with the string/array cases in `_toConvexExpression`.
+ */
+const POST_FETCH_ONLY_OPERATORS = new Set([
+  'like',
+  'ilike',
+  'notLike',
+  'notIlike',
+  'startsWith',
+  'endsWith',
+  'contains',
+  'arrayContains',
+  'arrayContained',
+  'arrayOverlaps',
+]);
+
 const DEFAULT_RELATION_FAN_OUT_MAX_KEYS = 1000;
 const DEFAULT_AGGREGATE_CARTESIAN_MAX_KEYS = 4096;
 const DEFAULT_AGGREGATE_WORK_BUDGET = 16_384;
@@ -660,6 +679,41 @@ export class GelRelationalQuery<
       return targetValue.startsWith(prefix);
     }
     return targetValue === targetPattern;
+  }
+
+  /**
+   * True when the expression can be fully enforced by Convex's own `.filter()`.
+   *
+   * `_toConvexExpression` compiles the string/array operators to `() => true`
+   * because Convex filters cannot run JavaScript string methods; those are
+   * evaluated later by `_evaluatePostFetchFilter`. Pushing such an expression
+   * into `.filter()` is not merely useless, it is wrong in two ways: a `take()`
+   * downstream spends its budget on rows that have not been filtered yet, and a
+   * surrounding `NOT` turns the `true` placeholder into `q.not(true)`, which
+   * matches nothing. So the caller must know whether Convex can carry the whole
+   * expression before relying on it.
+   */
+  private _isConvexEnforceableFilter(
+    filter: FilterExpression<boolean>
+  ): boolean {
+    if (filter.type === 'binary') {
+      return !POST_FETCH_ONLY_OPERATORS.has(filter.operator);
+    }
+    if (filter.type === 'unary') {
+      const [operand] = filter.operands;
+      if (isFieldReference(operand)) {
+        return true;
+      }
+      return this._isConvexEnforceableFilter(
+        operand as FilterExpression<boolean>
+      );
+    }
+    if (filter.type === 'logical') {
+      return filter.operands.every((operand) =>
+        this._isConvexEnforceableFilter(operand)
+      );
+    }
+    return true;
   }
 
   /**
@@ -2240,6 +2294,86 @@ export class GelRelationalQuery<
     }
 
     return streamQuery;
+  }
+
+  /**
+   * Stream equivalent of the non-paginated `db.query(...)` chain, used when a
+   * post-fetch filter has to run in JavaScript before `limit` can be applied.
+   *
+   * It deliberately mirrors the index and order decisions the caller already
+   * made for the plain query rather than re-deriving them, so switching to the
+   * stream cannot change which index is scanned or in what direction.
+   *
+   * Returns null when the schema definition needed by `stream()` is missing;
+   * the caller then falls back to collect-and-slice.
+   */
+  private _buildResidualFilterStream(params: {
+    queryConfig: {
+      index?: { name: string; filters: FilterExpression<boolean>[] };
+      postFilters: FilterExpression<boolean>[];
+    };
+    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
+    orderIndexName: string | null;
+    primaryOrder?: { direction: 'asc' | 'desc'; field: string };
+    needsPostFetchSortForPrimary: boolean;
+  }): QueryStream<any> | null {
+    const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+    if (!schemaDefinition) {
+      return null;
+    }
+
+    const {
+      queryConfig,
+      configuredIndex,
+      orderIndexName,
+      primaryOrder,
+      needsPostFetchSortForPrimary,
+    } = params;
+
+    let streamQuery: any = stream(
+      this.db as GenericDatabaseReader<any>,
+      schemaDefinition
+    ).query(this.tableConfig.name as any);
+
+    if (queryConfig.index) {
+      streamQuery = streamQuery.withIndex(
+        queryConfig.index.name as any,
+        (q: any) => {
+          let indexQuery = q;
+          for (const filter of queryConfig.index!.filters) {
+            indexQuery = this._applyFilterToQuery(indexQuery, filter);
+          }
+          return indexQuery;
+        }
+      );
+    } else if (configuredIndex?.name) {
+      streamQuery = streamQuery.withIndex(
+        configuredIndex.name as any,
+        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
+      );
+    } else if (orderIndexName) {
+      streamQuery = streamQuery.withIndex(orderIndexName as any, (q: any) => q);
+    }
+
+    // The plain query only calls .order() when the index already sorts by the
+    // requested field; otherwise the rows are sorted post-fetch and this branch
+    // is not used. Streams always need an explicit direction, and Convex
+    // defaults to ascending.
+    streamQuery = streamQuery.order(
+      primaryOrder && !needsPostFetchSortForPrimary
+        ? primaryOrder.direction
+        : 'asc'
+    );
+
+    streamQuery = streamQuery.filterWith((row: any) =>
+      Promise.resolve(
+        queryConfig.postFilters.every((filter) =>
+          this._evaluatePostFetchFilter(row, filter)
+        )
+      )
+    );
+
+    return streamQuery as QueryStream<any>;
   }
 
   private _buildUnionSourceStream(
@@ -5756,11 +5890,15 @@ export class GelRelationalQuery<
         }
       }
 
-      // Apply post-filters
-      if (queryConfig.postFilters.length > 0) {
+      // Apply post-filters. Only the Convex-enforceable ones: the rest are
+      // placeholders that would make a surrounding NOT match nothing.
+      const convexPostFilters = queryConfig.postFilters.filter((filter) =>
+        this._isConvexEnforceableFilter(filter)
+      );
+      if (convexPostFilters.length > 0) {
         query = query.filter((q: any) => {
           let result: any | null = null;
-          for (const filter of queryConfig.postFilters) {
+          for (const filter of convexPostFilters) {
             const filterFn = this._toConvexExpression(filter);
             const expr = filterFn(q);
             result = result ? q.and(result, expr) : expr;
@@ -5833,12 +5971,18 @@ export class GelRelationalQuery<
       } as TResult;
     }
 
-    // Apply post-filters
-    if (queryConfig.postFilters.length > 0) {
+    // Apply post-filters. Only the Convex-enforceable ones: the rest are
+    // placeholders that would make a surrounding NOT match nothing.
+    const convexPostFilters = queryConfig.postFilters.filter((filter) =>
+      this._isConvexEnforceableFilter(filter)
+    );
+    const hasResidualPostFilter =
+      convexPostFilters.length !== queryConfig.postFilters.length;
+    if (convexPostFilters.length > 0) {
       query = query.filter((q: any) => {
         // Combine all post-filters with AND logic
         let result: any | null = null;
-        for (const filter of queryConfig.postFilters) {
+        for (const filter of convexPostFilters) {
           const filterFn = this._toConvexExpression(filter);
           const expr = filterFn(q);
           result = result ? q.and(result, expr) : expr;
@@ -5857,13 +6001,48 @@ export class GelRelationalQuery<
     const limit = this._resolveNonPaginatedLimit(config);
     const paginateAfterPostFetchSort =
       usePostFetchSort && postFetchOrders.length > 0;
-    let rows =
-      limit === undefined || paginateAfterPostFetchSort
-        ? await query.collect()
-        : await query.take(offset > 0 ? offset + limit : limit);
+
+    // A residual filter runs in JavaScript, so `query.take(limit)` would spend
+    // the whole budget on unfiltered rows and return mostly (often entirely)
+    // non-matching ones. Offset has the same problem: it must skip matches, not
+    // scanned rows. So when a residual filter is present, sizing moves after the
+    // JavaScript pass.
+    const sizeAfterPostFilter =
+      hasResidualPostFilter && !paginateAfterPostFetchSort;
+
+    // Read through a stream when we can: `filterWith` runs the predicate as rows
+    // are pulled, so `take` still stops early but counts matches rather than
+    // scanned rows, preserving the read bound the plain `take` gave us.
+    const residualLimitStream =
+      sizeAfterPostFilter && limit !== undefined
+        ? this._buildResidualFilterStream({
+            queryConfig,
+            configuredIndex,
+            orderIndexName,
+            primaryOrder,
+            needsPostFetchSortForPrimary,
+          })
+        : null;
+
+    let rows: any[];
+    if (residualLimitStream) {
+      rows = await residualLimitStream.take(
+        offset > 0 ? offset + (limit as number) : (limit as number)
+      );
+    } else if (
+      limit === undefined ||
+      paginateAfterPostFetchSort ||
+      hasResidualPostFilter
+    ) {
+      // No stream available (no defineSchema()) or no limit to push down.
+      // Correctness wins over the read bound: scan, then size below.
+      rows = await query.collect();
+    } else {
+      rows = await query.take(offset > 0 ? offset + limit : limit);
+    }
 
     // Apply offset slicing if needed
-    if (!paginateAfterPostFetchSort && offset > 0) {
+    if (!(paginateAfterPostFetchSort || sizeAfterPostFilter) && offset > 0) {
       rows = rows.slice(offset);
     }
 
@@ -5875,6 +6054,16 @@ export class GelRelationalQuery<
           this._evaluatePostFetchFilter(row, filter)
         )
       );
+    }
+
+    // Residual filters are now applied, so offset/limit finally mean "matches".
+    if (sizeAfterPostFilter) {
+      if (offset > 0) {
+        rows = rows.slice(offset);
+      }
+      if (limit !== undefined) {
+        rows = rows.slice(0, limit);
+      }
     }
 
     rows = await this._applyRlsSelectFilter(rows, this.tableConfig);

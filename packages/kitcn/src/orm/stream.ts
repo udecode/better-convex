@@ -1271,12 +1271,12 @@ class FlatMapStreamIterator<
     innerIterator: AsyncIterator<[U | null, IndexKey]>;
     count: number;
   } | null = null;
-  #mapper: (doc: T) => Promise<QueryStream<U>>;
+  #mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>;
   #mappedIndexFields: string[];
 
   constructor(
     outerStream: QueryStream<T>,
-    mapper: (doc: T) => Promise<QueryStream<U>>,
+    mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>,
     mappedIndexFields: string[]
   ) {
     this.#outerIterator = outerStream.iterWithKeys()[Symbol.asyncIterator]();
@@ -1302,7 +1302,7 @@ class FlatMapStreamIterator<
     if (t === null) {
       innerStream = this.singletonSkipInnerStream();
     } else {
-      innerStream = await this.#mapper(t);
+      innerStream = await this.#mapper(t, indexKey);
       if (
         !equalIndexFields(innerStream.getIndexFields(), this.#mappedIndexFields)
       ) {
@@ -1358,11 +1358,11 @@ class FlatMapStream<
   U extends GenericStreamItem,
 > extends QueryStream<U> {
   #stream: QueryStream<T>;
-  #mapper: (doc: T) => Promise<QueryStream<U>>;
+  #mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>;
   #mappedIndexFields: string[];
   constructor(
     stream: QueryStream<T>,
-    mapper: (doc: T) => Promise<QueryStream<U>>,
+    mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>,
     mappedIndexFields: string[]
   ) {
     super();
@@ -1407,19 +1407,51 @@ class FlatMapStream<
       upperBoundInclusive:
         innerUpperBound.length === 0 ? indexBounds.upperBoundInclusive : true,
     };
-    const innerIndexBounds = {
-      lowerBound: innerLowerBound,
-      lowerBoundInclusive:
-        innerLowerBound.length === 0 ? true : indexBounds.lowerBoundInclusive,
-      upperBound: innerUpperBound,
-      upperBoundInclusive:
-        innerUpperBound.length === 0 ? true : indexBounds.upperBoundInclusive,
+    // The index key of a flatMap stream is [outerKey..., innerKey...], so an
+    // inner bound taken from a cursor only describes the boundary parent — the
+    // one whose outer key the cursor landed in. Applying it to every parent
+    // clips unrelated children, and because the inner stream intersects it with
+    // its own equality bounds the result is usually an inverted range, which
+    // silently drops rows and repeats others. Restrict each parent by only the
+    // bounds that actually belong to it.
+    const unrestricted = {
+      lowerBound: [] as IndexKey,
+      lowerBoundInclusive: true,
+      upperBound: [] as IndexKey,
+      upperBoundInclusive: true,
+    };
+    const isBoundaryParent = (parentKey: IndexKey, bound: IndexKey) =>
+      bound.length === outerLength &&
+      compareKeys(
+        { value: parentKey, kind: 'exact' },
+        { value: bound, kind: 'exact' }
+      ) === 0;
+    const innerBoundsForParent = (parentKey: IndexKey) => {
+      const atLowerBound =
+        innerLowerBound.length > 0 &&
+        isBoundaryParent(parentKey, outerLowerBound);
+      const atUpperBound =
+        innerUpperBound.length > 0 &&
+        isBoundaryParent(parentKey, outerUpperBound);
+      if (!(atLowerBound || atUpperBound)) {
+        return unrestricted;
+      }
+      return {
+        lowerBound: atLowerBound ? innerLowerBound : unrestricted.lowerBound,
+        lowerBoundInclusive: atLowerBound
+          ? indexBounds.lowerBoundInclusive
+          : true,
+        upperBound: atUpperBound ? innerUpperBound : unrestricted.upperBound,
+        upperBoundInclusive: atUpperBound
+          ? indexBounds.upperBoundInclusive
+          : true,
+      };
     };
     return new FlatMapStream(
       this.#stream.narrow(outerIndexBounds),
-      async (t) => {
-        const innerStream = await this.#mapper(t);
-        return innerStream.narrow(innerIndexBounds);
+      async (t, parentKey) => {
+        const innerStream = await this.#mapper(t, parentKey);
+        return innerStream.narrow(innerBoundsForParent(parentKey));
       },
       this.#mappedIndexFields
     );
