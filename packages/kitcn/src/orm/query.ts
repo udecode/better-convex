@@ -5607,11 +5607,14 @@ export class GelRelationalQuery<
         // Default index on _creationTime - no withIndex() needed
         query = query.order(primaryOrder.direction);
       } else {
+        // Convex walks an index in full index-key order, so only an index
+        // whose *leading* field is the sort field yields the requested order.
+        // Matching on any position sorts by a different column entirely.
         const orderIndex =
-          getIndexes(this.tableConfig.table).find((idx) =>
-            idx.fields.includes(orderField)
+          getIndexes(this.tableConfig.table).find(
+            (idx) => idx.fields[0] === orderField
           ) ??
-          this.edgeMetadata.find((idx) => idx.indexFields.includes(orderField));
+          this.edgeMetadata.find((idx) => idx.indexFields[0] === orderField);
 
         if (orderIndex) {
           orderIndexName =
@@ -5831,7 +5834,11 @@ export class GelRelationalQuery<
         );
       }
 
-      if (usePostFetchSort && postFetchOrders.length > 0) {
+      // Each probe is read in its own index order and the results are then
+      // concatenated, so the union has no meaningful global order: `.order()`
+      // on the discarded single query never applied. Always sort here, or
+      // `limit` slices an arbitrary window out of probe #1.
+      if (postFetchOrders.length > 0) {
         rows = rows.sort((a: any, b: any) =>
           this._compareByOrderSpecs(a, b, postFetchOrders)
         );

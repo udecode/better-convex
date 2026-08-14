@@ -577,3 +577,55 @@ describe('M5: OrderBy - Multiple Fields', () => {
     expect(posts[1].title).toBe('C Title');
   });
 });
+
+// ============================================================================
+// Index selection
+// ============================================================================
+
+describe('M5: OrderBy - Index Selection', () => {
+  test('orderBy on a non-leading index field sorts by that field', async ({
+    ctx,
+  }) => {
+    // numLikesAndType is on (type, numLikes): walking it sorts by type first.
+    await ctx.db.insert('posts', {
+      text: 'test',
+      numLikes: 900,
+      type: 'a',
+    });
+    await ctx.db.insert('posts', {
+      text: 'test',
+      numLikes: 1,
+      type: 'b',
+    });
+    await ctx.db.insert('posts', {
+      text: 'test',
+      numLikes: 50,
+      type: 'c',
+    });
+
+    const posts = await ctx.orm.query.posts.findMany({
+      orderBy: { numLikes: 'asc' },
+      limit: 3,
+    });
+
+    expect(posts.map((post) => post.numLikes)).toEqual([1, 50, 900]);
+  });
+
+  test('in + orderBy + limit returns the requested window', async ({ ctx }) => {
+    for (let i = 0; i < 6; i += 1) {
+      await ctx.db.insert('users', {
+        name: `u${i}`,
+        email: `u${i}@example.com`,
+        status: i % 2 === 0 ? 'a' : 'b',
+      });
+    }
+
+    const users = await ctx.orm.query.users.findMany({
+      where: { status: { in: ['a', 'b'] } },
+      orderBy: { createdAt: 'desc' },
+      limit: 3,
+    });
+
+    expect(users.map((user) => user.name)).toEqual(['u5', 'u4', 'u3']);
+  });
+});
