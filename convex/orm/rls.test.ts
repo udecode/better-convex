@@ -31,6 +31,7 @@ const secrets = convexTable(
   },
   (t) => [
     index('by_owner').on(t.ownerId),
+    index('by_value').on(t.value),
     rlsPolicy('secrets_read', {
       for: 'select',
       using: async (ctx, table) => {
@@ -152,6 +153,63 @@ describe('RLS', () => {
 
     const db = ctx.orm;
     const rows = await db.query.rls_secrets.findMany();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].ownerId).toEqual(viewerId);
+  });
+
+  it('fills residual cursor pages with RLS-visible matches', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    const otherId = await ctx.db.insert('rls_users', { name: 'Other' });
+
+    await ctx.db.insert('rls_secrets', {
+      value: 'allowed',
+      ownerId: viewerId,
+    });
+    await ctx.db.insert('rls_secrets', {
+      value: 'allowed',
+      ownerId: otherId,
+    });
+
+    ctx.viewerId = viewerId;
+
+    const page = await ctx.orm.query.rls_secrets.findMany({
+      cursor: null,
+      limit: 1,
+      where: {
+        AND: [{ value: 'allowed' }, { value: { like: '%allowed%' } }],
+      },
+    });
+
+    expect(page.page).toHaveLength(1);
+    expect(page.page[0].ownerId).toEqual(viewerId);
+  });
+
+  it('fills residual limited reads with RLS-visible matches', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    const otherId = await ctx.db.insert('rls_users', { name: 'Other' });
+
+    await ctx.db.insert('rls_secrets', {
+      value: 'allowed',
+      ownerId: otherId,
+    });
+    await ctx.db.insert('rls_secrets', {
+      value: 'allowed',
+      ownerId: viewerId,
+    });
+
+    ctx.viewerId = viewerId;
+
+    const rows = await ctx.orm.query.rls_secrets.findMany({
+      limit: 1,
+      where: {
+        AND: [{ value: 'allowed' }, { value: { like: '%allowed%' } }],
+      },
+    });
 
     expect(rows).toHaveLength(1);
     expect(rows[0].ownerId).toEqual(viewerId);

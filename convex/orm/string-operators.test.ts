@@ -777,3 +777,139 @@ describe('M5: contains operator', () => {
     expect(posts.map((p: any) => p.title)).toContain('TypeScript Handbook');
   });
 });
+
+// ============================================================================
+// Limit interaction
+// ============================================================================
+
+describe('M5: post-fetch operators combined with limit', () => {
+  const seed = async (ctx: TestCtx) => {
+    const user = await ctx.db.insert('users', {
+      name: 'Alice',
+      email: 'alice@example.com',
+    });
+    // 15 non-matching titles sort before the 5 matching ones, so a `limit`
+    // pushed down to Convex consumes the whole budget on non-matches.
+    for (let i = 0; i < 15; i += 1) {
+      await ctx.db.insert('posts', {
+        text: 'test',
+        numLikes: 0,
+        type: 'text',
+        title: `AAA Python ${String(i).padStart(2, '0')}`,
+        content: 'Content',
+        published: true,
+        authorId: user,
+        publishedAt: 1000 + i,
+      });
+    }
+    for (let i = 15; i < 20; i += 1) {
+      await ctx.db.insert('posts', {
+        text: 'test',
+        numLikes: 0,
+        type: 'text',
+        title: `ZZZ Java ${String(i).padStart(2, '0')}`,
+        content: 'Content',
+        published: true,
+        authorId: user,
+        publishedAt: 1000 + i,
+      });
+    }
+  };
+
+  test('like with a limit returns matches, not the first limit rows', async ({
+    ctx,
+  }) => {
+    await seed(ctx);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: '%Java%' } },
+      limit: 5,
+    });
+
+    expect(posts).toHaveLength(5);
+    for (const post of posts) {
+      expect(post.title).toContain('Java');
+    }
+  });
+
+  test('like with a limit smaller than the match count truncates matches', async ({
+    ctx,
+  }) => {
+    await seed(ctx);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: '%Java%' } },
+      limit: 3,
+    });
+
+    expect(posts).toHaveLength(3);
+    for (const post of posts) {
+      expect(post.title).toContain('Java');
+    }
+  });
+
+  test('contains and endsWith honor limit', async ({ ctx }) => {
+    await seed(ctx);
+
+    const contains = await ctx.orm.query.posts.withIndex('by_title').findMany({
+      where: { title: { contains: 'Java' } },
+      limit: 5,
+    });
+    const endsWith = await ctx.orm.query.posts.withIndex('by_title').findMany({
+      where: { title: { endsWith: '19' } },
+      limit: 5,
+    });
+
+    expect(contains).toHaveLength(5);
+    expect(endsWith).toHaveLength(1);
+    expect(endsWith[0].title).toBe('ZZZ Java 19');
+  });
+
+  test('explicit withIndex + ilike + limit returns matches', async ({
+    ctx,
+  }) => {
+    await seed(ctx);
+
+    const posts = await ctx.orm.query.posts.withIndex('by_title').findMany({
+      where: { title: { ilike: '%java%' } },
+      limit: 5,
+    });
+
+    expect(posts).toHaveLength(5);
+    for (const post of posts) {
+      expect(post.title).toContain('Java');
+    }
+  });
+
+  test('NOT around a post-fetch operator negates instead of matching nothing', async ({
+    ctx,
+  }) => {
+    await seed(ctx);
+
+    const posts = await ctx.orm.query.posts.withIndex('by_title').findMany({
+      where: { title: { NOT: { like: '%Java%' } } },
+    });
+
+    expect(posts).toHaveLength(15);
+    for (const post of posts) {
+      expect(post.title).not.toContain('Java');
+    }
+  });
+
+  test('offset with a post-fetch operator skips matches, not scanned rows', async ({
+    ctx,
+  }) => {
+    await seed(ctx);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: '%Java%' } },
+      offset: 2,
+      limit: 5,
+    });
+
+    expect(posts).toHaveLength(3);
+    for (const post of posts) {
+      expect(post.title).toContain('Java');
+    }
+  });
+});

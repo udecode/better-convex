@@ -868,6 +868,49 @@ describe('M4 Where Filtering - Null Operators', () => {
     expect(result[0].name).toBe('Alice');
   });
 
+  test('isNull matches rows whose column is absent, indexed or not', async ({
+    ctx,
+  }) => {
+    const db = ctx.orm;
+
+    // Column omitted entirely: the normal state for a nullable column that was
+    // never written. Convex stores this as a missing field, not as null.
+    await ctx.db.insert('users', {
+      name: 'Absent',
+      email: 'absent@example.com',
+      age: 25,
+      status: 'active',
+    });
+    await ctx.db.insert('users', {
+      name: 'ExplicitNull',
+      email: 'null@example.com',
+      age: 26,
+      status: 'active',
+      deletedAt: null,
+    });
+    await ctx.db.insert('users', {
+      name: 'Deleted',
+      email: 'deleted@example.com',
+      age: 27,
+      status: 'deleted',
+      deletedAt: 123_456,
+    });
+
+    const withoutIndex = await db.query.users.findMany({
+      where: { deletedAt: { isNull: true } },
+    });
+    // `by_deleted_at` makes the compiler take the index path; both paths must agree.
+    const withIndex = await db.query.users.withIndex('by_deleted_at').findMany({
+      where: { deletedAt: { isNull: true } },
+    });
+
+    const names = (rows: { name: string }[]) =>
+      rows.map((row) => row.name).sort();
+
+    expect(names(withoutIndex)).toEqual(['Absent', 'ExplicitNull']);
+    expect(names(withIndex)).toEqual(['Absent', 'ExplicitNull']);
+  });
+
   test('should filter with isNotNull operator', async ({ ctx }) => {
     const db = ctx.orm;
 

@@ -44,6 +44,20 @@ const membershipsCascade = convexTable(
   ]
 );
 
+const membershipsSoftCascade = convexTable(
+  'fk_action_memberships_soft_cascade',
+  {
+    userId: id('fk_action_users').notNull(),
+    deletionTime: integer(),
+  },
+  (t) => [
+    index('by_user').on(t.userId),
+    foreignKey({ columns: [t.userId], foreignColumns: [users.id] }).onDelete(
+      'cascade'
+    ),
+  ]
+);
+
 const membershipsRestrict = convexTable(
   'fk_action_memberships_restrict',
   {
@@ -202,6 +216,7 @@ const rlsUpdateChildren = convexTable(
 const baseSchemaTables = {
   fk_action_users: users,
   fk_action_memberships_cascade: membershipsCascade,
+  fk_action_memberships_soft_cascade: membershipsSoftCascade,
   fk_action_memberships_restrict: membershipsRestrict,
   fk_action_memberships_null: membershipsSetNull,
   fk_action_memberships_null_large: membershipsSetNullLarge,
@@ -919,6 +934,71 @@ describe('foreign key actions', () => {
         expect(secondContinuation.workType).toBe('cascade-delete');
         expect(secondContinuation.foreignAction).toBe('cascade');
         expect(secondContinuation.cursor).toBeNull();
+      },
+      { scheduler: scheduler as any, scheduledMutationBatch }
+    );
+  });
+
+  it('terminates async soft cascade instead of re-queueing forever', async () => {
+    const queue: any[] = [];
+    const scheduler = {
+      runAfter: vi.fn(async (_delay: number, _ref: any, args: any) => {
+        queue.push(args);
+        return 'scheduled';
+      }),
+      runAt: vi.fn(async () => 'scheduled'),
+      cancel: vi.fn(async () => undefined),
+    };
+    const scheduledMutationBatch = {} as SchedulableFunctionReference;
+    const worker = scheduledMutationBatchFactory(
+      asyncCappedRelations,
+      asyncCappedEdges,
+      scheduledMutationBatch
+    );
+
+    await withAsyncCappedCtx(
+      async ({ orm, db }) => {
+        const [user] = await orm
+          .insert(users)
+          .values({ slug: 'ada' })
+          .returning();
+
+        await orm
+          .insert(membershipsSoftCascade)
+          .values([
+            { userId: asAnyId(user.id) },
+            { userId: asAnyId(user.id) },
+            { userId: asAnyId(user.id) },
+          ]);
+
+        await orm
+          .delete(users)
+          .soft()
+          .where(eq(users.id, asAnyId(user.id)))
+          .execute();
+
+        // Soft delete leaves the foreign key columns untouched, so a worker
+        // that re-queries from a null cursor keeps selecting the same rows.
+        // Drive the queue with a hard cap: it must drain, not spin.
+        let rounds = 0;
+        while (queue.length > 0) {
+          rounds += 1;
+          if (rounds > 20) {
+            throw new Error(
+              'soft cascade never drained: worker re-queued itself 20 times'
+            );
+          }
+          const next = queue.shift();
+          await worker({ db, scheduler: scheduler as any }, next);
+        }
+
+        const children = await db
+          .query('fk_action_memberships_soft_cascade')
+          .collect();
+        expect(children).toHaveLength(3);
+        for (const child of children) {
+          expect((child as any).deletionTime).toBeTypeOf('number');
+        }
       },
       { scheduler: scheduler as any, scheduledMutationBatch }
     );

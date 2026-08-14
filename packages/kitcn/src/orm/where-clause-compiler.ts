@@ -22,6 +22,7 @@ import {
   gte,
   isFieldReference,
   lt,
+  lte,
 } from './filter-expression';
 
 // ============================================================================
@@ -288,12 +289,18 @@ export class WhereClauseCompiler {
       return null;
     }
 
+    // `isNull` means null-or-absent everywhere else in the ORM, and Convex
+    // stores an omitted column as a missing field whose index key is
+    // `undefined`. `undefined` sorts immediately before `null` in Convex's
+    // total value order, so `<= null` is exactly the {undefined, null} range.
+    // An `eq(field, null)` probe would scan only half of it and silently drop
+    // every row that never had the column written.
     return {
-      strategy: 'singleIndex',
+      strategy: 'rangeIndex',
       selectedIndex,
-      indexFilters: [eq(fieldRef(operand.fieldName) as any, null)],
+      indexFilters: [lte(fieldRef(operand.fieldName) as any, null as any)],
       probeFilters: [],
-      postFilters: [],
+      postFilters: [expression],
     };
   }
 

@@ -34,7 +34,7 @@ describe('WhereClauseCompiler advanced index planning', () => {
     expect(result.probeFilters).toHaveLength(2);
   });
 
-  test('plans isNull as indexed equality to null', () => {
+  test('plans isNull as an index range covering absent and null keys', () => {
     const compiler = new WhereClauseCompiler('users', [
       { indexName: 'by_deleted_at', indexFields: ['deletedAt'] },
     ]);
@@ -43,9 +43,15 @@ describe('WhereClauseCompiler advanced index planning', () => {
       isNull(fieldRef<number | null>('deletedAt') as any)
     ) as any;
 
-    expect(result.strategy).toBe('singleIndex');
+    expect(result.strategy).toBe('rangeIndex');
     expect(result.selectedIndex?.indexName).toBe('by_deleted_at');
+    // `<= null` spans the {undefined, null} prefix of Convex's value order, so
+    // rows whose column was never written stay in the scan.
     expect(result.indexFilters).toHaveLength(1);
+    expect(result.indexFilters[0].operator).toBe('lte');
+    expect(result.indexFilters[0].operands[1]).toBeNull();
+    // The expression is retained so over-fetched rows are re-verified.
+    expect(result.postFilters).toHaveLength(1);
   });
 
   test('plans startsWith as index range', () => {

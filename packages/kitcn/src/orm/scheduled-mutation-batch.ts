@@ -56,6 +56,9 @@ export type ScheduledMutationBatchArgs = {
   delayMs: number;
 };
 
+/** Column stamped by `softDeleteRow`; see mutation-utils.ts. */
+const DELETION_TIME_FIELD = 'deletionTime';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 
@@ -206,8 +209,18 @@ export function scheduledMutationBatchFactory<
         'scheduledMutationBatch: foreignIndexName is required for cascade work.'
       );
     }
-    const queryWithIndex = () =>
-      (ctx.db.query(args.table) as any).withIndex(
+    const action = args.foreignAction ?? 'no action';
+    // Every other cascade action stops a processed row from matching this
+    // index: hard delete removes it, `set null` / `set default` / cascade
+    // update rewrite the foreign key columns. Soft cascade only stamps
+    // `deletionTime`, so without this guard the re-query below keeps returning
+    // the same rows and the worker re-queues itself forever.
+    const skipSoftDeletedRows =
+      workType === 'cascade-delete' &&
+      action === 'cascade' &&
+      (args.cascadeMode ?? 'hard') === 'soft';
+    const queryWithIndex = () => {
+      const indexed = (ctx.db.query(args.table) as any).withIndex(
         args.foreignIndexName,
         (q: any) => {
           let builder = q.eq(sourceColumns[0], targetValues[0]);
@@ -217,7 +230,16 @@ export function scheduledMutationBatchFactory<
           return builder;
         }
       );
-    const action = args.foreignAction ?? 'no action';
+      if (!skipSoftDeletedRows) {
+        return indexed;
+      }
+      return indexed.filter((q: any) =>
+        q.or(
+          q.eq(q.field(DELETION_TIME_FIELD), undefined),
+          q.eq(q.field(DELETION_TIME_FIELD), null)
+        )
+      );
+    };
     // Cascade workers patch/delete rows that are selected by the same indexed
     // foreign key columns. Forwarding cursors can skip remaining rows after
     // those mutations, so cascade continuation always re-queries from null.
