@@ -125,12 +125,13 @@ export function shardAlgorithm(
       : share(algorithm.maxReserved);
 
   if (algorithm.kind === 'tokenBucket') {
+    const maxTokens = share(algorithm.maxTokens);
     return {
       ...algorithm,
-      // A bucket refills continuously, so a fraction of a token per interval
-      // still accumulates. Dealing it would hand a shard a rate of zero.
-      refillRate: algorithm.refillRate / shards,
-      maxTokens: share(algorithm.maxTokens),
+      // Match refill ownership to capacity ownership. An even rate split clips
+      // tokens on smaller buckets when capacities are dealt unevenly.
+      refillRate: algorithm.refillRate * (maxTokens / algorithm.maxTokens),
+      maxTokens,
       maxReserved,
     };
   }

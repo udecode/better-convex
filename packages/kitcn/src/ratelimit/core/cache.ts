@@ -33,6 +33,7 @@ export class EphemeralBlockCache {
     reserve: boolean,
     reset: number
   ): void {
+    this.pruneExpired();
     this.cache.set(shardKey(identifier, shard, count, reserve), reset);
   }
 
@@ -47,6 +48,15 @@ export class EphemeralBlockCache {
 
   size(): number {
     return this.cache.size;
+  }
+
+  private pruneExpired(): void {
+    const now = Date.now();
+    for (const [key, reset] of this.cache) {
+      if (reset <= now) {
+        this.cache.delete(key);
+      }
+    }
   }
 }
 

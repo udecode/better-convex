@@ -4,25 +4,16 @@
 
 ## Breaking changes
 
-- Deal the configured budget across `shards` instead of giving every shard the
-  full budget. A limiter with `shards: S` previously allowed `S` times its
-  configured limit, so existing sharded configs now enforce the limit you wrote.
-  Shares are whole tokens that add back up to the configured total, so
-  `fixedWindow(5, '1 m', { shards: 2 })` deals `3` and `2` and still grants five
-  requests. Whole-token `maxReserved` headroom is dealt the same way, so a
-  configured reservation is not stranded as fractional shares. Builders throw
-  when `limit / shards` (or `capacity / shards`, or
-  `maxTokens / shards`) drops below `1`, because a shard holding less than one
-  token can never grant a request. `setDynamicLimit()` rejects an override that
-  fails the same rule instead of denying every later request.
+- Enforce the configured total budget across all `shards`.
 
   ```ts
-  // Before: 5 per minute per shard, so 20 per minute in total
-  Ratelimit.fixedWindow(5, '1 m', { shards: 4 });
-
-  // After: 20 per minute in total, spread over 4 shards
+  // 20 per minute in total, spread over 4 shards
   Ratelimit.fixedWindow(20, '1 m', { shards: 4 });
   ```
+
+- Preserve configured `maxReserved` headroom across sharded limiters.
+- Reject limiter budgets that leave any shard with less than one usable token.
+- Reject dynamic limit overrides that cannot serve every configured shard.
 
 - Evaluate the requested `count` / `rate` in `check()` against the tokens already
   spent. It previously evaluated nothing and returned `success: true` for every
@@ -71,6 +62,9 @@
   failed large or ordinary request does not hide tokens from a smaller or
   reserved request, and include cached shards when reporting the earliest
   global retry time.
+- Prune expired ephemeral block variants when recording a new block.
+- Allocate token-bucket refill rates in proportion to shard capacity, preserving
+  the full configured refill when capacity shares are uneven.
 - Compute reserved-request retry times against `maxReserved` headroom rather
   than the non-reserved zero-debt threshold.
 - Evaluate sampled shard states at one common read timestamp, avoid refilling

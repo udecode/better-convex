@@ -68,14 +68,14 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 45 focused ratelimit tests | complete |
+| source behavior | yes | 47 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
 | docs/package skill | yes | www/package skill/mirror agreement | complete |
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
-| cleanup/review | yes | Final hard-cut-aware autoreview clean at 0.90 confidence | complete |
+| cleanup/review | yes | Late GitHub findings fixed; final autoreview pending | in_progress |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
@@ -108,12 +108,15 @@ Error attempts:
 | Aggregated token snapshot was refilled twice | 1 | Evaluate raw shards once at a common final timestamp | Red clocked exact-read test became green |
 | Sliding snapshot discarded previous-window state | 1 | Carry projected state in the snapshot contract | Red server and React projection tests became green |
 | `getRemaining()` netted debt and fractions across isolated shards | 1 | Sum per-shard clamped whole balances | Two red usable-balance tests became green |
+| Uneven token capacity shares clipped an even refill split | 1 | Allocate refill in proportion to shard capacity | Red fifth-refill test became green |
+| Expired count-specific cache variants accumulated | 1 | Prune expired entries on cache writes | Red cache-size test became green |
+| Changeset combined unrelated outcomes and internals | 1 | Split concise user-facing outcomes | Breaking section is atomic |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 45 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 47 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -121,7 +124,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 11 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun clean at 0.90 confidence |
+| Autoreview | yes | Resolve every accepted actionable finding | 14 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -134,14 +137,14 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
-| Review/checks | in_progress | All focused, cleanup, agent-native, and autoreview gates pass | exact check |
+| Review/checks | in_progress | Late GitHub findings fixed with focused proof and deslop clean | final autoreview |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 37 Vitest tests and 8 Bun tests across all four ratelimit
+- Focused proof passes 39 Vitest tests and 8 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -153,8 +156,8 @@ Verification evidence:
   pair is the same existing `createFixedWindow` wrapper moved by the larger file.
 - Agent-native review passes: `kitcn` route -> package skill owner -> generated
   mirror/public docs -> focused tests, sync, and Intent proof.
-- Final autoreview reports zero accepted/actionable findings at 0.90 confidence
-  after nine red-to-green accounting repairs.
+- The pre-push autoreview reported zero accepted/actionable findings at 0.90
+  confidence before the late GitHub review added three more findings.
 - Hard-cut-aware autoreview reports the required snapshot state and current-shape
   protocol are internally consistent; no compatibility shim is warranted.
 
@@ -167,6 +170,8 @@ Timeline:
   findings and received a clean final autoreview verdict.
 - 2026-08-15T01:08:00+02:00 Closed the per-shard usable-balance finding and
   received a clean hard-cut-aware autoreview verdict at 0.90 confidence.
+- 2026-08-15T01:36:00+02:00 Remote CI passed, then a post-CI audit found and
+  closed refill clipping, expired cache growth, and changeset clarity findings.
 
 Reboot status:
 | Question | Answer |
@@ -178,7 +183,8 @@ Reboot status:
 | What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- Exact `bun check`, remote gates, and merge receipt remain.
+- Final autoreview, exact `bun check`, refreshed remote gates, and merge receipt
+  remain.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
@@ -207,5 +213,10 @@ Review fixes:
   and React regressions now prove decay through the following boundary.
 - Per-shard usable-balance regressions prove `getRemaining()` neither nets debt
   nor combines fractions that no individual shard can spend.
+- Capacity-proportional refill restores the full configured token budget when
+  whole-token capacity shares are uneven.
+- Cache writes prune expired count variants, bounding stale entries in shared
+  long-lived maps.
+- The changeset breaking section is split into concise user-facing outcomes.
 - Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
   requires the state-bearing shape across server, hook, types, and docs.

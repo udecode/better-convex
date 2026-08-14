@@ -443,6 +443,25 @@ describe('Ratelimit', () => {
     expect(smaller.success).toBe(true);
   });
 
+  test('cache writes prune expired count variants', () => {
+    const cache = new Map<string, number>();
+    const blockCache = new EphemeralBlockCache(cache);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
+
+    try {
+      blockCache.blockUntil('cache-user', 0, 4, false, 900);
+      blockCache.blockUntil('cache-user', 0, 3, false, 2000);
+
+      expect(blockCache.size()).toBe(1);
+      expect(blockCache.isBlocked('cache-user', 0, 3, false)).toEqual({
+        blocked: true,
+        reset: 2000,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test('a cached shard contributes to the earliest retry time', async () => {
     const { db } = createMockDb();
     const cache = new Map<string, number>();
@@ -625,6 +644,34 @@ describe('Ratelimit', () => {
       const remaining = await limiter.getRemaining('usable-fraction-user');
 
       expect(remaining.remaining).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test('uneven token buckets restore their full aggregate refill', async () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.tokenBucket(5, '1 s', 5, { shards: 2 }),
+      });
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        expect((await limiter.limit('uneven-refill-user')).success).toBe(true);
+      }
+
+      now = 2000;
+      const refilled: boolean[] = [];
+      for (let attempt = 0; attempt < 5; attempt++) {
+        refilled.push((await limiter.limit('uneven-refill-user')).success);
+      }
+
+      expect(refilled).toEqual([true, true, true, true, true]);
     } finally {
       nowSpy.mockRestore();
     }
