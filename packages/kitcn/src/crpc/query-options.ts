@@ -143,8 +143,9 @@ export function convexInfiniteQueryOptions<
     limit,
   };
 
-  // Determine enabled state: explicit false or skip takes precedence
-  const finalEnabled = enabled === false || isSkip ? false : undefined;
+  // Determine enabled state: skip takes precedence, otherwise keep the
+  // caller's value (including a TanStack Query predicate).
+  const finalEnabled = isSkip ? false : enabled;
 
   return {
     queryKey: ['convexQuery', funcName, firstPageArgs] as const,
@@ -154,7 +155,7 @@ export function convexInfiniteQueryOptions<
     refetchOnReconnect: false as const,
     refetchOnWindowFocus: false as const,
     ...queryOptions,
-    ...(finalEnabled === false ? { enabled: false } : {}),
+    ...(finalEnabled === undefined ? {} : { enabled: finalEnabled }),
     meta: {
       authType,
       skipUnauth,

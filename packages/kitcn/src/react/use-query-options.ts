@@ -39,6 +39,7 @@ import type {
   InfiniteQueryInput,
 } from '../crpc/types';
 import { useAuthSkip } from '../internal/auth';
+import { resolveEnabled } from '../internal/enabled';
 import { createHashFn } from '../internal/hash';
 import type { DistributiveOmit } from '../internal/types';
 import { useAuthGuard } from './auth-store';
@@ -73,7 +74,10 @@ function getStableArgsByHash<TArgs>(hash: string, args: TArgs): TArgs {
     return stableArgs as TArgs;
   }
 
-  stableArgsByHash.set(hash, args);
+  // Store a copy: callers may mutate their args object in place, which would
+  // otherwise silently rewrite the entry every other hash still points at.
+  const stored = structuredClone(args);
+  stableArgsByHash.set(hash, stored);
 
   if (stableArgsByHash.size > MAX_STABLE_ARGS) {
     const oldestHash = stableArgsByHash.keys().next().value;
@@ -83,7 +87,7 @@ function getStableArgsByHash<TArgs>(hash: string, args: TArgs): TArgs {
     }
   }
 
-  return args;
+  return stored;
 }
 
 function useStableQueryArgs<TArgs>(
@@ -165,15 +169,21 @@ export function useConvexQueryOptions<T extends FunctionReference<'query'>>(
 
   return useMemo(() => {
     // Extract ConvexQueryHookOptions from merged options
-    const { skipUnauth: _, subscribe, ...queryOptions } = options ?? {};
+    const {
+      enabled: userEnabled,
+      skipUnauth,
+      subscribe,
+      ...queryOptions
+    } = options ?? {};
 
     return {
       ...baseOptions,
       ...queryOptions, // Spread user options
-      enabled: isSkipped ? false : !shouldSkip,
+      enabled: resolveEnabled(!(isSkipped || shouldSkip), userEnabled),
       meta: {
         ...baseOptions.meta,
         authType,
+        skipUnauth,
         subscribe: subscribe !== false,
       },
     };
@@ -224,8 +234,8 @@ export function useConvexInfiniteQueryOptions<
     skipUnauth: opts.skipUnauth,
   });
 
-  // Determine final enabled state
-  const enabled = isSkipped || shouldSkip ? false : enabledOpt;
+  // Determine final enabled state (keeps a caller-supplied predicate)
+  const enabled = resolveEnabled(!(isSkipped || shouldSkip), opts.enabled);
 
   const baseOptions = convexInfiniteQueryOptions(
     funcRef,
@@ -271,13 +281,13 @@ export function useConvexActionQueryOptions<
     UseQueryOptions<FunctionReturnType<Action>, DefaultError>,
     ReservedQueryOptions
   >
-): ConvexActionOptions<Action> {
+): ConvexActionOptions<Action> & { meta: ConvexQueryMeta } {
   const isSkipped = args === skipToken;
 
   // Convert enabled to boolean (TanStack Query allows function)
   const enabled =
     typeof options?.enabled === 'function' ? undefined : options?.enabled;
-  const { shouldSkip } = useAuthSkip(action, {
+  const { authType, shouldSkip } = useAuthSkip(action, {
     enabled: isSkipped ? false : enabled,
     skipUnauth: options?.skipUnauth,
   });
@@ -295,14 +305,19 @@ export function useConvexActionQueryOptions<
 
   return useMemo(() => {
     // Extract skipUnauth from options before spreading
-    const { skipUnauth: _, ...queryOptions } = options ?? {};
+    const { enabled: userEnabled, skipUnauth, ...queryOptions } = options ?? {};
 
     return {
       ...baseOptions,
       ...queryOptions,
-      enabled: isSkipped ? false : !shouldSkip,
+      enabled: resolveEnabled(!(isSkipped || shouldSkip), userEnabled),
+      meta: {
+        ...baseOptions.meta,
+        authType,
+        skipUnauth,
+      },
     };
-  }, [baseOptions, isSkipped, options, shouldSkip]);
+  }, [authType, baseOptions, isSkipped, options, shouldSkip]);
 }
 
 type AuthType = 'required' | 'optional' | undefined;

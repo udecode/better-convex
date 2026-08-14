@@ -158,6 +158,118 @@ describe('use-query-options', () => {
     ]);
   });
 
+  test('useConvexQueryOptions forwards skipUnauth to query meta', () => {
+    const fn = makeFunctionReference<'query'>('user:getCurrentUser');
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, {} as any, { skipUnauth: true })
+    );
+
+    expect(result.current.meta.skipUnauth).toBe(true);
+  });
+
+  test('useConvexQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'query'>('user:get');
+    const predicate = mock(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, { id: 'u1' } as any, {
+        enabled: predicate as any,
+      })
+    );
+
+    const { enabled } = result.current;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+    expect(predicate).toHaveBeenCalledTimes(1);
+  });
+
+  test('useConvexQueryOptions overrides a function-form enabled when auth skips', () => {
+    const fn = makeFunctionReference<'query'>('user:get');
+    useAuthSkipSpy.mockImplementation(
+      () => ({ authType: 'required', shouldSkip: true }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, { id: 'u1' } as any, {
+        enabled: (() => true) as any,
+      })
+    );
+
+    expect(result.current.enabled).toBe(false);
+  });
+
+  test('useConvexQueryOptions does not reuse args mutated in place for an older hash', () => {
+    const fn = makeFunctionReference<'query'>('pets:stable');
+    const args = { petId: 'p1' };
+
+    const first = renderHook(
+      ({ input }: { input: typeof args }) =>
+        useConvexQueryOptions(fn, input as any),
+      { initialProps: { input: args } }
+    );
+
+    args.petId = 'p2';
+    first.rerender({ input: args });
+    expect(first.result.current.queryKey[2]).toEqual({ petId: 'p2' });
+
+    const second = renderHook(() =>
+      useConvexQueryOptions(fn, { petId: 'p1' } as any)
+    );
+
+    expect(second.result.current.queryKey[2]).toEqual({ petId: 'p1' });
+  });
+
+  test('useConvexActionQueryOptions forwards authType and skipUnauth to query meta', () => {
+    const fn = makeFunctionReference<'action'>('ai:analyze');
+    useAuthSkipSpy.mockImplementation(
+      () => ({ authType: 'required', shouldSkip: false }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexActionQueryOptions(fn, { docId: 'd1' } as any, {
+        skipUnauth: true,
+      })
+    );
+
+    expect(result.current.meta).toMatchObject({
+      authType: 'required',
+      skipUnauth: true,
+      subscribe: false,
+    });
+  });
+
+  test('useConvexActionQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'action'>('ai:analyze');
+    const predicate = mock(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexActionQueryOptions(fn, { docId: 'd1' } as any, {
+        enabled: predicate as any,
+      })
+    );
+
+    const { enabled } = result.current;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+  });
+
+  test('useConvexInfiniteQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'query'>('posts:list');
+    const predicate = mock(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexInfiniteQueryOptions(fn, {} as any, {
+        enabled: predicate as any,
+        limit: 20,
+      })
+    );
+
+    const { enabled } = result.current;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+  });
+
   test('useConvexActionQueryOptions uses convexAction key prefix and respects shouldSkip', () => {
     const fn = makeFunctionReference<'action'>('ai:generate');
     useAuthSkipSpy.mockImplementation(

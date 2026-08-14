@@ -11,4 +11,18 @@ describe('internal/hash', () => {
     expect(hashFn(key)).toBe('fallback:["not-convex",{"value":1}]');
     expect(fallback).toHaveBeenCalledWith(key);
   });
+
+  test('hashes Date args in Convex query and action keys', () => {
+    const hashFn = createHashFn();
+    const at = new Date(1_700_000_000_000);
+
+    const queryHash = hashFn(['convexQuery', 'todos:list', { at }]);
+    const actionHash = hashFn(['convexAction', 'ai:analyze', { at }]);
+
+    expect(queryHash).toBe(hashFn(['convexQuery', 'todos:list', { at }]));
+    expect(queryHash).not.toBe(
+      hashFn(['convexQuery', 'todos:list', { at: new Date(0) }])
+    );
+    expect(actionHash.startsWith('convexAction|ai:analyze|')).toBe(true);
+  });
 });

@@ -111,6 +111,20 @@ describe('decodeJwtExp', () => {
     expect(decodeJwtExp(token)).toBeNull();
   });
 
+  test('decodes base64url payloads carrying non-ASCII claims', () => {
+    // Better Auth embeds user.name/user.email in the Convex JWT payload, so
+    // multi-byte characters routinely push `-`/`_` into the payload segment.
+    const token = makeJwt({
+      email: 'zoe@example.com',
+      exp: 1_786_000_900,
+      name: 'Zoë 🌍 佐藤',
+      sessionId: 'sess_1',
+    });
+
+    expect(/[-_]/.test(token.split('.')[1] ?? '')).toBe(true);
+    expect(decodeJwtExp(token)).toBe(1_786_000_900_000);
+  });
+
   test('returns null for malformed tokens', () => {
     expect(decodeJwtExp('not-a-jwt')).toBeNull();
   });
