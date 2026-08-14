@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { EphemeralBlockCache } from './core/cache';
+import {
+  calculateRatelimit,
+  snapshotToState,
+} from './core/calculate-rate-limit';
 import { Ratelimit } from './ratelimit';
 import type { ConvexRatelimitDbWriter } from './types';
 
@@ -503,6 +507,35 @@ describe('Ratelimit', () => {
     expect(fresh.remaining).toBe(10);
     expect(fresh.limit).toBe(10);
     expect(afterOne.remaining).toBe(9);
+  });
+
+  test('sliding snapshots preserve previous-window decay state', async () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.slidingWindow(10, '1 s'),
+      });
+
+      await limiter.limit('sliding-snapshot-user', { count: 10 });
+      now = 2500;
+      const snapshot = await limiter.getValue('sliding-snapshot-user');
+      const projected = calculateRatelimit(
+        snapshotToState(snapshot),
+        snapshot.config,
+        3000,
+        0
+      );
+
+      expect(snapshot.value).toBe(5);
+      expect(projected.remaining).toBe(10);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   test('getRemaining sums every shard instead of extrapolating one', async () => {

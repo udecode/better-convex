@@ -25,6 +25,7 @@ describe('useRatelimit', () => {
       value: 0,
       ts: start,
       shard: 0,
+      state: { value: 10, ts: start },
       config: {
         kind: 'slidingWindow',
         limit: 10,
@@ -51,6 +52,7 @@ describe('useRatelimit', () => {
       value: 0,
       ts: start,
       shard: 0,
+      state: { value: 10, ts: start },
       config: {
         kind: 'slidingWindow',
         limit: 10,
@@ -69,5 +71,35 @@ describe('useRatelimit', () => {
     expect(blockedNearBoundary?.ok).toBe(false);
     expect(blockedNearBoundary?.retryAt).toBeDefined();
     expect(blockedNearBoundary!.retryAt!).toBeLessThan(start + 1200);
+  });
+
+  test('sliding-window snapshots retain previous-window decay state', () => {
+    const start = Math.floor(Date.now() / 1000) * 1000;
+    const snapshot: RatelimitSnapshot = {
+      value: 5,
+      ts: start + 1000,
+      shard: 0,
+      state: {
+        value: 0,
+        ts: start + 1000,
+        auxValue: 10,
+        auxTs: start,
+      },
+      config: {
+        kind: 'slidingWindow',
+        limit: 10,
+        window: 1000,
+        shards: 1,
+      },
+    };
+    useQuerySpy.mockReturnValue(snapshot as any);
+
+    const { result } = renderHook(() =>
+      useRatelimit('ratelimit/getRatelimit', { count: 0 })
+    );
+
+    const projected = result.current.check(start + 2000, 0);
+
+    expect(projected?.value).toBe(10);
   });
 });

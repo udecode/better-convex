@@ -75,6 +75,7 @@ const result = calculateRatelimit(
 `result.remaining` is floored to `0`. `result.remainingRaw` is exact and goes negative when the request overdraws — use it to rank shards or size a backoff.
 
 `RatelimitSnapshot.shard` is the sampled shard holding the most tokens, not "the" shard.
+`RatelimitSnapshot.state` is the projected aggregate state. It retains sliding-window `value`, `auxValue`, `ts`, and `auxTs`, so `snapshotToState()` preserves decay across later window boundaries.
 
 For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 

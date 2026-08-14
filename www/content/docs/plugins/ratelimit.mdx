@@ -588,6 +588,7 @@ Returned by `getValue()`. Used for custom projections and the React hook.
 | `ts` | `number` | Timestamp of last state update |
 | `shard` | `number` | The sampled shard holding the most tokens |
 | `config` | `ResolvedAlgorithm` | Full algorithm config for `calculateRatelimit()` |
+| `state` | `RatelimitState` | Projected aggregate state. Sliding windows retain current and previous counts with both timestamps so later projections preserve boundary decay. |
 
 Pass a snapshot through `snapshotToState()` before handing it to `calculateRatelimit()`, which expects stored state rather than remaining tokens.
 
@@ -664,7 +665,7 @@ const result = calculateRatelimit(
 
 #### `snapshotToState`
 
-`getValue()` reports tokens left, while `calculateRatelimit()` takes stored state — the two differ for sliding windows, which store the used count. `snapshotToState` converts between them:
+`getValue()` reports tokens left, while `calculateRatelimit()` takes stored state — the two differ for sliding windows, which store current and previous used counts. The snapshot retains that projected aggregate state, and `snapshotToState` returns it for later calculations:
 
 ```ts showLineNumbers
 import { calculateRatelimit, snapshotToState } from 'kitcn/ratelimit';

@@ -41,7 +41,9 @@
 ## Features
 
 - Add `snapshotToState` to convert a `getValue()` snapshot into the state shape
-  `calculateRatelimit()` expects.
+  `calculateRatelimit()` expects. Snapshots retain the full projected state,
+  including sliding-window current and previous counts, so later projections
+  preserve boundary decay.
 - Add `remainingRaw` to `calculateRatelimit()` results for the exact token
   balance, including the negative value when a request overdraws.
 

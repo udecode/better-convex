@@ -180,17 +180,28 @@ export class Ratelimit {
 
     let sampledRemaining = 0;
     let sampledCapacity = 0;
+    let sampledStateValue = 0;
+    let sampledAuxValue = 0;
     let latestTs: number | null = null;
+    let latestAuxTs: number | null = null;
     let fullestShard: number | null = null;
     let fullestRemaining = Number.NEGATIVE_INFINITY;
 
     for (const { evaluated, perShard, shard } of samples) {
       sampledRemaining += evaluated.remainingRaw;
       sampledCapacity += algorithmCapacity(perShard);
+      sampledStateValue += evaluated.state.value;
+      sampledAuxValue += evaluated.state.auxValue ?? 0;
       latestTs =
         latestTs === null
           ? evaluated.state.ts
           : Math.max(latestTs, evaluated.state.ts);
+      if (evaluated.state.auxTs !== undefined) {
+        latestAuxTs =
+          latestAuxTs === null
+            ? evaluated.state.auxTs
+            : Math.max(latestAuxTs, evaluated.state.auxTs);
+      }
 
       if (evaluated.remainingRaw > fullestRemaining) {
         fullestRemaining = evaluated.remainingRaw;
@@ -205,6 +216,13 @@ export class Ratelimit {
             ts: Date.now(),
             shard: 0,
             config: algorithm,
+            state: {
+              value:
+                algorithm.kind === 'slidingWindow'
+                  ? 0
+                  : algorithmCapacity(algorithm),
+              ts: Date.now(),
+            },
           }
         : {
             value: scaleToGlobal(
@@ -215,6 +233,26 @@ export class Ratelimit {
             ts: latestTs ?? Date.now(),
             shard: fullestShard,
             config: algorithm,
+            state: {
+              value: scaleToGlobal(
+                sampledStateValue,
+                sampledCapacity,
+                algorithmCapacity(algorithm)
+              ),
+              ts: latestTs ?? Date.now(),
+              ...(algorithm.kind === 'slidingWindow'
+                ? {
+                    auxValue: scaleToGlobal(
+                      sampledAuxValue,
+                      sampledCapacity,
+                      algorithmCapacity(algorithm)
+                    ),
+                    auxTs:
+                      latestAuxTs ??
+                      (latestTs ?? Date.now()) - algorithm.window,
+                  }
+                : {}),
+            },
           };
 
     this.checkCache.set(cacheKey, Promise.resolve(result));
@@ -260,6 +298,12 @@ export class Ratelimit {
           ts: v.number(),
           shard: v.number(),
           config: v.any(),
+          state: v.object({
+            value: v.number(),
+            ts: v.number(),
+            auxValue: v.optional(v.number()),
+            auxTs: v.optional(v.number()),
+          }),
         }),
         handler: async (ctx, args): Promise<RatelimitSnapshot> => {
           const identifier = await resolveIdentifier(

@@ -156,14 +156,7 @@ function calculateSlidingWindow(
  * inverted before it can be replayed.
  */
 export function snapshotToState(snapshot: RatelimitSnapshot): RatelimitState {
-  if (snapshot.config.kind === 'slidingWindow') {
-    return {
-      value: Math.max(0, snapshot.config.limit - snapshot.value),
-      ts: snapshot.ts,
-    };
-  }
-
-  return { value: snapshot.value, ts: snapshot.ts };
+  return { ...snapshot.state };
 }
 
 function alignWindowStart(now: number, window: number, start = 0): number {

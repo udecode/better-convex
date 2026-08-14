@@ -35,6 +35,7 @@ export type RatelimitSnapshot = {
   ts: number;
   shard: number;
   config: ResolvedAlgorithm;
+  state: RatelimitState;
 };
 
 export type BaseAlgorithmOptions = {
