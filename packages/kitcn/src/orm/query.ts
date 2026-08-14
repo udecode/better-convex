@@ -5190,7 +5190,10 @@ export class GelRelationalQuery<
       return this._returnSelectedRows(selectedRows);
     }
 
-    const queryConfig = this._toConvexQuery(whereExpressionFromCallback);
+    const queryConfig = this._toConvexQuery(
+      whereExpressionFromCallback,
+      configuredIndex
+    );
     const whereRequiresExplicitIndex =
       !searchConfig && !vectorSearchConfig && wherePredicate !== undefined;
     if (whereRequiresExplicitIndex && !configuredIndex?.name) {
@@ -6354,7 +6357,14 @@ export class GelRelationalQuery<
    * Convert query config to Convex query parameters
    * Phase 4 implementation with WhereClauseCompiler
    */
-  private _toConvexQuery(whereExpressionOverride?: FilterExpression<boolean>): {
+  private _toConvexQuery(
+    whereExpressionOverride?: FilterExpression<boolean>,
+    /**
+     * The `.withIndex(name, range?)` the caller pinned, if any. Only one index
+     * can be scanned, so a compiled plan that would replace it is discarded.
+     */
+    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
+  ): {
     table: string;
     strategy: IndexStrategy;
     index?: { name: string; filters: FilterExpression<boolean>[] };
@@ -6390,7 +6400,30 @@ export class GelRelationalQuery<
     }
 
     // Use compiler to split filters and select index
-    const compiled = compiler.compile(whereExpression);
+    const planned = compiler.compile(whereExpression);
+    const plannedUsesIndex =
+      !!planned.selectedIndex &&
+      (planned.indexFilters.length > 0 || planned.probeFilters.length > 0);
+
+    // A query can only scan one index. When the caller pinned one explicitly,
+    // a compiled plan may only refine that same index and only when the caller
+    // left the range open — otherwise applying it would silently drop the
+    // caller's index and its bounds (e.g. a tenant scope) from the read.
+    const keepPlannedIndex =
+      !configuredIndex?.name ||
+      !plannedUsesIndex ||
+      (planned.selectedIndex?.indexName === configuredIndex.name &&
+        !configuredIndex.range);
+
+    const compiled = keepPlannedIndex
+      ? planned
+      : {
+          strategy: 'none' as IndexStrategy,
+          selectedIndex: null,
+          indexFilters: [] as FilterExpression<boolean>[],
+          probeFilters: [] as FilterExpression<boolean>[][],
+          postFilters: whereExpression ? [whereExpression] : [],
+        };
 
     // Build query config
     const result: {
@@ -6403,8 +6436,8 @@ export class GelRelationalQuery<
     } = {
       table: this.tableConfig.table.tableName,
       strategy: compiled.strategy,
-      probeFilters: compiled.probeFilters,
-      postFilters: compiled.postFilters,
+      probeFilters: [...compiled.probeFilters],
+      postFilters: [...compiled.postFilters],
     };
 
     // Add index if selected

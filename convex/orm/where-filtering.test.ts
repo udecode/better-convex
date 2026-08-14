@@ -1128,6 +1128,92 @@ describe('M4 Where Filtering - Edge Cases', () => {
 });
 
 // ============================================================================
+// Explicit withIndex() precedence
+// ============================================================================
+
+describe('M4 Where Filtering - explicit withIndex() precedence', () => {
+  const seedTenants = async (ctx: TestCtx) => {
+    const cityA = await ctx.db.insert('cities', { name: 'A' });
+    const cityB = await ctx.db.insert('cities', { name: 'B' });
+    await ctx.db.insert('users', {
+      name: 'ua',
+      email: 'ua@example.com',
+      cityId: cityA,
+      status: 'active',
+      age: 40,
+    });
+    await ctx.db.insert('users', {
+      name: 'ub',
+      email: 'ub@example.com',
+      cityId: cityB,
+      status: 'active',
+      age: 20,
+    });
+    return { cityA, cityB };
+  };
+
+  test('withIndex() range survives a where that compiles to another index', async ({
+    ctx,
+  }) => {
+    const { cityA } = await seedTenants(ctx);
+
+    const users = await ctx.orm.query.users
+      .withIndex('by_city', (q) => q.eq('cityId', cityA))
+      .findMany({ where: { status: 'active' }, limit: 50 });
+
+    expect(users.map((user) => user.name)).toEqual(['ua']);
+  });
+
+  test('withIndex() range survives in the select() pipeline', async ({
+    ctx,
+  }) => {
+    const { cityA } = await seedTenants(ctx);
+
+    const users = await ctx.orm.query.users
+      .withIndex('by_city', (q) => q.eq('cityId', cityA))
+      .select()
+      .where({ status: 'active' })
+      .limit(50);
+
+    expect(users.map((user) => user.name)).toEqual(['ua']);
+  });
+
+  test('withIndex() bounds survive an inequality where', async ({ ctx }) => {
+    await seedTenants(ctx);
+
+    const users = await ctx.orm.query.users
+      .withIndex('by_age', (q) => q.gte('age', 30))
+      .findMany({ where: { status: 'active' }, limit: 50 });
+
+    expect(users.map((user) => user.name)).toEqual(['ua']);
+  });
+
+  test('withIndex() range wins over a where on the same index', async ({
+    ctx,
+  }) => {
+    await ctx.db.insert('users', {
+      name: 'active-user',
+      email: 'active@example.com',
+      status: 'active',
+    });
+    await ctx.db.insert('users', {
+      name: 'pending-user',
+      email: 'pending@example.com',
+      status: 'pending',
+    });
+
+    const users = await ctx.orm.query.users
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
+      .findMany({
+        where: { status: { in: ['active', 'pending'] } },
+        limit: 50,
+      });
+
+    expect(users.map((user) => user.name)).toEqual(['active-user']);
+  });
+});
+
+// ============================================================================
 // Type Safety
 // ============================================================================
 
