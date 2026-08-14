@@ -333,6 +333,69 @@ describe('server/http-builder', () => {
     ]);
   });
 
+  test('http middleware wraps the procedure handler', async () => {
+    const events: string[] = [];
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .get('/x')
+      .use(async ({ next }) => {
+        events.push('before');
+        const result = await next();
+        events.push('after');
+        return result;
+      })
+      .query(async () => {
+        events.push('handler');
+        return { ok: true };
+      });
+
+    const resp = await (proc as any)({}, new Request('https://example.com/x'));
+
+    expect(resp.status).toBe(200);
+    expect(events).toEqual(['before', 'handler', 'after']);
+  });
+
+  test('middleware getRawInput reports malformed JSON as BAD_REQUEST', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const http = createHttpProcedureBuilder({
+        base: (handler) => handler as any,
+        createContext: () => ({}) as any,
+        meta: {},
+      });
+
+      const proc = http
+        .post('/x')
+        .use(async ({ getRawInput, next }) => {
+          await getRawInput();
+          return next();
+        })
+        .mutation(async () => ({ ok: true }));
+
+      const resp = await (proc as any)(
+        {},
+        new Request('https://example.com/x', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"name": ',
+        })
+      );
+
+      expect(resp.status).toBe(400);
+      await expect(resp.json()).resolves.toEqual({
+        error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' },
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   test('procedure parses multipart form data via .form()', async () => {
     const http = createHttpProcedureBuilder({
       base: (handler) => handler as any,

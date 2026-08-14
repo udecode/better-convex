@@ -4,11 +4,11 @@
 
 ## Breaking changes
 
-- Improve middleware to wrap the whole procedure: `next()` resolves after the
-  handler runs, so timing, error reporting, and cleanup around it observe the
-  handler, and handler errors propagate through every wrapping `catch`. A `ctx`
-  changed on the return path no longer reaches the handler — pass it to `next()`
-  instead.
+- Improve Convex and HTTP middleware to wrap the whole procedure: `next()`
+  resolves after the handler runs, so timing, error reporting, and cleanup
+  around it observe the handler, and handler errors propagate through every
+  wrapping `catch`. A `ctx` changed on the return path no longer reaches the
+  handler — pass it to `next()` instead.
 
   ```ts
   // Before — logged 0ms, never saw handler errors, and this ctx was ignored
@@ -61,4 +61,5 @@
 - Fix HTTP routes returning `500` for the twelve error codes missing from the
   route status map, including `PAYLOAD_TOO_LARGE` (`413`),
   `UNSUPPORTED_MEDIA_TYPE` (`415`), and `PRECONDITION_FAILED` (`412`).
-- Fix a malformed or empty JSON body returning `500` instead of `400`.
+- Fix a malformed or empty JSON body returning `500` instead of `400`,
+  including when HTTP middleware reads it through `getRawInput()`.

@@ -44,6 +44,7 @@ import {
   type HttpRouterRecord,
 } from './http-router';
 import type { HttpActionConstructor, HttpMethod } from './http-types';
+import { executeMiddlewares } from './middleware-runner';
 import { inferProcedureNameFromCallsite } from './procedure-name';
 import type {
   AnyMiddleware,
@@ -51,9 +52,7 @@ import type {
   IntersectIfDefined,
   MiddlewareBuilder,
   MiddlewareFunction,
-  MiddlewareNext,
   MiddlewareProcedureInfo,
-  MiddlewareResult,
   Overwrite,
   UnsetMarker,
 } from './types';
@@ -243,23 +242,6 @@ export function createMiddlewareFactory<TDefaultContext, TMeta = object>() {
   };
 }
 
-// =============================================================================
-// Middleware Execution
-// =============================================================================
-
-/** Result from middleware execution including potentially modified input */
-type MiddlewareExecutionResult = MiddlewareResult<unknown> & {
-  input: unknown;
-  /** Value produced by the resolver at the end of the chain */
-  output?: unknown;
-};
-
-/** Terminal link of a middleware chain - runs the procedure resolver */
-type MiddlewareResolver = (opts: {
-  ctx: unknown;
-  input: unknown;
-}) => Promise<unknown>;
-
 const FUNCTION_NAME_SYMBOL = Symbol.for('functionName');
 
 const resolveProcedureInfo = (
@@ -283,84 +265,6 @@ const resolveProcedureInfo = (
     name: symbolName ?? procedureName,
   };
 };
-
-/**
- * Execute the middleware chain, with the resolver as its terminal link.
- *
- * `next()` walks the remaining middleware and then runs the resolver, so a
- * middleware that wraps `next()` can time the handler, catch its errors, and
- * post-process its result - matching tRPC.
- */
-async function executeMiddlewares(
-  middlewares: AnyMiddleware[],
-  ctx: unknown,
-  meta: unknown,
-  procedure: MiddlewareProcedureInfo,
-  input: unknown,
-  getRawInput: GetRawInputFn,
-  resolve: MiddlewareResolver,
-  index = 0
-): Promise<MiddlewareExecutionResult> {
-  // Base case: the whole chain ran, so the resolver is next
-  if (index >= middlewares.length) {
-    return {
-      marker: undefined as never, // Runtime doesn't need the marker
-      ctx,
-      input,
-      output: await resolve({ ctx, input }),
-    };
-  }
-
-  const middleware = middlewares[index];
-
-  // Track modifications made by this frame through the rest of the chain
-  let currentInput = input;
-  let innerResult: MiddlewareExecutionResult | undefined;
-
-  // Create next function for this middleware (tRPC-compatible signature)
-  const next: MiddlewareNext<any, any> = async <
-    TNextContext extends object = Record<string, never>,
-  >(opts?: {
-    ctx?: TNextContext;
-    input?: unknown;
-  }) => {
-    const nextCtx = opts?.ctx ?? ctx;
-    // Track input modification
-    if (opts?.input !== undefined) {
-      currentInput = opts.input;
-    }
-    innerResult = await executeMiddlewares(
-      middlewares,
-      nextCtx,
-      meta,
-      procedure,
-      currentInput,
-      getRawInput,
-      resolve,
-      index + 1
-    );
-    return innerResult as MiddlewareResult<any>;
-  };
-
-  // Execute current middleware with input and getRawInput
-  const result = (await middleware({
-    ctx: ctx as any,
-    meta,
-    procedure,
-    input,
-    getRawInput,
-    next,
-  })) as MiddlewareExecutionResult;
-
-  // Carry the inner frames' input and resolver output back out, so an override
-  // made by any middleware - not just the first - survives the return trip.
-  return {
-    marker: undefined as never,
-    ctx: result.ctx ?? ctx,
-    input: result.input ?? innerResult?.input ?? currentInput,
-    output: result.output ?? innerResult?.output,
-  };
-}
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   !!value &&

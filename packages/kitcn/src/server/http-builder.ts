@@ -14,6 +14,7 @@ import type {
   HttpProcedureBuilderDef,
   ProcedureMeta,
 } from './http-types';
+import { executeMiddlewares } from './middleware-runner';
 import type {
   AnyMiddleware,
   GetRawInputFn,
@@ -546,163 +547,154 @@ function createProcedure(
         c.req.param() ?? matchPathParams(def.route!.path, url.pathname) ?? {};
 
       // Create base context
-      let ctx = def.functionConfig.createContext(convexCtx as any) as any;
+      const initialCtx = def.functionConfig.createContext(convexCtx as any);
 
       // getRawInput for HTTP - returns raw request body
       const getRawInput: GetRawInputFn = async () => {
         const contentType = request.headers.get('content-type') ?? '';
         if (contentType.includes('application/json')) {
-          return request.clone().json();
+          return readJsonBody(request.clone());
         }
         return null;
       };
 
-      // Execute middlewares (input is unknown for HTTP middleware - parsed after)
-      let currentInput: unknown;
-      for (const middleware of def.middlewares) {
-        const result = await middleware({
-          ctx: ctx as any,
-          procedure: middlewareProcedure,
-          input: currentInput,
-          getRawInput,
-          next: async (opts?: any) => {
-            if (opts?.ctx) {
-              ctx = { ...ctx, ...opts.ctx };
+      const middlewareResult = await executeMiddlewares(
+        def.middlewares,
+        initialCtx,
+        def.meta,
+        middlewareProcedure,
+        undefined,
+        getRawInput,
+        async ({ ctx }) => {
+          // Parse path params
+          let parsedParams: unknown;
+          if (def.paramsSchema) {
+            try {
+              parsedParams = def.paramsSchema.parse(pathParams as any);
+            } catch (error) {
+              if (error instanceof z.ZodError) {
+                throw new CRPCError({
+                  code: 'BAD_REQUEST',
+                  message: 'Invalid path params',
+                  cause: error,
+                });
+              }
+              throw error;
             }
-            if (opts?.input !== undefined) {
-              currentInput = opts.input;
+          }
+
+          // Parse query params - pass schema for array coercion
+          let parsedQuery: unknown;
+          if (def.querySchema) {
+            const queryParams = parseQueryParams(url, def.querySchema);
+            try {
+              parsedQuery = def.querySchema.parse(queryParams as any);
+            } catch (error) {
+              if (error instanceof z.ZodError) {
+                throw new CRPCError({
+                  code: 'BAD_REQUEST',
+                  message: 'Invalid query params',
+                  cause: error,
+                });
+              }
+              throw error;
             }
-            return { ctx, marker: undefined as any };
-          },
-          meta: def.meta,
-        });
-        if (result?.ctx) {
-          ctx = { ...ctx, ...(result.ctx as any) };
-        }
-      }
-
-      // Parse path params
-      let parsedParams: unknown;
-      if (def.paramsSchema) {
-        try {
-          parsedParams = def.paramsSchema.parse(pathParams as any);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            throw new CRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Invalid path params',
-              cause: error,
-            });
           }
-          throw error;
-        }
-      }
 
-      // Parse query params - pass schema for array coercion
-      let parsedQuery: unknown;
-      if (def.querySchema) {
-        const queryParams = parseQueryParams(url, def.querySchema);
-        try {
-          parsedQuery = def.querySchema.parse(queryParams as any);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            throw new CRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Invalid query params',
-              cause: error,
-            });
+          // Parse body for non-GET methods
+          let parsedInput: unknown;
+          if (def.inputSchema && request.method !== 'GET') {
+            const contentType = request.headers.get('content-type') ?? '';
+            let body: unknown;
+
+            if (contentType.includes('application/json')) {
+              body = await readJsonBody(request);
+            } else if (
+              contentType.includes('application/x-www-form-urlencoded')
+            ) {
+              const formData = await readFormDataBody(request);
+              body = Object.fromEntries(formData.entries());
+            } else {
+              body = await request.json().catch(() => ({}));
+            }
+
+            try {
+              parsedInput = def.inputSchema.parse(
+                def.functionConfig.transformer.input.deserialize(body) as any
+              );
+            } catch (error) {
+              if (error instanceof z.ZodError) {
+                throw new CRPCError({
+                  code: 'BAD_REQUEST',
+                  message: 'Invalid input',
+                  cause: error,
+                });
+              }
+              throw error;
+            }
           }
-          throw error;
-        }
-      }
 
-      // Parse body for non-GET methods
-      let parsedInput: unknown;
-      if (def.inputSchema && request.method !== 'GET') {
-        const contentType = request.headers.get('content-type') ?? '';
-        let body: unknown;
+          // Parse form data (multipart/form-data)
+          let parsedForm: unknown;
+          if (def.formSchema && request.method !== 'GET') {
+            const formData = await readFormDataBody(request);
+            const formObj: Record<string, unknown> = {};
+            for (const [key, value] of formData.entries()) {
+              formObj[key] = value;
+            }
+            try {
+              parsedForm = def.formSchema.parse(formObj);
+            } catch (error) {
+              if (error instanceof z.ZodError) {
+                throw new CRPCError({
+                  code: 'BAD_REQUEST',
+                  message: 'Invalid form data',
+                  cause: error,
+                });
+              }
+              throw error;
+            }
+          }
 
-        if (contentType.includes('application/json')) {
-          body = await readJsonBody(request);
-        } else if (contentType.includes('application/x-www-form-urlencoded')) {
-          const formData = await readFormDataBody(request);
-          body = Object.fromEntries(formData.entries());
-        } else {
-          body = await request.json().catch(() => ({}));
-        }
+          // Build handler options - ctx namespaced, include Hono Context `c`
+          const handlerOpts: any = {
+            ctx,
+            c,
+          };
 
-        try {
-          parsedInput = def.inputSchema.parse(
-            def.functionConfig.transformer.input.deserialize(body) as any
+          if (parsedInput !== undefined) {
+            handlerOpts.input = parsedInput;
+          }
+
+          if (parsedParams !== undefined) {
+            handlerOpts.params = parsedParams;
+          }
+
+          if (parsedQuery !== undefined) {
+            handlerOpts.searchParams = parsedQuery;
+          }
+
+          if (parsedForm !== undefined) {
+            handlerOpts.form = parsedForm;
+          }
+
+          const result = await handler(handlerOpts);
+
+          // If handler returned Response (from c.json, c.text, etc.), return it directly
+          if (result instanceof Response) {
+            return result;
+          }
+
+          // Validate and return JSON response via Hono
+          const output = def.outputSchema
+            ? def.outputSchema.parse(result as any)
+            : result;
+          return c.json(
+            def.functionConfig.transformer.output.serialize(output)
           );
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            throw new CRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Invalid input',
-              cause: error,
-            });
-          }
-          throw error;
         }
-      }
-
-      // Parse form data (multipart/form-data)
-      let parsedForm: unknown;
-      if (def.formSchema && request.method !== 'GET') {
-        const formData = await readFormDataBody(request);
-        const formObj: Record<string, unknown> = {};
-        for (const [key, value] of formData.entries()) {
-          formObj[key] = value;
-        }
-        try {
-          parsedForm = def.formSchema.parse(formObj);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            throw new CRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Invalid form data',
-              cause: error,
-            });
-          }
-          throw error;
-        }
-      }
-
-      // Build handler options - ctx namespaced, include Hono Context `c`
-      const handlerOpts: any = {
-        ctx,
-        c,
-      };
-
-      if (parsedInput !== undefined) {
-        handlerOpts.input = parsedInput;
-      }
-
-      if (parsedParams !== undefined) {
-        handlerOpts.params = parsedParams;
-      }
-
-      if (parsedQuery !== undefined) {
-        handlerOpts.searchParams = parsedQuery;
-      }
-
-      if (parsedForm !== undefined) {
-        handlerOpts.form = parsedForm;
-      }
-
-      const result = await handler(handlerOpts);
-
-      // If handler returned Response (from c.json, c.text, etc.), return it directly
-      if (result instanceof Response) {
-        return result;
-      }
-
-      // Validate and return JSON response via Hono
-      const output = def.outputSchema
-        ? def.outputSchema.parse(result as any)
-        : result;
-      return c.json(def.functionConfig.transformer.output.serialize(output));
+      );
+      return middlewareResult.output as Response;
     } catch (error) {
       return handleHttpError(error);
     }
