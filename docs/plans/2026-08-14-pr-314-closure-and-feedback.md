@@ -88,22 +88,22 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | final fail-closed repair, 21 pagination tests, and focused combined 115-test ORM lane passed | complete |
+| source behavior | yes | fail-closed metadata repair plus final-visible-membership stream sizing; 6-file ORM lane passed 130 tests with 1 skip | complete |
 | package/API/build | yes | final `bun --cwd packages/kitcn build` passed; no public API shape changed | complete |
 | generated output | yes | `bun run fixtures:check` proved all committed fixtures match fresh scaffold output | complete |
 | fixtures/scenarios | yes | `bun run fixtures:check` passed every fixture; scenario runtime N/A because ORM runtime behavior is covered by integration tests and no scaffold behavior changed | complete |
 | docs/package skill | no | N/A: internal ORM correctness only; no public usage shape or docs/skill contract changed | complete |
 | changeset | yes | `.changeset/olive-eyes-punch.md` covers the six user-visible fixes and no longer overclaims standalone full-page filling | complete |
 | agent workflow | no | N/A: changed-file audit contains no agent rule, skill, mirror, lock, helper, or user-action tooling | complete |
-| cleanup/review | yes | final deslop stayed at zero net regression; agent-native audit unchanged; autoreview rerun pending | pending |
+| cleanup/review | yes | deslop stayed at zero net regression; agent-native audit unchanged; final autoreview rerun pending after accepted findings | pending |
 | repository check | yes | prior full check passed but is stale after final repair; rerun required | pending |
 | GitHub delivery | yes | whole-checkout commit/push, replies/resolution, PR read-back | pending |
 
 Feedback ledger:
 | ID / URL | Type | Path | Reviewer claim | Verdict | Owner / proof | Reply | Resolution |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `PRRT_kwDOPTlS686Y-7VP` / `discussion_r3776629135` | review thread | `packages/kitcn/src/orm/query.ts:5896` | Cursor pagination drops residual predicates | fixed: commit `c570c3c` routes schema-backed residual predicates through stream pagination | `bunx vitest run convex/orm/pagination.test.ts` -> 21 passed | pending | pending |
-| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Metadata-free relations can drop residual cursor filters | fixed-differently after source/author evidence: unsupported standalone schema ownership now fails closed through the canonical `defineSchema()` guard, also preventing silent `maxScan` loss | focused test red because the partial native fallback resolved instead of rejecting, green after guard; full pagination file 21 passed | pending | pending |
+| `PRRT_kwDOPTlS686Y-7VP` / `discussion_r3776629135` | review thread | `packages/kitcn/src/orm/query.ts:5896` | Cursor pagination drops residual predicates | fixed: schema-backed residual predicates, RLS visibility, and relation membership run inside stream pagination before page sizing | 22 pagination + 14 RLS tests; combined 6-file ORM lane passed 130 with 1 skip | pending | pending |
+| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Metadata-free relations can drop residual cursor filters | fixed-differently after source/author evidence: unsupported standalone schema ownership fails closed through the canonical `defineSchema()` guard, also preventing silent `maxScan` loss | focused test red because the partial native fallback resolved instead of rejecting, green after guard; pagination file passed 22 tests | pending | pending |
 
 Feedback triage notes:
 - `changeset-bot` top-level comment is status boilerplate with no actionable
@@ -114,6 +114,17 @@ Feedback triage notes:
   confirmed standalone relation exports are rejected by schema ownership and
   advanced pagination already owns a canonical `defineSchema()` guard. The
   permissive native-page filter was replaced with that fail-closed invariant.
+
+Review fixes:
+- Accepted P1: residual cursor pagination counted rows before RLS. Moved RLS
+  membership into `QueryStream.filterWith`; a red/green test puts an invisible
+  newer row ahead of the visible match and still fills a one-row page.
+- Accepted P1: residual cursor pagination counted rows before relation filters.
+  Moved relation membership into the same stream predicate; a red/green test
+  puts three newer non-matches ahead of the related match and fills the page.
+- Accepted P2: non-cursor residual `take()` counted rows before RLS/relation
+  filters. The same membership predicate now sizes limited reads by final
+  visible matches and the post-stream path avoids duplicate membership work.
 
 Work Checklist:
 - [ ] Intended behavior and exclusions are reconstructed from real sources.
@@ -135,7 +146,9 @@ Work Checklist:
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
-| None yet | 0 | | |
+| RLS cursor repro hit the `maxScan` guard before the residual stream | 1 | Give the fixture a real planner index and combine indexed `eq` with residual `like` | Red reproduced an empty page, then passed after membership moved into the stream |
+| Patch context drifted after the first owner edit | 1 | Re-read exact bounded ranges and patch smaller hunks | Applied cleanly; `git diff --check` passed |
+| `gh pr view` briefly reported a stale head SHA after push | 1 | Read the branch ref and PR head directly through GitHub API | Both direct API endpoints agreed on the pushed SHA |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -193,6 +206,12 @@ Verification evidence:
 - After the final fail-closed repair: focused combined Vitest lane -> 5 files,
   115 passed, 1 skipped, no type errors; package build passed; deslop remained
   166 to 166 with zero score change.
+- Accepted the final autoreview's three composition findings as one owner
+  invariant: residual stream limits must count final RLS-visible and
+  relation-matching rows. Added cursor RLS, cursor relation, and non-cursor RLS
+  regressions; the final 6-file lane passed 130 tests with 1 skip and no type
+  errors, compiler tests passed 18, package build passed, and deslop remained
+  166 to 166 with zero score change.
 
 Timeline:
 - 2026-08-14T10:55:17.599Z Autoclosure plan created.
@@ -216,16 +235,19 @@ Timeline:
   Replaced the permissive fallback with the canonical fail-closed schema guard;
   all 21 pagination tests passed. Prior autoreview/check evidence is stale until
   rerun.
+- 2026-08-14 Final branch autoreview found three related limit-composition
+  defects around RLS/relation membership. Accepted them as one in-scope owner
+  repair, proved each red/green, and reran the focused owner stack green.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Repair rerun after new author evidence |
-| Where am I going? | Re-review/check, push, feedback replies/resolution, GitHub read-back, final audit |
+| Where am I? | Focused repair proof complete after final review findings |
+| Where am I going? | Commit, re-review/check, push, feedback replies/resolution, GitHub read-back, final audit |
 | What is the goal? | Close PR 314 with zero unhandled actionable feedback and every applicable proof/delivery gate complete |
-| What have I learned? | Schema-backed relations are supported; fresh-object standalone relations are intentionally rejected by CLI ownership, so advanced cursor filters must fail closed rather than run a partial native fallback |
-| What have I done? | Reclassified and replaced the second fix after new author/source evidence; focused pagination proof is green and final review/check reruns remain |
+| What have I learned? | Residual predicates, RLS, and relation membership form one final-visible-row predicate; any pushed-down limit must count that composite result |
+| What have I done? | Reclassified the metadata case, fixed final-visible stream sizing, and proved all three accepted composition findings; final review/check/delivery remain |
 
 Open risks:
-- Package build, deslop/review, full check, repush, replies/resolution, CI/PR
-  head read-back, and the goal-plan checker remain after the final repair.
+- Final autoreview, full check, repush, replies/resolution, final CI/PR head
+  read-back, and the goal-plan checker remain after the owner repair.

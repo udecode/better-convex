@@ -2315,6 +2315,7 @@ export class GelRelationalQuery<
       postFilters: FilterExpression<boolean>[];
     };
     configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
+    membershipFilter?: (row: any) => boolean | Promise<boolean>;
     orderIndexName: string | null;
     primaryOrder?: { direction: 'asc' | 'desc'; field: string };
     /** Direction to use when the query has no orderBy at all. */
@@ -2328,6 +2329,7 @@ export class GelRelationalQuery<
     const {
       queryConfig,
       configuredIndex,
+      membershipFilter,
       orderIndexName,
       primaryOrder,
       fallbackOrder,
@@ -2366,13 +2368,14 @@ export class GelRelationalQuery<
       primaryOrder ? primaryOrder.direction : fallbackOrder
     );
 
-    streamQuery = streamQuery.filterWith((row: any) =>
-      Promise.resolve(
-        queryConfig.postFilters.every((filter) =>
-          this._evaluatePostFetchFilter(row, filter)
-        )
-      )
-    );
+    streamQuery = streamQuery.filterWith(async (row: any) => {
+      for (const filter of queryConfig.postFilters) {
+        if (!this._evaluatePostFetchFilter(row, filter)) {
+          return false;
+        }
+      }
+      return membershipFilter ? await membershipFilter(row) : true;
+    });
 
     return streamQuery as QueryStream<any>;
   }
@@ -5712,6 +5715,29 @@ export class GelRelationalQuery<
       return this._returnSelectedRows(selectedRows);
     }
 
+    const matchesPostFetchMembership = async (row: any) => {
+      const visibleRows = await this._applyRlsSelectFilter(
+        [row],
+        this.tableConfig
+      );
+      if (visibleRows.length === 0) {
+        return false;
+      }
+      if (!whereFilter) {
+        return true;
+      }
+      const matchingRows = await this._applyRelationsFilterToRows(
+        visibleRows,
+        this.tableConfig,
+        whereFilter,
+        this.edgeMetadata,
+        0,
+        3,
+        this.config.with as Record<string, unknown> | undefined
+      );
+      return matchingRows.length > 0;
+    };
+
     // M6.5 Phase 4: Handle cursor pagination separately
     if (isCursorPaginated) {
       if (queryConfig.strategy === 'multiProbe') {
@@ -5911,6 +5937,7 @@ export class GelRelationalQuery<
         ? this._buildResidualFilterStream({
             queryConfig,
             configuredIndex,
+            membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
             fallbackOrder: 'desc',
@@ -5949,23 +5976,7 @@ export class GelRelationalQuery<
           maxScan,
         });
 
-        let pageRows = paginationResult.page;
-
-        pageRows = await this._applyRlsSelectFilter(pageRows, this.tableConfig);
-
-        if (whereFilter) {
-          pageRows = await this._applyRelationsFilterToRows(
-            pageRows,
-            this.tableConfig,
-            whereFilter,
-            this.edgeMetadata,
-            0,
-            3,
-            this.config.with as Record<string, unknown> | undefined
-          );
-        }
-
-        const selectedPage = await this._finalizeRows(pageRows);
+        const selectedPage = await this._finalizeRows(paginationResult.page);
 
         return {
           page: selectedPage,
@@ -6099,6 +6110,7 @@ export class GelRelationalQuery<
         ? this._buildResidualFilterStream({
             queryConfig,
             configuredIndex,
+            membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
             fallbackOrder: 'asc',
@@ -6147,18 +6159,20 @@ export class GelRelationalQuery<
       }
     }
 
-    rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
+    if (!residualLimitStream) {
+      rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
 
-    if (whereFilter) {
-      rows = await this._applyRelationsFilterToRows(
-        rows,
-        this.tableConfig,
-        whereFilter,
-        this.edgeMetadata,
-        0,
-        3,
-        this.config.with as Record<string, unknown> | undefined
-      );
+      if (whereFilter) {
+        rows = await this._applyRelationsFilterToRows(
+          rows,
+          this.tableConfig,
+          whereFilter,
+          this.edgeMetadata,
+          0,
+          3,
+          this.config.with as Record<string, unknown> | undefined
+        );
+      }
     }
 
     // Apply post-fetch sort if needed

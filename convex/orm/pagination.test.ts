@@ -766,6 +766,48 @@ test('cursor pagination fills pages to the limit with a residual predicate', asy
   });
 });
 
+test('cursor pagination fills residual pages after relation filters', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const matchingUserId = await baseCtx.db.insert('users', {
+      name: 'Candidate with post',
+      email: 'candidate-with-post@example.com',
+      status: 'active',
+    });
+    await baseCtx.db.insert('posts', {
+      text: 'Matching post',
+      numLikes: 1,
+      type: 'wanted',
+      authorId: matchingUserId,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      await baseCtx.db.insert('users', {
+        name: `Candidate without post ${i}`,
+        email: `candidate-without-post-${i}@example.com`,
+        status: 'active',
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const page = await ctx.orm.query.users.findMany({
+      cursor: null,
+      limit: 1,
+      where: {
+        name: { like: '%Candidate%' },
+        posts: { type: 'wanted' },
+        status: 'active',
+      },
+    });
+
+    expect(page.page).toHaveLength(1);
+    expect(page.page[0].name).toBe('Candidate with post');
+  });
+});
+
 test('cursor pagination rejects residual filters without schema metadata', async () => {
   const standaloneTables = { ...tables };
   const standaloneRelations = defineRelations(standaloneTables);
