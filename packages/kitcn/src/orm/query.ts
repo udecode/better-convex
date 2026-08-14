@@ -6149,16 +6149,6 @@ export class GelRelationalQuery<
       );
     }
 
-    // Residual filters are now applied, so offset/limit finally mean "matches".
-    if (sizeAfterPostFilter) {
-      if (offset > 0) {
-        rows = rows.slice(offset);
-      }
-      if (limit !== undefined) {
-        rows = rows.slice(0, limit);
-      }
-    }
-
     if (!residualLimitStream) {
       rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
 
@@ -6172,6 +6162,17 @@ export class GelRelationalQuery<
           3,
           this.config.with as Record<string, unknown> | undefined
         );
+      }
+    }
+
+    // All post-fetch membership is now applied, so offset/limit mean final
+    // visible matches even when no stream is available.
+    if (sizeAfterPostFilter) {
+      if (offset > 0) {
+        rows = rows.slice(offset);
+      }
+      if (limit !== undefined) {
+        rows = rows.slice(0, limit);
       }
     }
 

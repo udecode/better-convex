@@ -88,7 +88,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | fail-closed metadata repair plus final-visible-membership stream sizing; 6-file ORM lane passed 130 tests with 1 skip | complete |
+| source behavior | yes | fail-closed metadata repair plus final-visible-membership stream/fallback sizing; 6-file ORM lane passed 131 tests with 1 skip | complete |
 | package/API/build | yes | final `bun --cwd packages/kitcn build` passed; no public API shape changed | complete |
 | generated output | yes | `bun run fixtures:check` proved all committed fixtures match fresh scaffold output | complete |
 | fixtures/scenarios | yes | `bun run fixtures:check` passed every fixture; scenario runtime N/A because ORM runtime behavior is covered by integration tests and no scaffold behavior changed | complete |
@@ -125,6 +125,11 @@ Review fixes:
 - Accepted P2: non-cursor residual `take()` counted rows before RLS/relation
   filters. The same membership predicate now sizes limited reads by final
   visible matches and the post-stream path avoids duplicate membership work.
+- Accepted final P2: metadata-free fallback and offset-only reads sliced after
+  scalar residual filters but before RLS/relation membership. Membership now
+  runs before fallback slicing; one red test simultaneously returned `[]` for
+  `limit: 1` and the matching row for `offset: 1`, then green returned the
+  matching limited row and no offset row.
 
 Work Checklist:
 - [ ] Intended behavior and exclusions are reconstructed from real sources.
@@ -147,6 +152,7 @@ Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
 | RLS cursor repro hit the `maxScan` guard before the residual stream | 1 | Give the fixture a real planner index and combine indexed `eq` with residual `like` | Red reproduced an empty page, then passed after membership moved into the stream |
+| First metadata-free fallback repro hit the relation sizing guard | 1 | Enable the fixture's explicit full-scan authority so it reaches the slicing owner | The corrected repro returned the two opposite wrong results before the ordering fix |
 | Patch context drifted after the first owner edit | 1 | Re-read exact bounded ranges and patch smaller hunks | Applied cleanly; `git diff --check` passed |
 | `gh pr view` briefly reported a stale head SHA after push | 1 | Read the branch ref and PR head directly through GitHub API | Both direct API endpoints agreed on the pushed SHA |
 
@@ -212,6 +218,11 @@ Verification evidence:
   regressions; the final 6-file lane passed 130 tests with 1 skip and no type
   errors, compiler tests passed 18, package build passed, and deslop remained
   166 to 166 with zero score change.
+- The next review found one remaining fallback branch in the same invariant.
+  Its combined red result was `[[], ['Candidate with post']]` for limit/offset;
+  after moving membership ahead of fallback slicing it became
+  `[['Candidate with post'], []]`. The 6-file lane passed 131 tests with 1 skip,
+  compiler tests passed 18, package build passed, and deslop stayed unchanged.
 
 Timeline:
 - 2026-08-14T10:55:17.599Z Autoclosure plan created.
@@ -238,15 +249,18 @@ Timeline:
 - 2026-08-14 Final branch autoreview found three related limit-composition
   defects around RLS/relation membership. Accepted them as one in-scope owner
   repair, proved each red/green, and reran the focused owner stack green.
+- 2026-08-14 Second and final review-fix cycle found the metadata-free fallback
+  ordering remainder. Reproduced both limited and offset failure directions in
+  one test, moved membership before slicing, and reran all owner proof green.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Focused repair proof complete after final review findings |
+| Where am I? | Focused repair proof complete after the second review-fix cycle |
 | Where am I going? | Commit, re-review/check, push, feedback replies/resolution, GitHub read-back, final audit |
 | What is the goal? | Close PR 314 with zero unhandled actionable feedback and every applicable proof/delivery gate complete |
 | What have I learned? | Residual predicates, RLS, and relation membership form one final-visible-row predicate; any pushed-down limit must count that composite result |
-| What have I done? | Reclassified the metadata case, fixed final-visible stream sizing, and proved all three accepted composition findings; final review/check/delivery remain |
+| What have I done? | Reclassified the metadata case and fixed final-visible sizing in both stream and fallback paths; final review/check/delivery remain |
 
 Open risks:
 - Final autoreview, full check, repush, replies/resolution, final CI/PR head

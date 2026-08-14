@@ -837,3 +837,62 @@ test('cursor pagination rejects residual filters without schema metadata', async
     ).rejects.toThrow(/Advanced pagination requires defineSchema/);
   });
 });
+
+test('residual limits apply relation filters before metadata-free slicing', async () => {
+  const standaloneTables = { ...tables };
+  const standaloneRelations = defineRelations(standaloneTables, (r) => ({
+    users: {
+      posts: r.many.posts({
+        from: r.users.id,
+        to: r.posts.authorId,
+      }),
+    },
+  }));
+  const standaloneSchema = defineSchema(standaloneTables, {
+    defaults: { defaultLimit: 1000 },
+  });
+
+  await withOrmCtx(standaloneSchema, standaloneRelations, async (ctx) => {
+    await ctx.db.insert('users', {
+      name: 'Candidate without post',
+      email: 'fallback-without-post@example.com',
+      status: 'active',
+    });
+    const matchingUserId = await ctx.db.insert('users', {
+      name: 'Candidate with post',
+      email: 'fallback-with-post@example.com',
+      status: 'active',
+    });
+    await ctx.db.insert('posts', {
+      text: 'Matching fallback post',
+      numLikes: 1,
+      type: 'wanted',
+      authorId: matchingUserId,
+    });
+
+    const rows = await ctx.orm.query.users.findMany({
+      allowFullScan: true,
+      limit: 1,
+      where: {
+        name: { like: '%Candidate%' },
+        posts: { type: 'wanted' },
+        status: 'active',
+      },
+    });
+
+    const offsetRows = await ctx.orm.query.users.findMany({
+      allowFullScan: true,
+      offset: 1,
+      where: {
+        name: { like: '%Candidate%' },
+        posts: { type: 'wanted' },
+        status: 'active',
+      },
+    });
+
+    expect([
+      rows.map((row) => row.name),
+      offsetRows.map((row) => row.name),
+    ]).toEqual([['Candidate with post'], []]);
+  });
+});
