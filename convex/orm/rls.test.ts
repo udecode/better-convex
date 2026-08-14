@@ -302,6 +302,35 @@ describe('RLS', () => {
     expect(rows[0].ownerId).toEqual(viewerId);
   });
 
+  it('filters id-only pipeline rows before user callbacks', async ({ ctx }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    const otherId = await ctx.db.insert('rls_users', { name: 'Other' });
+    const allowedId = await ctx.db.insert('rls_secrets', {
+      value: 'allowed',
+      ownerId: viewerId,
+    });
+    const forbiddenId = await ctx.db.insert('rls_secrets', {
+      value: 'forbidden',
+      ownerId: otherId,
+    });
+
+    ctx.viewerId = viewerId;
+
+    const rows = await ctx.orm.query.rls_secrets
+      .select()
+      .where({ id: { in: [allowedId, forbiddenId] } })
+      .map((row: { value: string }) => ({
+        exposed: row.value,
+        ownerId: viewerId,
+        value: 'allowed',
+      }))
+      .limit(10);
+
+    expect(rows).toEqual([
+      { exposed: 'allowed', ownerId: viewerId, value: 'allowed' },
+    ]);
+  });
+
   it('fills residual cursor pages with RLS-visible matches', async ({
     ctx,
   }) => {

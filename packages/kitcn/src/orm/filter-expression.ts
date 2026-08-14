@@ -168,8 +168,8 @@ export function matchLikePattern(
   pattern: string,
   caseInsensitive: boolean
 ): boolean {
-  const target = caseInsensitive ? value.toLowerCase() : value;
-  const source = caseInsensitive ? pattern.toLowerCase() : pattern;
+  const target = Array.from(caseInsensitive ? value.toLowerCase() : value);
+  const source = Array.from(caseInsensitive ? pattern.toLowerCase() : pattern);
 
   let valueIndex = 0;
   let patternIndex = 0;

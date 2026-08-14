@@ -67,23 +67,23 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | Focused ORM tests | passed: 180 Vitest tests + 28 Bun evaluator/filter tests after rebase |
+| source behavior | yes | Focused ORM tests | passed: 184 Vitest tests + 29 Bun evaluator/filter tests after review repairs |
 | package/API/build | yes | Package build/types | passed after rebase and repairs |
 | generated output | no | N/A: no generated output | N/A |
 | fixtures/scenarios | no | N/A: no scaffold behavior | N/A |
 | docs/package skill | no | N/A: no docs/skill delta | N/A |
 | changeset | yes | `.changeset/orm-query-planner-limit-index.md` audit | passed: minor breaks and planner/read-bound patches match |
 | agent workflow | no | N/A: no agent workflow/action | N/A |
-| cleanup/review | yes | Deslop and autoreview | passed: zero net slop findings; autoreview clean at 0.98 confidence |
+| cleanup/review | yes | Deslop and autoreview | passed: zero net slop findings; branch review 0.98 and final uncommitted review 0.95 |
 | repository check | yes | `bun check` | passed end to end after rebase and repairs |
 | GitHub delivery | yes | Rebase/push/merge/read-back | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Each lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule/generated mirror changed.
@@ -102,7 +102,7 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ORM tests after rebase | passed: 180 Vitest + 28 Bun tests |
+| Targeted behavior proof | yes | Run focused ORM tests after rebase | passed: 184 Vitest + 29 Bun tests |
 | Source/generated audit | no | N/A: source-only runtime change | N/A |
 | Package/docs/scenario closure | yes | Build package and audit changeset | passed: package build and minor changeset audit |
 | Deslop | yes | Run changed-file cleanup review | passed: 168 -> 168 findings, +0.18 score; only existing ORM/auth fan-out hotspots |
@@ -110,7 +110,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 877 files; one formatting fix applied, focused proof rerun |
 | Repository check | yes | Run `bun check` | passed end to end after rebase and repairs |
 | GitHub delivery | yes | Rebase/push/squash-merge/read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | passed: no accepted/actionable findings, correctness confidence 0.98 |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: branch review 0.98 and final uncommitted review 0.95, both clean |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/317-close-orm-planner-pr.md` | pending |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
@@ -132,8 +132,8 @@ Verification evidence:
 - Rebased all 11 commits onto PR 316 merge `59b80d0f`; conflicts preserved RLS
   preflight, planner RLS detection, PR 316 relation fixtures, and PR 317
   `users.secrets` proof.
-- Focused proof -> seven ORM Vitest files passed 180 tests with one skip;
-  filter-expression and mutation-utils Bun suites passed 28 tests.
+- Focused proof -> seven ORM Vitest files passed 184 tests with one skip;
+  filter-expression and mutation-utils Bun suites passed 29 tests.
 - ID-only pipeline proof reads one document by key; no repair required.
 - Red read-bound regressions proved eager flatMap read 31 documents and
   relation loading read 44; lazy ordinal cursors and streaming post-fetch
@@ -141,9 +141,9 @@ Verification evidence:
 - Deslop -> 168 to 168 findings, score +0.18; no worthwhile local cleanup
   finding beyond the existing ORM/auth directory fan-out hotspots.
 - Package build, root typecheck, and lint passed; the post-format focused rerun
-  passed 180 Vitest tests with one skip and 28 Bun tests.
+  passed 184 Vitest tests with one skip and 29 Bun tests.
 - Final autoreview -> no accepted/actionable findings, correctness confidence
-  0.98; exact `bun check` passed end to end after the rebase and repairs.
+  0.95 on the uncommitted review repairs; exact `bun check` passed end to end.
 
 Timeline:
 - 2026-08-14T18:17:54.701Z Autoclosure plan created.
@@ -151,6 +151,8 @@ Timeline:
 - 2026-08-14T22:10:00Z Rebased PR 317 and resolved both shared-file conflicts from primary sources.
 - 2026-08-14T22:16:00Z Closed flatMap and relation read-bound findings with red-to-green regressions.
 - 2026-08-14T22:26:00Z Final autoreview and exact repository check passed.
+- 2026-08-14T22:35:14Z Fresh GitHub review added five actionable findings; merge stopped.
+- 2026-08-14T22:48:50Z Five red-to-green repairs, final review, and exact `bun check` passed.
 
 Reboot status:
 | Question | Answer |
@@ -162,7 +164,7 @@ Reboot status:
 | What have I done? | See timeline |
 
 Open risks:
-- Fresh full repository and GitHub checks remain after the rebase.
+- Fresh GitHub CI and review remain after the repair head is pushed.
 
 Findings:
 - PR 317 is the only dependent branch in the batch.
@@ -179,3 +181,13 @@ Review fixes:
 - Filtered/RLS many-relations collected every child -> accepted -> unordered
   relation scans apply post-fetch visibility while streaming and stop after
   `offset + limit` visible rows; scalar-filter and active-RLS read bounds pass.
+- RLS ran after ID-only pipeline callbacks -> accepted -> source and flat-map
+  target rows are policy-filtered before user callbacks can inspect them.
+- ID-list pagination prefetched every ID before `maxScan` -> accepted -> reject
+  this inherently unbounded combination with a deterministic error.
+- Limited flat-map cursors looped after an exhausted parent -> accepted ->
+  empty-parent accounting now respects the active inner cursor bounds.
+- Limited optional one-relations exposed mismatched index fields -> accepted ->
+  empty streams carry the same augmented key shape as populated streams.
+- LIKE `_` counted UTF-16 code units -> accepted -> matching advances by Unicode
+  code point and the emoji regression distinguishes `_` from `__`.

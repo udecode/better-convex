@@ -483,6 +483,73 @@ test('flatMap limit stays per parent across pages', async () => {
   });
 });
 
+test('flatMap limit advances past an exhausted parent with maxScan', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-exhausted@example.com',
+    });
+    for (let i = 0; i < 2; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: 'note',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    for (let page = 0; page < 5; page += 1) {
+      const result = await ctx.orm.query.users
+        .select()
+        .flatMap('posts', { includeParent: false, limit: 2 })
+        .paginate({ cursor, limit: 10, maxScan: 1 });
+      walked.push(...result.page.map((row) => row.text));
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+      if (isDone) break;
+      expect(cursor).not.toBeNull();
+      const nextCursor = cursor as string;
+      expect(cursors.has(nextCursor)).toBe(false);
+      cursors.add(nextCursor);
+    }
+
+    expect(isDone).toBe(true);
+    expect(walked).toEqual(['p0', 'p1']);
+  });
+});
+
+test('flatMap limit skips a missing optional one relation', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-missing-one@example.com',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const result = await ctx.orm.query.users
+      .select()
+      .flatMap('homeCity', { includeParent: false, limit: 1 })
+      .paginate({ cursor: null, limit: 10 });
+
+    expect(result.page).toEqual([]);
+    expect(result.isDone).toBe(true);
+  });
+});
+
 test('flatMap limit reads each child once and stays under maxScan', async () => {
   const t = convexTest(schema);
 
@@ -740,6 +807,35 @@ test('select() pipeline pages an id-only where without scanning', async () => {
     }
 
     expect(walked).toEqual(['title-5', 'title-12', 'title-30']);
+  });
+});
+
+test('select() rejects id-list pagination with maxScan', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 3; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    await expect(
+      ctx.orm.query.posts
+        .select()
+        .where({ id: { in: ids } })
+        .map((row) => row)
+        .paginate({ cursor: null, limit: 1, maxScan: 1 })
+    ).rejects.toThrow(/id.*in.*maxScan/i);
   });
 });
 

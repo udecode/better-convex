@@ -64,7 +64,7 @@ await db.query.users
   requested window.
 - Fix `like`, `ilike`, `notLike`, and `notIlike` matching nothing when the
   pattern has a wildcard anywhere but the ends. `%` now matches any run of
-  characters and `_` matches exactly one, at any position.
+  characters and `_` matches exactly one Unicode character, at any position.
 - Fix `eq`, `ne`, `in`, and `notIn` never matching array or object columns.
   Values are compared by content, in queries and in `update`/`delete` filters.
 - Fix `select()` returning raw rows for a `where: { id }` lookup, which silently
@@ -72,12 +72,17 @@ await db.query.users
   `where` also returns its page shape instead of a bare array. A `where` on `id`
   or `id: { in: [...] }` reads those rows by key rather than scanning the table
   for them, so `select()` costs one read per id however large the table is.
+  Cursor pagination rejects `id: { in: [...] }` with `maxScan`, because sorting
+  arbitrary IDs by creation time requires reading the complete list first.
+- Apply RLS to source rows before any `select()` pipeline callback runs, so a
+  mapper or flat-map stage cannot inspect or project a forbidden document.
 - Fix `flatMap`'s `limit` counting rows excluded by its `where`, which returned
   fewer children than asked for and often none. The limit now counts matching
   children, stays stable across pages instead of yielding a fresh batch per page,
   and reads each child once within the `maxScan` budget. It also stops on the
   last child it can return instead of reading one past it, so a small `limit`
-  across many parents no longer spends reads no page can show.
+  across many parents no longer spends reads no page can show. Exhausted and
+  missing optional relations advance cursors without duplicates or loops.
 - Fix a relation `limit` combined with a relation `where` returning too few
   children — none when enough non-matching children sorted first. The limit now
   counts matching children. Without an explicit relation `orderBy`, the scan

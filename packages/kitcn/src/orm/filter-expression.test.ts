@@ -26,6 +26,11 @@ describe('matchLikePattern', () => {
     expect(matchLikePattern('Java Guide', 'java%guide', false)).toBe(false);
   });
 
+  test('treats a supplementary Unicode character as one underscore', () => {
+    expect(matchLikePattern('😀', '_', false)).toBe(true);
+    expect(matchLikePattern('😀', '__', false)).toBe(false);
+  });
+
   test('handles empty patterns and trailing wildcards', () => {
     expect(matchLikePattern('', '', false)).toBe(true);
     expect(matchLikePattern('', '%', false)).toBe(true);

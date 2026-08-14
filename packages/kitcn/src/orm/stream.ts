@@ -1273,16 +1273,19 @@ class FlatMapStreamIterator<
   } | null = null;
   #mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>;
   #mappedIndexFields: string[];
+  #emptyMappedKeyAllowed: (parentKey: IndexKey) => boolean;
 
   constructor(
     outerStream: QueryStream<T>,
     mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>,
-    mappedIndexFields: string[]
+    mappedIndexFields: string[],
+    emptyMappedKeyAllowed: (parentKey: IndexKey) => boolean
   ) {
     this.#outerIterator = outerStream.iterWithKeys()[Symbol.asyncIterator]();
     this.#outerStream = outerStream;
     this.#mapper = mapper;
     this.#mappedIndexFields = mappedIndexFields;
+    this.#emptyMappedKeyAllowed = emptyMappedKeyAllowed;
   }
   singletonSkipInnerStream(): QueryStream<U> {
     // If the outer stream is a filtered value, yield a singleton
@@ -1334,7 +1337,10 @@ class FlatMapStreamIterator<
     }
     const result = await this.#currentOuterItem.innerIterator.next();
     if (result.done) {
-      if (this.#currentOuterItem.count > 0) {
+      if (
+        this.#currentOuterItem.count > 0 ||
+        !this.#emptyMappedKeyAllowed(this.#currentOuterItem.indexKey)
+      ) {
         this.#currentOuterItem = null;
       } else {
         // The inner stream was completely empty, so we should inject a null
@@ -1360,26 +1366,31 @@ class FlatMapStream<
   #stream: QueryStream<T>;
   #mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>;
   #mappedIndexFields: string[];
+  #emptyMappedKeyAllowed: (parentKey: IndexKey) => boolean;
   constructor(
     stream: QueryStream<T>,
     mapper: (doc: T, indexKey: IndexKey) => Promise<QueryStream<U>>,
-    mappedIndexFields: string[]
+    mappedIndexFields: string[],
+    emptyMappedKeyAllowed: (parentKey: IndexKey) => boolean = () => true
   ) {
     super();
     this.#stream = stream;
     this.#mapper = mapper;
     this.#mappedIndexFields = mappedIndexFields;
+    this.#emptyMappedKeyAllowed = emptyMappedKeyAllowed;
   }
   iterWithKeys(): AsyncIterable<[U | null, IndexKey]> {
     const outerStream = this.#stream;
     const mapper = this.#mapper;
     const mappedIndexFields = this.#mappedIndexFields;
+    const emptyMappedKeyAllowed = this.#emptyMappedKeyAllowed;
     return {
       [Symbol.asyncIterator]() {
         return new FlatMapStreamIterator(
           outerStream,
           mapper,
-          mappedIndexFields
+          mappedIndexFields,
+          emptyMappedKeyAllowed
         );
       },
     };
@@ -1447,13 +1458,20 @@ class FlatMapStream<
           : true,
       };
     };
+    const emptyMappedIndexKey = this.#mappedIndexFields.map(() => null);
     return new FlatMapStream(
       this.#stream.narrow(outerIndexBounds),
       async (t, parentKey) => {
         const innerStream = await this.#mapper(t, parentKey);
         return innerStream.narrow(innerBoundsForParent(parentKey));
       },
-      this.#mappedIndexFields
+      this.#mappedIndexFields,
+      (parentKey) =>
+        this.#emptyMappedKeyAllowed(parentKey) &&
+        indexKeyWithinBounds(
+          emptyMappedIndexKey,
+          innerBoundsForParent(parentKey)
+        )
     );
   }
 }
@@ -1605,10 +1623,7 @@ export class EmptyStream<T extends GenericStreamItem> extends QueryStream<T> {
 
 function normalizeIndexFields(indexFields: string[]) {
   // Append _creationTime and _id to the index fields if they're not already there
-  if (
-    !indexFields.includes('_creationTime') &&
-    (indexFields.length !== 1 || indexFields[0] !== '_id')
-  ) {
+  if (!indexFields.includes('_creationTime') && !indexFields.includes('_id')) {
     indexFields.push('_creationTime');
   }
   if (!indexFields.includes('_id')) {

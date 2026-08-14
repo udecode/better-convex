@@ -2744,6 +2744,11 @@ export class GelRelationalQuery<
         `Pipeline flatMap target table '${edge.targetTable}' not found.`
       );
     }
+    assertRlsRolesResolvable({
+      table: targetTableConfig.table as any,
+      operation: 'select',
+      rls: this.rls,
+    });
 
     const strict = this.tableConfig.strict !== false;
     const useGetById = targetFields.length === 1 && targetFields[0] === '_id';
@@ -2788,7 +2793,7 @@ export class GelRelationalQuery<
     return sourceStream.flatMap(async (parent: any) => {
       const values = sourceFields.map((field) => parent[field]);
       if (values.some((value) => value === null || value === undefined)) {
-        return new EmptyStream<any>(outerOrder, innerIndexFields);
+        return new EmptyStream<any>(outerOrder, mappedIndexFields);
       }
 
       let inner: any = stream(
@@ -2805,6 +2810,16 @@ export class GelRelationalQuery<
 
       if (stageWherePredicate) {
         inner = inner.filterWith(stageWherePredicate);
+      }
+
+      if (isRlsEnabled(targetTableConfig.table as any)) {
+        inner = inner.filterWith(async (row: any) => {
+          const visible = await this._applyRlsSelectFilter(
+            [row],
+            targetTableConfig
+          );
+          return visible.length === 1;
+        });
       }
 
       if (stage.limit !== undefined) {
@@ -5458,6 +5473,15 @@ export class GelRelationalQuery<
           );
         }
       } else {
+        if (
+          isCursorPaginated &&
+          maxScan !== undefined &&
+          idLookup?.kind === 'in'
+        ) {
+          throw new Error(
+            'An id IN pipeline cannot use maxScan because creation-order replay requires reading the complete ID list.'
+          );
+        }
         streamQuery =
           (await this._buildIdLookupStream({
             configuredIndex,
@@ -5473,6 +5497,18 @@ export class GelRelationalQuery<
           );
       }
 
+      const rootRlsEnabled = isRlsEnabled(this.tableConfig.table as any);
+      if (rootRlsEnabled) {
+        await this._applyRlsSelectFilter([], this.tableConfig);
+        streamQuery = streamQuery.filterWith(async (row: any) => {
+          const visible = await this._applyRlsSelectFilter(
+            [row],
+            this.tableConfig
+          );
+          return visible.length === 1;
+        });
+      }
+
       if (pipeline) {
         streamQuery = await this._applyPipelineStages(streamQuery, pipeline);
       }
@@ -5486,10 +5522,12 @@ export class GelRelationalQuery<
         });
 
         const selectedPage = await this._finalizeRows(
-          await this._applyRlsSelectFilter(
-            paginationResult.page,
-            this.tableConfig
-          )
+          rootRlsEnabled
+            ? paginationResult.page
+            : await this._applyRlsSelectFilter(
+                paginationResult.page,
+                this.tableConfig
+              )
         );
         return {
           page: selectedPage,
@@ -5513,7 +5551,9 @@ export class GelRelationalQuery<
         rows = rows.slice(offset);
       }
 
-      rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
+      if (!rootRlsEnabled) {
+        rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
+      }
       const selectedRows = await this._finalizeRows(rows);
       return this._returnSelectedRows(selectedRows);
     }
