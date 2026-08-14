@@ -543,6 +543,22 @@ export default defineSchema(tables);
     );
   });
 
+  test('registers before a chained call with a sentence comment', () => {
+    const plan = runWithSchema(`import { defineSchema } from 'kitcn/orm';
+
+export const tables = {};
+
+export default defineSchema(tables). /* explanatory sentence. */ relations((r) => ({}));
+`);
+
+    expect(plan.content).toContain(
+      'defineSchema(tables).extend(resendExtension()). /* explanatory sentence. */ relations'
+    );
+    expect(plan.content).not.toContain(
+      'explanatory sentence.extend(resendExtension())'
+    );
+  });
+
   test('ignores a commented-out defineSchema call', () => {
     const plan =
       runWithSchema(`import { convexTable, defineSchema, text } from 'kitcn/orm';

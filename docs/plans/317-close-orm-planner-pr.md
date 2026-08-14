@@ -76,7 +76,7 @@ Closure matrix:
 | agent workflow | no | N/A: no agent workflow/action | N/A |
 | cleanup/review | yes | Deslop and autoreview | passed: zero net slop findings; branch review 0.98 and final uncommitted review 0.95 |
 | repository check | yes | `bun check` | passed end to end after rebase and repairs |
-| GitHub delivery | yes | Rebase/push/merge/read-back | pending |
+| GitHub delivery | yes | Rebase/push/merge/read-back | passed: squash-merged as `b765f016` |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -84,8 +84,8 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule/generated mirror changed.
 - [x] Agent-native pack: no agent action changed; discoverability N/A.
 - [x] Agent-native pack: mirror sync N/A.
@@ -109,9 +109,9 @@ Completion Gates:
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 877 files; one formatting fix applied, focused proof rerun |
 | Repository check | yes | Run `bun check` | passed end to end after rebase and repairs |
-| GitHub delivery | yes | Rebase/push/squash-merge/read back | pending |
+| GitHub delivery | yes | Rebase/push/squash-merge/read back | passed: merged 2026-08-14T20:57:54Z as `b765f016` |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: branch review 0.98 and final uncommitted review 0.95, both clean |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/317-close-orm-planner-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/317-close-orm-planner-pr.md` | passed after merge receipt |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
 | Agent action discoverability | no | N/A: no agent action | N/A |
@@ -124,8 +124,8 @@ Phase / pass table:
 | Inventory | completed | PR body/commits/files/checks/threads and overlap reconstructed | rebase |
 | Repair | completed | rebased onto `59b80d0f`; preserved both conflict intents; fixed eager flatMap and relation read bounds | review |
 | Review/checks | completed | focused proof, build/types/lint, deslop, autoreview, and `bun check` passed | publish and resolve threads |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Delivery | completed | exact head `aa406a19` passed CI/Vercel with zero open threads and merged as `b765f016` | final audit |
+| Closeout | completed | merge read-back and child goal checker passed | final |
 
 Verification evidence:
 - Pre-rebase PR 317 CI/Vercel green; evidence becomes stale after PR 316 and must rerun.
@@ -153,18 +153,19 @@ Timeline:
 - 2026-08-14T22:26:00Z Final autoreview and exact repository check passed.
 - 2026-08-14T22:35:14Z Fresh GitHub review added five actionable findings; merge stopped.
 - 2026-08-14T22:48:50Z Five red-to-green repairs, final review, and exact `bun check` passed.
+- 2026-08-14T22:57:54Z PR 317 squash-merged as `b765f016` after exact-head CI and review cleared.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Force-push rebased head, resolve GitHub threads, merge |
+| Where am I? | Complete |
+| Where am I going? | Next ranked batch PR |
 | What is the goal? | Rebase, prove, and merge PR 317 after PR 316 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
 
 Open risks:
-- Fresh GitHub CI and review remain after the repair head is pushed.
+- None for PR 317.
 
 Findings:
 - PR 317 is the only dependent branch in the batch.

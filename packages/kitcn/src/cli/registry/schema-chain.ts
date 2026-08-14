@@ -91,10 +91,15 @@ export const findDefineSchemaChain = (source: string): SchemaChain | null => {
   ) {
     const propertyAccess = current.parent;
     const call = current.parent.parent;
-    const nameStart = propertyAccess.name.getStart(sourceFile);
+    const dotToken = propertyAccess
+      .getChildren(sourceFile)
+      .find((child) => child.kind === ts.SyntaxKind.DotToken);
+    if (!dotToken) {
+      throw new Error('Schema chain property access is missing its dot token.');
+    }
     calls.push({
       closeParenIndex: call.end - 1,
-      dotIndex: source.lastIndexOf('.', nameStart),
+      dotIndex: dotToken.getStart(sourceFile),
       end: call.end,
       name: propertyAccess.name.text,
     });

@@ -1192,7 +1192,69 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
     return source;
   }
 
-  const sourceFile = parseSource(source);
+  const requiredNames = new Set(importNames);
+  const initialSourceFile = parseSource(source);
+  const typeOnlyReplacements = initialSourceFile.statements.flatMap(
+    (statement) => {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !isStringLiteralLike(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== 'kitcn/orm' ||
+        !statement.importClause?.isTypeOnly ||
+        !statement.importClause.namedBindings ||
+        !ts.isNamedImports(statement.importClause.namedBindings)
+      ) {
+        return [];
+      }
+
+      const remainingElements =
+        statement.importClause.namedBindings.elements.filter(
+          (element) => !requiredNames.has(element.name.text)
+        );
+      if (
+        remainingElements.length ===
+        statement.importClause.namedBindings.elements.length
+      ) {
+        return [];
+      }
+
+      const namedBindings =
+        remainingElements.length > 0
+          ? `{ ${remainingElements
+              .map((element) => element.getText(initialSourceFile))
+              .join(', ')} }`
+          : null;
+      const bindings = [
+        statement.importClause.name?.text,
+        namedBindings,
+      ].filter((value): value is string => Boolean(value));
+      const replacement =
+        bindings.length > 0
+          ? `import type ${bindings.join(', ')} from ${statement.moduleSpecifier.getText(initialSourceFile)};`
+          : '';
+      return [
+        {
+          end: statement.end,
+          replacement,
+          start: statement.getStart(initialSourceFile),
+        },
+      ];
+    }
+  );
+
+  let workingSource = source;
+  for (const replacement of typeOnlyReplacements.sort(
+    (a, b) => b.start - a.start
+  )) {
+    workingSource = replaceRange(
+      workingSource,
+      replacement.start,
+      replacement.end,
+      replacement.replacement
+    );
+  }
+
+  const sourceFile = parseSource(workingSource);
   // Only a named *value* import can host the generated declarations' bindings.
   // Rewriting `import type {...}` would drop the `type` modifier and duplicate
   // identifiers; rewriting `import * as orm` would drop the namespace.
@@ -1209,7 +1271,7 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
 
   if (!ormImport) {
     const importText = `import {\n  ${[...new Set(importNames)].sort().join(',\n  ')},\n} from 'kitcn/orm';\n\n`;
-    return `${importText}${source}`;
+    return `${importText}${workingSource}`;
   }
 
   const namedBindings = ormImport.importClause
@@ -1229,7 +1291,7 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
   );
   const nextImport = `import {\n  ${mergedImports.join(',\n  ')},\n} from 'kitcn/orm';`;
   return replaceRange(
-    source,
+    workingSource,
     ormImport.getStart(sourceFile),
     ormImport.end,
     nextImport

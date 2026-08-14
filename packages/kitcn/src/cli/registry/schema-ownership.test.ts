@@ -5,6 +5,9 @@ import {
   reconcileRootSchemaOwnership,
 } from './schema-ownership';
 
+const TEXT_VALUE_IMPORT_RE =
+  /import \{[\s\S]*\btext,?[\s\S]*\} from 'kitcn\/orm';/;
+
 const createPromptAdapter = () => ({
   confirm: async () => true,
   isInteractive: () => false,
@@ -492,6 +495,27 @@ export default defineSchema(tables);
     );
     expect(result.content).not.toContain('InferSelectModel,');
     expect(result.content.match(/from ['"]kitcn\/orm['"]/g)).toHaveLength(2);
+  });
+
+  test('moves required bindings out of a whole type-only import', async () => {
+    const source = `import type { InferSelectModel, text } from "kitcn/orm";
+import * as orm from "kitcn/orm";
+
+export const tables = {};
+
+export type Value = InferSelectModel<{ value: ReturnType<typeof text> }>;
+
+export default orm.defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).toContain(
+      'import type { InferSelectModel } from "kitcn/orm";'
+    );
+    expect(result.content).not.toContain(
+      'import type { InferSelectModel, text } from "kitcn/orm";'
+    );
+    expect(result.content).toMatch(TEXT_VALUE_IMPORT_RE);
   });
 
   test('adds a value import when only a namespace kitcn/orm import exists', async () => {
