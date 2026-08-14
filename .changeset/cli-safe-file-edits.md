@@ -33,7 +33,11 @@ kitcn add auth --yes --overwrite
 
 - Fix `kitcn codegen` leaving a hidden parse snapshot behind when a Convex module
   fails to load, which kept reporting the old error after the real file was
-  fixed. Stale snapshots from earlier runs are now cleaned up automatically.
+  fixed. Codegen evaluates modules in memory instead of mirroring them to a
+  sibling file, so it no longer writes to — or deletes from — your Convex
+  directory, and import-time stack traces now point at the real module rather
+  than a temporary path. A file of your own ending in `.kitcn-parse.ts` is left
+  untouched.
 - Fix plugin registration landing inside a comment or string that happens to
   mention `defineSchema(`, which recorded the plugin as installed while its
   tables and relations never reached the schema.

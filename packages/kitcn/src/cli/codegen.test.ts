@@ -4297,7 +4297,7 @@ export default createHttpRouter({}, router({}));
     }
   });
 
-  test('generateMeta removes its parse snapshot when a module throws at import time', async () => {
+  test('generateMeta leaves no parse snapshot when a module throws at import time', async () => {
     const dir = mkTempDir();
     const oldCwd = process.cwd();
 
@@ -4365,24 +4365,54 @@ export default createHttpRouter({}, router({}));
     }
   });
 
-  test('generateMeta sweeps stale parse snapshots left by older runs', async () => {
+  test('generateMeta keeps a user file that matches the parse snapshot suffix', async () => {
     const dir = mkTempDir();
     const oldCwd = process.cwd();
 
     process.chdir(dir);
     try {
       writeScopedFixture(dir);
-      writeFile(
-        path.join(dir, 'convex', 'todos.ts.kitcn-parse.ts'),
-        "throw new Error('stale snapshot');"
-      );
+      const userFile = path.join(dir, 'convex', 'parser.kitcn-parse.ts');
+      writeFile(userFile, 'export const userOwned = 42;');
 
       await generateMeta(undefined, { silent: true });
 
-      expect(
-        fs.existsSync(path.join(dir, 'convex', 'todos.ts.kitcn-parse.ts'))
-      ).toBe(false);
+      expect(fs.readFileSync(userFile, 'utf-8')).toBe(
+        'export const userOwned = 42;'
+      );
       const { outputFile } = getConvexConfig();
+      expect(fs.readFileSync(outputFile, 'utf-8')).not.toContain('kitcn-parse');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta never overwrites a file sitting at a parse snapshot path', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      // `todos.ts` imports `kitcn/server`, so earlier builds rewrote it into a
+      // sibling snapshot at exactly this path, clobbering whatever was there.
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { initCRPC } from 'kitcn/server';
+        export const list = { _crpcMeta: { type: 'query' }, c: initCRPC };
+        `.trim()
+      );
+      const collidingFile = path.join(dir, 'convex', 'todos.ts.kitcn-parse.ts');
+      writeFile(collidingFile, 'export const userOwned = 42;');
+
+      await generateMeta(undefined, { silent: true });
+
+      expect(fs.readFileSync(collidingFile, 'utf-8')).toBe(
+        'export const userOwned = 42;'
+      );
+      const { outputFile } = getConvexConfig();
+      expect(fs.readFileSync(outputFile, 'utf-8')).toContain('todos');
       expect(fs.readFileSync(outputFile, 'utf-8')).not.toContain('kitcn-parse');
     } finally {
       process.chdir(oldCwd);

@@ -303,7 +303,7 @@ describe('package intent metadata', () => {
       const backendCoreSource = new TextDecoder().decode(extract.stdout);
 
       expect(backendCoreSource).toContain('getProjectServerParserShimPath');
-      expect(backendCoreSource).toContain('kitcn-parse.ts');
+      expect(backendCoreSource).toContain('evalModule');
       expect(backendCoreSource).toContain('kitcn/server');
       expect(backendCoreSource).toContain('tryNative: false');
     } finally {

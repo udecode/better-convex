@@ -6,7 +6,6 @@ import { OrmSchemaOptions } from '../orm/symbols';
 import {
   hasPotentialCodegenExports,
   isValidConvexFile,
-  PARSE_SNAPSHOT_SUFFIX,
 } from '../shared/meta-utils';
 import { CRPC_BUILDER_STUB_SOURCE } from './utils/crpc-builder-stub.js';
 import { logger } from './utils/logger.js';
@@ -164,21 +163,6 @@ function listFilesRecursive(cwd: string, relDir = ''): string[] {
     }
   }
   return files;
-}
-
-/**
- * Delete parse snapshots stranded by an earlier crashed run so a project that
- * is already wedged heals itself on the next codegen.
- */
-function sweepStaleParseSnapshots(functionsDir: string): void {
-  if (!fs.existsSync(functionsDir)) {
-    return;
-  }
-  for (const relPath of listFilesRecursive(functionsDir)) {
-    if (relPath.endsWith(PARSE_SNAPSHOT_SUFFIX)) {
-      fs.rmSync(path.join(functionsDir, relPath), { force: true });
-    }
-  }
 }
 
 function ensureRelativeImportPath(value: string): string {
@@ -1741,52 +1725,33 @@ async function parseModuleRuntime(
   procedures: ProcedureMeta[];
 }> {
   const source = fs.readFileSync(filePath, 'utf8');
-  let parseSnapshotPath: string | null = null;
-  try {
-    return await parseModuleRuntimeSource(filePath, source, jitiInstance, {
-      onSnapshot: (snapshotPath) => {
-        parseSnapshotPath = snapshotPath;
-      },
-    });
-  } finally {
-    if (parseSnapshotPath) {
-      fs.rmSync(parseSnapshotPath, { force: true });
-    }
-  }
-}
-
-async function parseModuleRuntimeSource(
-  filePath: string,
-  source: string,
-  jitiInstance: ReturnType<typeof createProjectJiti>,
-  hooks: { onSnapshot: (snapshotPath: string) => void }
-): Promise<{
-  meta: ModuleMeta | null;
-  httpRoutes: HttpRoutes;
-  procedures: ProcedureMeta[];
-}> {
+  // Bun can resolve a bare `kitcn/server` back through its own install cache,
+  // so the specifier is rewritten to the project parser shim before the module
+  // is evaluated. See docs/solutions/integration-issues/
+  // bunx-kitcn-self-resolution-must-not-break-scaffold-codegen-20260407.md.
   const rewrittenSource = source.replaceAll(
     /from\s+(['"])kitcn\/server\1/g,
     `from ${JSON.stringify(
       normalizeImportPath(getProjectServerParserShimPath())
     )}`
   );
-  const importPath =
-    rewrittenSource === source
-      ? filePath
-      : (() => {
-          const tempFilePath = `${filePath}${PARSE_SNAPSHOT_SUFFIX}`;
-          fs.writeFileSync(tempFilePath, rewrittenSource, 'utf8');
-          hooks.onSnapshot(tempFilePath);
-          return tempFilePath;
-        })();
   const result: ModuleMeta = {};
   const httpRoutes: HttpRoutes = {};
   const procedures: ProcedureMeta[] = [];
   const isHttp = filePath.endsWith('http.ts');
 
-  // Use jiti to import TypeScript files
-  const module = await jitiInstance.import(importPath);
+  // Use jiti to evaluate TypeScript files. A rewritten module is evaluated in
+  // memory rather than through a sibling temp file: anchoring it to `filePath`
+  // keeps its relative imports and stack traces pointing at the real module,
+  // and codegen never writes to — or deletes from — the Convex directory.
+  const module =
+    rewrittenSource === source
+      ? await jitiInstance.import(filePath)
+      : await jitiInstance.evalModule(rewrittenSource, {
+          async: true,
+          ext: '.ts',
+          filename: filePath,
+        });
 
   if (!module || typeof module !== 'object') {
     if (isHttp) {
@@ -1876,7 +1841,6 @@ export async function generateMeta(
 ): Promise<void> {
   const startTime = Date.now();
   const { functionsDir, outputFile } = getConvexConfig(sharedDir);
-  sweepStaleParseSnapshots(functionsDir);
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
   const ormOutputFile = getGeneratedOrmOutputFile(functionsDir);
   const crpcOutputFile = getGeneratedCrpcOutputFile(functionsDir);

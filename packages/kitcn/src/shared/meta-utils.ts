@@ -128,9 +128,11 @@ export function buildMetaIndex(api: Record<string, unknown>): Meta {
 }
 
 /**
- * Suffix codegen appends to its throwaway parse snapshots. Snapshots live next
- * to the module they mirror so relative imports still resolve, so every reader
- * of the Convex functions directory must ignore them.
+ * Suffix of a parse snapshot — a mirror of a Convex module that kitcn builds
+ * predating in-memory evaluation could strand in a project. Codegen writes no
+ * snapshot, so this exists only so readers of the Convex functions directory
+ * skip a stranded file rather than parse it as a real module. Nothing deletes
+ * one: kitcn cannot prove it owns a file it did not write.
  */
 export const PARSE_SNAPSHOT_SUFFIX = '.kitcn-parse.ts';
 
