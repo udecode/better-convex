@@ -75,26 +75,51 @@ function flattenRoles(
   return hasPublic ? 'public' : roles;
 }
 
-function roleMatches(
+function roleResolverRequiredError(
   policy: RlsPolicy,
   table: ConvexTable<any>,
-  rls?: RlsContext
-): boolean {
+  targetRoles: string[]
+): Error {
+  const roleList = targetRoles.map((role) => `'${role}'`).join(', ');
+  return new Error(
+    `RLS_ROLE_RESOLVER_REQUIRED: policy '${policy.name}' on table ` +
+      `'${getTableName(table)}' targets role(s) ${roleList}, but no ` +
+      "'roleResolver' is configured. Pass 'rls.roleResolver' when creating " +
+      "the ORM database, or remove the policy's 'to' clause."
+  );
+}
+
+/**
+ * A named-role policy cannot be evaluated without a role resolver. Validate
+ * that from the table's policy set alone so the failure depends only on
+ * configuration, never on whether the table currently holds matching rows.
+ */
+export function assertRlsRolesResolvable(options: {
+  table: ConvexTable<any>;
+  operation: RlsOperation;
+  rls?: RlsContext;
+}): void {
+  const { table, operation, rls } = options;
+  if (!isRlsEnabled(table)) return;
+  if (rls?.mode === 'skip') return;
+  if (rls?.roleResolver) return;
+
+  for (const policy of getRlsPolicies(table)) {
+    if (!policyApplies(policy, operation)) continue;
+    const targetRoles = flattenRoles(policy.to);
+    if (targetRoles === 'public') continue;
+    throw roleResolverRequiredError(policy, table, targetRoles);
+  }
+}
+
+function roleMatches(policy: RlsPolicy, rls?: RlsContext): boolean {
   const targetRoles = flattenRoles(policy.to);
   if (targetRoles === 'public') return true;
 
+  // `assertRlsRolesResolvable` rejects a missing resolver before any row is
+  // evaluated; treating it as an empty role list here keeps this fail-closed.
   const resolver = rls?.roleResolver;
-  if (!resolver) {
-    const roleList = targetRoles.map((role) => `'${role}'`).join(', ');
-    throw new Error(
-      `RLS_ROLE_RESOLVER_REQUIRED: policy '${policy.name}' on table ` +
-        `'${getTableName(table)}' targets role(s) ${roleList}, but no ` +
-        "'roleResolver' is configured. Pass 'rls.roleResolver' when creating " +
-        "the ORM database, or remove the policy's 'to' clause."
-    );
-  }
-
-  const roles = resolver(rls?.ctx ?? {}) ?? [];
+  const roles = resolver ? (resolver(rls?.ctx ?? {}) ?? []) : [];
   return targetRoles.some((role) => roles.includes(role));
 }
 
@@ -138,10 +163,11 @@ async function evaluatePolicySet({
   if (!isRlsEnabled(table)) return true;
   if (rls?.mode === 'skip') return true;
 
+  assertRlsRolesResolvable({ table, operation, rls });
+
   const ctx = rls?.ctx ?? {};
   const policies = getRlsPolicies(table).filter(
-    (policy) =>
-      policyApplies(policy, operation) && roleMatches(policy, table, rls)
+    (policy) => policyApplies(policy, operation) && roleMatches(policy, rls)
   );
 
   if (policies.length === 0) {
@@ -271,6 +297,14 @@ export async function filterSelectRows(options: {
 }): Promise<Record<string, unknown>[]> {
   if (!isRlsEnabled(options.table)) return options.rows;
   if (options.rls?.mode === 'skip') return options.rows;
+
+  // Runs before the row loop so an empty result set still rejects a table whose
+  // policies cannot be evaluated.
+  assertRlsRolesResolvable({
+    table: options.table,
+    operation: 'select',
+    rls: options.rls,
+  });
 
   const rows: Record<string, unknown>[] = [];
   for (const row of options.rows) {

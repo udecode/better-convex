@@ -27,7 +27,7 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { canDeleteRow } from './rls/evaluator';
+import { assertRlsRolesResolvable, canDeleteRow } from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -586,6 +586,9 @@ export class ConvexDeleteBuilder<
     let numAffected = 0;
 
     const rls = ormContext?.rls;
+    // Validated before the row loop so a filter that matches nothing still
+    // rejects policies this context cannot evaluate.
+    assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(

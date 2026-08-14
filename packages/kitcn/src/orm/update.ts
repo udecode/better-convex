@@ -29,7 +29,10 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { evaluateUpdateDecision } from './rls/evaluator';
+import {
+  assertRlsRolesResolvable,
+  evaluateUpdateDecision,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -615,6 +618,9 @@ export class ConvexUpdateBuilder<
     }
 
     const rls = ormContext?.rls;
+    // Validated before the row loop so a filter that matches nothing still
+    // rejects policies this context cannot evaluate.
+    assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(

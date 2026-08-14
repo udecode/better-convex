@@ -928,7 +928,7 @@ const ormDb = orm.db(ctx, {
 });
 ```
 
-**Important:** a policy scoped to a named role throws `RLS_ROLE_RESOLVER_REQUIRED` when no `roleResolver` is configured, instead of granting the policy to every caller. The SQL pseudo-roles `public`, `current_user`, `current_role`, and `session_user` apply to everyone and need no resolver.
+**Important:** a policy scoped to a named role throws `RLS_ROLE_RESOLVER_REQUIRED` when no `roleResolver` is configured, instead of granting the policy to every caller. Queries and mutations validate this per table before reading rows, so an empty table throws too. The SQL pseudo-roles `public`, `current_user`, `current_role`, and `session_user` apply to everyone and need no resolver.
 
 ### Null handling
 

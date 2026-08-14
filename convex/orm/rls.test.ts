@@ -108,12 +108,30 @@ const roleDocs = convexTable(
   'rls_role_docs',
   {
     value: text().notNull(),
+    ownerId: id('rls_users'),
   },
   (t) => [
+    index('by_owner').on(t.ownerId),
     rlsPolicy('role_read', {
       for: 'select',
       to: adminRole,
       using: () => eq(t.value, 'allowed'),
+    }),
+  ]
+);
+
+const roleWrites = convexTable(
+  'rls_role_writes',
+  {
+    value: text().notNull(),
+  },
+  (t) => [
+    index('by_value').on(t.value),
+    rlsPolicy('role_write', {
+      for: 'all',
+      to: adminRole,
+      using: () => eq(t.value, 'allowed'),
+      withCheck: () => eq(t.value, 'allowed'),
     }),
   ]
 );
@@ -167,6 +185,7 @@ const tables = {
   rls_locked: locked,
   rls_linked: linked,
   rls_role_docs: roleDocs,
+  rls_role_writes: roleWrites,
   rls_pseudo_role_docs: pseudoRoleDocs,
 };
 const schema = defineSchema(tables, {
@@ -183,12 +202,18 @@ const relations = defineRelations(tables, (r) => ({
   rls_locked: {},
   rls_linked: {},
   rls_role_docs: {},
+  rls_role_writes: {},
   rls_pseudo_role_docs: {},
   rls_users: {
     orgs: r.many.rls_orgs({
       from: r.rls_users.id.through(r.rls_memberships.userId),
       to: r.rls_orgs.id.through(r.rls_memberships.orgId),
       alias: 'rls-user-orgs',
+    }),
+    roleDocs: r.many.rls_role_docs({
+      from: r.rls_users.id,
+      to: r.rls_role_docs.ownerId,
+      alias: 'rls-user-role-docs',
     }),
   },
 }));
@@ -476,6 +501,51 @@ describe('RLS', () => {
       await expect(ctx.orm.query.rls_role_docs.findMany()).rejects.toThrow(
         /RLS_ROLE_RESOLVER_REQUIRED/
       );
+    });
+  });
+
+  it('throws for role-scoped policies on an empty table', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      // Same misconfiguration as above with no stored rows: configuration
+      // errors must not wait for the table's first insert.
+      const ctx = withOrm(baseCtx, relations);
+
+      await expect(ctx.orm.query.rls_role_docs.findMany()).rejects.toThrow(
+        /RLS_ROLE_RESOLVER_REQUIRED/
+      );
+      await expect(ctx.orm.query.rls_role_docs.findFirst()).rejects.toThrow(
+        /RLS_ROLE_RESOLVER_REQUIRED/
+      );
+    });
+  });
+
+  it('throws for role-scoped relation targets when the parent has no rows', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const ctx = withOrm(baseCtx, relations);
+
+      await expect(
+        ctx.orm.query.rls_users.findMany({ with: { roleDocs: true } })
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+    });
+  });
+
+  it('throws for role-scoped policies on writes that match no rows', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const ctx = withOrm(baseCtx, relations);
+
+      await expect(
+        ctx.orm
+          .update(roleWrites)
+          .set({ value: 'allowed' })
+          .where(eq(roleWrites.value, 'missing'))
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+
+      await expect(
+        ctx.orm.delete(roleWrites).where(eq(roleWrites.value, 'missing'))
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
     });
   });
 

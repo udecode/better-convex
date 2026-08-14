@@ -6,9 +6,11 @@
 
 - Require `rls.roleResolver` for policies scoped with `to`. A role-scoped policy
   previously applied to every caller when no resolver was configured; it now
-  throws `RLS_ROLE_RESOLVER_REQUIRED`. SQL pseudo-roles (`public`,
-  `current_user`, `current_role`, `session_user`) apply to everyone and still
-  need no resolver.
+  throws `RLS_ROLE_RESOLVER_REQUIRED`. Queries and mutations check this for
+  every table they touch before reading rows, so the error depends only on
+  configuration and not on whether the table holds rows. SQL pseudo-roles
+  (`public`, `current_user`, `current_role`, `session_user`) apply to everyone
+  and still need no resolver.
 
 ```ts
 // Before

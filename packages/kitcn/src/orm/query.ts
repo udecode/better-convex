@@ -96,7 +96,7 @@ import { asc, desc } from './order-by';
 import { getPage } from './pagination';
 import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
-import { filterSelectRows } from './rls/evaluator';
+import { assertRlsRolesResolvable, filterSelectRows } from './rls/evaluator';
 import type { RlsContext } from './rls/types';
 import {
   EmptyStream,
@@ -512,7 +512,9 @@ export class GelRelationalQuery<
     rows: any[],
     tableConfig?: TableRelationalConfig
   ): Promise<any[]> {
-    if (!rows.length || !tableConfig) return rows;
+    if (!tableConfig) return rows;
+    // Empty result sets still reach `filterSelectRows` so policy configuration
+    // is validated independently of what the table currently stores.
     return await filterSelectRows({
       table: tableConfig.table as any,
       rows,
@@ -1975,6 +1977,67 @@ export class GelRelationalQuery<
     }
   }
 
+  /**
+   * Validate role-scoped policies for every table this read plan touches before
+   * relations are loaded. Relation loaders skip work when a parent page is
+   * empty, so per-row evaluation alone would make a misconfigured table fail
+   * only once it holds rows. Mirrors the `_loadRelations` depth budget so the
+   * plan walked here matches the plan that would be executed.
+   */
+  private _assertRlsSelectPlan(
+    withConfig: Record<string, unknown> | undefined,
+    tableConfig: TableRelationalConfig,
+    edges: EdgeMetadata[],
+    depth: number,
+    maxDepth: number
+  ): void {
+    assertRlsRolesResolvable({
+      table: tableConfig.table as any,
+      operation: 'select',
+      rls: this.rls,
+    });
+
+    if (!withConfig || depth >= maxDepth) return;
+
+    for (const [relationName, relationConfig] of Object.entries(withConfig)) {
+      // `with._count` runs through the aggregate path, which rejects
+      // RLS-enabled tables with its own error.
+      if (relationName === '_count') continue;
+
+      const edge = edges.find((entry) => entry.edgeName === relationName);
+      // Unknown relations raise their own error while loading.
+      if (!edge) continue;
+
+      if (edge.through) {
+        const throughTableConfig = this._getTableConfigByDbName(
+          edge.through.table
+        );
+        if (throughTableConfig) {
+          assertRlsRolesResolvable({
+            table: throughTableConfig.table as any,
+            operation: 'select',
+            rls: this.rls,
+          });
+        }
+      }
+
+      const targetTableConfig = this._getTableConfigByDbName(edge.targetTable);
+      if (!targetTableConfig) continue;
+
+      this._assertRlsSelectPlan(
+        relationConfig && typeof relationConfig === 'object'
+          ? ((relationConfig as any).with as
+              | Record<string, unknown>
+              | undefined)
+          : undefined,
+        targetTableConfig,
+        this._getTargetTableEdges(edge.targetTable),
+        depth + 1,
+        maxDepth
+      );
+    }
+  }
+
   private async _finalizeRows(rows: any[]): Promise<any[]> {
     const polymorphicState = this._resolvePolymorphicFinalizeState();
     const requestedWith = this.config.with as
@@ -1999,6 +2062,14 @@ export class GelRelationalQuery<
         resolvedExtras
       );
     }
+
+    this._assertRlsSelectPlan(
+      effectiveWith,
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
 
     let rowsWithRelations = rows;
     if (effectiveWith) {

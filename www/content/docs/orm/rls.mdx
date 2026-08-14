@@ -140,7 +140,7 @@ const ormDb = orm.db(ctx, {
 ```
 
 <Callout icon={<AlertTriangle />}>
-**Important:** A `roleResolver` is required by any policy scoped to a named role. Evaluating such a policy without one throws `RLS_ROLE_RESOLVER_REQUIRED` rather than granting the policy to every caller. Use `ctx.orm.skipRules` for trusted code that intentionally bypasses policies.
+**Important:** A `roleResolver` is required by any policy scoped to a named role. Every query and mutation validates this for each table it touches before reading rows, so a missing resolver throws `RLS_ROLE_RESOLVER_REQUIRED` even when the table is empty, rather than granting the policy to every caller. Use `ctx.orm.skipRules` for trusted code that intentionally bypasses policies.
 </Callout>
 
 The SQL pseudo-roles `'public'`, `'current_user'`, `'current_role'`, and `'session_user'` resolve to the calling user, so they apply to everyone and need no `roleResolver`.
