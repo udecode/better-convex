@@ -75,7 +75,7 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | complete |
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
-| cleanup/review | yes | Late GitHub findings fixed; final autoreview pending | in_progress |
+| cleanup/review | yes | Final autoreview clean at 0.94 confidence | complete |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
@@ -126,7 +126,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 16 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 16 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun clean at 0.94 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -139,7 +139,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
-| Review/checks | in_progress | Late GitHub findings fixed with focused proof and deslop clean | final autoreview |
+| Review/checks | in_progress | All focused, cleanup, agent-native, and autoreview gates pass | exact check |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -162,6 +162,8 @@ Verification evidence:
   confidence before the late GitHub review added three more findings.
 - Hard-cut-aware autoreview reports the required snapshot state and current-shape
   protocol are internally consistent; no compatibility shim is warranted.
+- Final autoreview reports zero accepted/actionable findings at 0.94 confidence
+  after proportional refill, cache pruning, guidance, and dynamic validation fixes.
 
 Timeline:
 - 2026-08-14T18:17:55.073Z Autoclosure plan created.
@@ -174,6 +176,8 @@ Timeline:
   received a clean hard-cut-aware autoreview verdict at 0.90 confidence.
 - 2026-08-15T01:36:00+02:00 Remote CI passed, then a post-CI audit found and
   closed refill clipping, expired cache growth, and changeset clarity findings.
+- 2026-08-15T01:53:00+02:00 Closed stale refill guidance and invalid dynamic
+  override findings; final autoreview is clean at 0.94 confidence.
 
 Reboot status:
 | Question | Answer |
@@ -185,8 +189,7 @@ Reboot status:
 | What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- Final autoreview, exact `bun check`, refreshed remote gates, and merge receipt
-  remain.
+- Exact `bun check`, refreshed remote gates, and merge receipt remain.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
