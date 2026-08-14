@@ -130,6 +130,7 @@ export function countDocumentReads(ctx: { db: GenericDatabaseWriter<any> }): {
 } {
   const reads = { documents: 0 };
   const baseQuery = ctx.db.query.bind(ctx.db);
+  const baseGet = ctx.db.get.bind(ctx.db);
 
   const wrap = (query: object): any =>
     new Proxy(query, {
@@ -182,6 +183,13 @@ export function countDocumentReads(ctx: { db: GenericDatabaseWriter<any> }): {
     });
 
   (ctx.db as any).query = (table: unknown) => wrap(baseQuery(table as never));
+  (ctx.db as any).get = async (id: unknown) => {
+    const row = await baseGet(id as never);
+    if (row) {
+      reads.documents += 1;
+    }
+    return row;
+  };
   return reads;
 }
 

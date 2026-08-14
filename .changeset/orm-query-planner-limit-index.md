@@ -69,11 +69,15 @@ await db.query.users
   Values are compared by content, in queries and in `update`/`delete` filters.
 - Fix `select()` returning raw rows for a `where: { id }` lookup, which silently
   skipped `map`, `filter`, `flatMap`, and `distinct`. `pageByKey` with the same
-  `where` also returns its page shape instead of a bare array.
+  `where` also returns its page shape instead of a bare array. A `where` on `id`
+  or `id: { in: [...] }` reads those rows by key rather than scanning the table
+  for them, so `select()` costs one read per id however large the table is.
 - Fix `flatMap`'s `limit` counting rows excluded by its `where`, which returned
   fewer children than asked for and often none. The limit now counts matching
   children, stays stable across pages instead of yielding a fresh batch per page,
-  and reads each child once within the `maxScan` budget.
+  and reads each child once within the `maxScan` budget. It also stops on the
+  last child it can return instead of reading one past it, so a small `limit`
+  across many parents no longer spends reads no page can show.
 - Fix a relation `limit` combined with a relation `where` returning too few
   children — none when enough non-matching children sorted first. The limit now
   counts matching children.

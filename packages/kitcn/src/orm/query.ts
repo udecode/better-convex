@@ -8,6 +8,7 @@
  */
 
 import type { GenericDatabaseReader } from 'convex/server';
+import { compareValues } from 'convex/values';
 import {
   compileRankPlan,
   ensureRankAllowedForRls,
@@ -177,6 +178,9 @@ const RELATION_COUNT_ERROR = {
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
 
+/** A `where` that filters on nothing but the primary key. */
+type IdOnlyWhere = { kind: 'eq'; id: unknown } | { kind: 'in'; ids: unknown[] };
+
 type GroupByOrderSpec = {
   direction: 'asc' | 'desc';
   label: string;
@@ -256,11 +260,12 @@ class BufferedQueryStream<
  * resets whenever pagination narrows the stream, so every page would hand back
  * another `limit` rows.
  *
- * So the run is read once, up to the first row past the limit, and replayed.
- * Reading that far is inherent — the cut-off is only knowable by reaching it —
- * but the rows are kept rather than re-fetched, and the `null` placeholders are
- * replayed too so the scan stays visible to `paginate`'s `maxScan` budget
- * instead of happening invisibly behind it.
+ * So the run is read once and replayed. It stops on the limit-th match rather
+ * than one row past it: nothing after that match can be emitted, so reading it
+ * would be a document `paginate` never sees — `maxScan` counts replayed entries,
+ * and a row dropped here is never replayed. Every row that *is* read is kept,
+ * `null` placeholders included, so the scan stays visible to the budget instead
+ * of happening invisibly behind it.
  */
 async function limitStreamByKey<T extends NonNullable<unknown>>(
   inner: QueryStream<T>,
@@ -269,16 +274,16 @@ async function limitStreamByKey<T extends NonNullable<unknown>>(
   const entries: [T | null, IndexKey][] = [];
   let matched = 0;
 
-  for await (const entry of inner.iterWithKeys()) {
-    if (entry[0] !== null) {
-      matched += 1;
-      // The first row past the limit is read (it is the only way to learn the
-      // run ends here) but never handed on.
-      if (matched > limit) {
-        break;
+  if (limit > 0) {
+    for await (const entry of inner.iterWithKeys()) {
+      entries.push(entry);
+      if (entry[0] !== null) {
+        matched += 1;
+        if (matched >= limit) {
+          break;
+        }
       }
     }
-    entries.push(entry);
   }
 
   return new BufferedQueryStream<T>(
@@ -507,9 +512,7 @@ export class GelRelationalQuery<
     return hydrateDateFieldsForRead(tableConfig.table as any, row);
   }
 
-  private _extractIdOnlyWhere(
-    where: unknown
-  ): { kind: 'eq'; id: unknown } | { kind: 'in'; ids: unknown[] } | null {
+  private _extractIdOnlyWhere(where: unknown): IdOnlyWhere | null {
     if (!where || typeof where !== 'object' || Array.isArray(where)) {
       return null;
     }
@@ -2404,6 +2407,87 @@ export class GelRelationalQuery<
 
     throw new Error(
       `${context} where callback must return a filter expression or predicate(...).`
+    );
+  }
+
+  /**
+   * Read an id-only `where` through the primary key instead of scanning for it.
+   *
+   * The where-clause compiler is built from declared indexes only, and `_id` is
+   * never one of them, so an `id` filter can never be index-selected: it lands
+   * in the post-filters and the stream walks the creation-time index until it
+   * happens on the row. `db.get()` reads exactly the rows asked for, so the ids
+   * are fetched directly and replayed as a creation-time-ordered stream — the
+   * order the scan would have produced, so stage order and cursors are the same.
+   *
+   * Returns null when something else already owns the read: a pinned index, an
+   * index the compiler did select, a `where(predicate)`, or an `orderBy` that
+   * walks a different index.
+   */
+  private async _buildIdLookupStream(params: {
+    configuredIndex: PredicateWhereIndexConfig<TTableConfig> | undefined;
+    idLookup: IdOnlyWhere | null;
+    order: 'asc' | 'desc';
+    queryConfig: {
+      index?: { name: string; filters: FilterExpression<boolean>[] };
+      order?: { direction: 'asc' | 'desc'; field: string }[];
+    };
+    wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined;
+  }): Promise<QueryStream<any> | null> {
+    const { configuredIndex, idLookup, order, queryConfig, wherePredicate } =
+      params;
+
+    if (
+      !idLookup ||
+      wherePredicate ||
+      configuredIndex?.name ||
+      queryConfig.index
+    ) {
+      return null;
+    }
+
+    const primaryOrder = queryConfig.order?.[0];
+    if (primaryOrder && primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD) {
+      return null;
+    }
+
+    // De-duplicate ids for `in` semantics, matching the non-pipeline path.
+    const ids =
+      idLookup.kind === 'in'
+        ? Array.from(
+            new Map(
+              idLookup.ids.map((id) => [String(id), id] as const)
+            ).values()
+          )
+        : [idLookup.id];
+
+    const fetched = await this._mapWithConcurrency(ids, async (id) => {
+      return this._getById(this.tableConfig.name, id);
+    });
+    const rows = fetched.filter((row): row is any => !!row);
+
+    rows.sort(
+      (a, b) =>
+        compareValues(
+          a[INTERNAL_CREATION_TIME_FIELD],
+          b[INTERNAL_CREATION_TIME_FIELD]
+        ) || compareValues(a[INTERNAL_ID_FIELD], b[INTERNAL_ID_FIELD])
+    );
+    if (order === 'desc') {
+      rows.reverse();
+    }
+
+    return new BufferedQueryStream<any>(
+      rows.map(
+        (row) =>
+          [
+            row,
+            [row[INTERNAL_CREATION_TIME_FIELD], row[INTERNAL_ID_FIELD]],
+          ] as [any, IndexKey]
+      ),
+      order,
+      [INTERNAL_CREATION_TIME_FIELD, INTERNAL_ID_FIELD],
+      []
     );
   }
 
@@ -5341,11 +5425,19 @@ export class GelRelationalQuery<
           );
         }
       } else {
-        streamQuery = this._buildBasePipelineStream(
-          queryConfig,
-          wherePredicate,
-          configuredIndex
-        );
+        streamQuery =
+          (await this._buildIdLookupStream({
+            configuredIndex,
+            idLookup,
+            order: fallbackOrder,
+            queryConfig,
+            wherePredicate,
+          })) ??
+          this._buildBasePipelineStream(
+            queryConfig,
+            wherePredicate,
+            configuredIndex
+          );
       }
 
       if (pipeline) {

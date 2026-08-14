@@ -523,6 +523,40 @@ test('flatMap limit reads each child once and stays under maxScan', async () => 
   });
 });
 
+test('flatMap limit stops on the limit-th child, not one past it', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-limit-stop@example.com',
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: 'note',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', { includeParent: false, limit: 2 })
+      .limit(10);
+
+    expect(rows.map((row) => row.text)).toEqual(['p0', 'p1']);
+    // 1 parent + exactly 2 children. A third child read would be a document
+    // nothing can emit and maxScan never sees, since only replayed rows count.
+    expect(reads.documents).toBe(3);
+  });
+});
+
 test('flatMap limit holds under desc order and a stage where', async () => {
   const t = convexTest(schema);
 
@@ -598,6 +632,155 @@ test('select() pipeline stages run for an id-only where', async () => {
       .map((row) => ({ onlyTitle: row.title }))
       .limit(10);
     expect(mapped).toEqual([{ onlyTitle: 'hello' }]);
+  });
+});
+
+test('select() pipeline reads an id-only where by key, not by scan', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    // The last row inserted: a creation-time scan would have to read all 40.
+    const mapped = await ctx.orm.query.posts
+      .select()
+      .where({ id: ids.at(-1) as string })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+
+    expect(mapped).toEqual([{ onlyTitle: 'title-39' }]);
+    expect(reads.documents).toBe(1);
+  });
+});
+
+test('select() pipeline reads an id `in` where by key, in creation order', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const mapped = await ctx.orm.query.posts
+      .select()
+      // Out of order, and with a duplicate, to pin both the de-dupe and the
+      // stream order the scan would have produced.
+      .where({ id: { in: [ids[30], ids[5], ids[30]] as string[] } })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+
+    expect(mapped).toEqual([
+      { onlyTitle: 'title-5' },
+      { onlyTitle: 'title-30' },
+    ]);
+    expect(reads.documents).toBe(2);
+  });
+});
+
+test('select() pipeline pages an id-only where without scanning', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 5; page += 1) {
+      const result = await ctx.orm.query.posts
+        .select()
+        .where({ id: { in: [ids[30], ids[5], ids[12]] as string[] } })
+        .map((row) => ({ onlyTitle: row.title }))
+        .paginate({ cursor, limit: 2 });
+      walked.push(...result.page.map((row) => row.onlyTitle as string));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(['title-5', 'title-12', 'title-30']);
+  });
+});
+
+test('select() flatMap runs off an id-only where without scanning', async () => {
+  const t = convexTest(schema);
+  let authorId = '';
+
+  await t.run(async (baseCtx) => {
+    for (const name of ['Ada', 'Bo']) {
+      const author = await baseCtx.db.insert('users', {
+        name,
+        email: `${name}@flatmap-id.example.com`,
+      });
+      if (name === 'Bo') {
+        authorId = author;
+      }
+      for (let i = 0; i < 3; i += 1) {
+        await baseCtx.db.insert('posts', {
+          text: `${name}${i}`,
+          numLikes: 0,
+          type: 'note',
+          authorId: author,
+        });
+      }
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .where({ id: authorId })
+      .flatMap('posts', { includeParent: false })
+      .limit(10);
+
+    expect(rows.map((row) => row.text)).toEqual(['Bo0', 'Bo1', 'Bo2']);
+    // 1 parent read by key + its 3 children. Ada is never touched.
+    expect(reads.documents).toBe(4);
   });
 });
 
