@@ -75,7 +75,7 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | complete |
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
-| cleanup/review | yes | Deslop and agent-native pass; autoreview rerun | in_progress |
+| cleanup/review | yes | Deslop, agent-native review, and autoreview | complete |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
@@ -119,7 +119,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | nine findings repaired; clean rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | clean at 0.90 after nine repairs |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -132,7 +132,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
-| Review/checks | in_progress | Focused tests, build, types, lint, sync, Intent, deslop, and agent-native pass | clean autoreview |
+| Review/checks | in_progress | All focused, cleanup, agent-native, and autoreview gates pass | exact check |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -151,24 +151,28 @@ Verification evidence:
   pair is the same existing `createFixedWindow` wrapper moved by the larger file.
 - Agent-native review passes: `kitcn` route -> package skill owner -> generated
   mirror/public docs -> focused tests, sync, and Intent proof.
+- Final autoreview reports zero accepted/actionable findings at 0.90 confidence
+  after nine red-to-green accounting repairs.
 
 Timeline:
 - 2026-08-14T18:17:55.073Z Autoclosure plan created.
 - 2026-08-15T00:13:00+02:00 Rebased onto PR 320, repaired the remaining
   reservation finding and three independent review findings with red-to-green
   tests, synchronized guidance, and completed focused proof.
+- 2026-08-15T00:48:00+02:00 Closed six further cache, retry, and aggregate-read
+  findings and received a clean final autoreview verdict.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
 | Where am I? | Review/checks |
-| Where am I going? | Clean autoreview, exact repository gate, delivery, final audit |
+| Where am I going? | Exact repository gate, delivery, final audit |
 | What is the goal? | Merge correct limiter accounting with synchronized guidance |
 | What have I learned? | Exact global quotas need fallback and capacity-aware scaling, not only per-shard division |
 | What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- Clean autoreview, exact `bun check`, remote gates, and merge receipt remain.
+- Exact `bun check`, remote gates, and merge receipt remain.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
