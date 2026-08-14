@@ -75,7 +75,7 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | complete |
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
-| cleanup/review | yes | Previous gates clean; rerun after sliding snapshot repair | in_progress |
+| cleanup/review | yes | Final hard-cut-aware autoreview clean at 0.90 confidence | complete |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
@@ -121,7 +121,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 11 fixed; compatibility fallback rejected by hard-cut doctrine; clean rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 11 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun clean at 0.90 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -155,6 +155,8 @@ Verification evidence:
   mirror/public docs -> focused tests, sync, and Intent proof.
 - Final autoreview reports zero accepted/actionable findings at 0.90 confidence
   after nine red-to-green accounting repairs.
+- Hard-cut-aware autoreview reports the required snapshot state and current-shape
+  protocol are internally consistent; no compatibility shim is warranted.
 
 Timeline:
 - 2026-08-14T18:17:55.073Z Autoclosure plan created.
@@ -163,6 +165,8 @@ Timeline:
   tests, synchronized guidance, and completed focused proof.
 - 2026-08-15T00:48:00+02:00 Closed six further cache, retry, and aggregate-read
   findings and received a clean final autoreview verdict.
+- 2026-08-15T01:08:00+02:00 Closed the per-shard usable-balance finding and
+  received a clean hard-cut-aware autoreview verdict at 0.90 confidence.
 
 Reboot status:
 | Question | Answer |
