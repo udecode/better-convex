@@ -531,6 +531,57 @@ describe('server/builder', () => {
     ).rejects.toBeTruthy();
   });
 
+  test('a redeclared key is not re-validated by an earlier refined schema', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ value: z.string(), label: z.string() })
+          .refine((v) => v.label.length > 0, { message: 'label required' })
+      )
+      .input(z.object({ value: z.number() }))
+      .query(async ({ input }) => `${input.label}:${input.value * 2}`);
+
+    await expect(
+      (fn as any)._handler({}, { value: 21, label: 'k' })
+    ).resolves.toBe('k:42');
+
+    // the earlier schema's object-level rule still runs
+    await expect(
+      (fn as any)._handler({}, { value: 21, label: '' })
+    ).rejects.toBeTruthy();
+
+    // the surviving declaration still validates
+    await expect(
+      (fn as any)._handler({}, { value: 'nope', label: 'k' })
+    ).rejects.toBeTruthy();
+  });
+
+  test('an earlier object-level check reads the redeclared value the last schema produced', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ limit: z.number() })
+          .refine((v) => v.limit <= 10, { message: 'limit too high' })
+      )
+      .input(z.object({ limit: z.number().default(5) }))
+      .query(async ({ input }) => input.limit);
+
+    // the later default fills the gap and satisfies the earlier rule
+    await expect((fn as any)._handler({}, {})).resolves.toBe(5);
+
+    await expect((fn as any)._handler({}, { limit: 50 })).rejects.toBeTruthy();
+  });
+
   test('paginated() composes with an .input() schema carrying object-level checks', async () => {
     const c = initCRPC.create({
       query: queryGeneric,

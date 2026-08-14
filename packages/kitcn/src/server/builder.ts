@@ -679,24 +679,25 @@ const resolveConvexArgsShape = (
 };
 
 /**
- * Drop keys a later `.input()` redeclares.
+ * Strip the field validators for keys a later `.input()` redeclares.
  *
- * Returns `undefined` when the schema carries object-level checks, since zod
- * refuses to omit from those - such a schema keeps the key and reads the value
- * its owner parsed.
+ * The keys stay on the schema so its object-level checks still see them - and
+ * read the value their owner parsed - while only the last declaration validates
+ * them. `safeExtend` is the one zod object operation that rewrites keys on a
+ * schema carrying object-level checks; `omit` and `extend` both refuse.
  */
-const omitSupersededKeys = (
+const relaxSupersededKeys = (
   schema: z.ZodObject<any>,
   superseded: string[]
-): z.ZodObject<any> | undefined => {
+): z.ZodObject<any> => {
   if (superseded.length === 0) return schema;
 
   try {
-    return schema.omit(
-      Object.fromEntries(superseded.map((key) => [key, true])) as any
+    return schema.safeExtend(
+      Object.fromEntries(superseded.map((key) => [key, z.any()])) as any
     );
   } catch {
-    return;
+    return schema;
   }
 };
 
@@ -727,28 +728,27 @@ const parseInput = (
     const source = isPlainObject(value) ? value : {};
     const parsed: Record<string, unknown> = {};
 
-    // Walk owners first, so a schema still holding a superseded key can read
-    // the value its owner produced.
+    // Walk owners first, so a schema holding a superseded key can read the
+    // value its owner produced.
     for (let index = inputSchemas.length - 1; index >= 0; index -= 1) {
       const schema = inputSchemas[index];
       const keys = Object.keys(schema.shape);
-      const superseded = keys.filter((key) => ownerOf.get(key) !== index);
-      const scoped = omitSupersededKeys(schema, superseded);
+      const superseded = new Set(
+        keys.filter((key) => ownerOf.get(key) !== index)
+      );
+      const scoped = relaxSupersededKeys(schema, [...superseded]);
 
       const narrowed: Record<string, unknown> = {};
       for (const key of keys) {
-        if (superseded.includes(key)) {
-          // Omitted outright when zod allowed it, otherwise fed the owner value.
-          if (!scoped && key in parsed) narrowed[key] = parsed[key];
+        if (superseded.has(key)) {
+          // Fed the owner value, so object-level checks see the final input.
+          if (key in parsed) narrowed[key] = parsed[key];
           continue;
         }
         if (Object.hasOwn(source, key)) narrowed[key] = source[key];
       }
 
-      const result = (scoped ?? schema).parse(narrowed) as Record<
-        string,
-        unknown
-      >;
+      const result = scoped.parse(narrowed) as Record<string, unknown>;
       for (const key of keys) {
         if (ownerOf.get(key) === index && key in result) {
           parsed[key] = result[key];

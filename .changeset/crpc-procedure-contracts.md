@@ -4,11 +4,11 @@
 
 ## Breaking changes
 
-- `next()` now resolves after the handler runs, so middleware wraps the whole
-  procedure. Timing, error reporting, and cleanup around `next()` now observe
-  the handler, and handler errors propagate through every wrapping `catch`. A
-  `ctx` changed on the return path no longer reaches the handler — pass it to
-  `next()` instead.
+- Improve middleware to wrap the whole procedure: `next()` resolves after the
+  handler runs, so timing, error reporting, and cleanup around it observe the
+  handler, and handler errors propagate through every wrapping `catch`. A `ctx`
+  changed on the return path no longer reaches the handler — pass it to `next()`
+  instead.
 
   ```ts
   // Before — logged 0ms, never saw handler errors, and this ctx was ignored
@@ -30,9 +30,10 @@
   })
   ```
 
-- Chained `.input()` schemas are each applied on their own instead of being
-  flattened into one shape, so object-level rules now run. A key declared by
-  more than one schema is validated only by the last schema to declare it.
+- Improve chained `.input()` to apply each schema on its own instead of
+  flattening them into one shape, so object-level rules run. A key declared by
+  more than one schema is validated only by the last schema to declare it, even
+  when an earlier schema carries object-level rules.
 
   ```ts
   // Before — the object-level rule was dropped and both fields reached the handler
