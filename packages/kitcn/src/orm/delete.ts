@@ -415,6 +415,11 @@ export class ConvexDeleteBuilder<
       }
     }
 
+    const rls = ormContext?.rls;
+    // Policy configuration must fail before any candidate-row reads so the
+    // error is independent of table size and mutation collection limits.
+    assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
+
     let rows: Record<string, unknown>[];
     let continueCursor: string | null = null;
     let isDone = true;
@@ -585,10 +590,6 @@ export class ConvexDeleteBuilder<
     const results: Record<string, unknown>[] = [];
     let numAffected = 0;
 
-    const rls = ormContext?.rls;
-    // Validated before the row loop so a filter that matches nothing still
-    // rejects policies this context cannot evaluate.
-    assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(

@@ -427,6 +427,11 @@ export class ConvexUpdateBuilder<
       }
     }
 
+    const rls = ormContext?.rls;
+    // Policy configuration must fail before any candidate-row reads so the
+    // error is independent of table size and mutation collection limits.
+    assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
+
     const onUpdateSet: Record<string, unknown> = {};
     for (const [columnName, builder] of Object.entries(
       getTableColumns(this.table)
@@ -617,10 +622,6 @@ export class ConvexUpdateBuilder<
       );
     }
 
-    const rls = ormContext?.rls;
-    // Validated before the row loop so a filter that matches nothing still
-    // rejects policies this context cannot evaluate.
-    assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(

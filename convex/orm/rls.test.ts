@@ -590,6 +590,31 @@ describe('RLS', () => {
     });
   });
 
+  it('validates mutation roles before collecting candidate rows', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const guardedDb = new Proxy(baseCtx.db, {
+        get(target, property, receiver) {
+          if (property === 'query' || property === 'get') {
+            throw new Error('MUTATION_READ_STARTED');
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      const ctx = withOrm({ ...baseCtx, db: guardedDb }, relations);
+
+      await expect(
+        ctx.orm
+          .update(roleWrites)
+          .set({ value: 'allowed' })
+          .where(eq(roleWrites.value, 'missing'))
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+      await expect(
+        ctx.orm.delete(roleWrites).where(eq(roleWrites.value, 'missing'))
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+    });
+  });
+
   it('applies SQL pseudo-role policies without a roleResolver', async () => {
     const t = convexTest(schema);
     await t.run(async (baseCtx) => {
