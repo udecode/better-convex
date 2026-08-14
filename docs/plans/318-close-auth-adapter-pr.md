@@ -80,17 +80,17 @@ Closure matrix:
 | docs/package skill | no | N/A: no public docs or package skill changed | N/A |
 | changeset | yes | `.changeset/auth-adapter-wrong-rows.md` audit | passed: patch sections match final behavior |
 | agent workflow | no | N/A: no agent workflow/action changed | N/A |
-| cleanup/review | yes | Deslop and autoreview | pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | Deslop and autoreview | passed: no accepted findings |
+| repository check | yes | `bun check` | passed |
 | GitHub delivery | yes | PR 318 update/merge/read-back | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
+- [x] Each lane is proven or N/A with a concrete reason.
 - [x] Generated output is N/A: no generated owner is touched.
-- [ ] Package build and living changeset match the final behavior; docs/skill/
+- [x] Package build and living changeset match the final behavior; docs/skill/
       fixtures/scenarios are N/A for this runtime-only delta.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule or generated skill mirror is changed.
@@ -114,9 +114,9 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | passed: zero net findings; no worthwhile cleanup |
 | Agent-native reviewer | no | N/A: no agent-facing action changed | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | passed end to end |
 | GitHub delivery | yes | Update checkbox/branch, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: clean branch review, confidence 0.98 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/318-close-auth-adapter-pr.md` | pending |
 | Agent source / generated sync | no | N/A: no agent source or mirror change | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
@@ -129,7 +129,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | completed | PR contract/files/checks and proof gap reconstructed | repair |
 | Repair | completed | deterministic Vitest forwarding proof added | review |
-| Review/checks | in_progress | focused tests/build/types/lint/fixtures/verify passed | autoreview and final `bun check` |
+| Review/checks | completed | focused tests/build/types/lint/fixtures/verify/runtime, autoreview, and `bun check` passed | delivery |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -142,18 +142,23 @@ Verification evidence:
 - `bun run lint:slop:delta` -> finding count unchanged, score +0.12; only existing auth directory fan-out hotspot.
 - `bun run fixtures:check` -> all 8 fixtures match fresh output after one transient network-stall retry.
 - `bun run test:verify` -> passed.
-- `bun run test:runtime` -> running.
+- `bun run test:runtime` -> passed; supported scenarios started and auth smoke checks passed.
+- Autoreview branch diff against `kitcn/main` -> clean, no accepted or actionable findings, confidence 0.98.
+- `bun check` -> passed end to end, including lint, types, tests, fixtures,
+  verify, and runtime scenarios.
 
 Timeline:
 - 2026-08-14T18:17:54.453Z Autoclosure plan created.
 - 2026-08-14T18:25:00Z Restored deterministic JWT-cache forwarding proof in Vitest.
-- 2026-08-14T18:41:00Z Focused/build/lint/fixture/verify proof passed; runtime and review remain.
+- 2026-08-14T18:41:00Z Focused/build/lint/fixture/verify proof passed.
+- 2026-08-14T20:47:00Z Runtime scenarios and independent autoreview passed; exact final check remains.
+- 2026-08-14T20:54:00Z Exact `bun check` passed end to end.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Delivery |
+| Where am I going? | GitHub checks, merge, read-back, final audit |
 | What is the goal? | Merge PR 318 with deterministic auth adapter proof and no release trigger |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
