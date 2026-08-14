@@ -68,7 +68,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 37 focused ratelimit tests | complete |
+| source behavior | yes | 38 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
@@ -103,12 +103,13 @@ Error attempts:
 | Fixed-window capacity projected through refill limit | 1 | Scale stored balances with algorithm capacity | Red 150-versus-100 test became green |
 | Large-request cache block poisoned smaller counts | 1 | Key blocks by shard and requested count | Red smaller-request test became green |
 | Cached shard omitted from global retry deadline | 1 | Take minimum cached and evaluated reset | Red earliest-reset test became green |
+| Ordinary cache block hid reservation headroom | 1 | Key blocks by reservation mode | Red reserved-retry test became green |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 37 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 38 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -116,7 +117,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | six findings repaired; clean rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | seven findings repaired; clean rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -136,7 +137,7 @@ Phase / pass table:
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 30 Vitest tests and 7 Bun tests across all four ratelimit
+- Focused proof passes 31 Vitest tests and 7 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -186,3 +187,5 @@ Review fixes:
   fractional budgets were fixed with red-to-green regressions.
 - Final autoreview findings for count-aware caching and earliest global reset
   were fixed with red-to-green regressions.
+- Reservation-mode cache identity was fixed with a red-to-green reserved-retry
+  regression.

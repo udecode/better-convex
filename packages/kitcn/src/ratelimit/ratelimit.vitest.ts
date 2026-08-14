@@ -296,6 +296,24 @@ describe('Ratelimit', () => {
     expect(reserved.success).toBe(true);
   });
 
+  test('a normal cache block does not hide reservation headroom', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.fixedWindow(1, '1 m', { maxReserved: 1 }),
+    });
+
+    const first = await limiter.limit('reserved-cache-user');
+    const denied = await limiter.limit('reserved-cache-user');
+    const reserved = await limiter.limit('reserved-cache-user', {
+      reserve: true,
+    });
+
+    expect(first.success).toBe(true);
+    expect(denied.success).toBe(false);
+    expect(reserved.success).toBe(true);
+  });
+
   test('an exhausted shard falls back to preserve the configured budget', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({
@@ -376,6 +394,7 @@ describe('Ratelimit', () => {
       'kitcn/ratelimit:retry-cache-user',
       0,
       1,
+      false,
       cachedReset
     );
     Math.random = () => 0;

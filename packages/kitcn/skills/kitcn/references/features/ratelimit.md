@@ -28,7 +28,7 @@ Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 - `tokenBucket` deals `maxTokens` but splits `refillRate` evenly — a bucket refills continuously, so a fractional rate still accumulates.
 - One call spends from one shard, so `count` can never exceed that shard's share. Aim for a share of ten or more times your largest `count`.
 - Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` throws on the same rule instead of silently denying every request.
-- The ephemeral block cache is keyed per shard and requested count, so an exhausted shard never blocks peers and a failed large request never blocks a smaller one.
+- The ephemeral block cache is keyed per shard, requested count, and reservation mode, so an exhausted shard never blocks peers and a failed large or ordinary request never blocks a smaller or reserved one.
 - Preferred shards are tried first; if none can serve the request, the limiter retries the remaining shards before denying it.
 - Failure `reset` is the earliest retry across both cached and freshly evaluated shards.
 

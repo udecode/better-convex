@@ -1,9 +1,9 @@
 /**
  * Remembers exhausted shards so a request routed to one skips its read.
  *
- * Entries are per shard and requested count, never per identifier: a shard can
- * reject a large request while still serving a smaller one, and its peers may
- * still hold tokens.
+ * Entries are per shard, requested count, and reservation mode, never per
+ * identifier: a shard can reject a large or ordinary request while still
+ * serving a smaller or reserved one, and its peers may still hold tokens.
  */
 export class EphemeralBlockCache {
   constructor(private readonly cache: Map<string, number>) {}
@@ -11,9 +11,10 @@ export class EphemeralBlockCache {
   isBlocked(
     identifier: string,
     shard: number,
-    count: number
+    count: number,
+    reserve: boolean
   ): { blocked: boolean; reset: number } {
-    const key = shardKey(identifier, shard, count);
+    const key = shardKey(identifier, shard, count, reserve);
     const reset = this.cache.get(key);
     if (!reset) {
       return { blocked: false, reset: 0 };
@@ -29,9 +30,10 @@ export class EphemeralBlockCache {
     identifier: string,
     shard: number,
     count: number,
+    reserve: boolean,
     reset: number
   ): void {
-    this.cache.set(shardKey(identifier, shard, count), reset);
+    this.cache.set(shardKey(identifier, shard, count, reserve), reset);
   }
 
   clear(identifier: string): void {
@@ -48,8 +50,13 @@ export class EphemeralBlockCache {
   }
 }
 
-function shardKey(identifier: string, shard: number, count: number): string {
-  return `${identifierPrefix(identifier)}${shard}:${count}`;
+function shardKey(
+  identifier: string,
+  shard: number,
+  count: number,
+  reserve: boolean
+): string {
+  return `${identifierPrefix(identifier)}${shard}:${count}:${reserve ? 1 : 0}`;
 }
 
 function identifierPrefix(identifier: string): string {

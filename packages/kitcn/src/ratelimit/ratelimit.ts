@@ -329,7 +329,12 @@ export class Ratelimit {
         attempted.add(shard);
         const blocked =
           this.blockCache && count > 0
-            ? this.blockCache.isBlocked(this.blockKey(identifier), shard, count)
+            ? this.blockCache.isBlocked(
+                this.blockKey(identifier),
+                shard,
+                count,
+                reserveRequested
+              )
             : undefined;
 
         if (blocked?.blocked) {
@@ -387,6 +392,7 @@ export class Ratelimit {
             this.blockKey(identifier),
             candidate.shard,
             count,
+            reserveRequested,
             now + (candidate.evaluated.retryAfter ?? 1)
           );
         }
