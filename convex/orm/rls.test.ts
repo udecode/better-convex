@@ -60,6 +60,44 @@ const secrets = convexTable(
   ]
 );
 
+const nullableSecrets = convexTable(
+  'rls_nullable_secrets',
+  {
+    value: text().notNull(),
+    ownerId: id('rls_users'),
+  },
+  (t) => [
+    index('by_owner').on(t.ownerId),
+    rlsPolicy('nullable_read_own', {
+      for: 'select',
+      using: (ctx) => eq(t.ownerId, ctx.viewerId),
+    }),
+    rlsPolicy('nullable_insert_own', {
+      for: 'insert',
+      withCheck: (ctx) => eq(t.ownerId, ctx.viewerId),
+    }),
+  ]
+);
+
+const orgs = convexTable('rls_orgs', {
+  name: text().notNull(),
+});
+
+const memberships = convexTable(
+  'rls_memberships',
+  {
+    userId: id('rls_users').notNull(),
+    orgId: id('rls_orgs').notNull(),
+  },
+  (t) => [
+    index('by_user').on(t.userId),
+    rlsPolicy('memberships_read_own', {
+      for: 'select',
+      using: (ctx) => eq(t.userId, ctx.viewerId),
+    }),
+  ]
+);
+
 const linked = convexTable.withRLS('rls_linked', {
   value: text().notNull(),
 });
@@ -75,6 +113,20 @@ const roleDocs = convexTable(
     rlsPolicy('role_read', {
       for: 'select',
       to: adminRole,
+      using: () => eq(t.value, 'allowed'),
+    }),
+  ]
+);
+
+const pseudoRoleDocs = convexTable(
+  'rls_pseudo_role_docs',
+  {
+    value: text().notNull(),
+  },
+  (t) => [
+    rlsPolicy('pseudo_role_read', {
+      for: 'select',
+      to: 'current_user',
       using: () => eq(t.value, 'allowed'),
     }),
   ]
@@ -108,17 +160,38 @@ const locked = convexTable.withRLS('rls_locked', {
 const tables = {
   rls_users: users,
   rls_secrets: secrets,
+  rls_nullable_secrets: nullableSecrets,
+  rls_orgs: orgs,
+  rls_memberships: memberships,
   rls_tasks: tasks,
   rls_locked: locked,
   rls_linked: linked,
   rls_role_docs: roleDocs,
+  rls_pseudo_role_docs: pseudoRoleDocs,
 };
 const schema = defineSchema(tables, {
   defaults: {
     defaultLimit: 100,
   },
 });
-const relations = defineRelations(tables);
+const relations = defineRelations(tables, (r) => ({
+  rls_secrets: {},
+  rls_nullable_secrets: {},
+  rls_orgs: {},
+  rls_memberships: {},
+  rls_tasks: {},
+  rls_locked: {},
+  rls_linked: {},
+  rls_role_docs: {},
+  rls_pseudo_role_docs: {},
+  rls_users: {
+    orgs: r.many.rls_orgs({
+      from: r.rls_users.id.through(r.rls_memberships.userId),
+      to: r.rls_orgs.id.through(r.rls_memberships.orgId),
+      alias: 'rls-user-orgs',
+    }),
+  },
+}));
 const edges = extractRelationsConfig(relations);
 
 const it = baseIt.extend<{ ctx: any }>({
@@ -391,6 +464,106 @@ describe('RLS', () => {
     ctx.roles = ['admin'];
     const allowed = await ctx.orm.query.rls_role_docs.findMany();
     expect(allowed).toHaveLength(1);
+  });
+
+  it('throws instead of granting role-scoped policies without a roleResolver', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      // No roleResolver wired: a `to:` policy must never apply to everyone.
+      const ctx = withOrm(baseCtx, relations);
+      await ctx.db.insert('rls_role_docs', { value: 'allowed' });
+
+      await expect(ctx.orm.query.rls_role_docs.findMany()).rejects.toThrow(
+        /RLS_ROLE_RESOLVER_REQUIRED/
+      );
+    });
+  });
+
+  it('applies SQL pseudo-role policies without a roleResolver', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      // `current_user` always resolves to the caller, so it needs no resolver.
+      const ctx = withOrm(baseCtx, relations);
+      await ctx.db.insert('rls_pseudo_role_docs', { value: 'allowed' });
+      await ctx.db.insert('rls_pseudo_role_docs', { value: 'blocked' });
+
+      const rows = await ctx.orm.query.rls_pseudo_role_docs.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].value).toBe('allowed');
+    });
+  });
+
+  it('applies SQL pseudo-role policies when a roleResolver returns no roles', async ({
+    ctx,
+  }) => {
+    await ctx.db.insert('rls_pseudo_role_docs', { value: 'allowed' });
+    await ctx.db.insert('rls_pseudo_role_docs', { value: 'blocked' });
+
+    ctx.roles = [];
+    const rows = await ctx.orm.query.rls_pseudo_role_docs.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe('allowed');
+  });
+
+  it('still bypasses role-scoped policies via skipRules without a roleResolver', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const ctx = withOrm(baseCtx, relations);
+      await ctx.db.insert('rls_role_docs', { value: 'allowed' });
+
+      const rows = await ctx.orm.skipRules.query.rls_role_docs.findMany();
+      expect(rows).toHaveLength(1);
+    });
+  });
+
+  it('denies reads when the policy column and context value are both nullish', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    await ctx.db.insert('rls_nullable_secrets', { value: 'ownerless' });
+    await ctx.db.insert('rls_nullable_secrets', {
+      value: 'owned',
+      ownerId: viewerId,
+    });
+
+    // Unauthenticated caller: ctx.viewerId is undefined.
+    const anonymous = await ctx.orm.query.rls_nullable_secrets.findMany();
+    expect(anonymous).toHaveLength(0);
+
+    ctx.viewerId = viewerId;
+    const owned = await ctx.orm.query.rls_nullable_secrets.findMany();
+    expect(owned).toHaveLength(1);
+    expect(owned[0].value).toBe('owned');
+  });
+
+  it('blocks anonymous inserts of rows with a nullish policy column', async ({
+    ctx,
+  }) => {
+    await expect(async () => {
+      await ctx.orm.insert(nullableSecrets).values({ value: 'ownerless' });
+    }).rejects.toThrowError(/RLS/);
+  });
+
+  it('applies through-table policies when loading many-to-many relations', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    const otherId = await ctx.db.insert('rls_users', { name: 'Other' });
+    const orgId = await ctx.db.insert('rls_orgs', { name: 'Acme' });
+
+    await ctx.db.insert('rls_memberships', { userId: viewerId, orgId });
+    await ctx.db.insert('rls_memberships', { userId: otherId, orgId });
+
+    ctx.viewerId = viewerId;
+
+    const rows = await ctx.orm.query.rls_users.findMany({
+      with: { orgs: true },
+    });
+
+    const orgCountByUser = Object.fromEntries(
+      rows.map((row: any) => [row.name, row.orgs.length])
+    );
+    expect(orgCountByUser).toEqual({ Viewer: 1, Other: 0 });
   });
 
   it('allows bypass via ctx.orm.skipRules', async ({ ctx }) => {

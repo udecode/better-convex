@@ -7509,7 +7509,10 @@ export class GelRelationalQuery<
             values,
             throughIndexName
           );
-          const throughRows = await query.collect();
+          const throughRows = await this._applyRlsSelectFilter(
+            await query.collect(),
+            throughTableConfig
+          );
           return { key, rows: throughRows };
         }
       );

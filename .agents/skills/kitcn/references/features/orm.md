@@ -922,11 +922,21 @@ rlsPolicy("admin_only", {
   using: (ctx, t) => eq(t.ownerId, ctx.viewerId),
 });
 
-// Provide roleResolver
+// roleResolver is required by any policy scoped to a named role
 const ormDb = orm.db(ctx, {
   rls: { ctx, roleResolver: (ctx) => ctx.roles ?? [] },
 });
 ```
+
+**Important:** a policy scoped to a named role throws `RLS_ROLE_RESOLVER_REQUIRED` when no `roleResolver` is configured, instead of granting the policy to every caller. The SQL pseudo-roles `public`, `current_user`, `current_role`, and `session_user` apply to everyone and need no resolver.
+
+### Null handling
+
+Policy expressions use SQL null semantics: a comparison against a missing document field or a missing context value is unknown, and unknown denies. An unauthenticated caller (`ctx.viewerId` is `undefined`) never matches rows whose column is unset. Use `isNull` to match absent columns on purpose.
+
+### Relations
+
+`with` enforces the related table's policies, and for many-to-many relations the junction table's policies as well, so a caller only traverses links it may read.
 
 **Important:** `ctx.db` bypasses RLS. Only `ctx.orm` enforces policies. FK cascade fan-out also bypasses child-table RLS.
 

@@ -1,5 +1,8 @@
 import type { FilterExpression } from '../filter-expression';
-import { evaluateFilter } from '../mutation-utils';
+import {
+  evaluateCheckConstraintTriState,
+  getTableName,
+} from '../mutation-utils';
 import { EnableRLS, RlsPolicies } from '../symbols';
 import type { ConvexTable } from '../table';
 import type { RlsPolicy, RlsPolicyToOption } from './policies';
@@ -31,6 +34,18 @@ function policyApplies(policy: RlsPolicy, operation: RlsOperation): boolean {
   return target === 'all' || target === operation;
 }
 
+/**
+ * SQL pseudo-roles always resolve to the calling user, so they apply to every
+ * caller and never need a role resolver. Only `rlsRole()` values and bare role
+ * names are matched against resolved roles.
+ */
+const PSEUDO_ROLES = new Set([
+  'public',
+  'current_role',
+  'current_user',
+  'session_user',
+]);
+
 function flattenRoles(
   target: RlsPolicyToOption | undefined
 ): 'public' | string[] {
@@ -44,7 +59,7 @@ function flattenRoles(
       value.forEach(visit);
       return;
     }
-    if (value === 'public') {
+    if (typeof value === 'string' && PSEUDO_ROLES.has(value)) {
       hasPublic = true;
       return;
     }
@@ -60,15 +75,39 @@ function flattenRoles(
   return hasPublic ? 'public' : roles;
 }
 
-function roleMatches(policy: RlsPolicy, rls?: RlsContext): boolean {
+function roleMatches(
+  policy: RlsPolicy,
+  table: ConvexTable<any>,
+  rls?: RlsContext
+): boolean {
+  const targetRoles = flattenRoles(policy.to);
+  if (targetRoles === 'public') return true;
+
   const resolver = rls?.roleResolver;
-  if (!resolver) return true;
+  if (!resolver) {
+    const roleList = targetRoles.map((role) => `'${role}'`).join(', ');
+    throw new Error(
+      `RLS_ROLE_RESOLVER_REQUIRED: policy '${policy.name}' on table ` +
+        `'${getTableName(table)}' targets role(s) ${roleList}, but no ` +
+        "'roleResolver' is configured. Pass 'rls.roleResolver' when creating " +
+        "the ORM database, or remove the policy's 'to' clause."
+    );
+  }
 
   const roles = resolver(rls?.ctx ?? {}) ?? [];
-  const targetRoles = flattenRoles(policy.to);
-
-  if (targetRoles === 'public') return true;
   return targetRoles.some((role) => roles.includes(role));
+}
+
+/**
+ * Policy expressions follow SQL RLS semantics: an expression that evaluates to
+ * NULL/unknown is treated as false. A nullish document field or a nullish
+ * context value therefore never satisfies a policy.
+ */
+function policyExpressionPasses(
+  row: Record<string, unknown>,
+  expression: FilterExpression<boolean>
+): boolean {
+  return evaluateCheckConstraintTriState(row, expression) === true;
 }
 
 async function resolveExpression(
@@ -101,7 +140,8 @@ async function evaluatePolicySet({
 
   const ctx = rls?.ctx ?? {};
   const policies = getRlsPolicies(table).filter(
-    (policy) => policyApplies(policy, operation) && roleMatches(policy, rls)
+    (policy) =>
+      policyApplies(policy, operation) && roleMatches(policy, table, rls)
   );
 
   if (policies.length === 0) {
@@ -119,7 +159,7 @@ async function evaluatePolicySet({
   let permissivePasses = false;
   for (const policy of permissive) {
     const expression = await resolveExpression(policy, checkType, ctx, table);
-    if (!expression || evaluateFilter(row, expression)) {
+    if (!expression || policyExpressionPasses(row, expression)) {
       permissivePasses = true;
       break;
     }
@@ -133,7 +173,7 @@ async function evaluatePolicySet({
   for (const policy of restrictive) {
     const expression = await resolveExpression(policy, checkType, ctx, table);
     if (!expression) continue;
-    if (!evaluateFilter(row, expression)) return false;
+    if (!policyExpressionPasses(row, expression)) return false;
   }
 
   return true;
