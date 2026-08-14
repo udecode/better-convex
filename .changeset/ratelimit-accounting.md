@@ -69,3 +69,7 @@
   failed large or ordinary request does not hide tokens from a smaller or
   reserved request, and include cached shards when reporting the earliest
   global retry time.
+- Compute reserved-request retry times against `maxReserved` headroom rather
+  than the non-reserved zero-debt threshold.
+- Evaluate sampled shard states at one common read timestamp and avoid refilling
+  their aggregated snapshot again in `getRemaining()`.

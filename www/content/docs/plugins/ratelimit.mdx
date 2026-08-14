@@ -482,7 +482,7 @@ check(identifier: string, options?: CheckRequest): Promise<RatelimitResponse>
 
 #### `getRemaining(identifier)`
 
-Return the remaining tokens, reset time, and limit for an identifier. It reads every shard and sums them, so the count is exact.
+Return the remaining tokens, reset time, and limit for an identifier. It reads every raw shard, evaluates them at one common timestamp, and then sums them, so the count is exact and a full shard cannot absorb another shard's refill.
 
 ```ts
 getRemaining(identifier: string): Promise<RemainingResponse>
@@ -563,7 +563,7 @@ Returned by `limit()` and `check()`.
 | `ok` | `boolean` | Alias for `success` (Convex DX parity) |
 | `limit` | `number` | Maximum tokens for this algorithm |
 | `remaining` | `number` | Tokens left after this request (floored to 0). With `shards > 1` this is extrapolated from the stored capacity of the shard that served the request, so it is an estimate — use `getRemaining()` for an exact count. |
-| `reset` | `number` | Epoch ms when tokens will be available |
+| `reset` | `number` | Epoch ms when tokens will be available. Denied reserved fixed-window and token-bucket requests use the point where the request fits within `maxReserved`, not full debt recovery. |
 | `pending` | `Promise<unknown>` | Resolves when async side-effects complete |
 | `reason` | `'timeout' \| 'cacheBlock' \| 'denyList'` | Present when a reason applies. Note: `failureMode: 'open'` can return `success: true` with `reason: 'timeout'`. |
 | `deniedValue` | `string` | Present only when `reason === 'denyList'`. The value that triggered the block. |
@@ -584,7 +584,7 @@ Returned by `getValue()`. Used for custom projections and the React hook.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | Tokens left at read time across the stored capacity. Sampled shards are summed, then scaled up by the capacity share they cover |
+| `value` | `number` | Tokens left at one common read timestamp across the stored capacity. Sampled shards are summed, then scaled up by the capacity share they cover |
 | `ts` | `number` | Timestamp of last state update |
 | `shard` | `number` | The sampled shard holding the most tokens |
 | `config` | `ResolvedAlgorithm` | Full algorithm config for `calculateRatelimit()` |

@@ -38,13 +38,14 @@ Default to `shards: 1`. Raise it only after observing write contention on hot id
 
 | Call | Shards read | Accuracy |
 | --- | --- | --- |
-| `getRemaining(id)` | all | exact |
+| `getRemaining(id)` | all | exact at one common read timestamp |
 | `getValue(id, { sampleShards })` | `sampleShards` (default 1) | estimate, scaled up by the sampled share |
 | `limit()` / `check()` → `remaining` | the serving shard | estimate under `shards > 1` |
 
 Use `getRemaining()` for quota headers and banners. Use `getValue()` for the React hook and custom projections where a cheap read matters more than exactness.
 
 Fixed-window projections scale by stored `capacity`; the response `limit` remains the configured per-window refill.
+`getRemaining()` evaluates every raw shard at one common timestamp before summing balances, so a full shard cannot absorb another shard's refill.
 
 ## `check()` vs `limit()`
 
@@ -74,6 +75,8 @@ const result = calculateRatelimit(
 `result.remaining` is floored to `0`. `result.remainingRaw` is exact and goes negative when the request overdraws — use it to rank shards or size a backoff.
 
 `RatelimitSnapshot.shard` is the sampled shard holding the most tokens, not "the" shard.
+
+For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 
 ## Convex constraints
 

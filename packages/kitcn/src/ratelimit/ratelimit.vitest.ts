@@ -314,6 +314,68 @@ describe('Ratelimit', () => {
     expect(reserved.success).toBe(true);
   });
 
+  test('reserved token bucket retries when reservation headroom is ready', async () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        limiter: Ratelimit.tokenBucket(1, '1 s', 2, { maxReserved: 1 }),
+      });
+
+      const first = await limiter.limit('reserved-retry-user', { count: 2 });
+      const denied = await limiter.limit('reserved-retry-user', {
+        count: 2,
+        reserve: true,
+      });
+
+      expect(first.success).toBe(true);
+      expect(denied.success).toBe(false);
+      expect(denied.reset).toBe(2000);
+
+      now = 2000;
+      const ready = await limiter.limit('reserved-retry-user', {
+        count: 2,
+        reserve: true,
+      });
+      expect(ready.success).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test('reserved fixed window retries when reservation headroom is ready', async () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        limiter: Ratelimit.fixedWindow(1, '1 s', { maxReserved: 1 }),
+      });
+
+      await limiter.limit('reserved-window-user');
+      const denied = await limiter.limit('reserved-window-user', {
+        count: 2,
+        reserve: true,
+      });
+      expect(denied.success).toBe(false);
+      expect(denied.reset).toBe(2000);
+
+      now = 2000;
+      const ready = await limiter.limit('reserved-window-user', {
+        count: 2,
+        reserve: true,
+      });
+      expect(ready.success).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test('an exhausted shard falls back to preserve the configured budget', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({
@@ -461,6 +523,35 @@ describe('Ratelimit', () => {
 
     expect(remaining.remaining).toBe(5);
     expect(remaining.limit).toBe(10);
+  });
+
+  test('getRemaining does not refill an aggregated token snapshot twice', async () => {
+    const now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.tokenBucket(2, '1 s', 2, { shards: 2 }),
+      });
+
+      Math.random = () => 0;
+      await limiter.limit('aggregate-token-user');
+
+      let readClockCalls = 0;
+      nowSpy.mockImplementation(() => {
+        readClockCalls += 1;
+        return readClockCalls === 1 ? 1500 : 1750;
+      });
+      const remaining = await limiter.getRemaining('aggregate-token-user');
+
+      expect(remaining.remaining).toBe(1);
+      expect(remaining.limit).toBe(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   test('fixed-window projections scale by capacity instead of refill limit', async () => {
