@@ -1,3 +1,5 @@
+import { ConvexError } from 'convex/values';
+
 import {
   CRPCError,
   getCRPCErrorFromUnknown,
@@ -5,6 +7,17 @@ import {
   isCRPCError,
   toCRPCError,
 } from './error';
+
+/**
+ * Convex's `performAsyncSyscall` never rethrows the original error object.
+ * It builds a fresh `ConvexError` from the message and re-attaches `.data`,
+ * so class identity is always lost across `runQuery`/`runMutation`.
+ */
+function acrossConvexSyscall(error: CRPCError): ConvexError<any> {
+  const rethrown = new ConvexError(error.message);
+  rethrown.data = JSON.parse(JSON.stringify(error.data));
+  return rethrown;
+}
 
 describe('server/error', () => {
   test('CRPCError sets code/data/message and preserves cause when provided', () => {
@@ -99,6 +112,45 @@ describe('server/error', () => {
     expect(err).toBeInstanceOf(CRPCError);
     expect(err?.code).toBe('UNAUTHORIZED');
     expect(err?.message).toBe('Nope');
+  });
+
+  test('toCRPCError rebuilds CRPCError from a ConvexError carrying cRPC data', () => {
+    const err = toCRPCError(
+      acrossConvexSyscall(
+        new CRPCError({ code: 'NOT_FOUND', message: 'Todo not found' })
+      )
+    );
+
+    expect(err).toBeInstanceOf(CRPCError);
+    expect(err?.code).toBe('NOT_FOUND');
+    expect(err?.message).toBe('Todo not found');
+  });
+
+  test('toCRPCError preserves structured data across the Convex syscall boundary', () => {
+    const err = toCRPCError(
+      acrossConvexSyscall(
+        new CRPCError({
+          code: 'CONFLICT',
+          message: 'Domain already exists',
+          data: { existingSiteId: 'site_123' },
+        })
+      )
+    );
+
+    expect(err?.code).toBe('CONFLICT');
+    expect(err?.data).toEqual({
+      code: 'CONFLICT',
+      message: 'Domain already exists',
+      existingSiteId: 'site_123',
+    });
+  });
+
+  test('toCRPCError ignores ConvexError payloads that are not cRPC errors', () => {
+    const zodFailure = new ConvexError({ ZodError: [{ message: 'bad' }] });
+    expect(toCRPCError(zodFailure)).toBeNull();
+
+    const unknownCode = new ConvexError({ code: 'NOT_A_CRPC_CODE' });
+    expect(toCRPCError(unknownCode)).toBeNull();
   });
 
   test('toCRPCError returns null for unhandled errors', () => {

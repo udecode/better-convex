@@ -1,6 +1,7 @@
+import { ConvexError } from 'convex/values';
 import { z } from 'zod';
 
-import { CRPCError } from './error';
+import { CRPC_ERROR_CODE_TO_HTTP, CRPCError } from './error';
 import {
   createHttpProcedureBuilder,
   extractPathParams,
@@ -39,6 +40,64 @@ describe('server/http-builder', () => {
     expect(resp.status).toBe(401);
     await expect(resp.json()).resolves.toEqual({
       error: { code: 'UNAUTHORIZED', message: 'Nope' },
+    });
+  });
+
+  test('handleHttpError maps every cRPC error code to its canonical status', async () => {
+    for (const [code, status] of Object.entries(CRPC_ERROR_CODE_TO_HTTP)) {
+      const resp = handleHttpError(
+        new CRPCError({ code: code as keyof typeof CRPC_ERROR_CODE_TO_HTTP })
+      );
+      expect([code, resp.status]).toEqual([code, status]);
+    }
+  });
+
+  test('handleHttpError recovers cRPC errors thrown across a Convex syscall boundary', async () => {
+    // `ctx.runQuery`/`ctx.runMutation` never rethrow the original error object:
+    // Convex builds a fresh ConvexError from the message and re-attaches `.data`.
+    const rethrown = new ConvexError('Todo not found');
+    rethrown.data = { code: 'NOT_FOUND', message: 'Todo not found' };
+
+    const resp = handleHttpError(rethrown);
+
+    expect(resp.status).toBe(404);
+    await expect(resp.json()).resolves.toEqual({
+      error: { code: 'NOT_FOUND', message: 'Todo not found' },
+    });
+  });
+
+  test('route surfaces a cRPC error raised by a procedure it called through ctx.runQuery', async () => {
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: (ctx) => ctx as any,
+      meta: {},
+    });
+
+    const proc = http
+      .get('/api/todos/:id')
+      .params(z.object({ id: z.string() }))
+      .query(async ({ ctx, params }) =>
+        (ctx as any).runQuery('todosInternal:get', { id: params.id })
+      );
+
+    const convexCtx = {
+      runQuery: () => {
+        // Convex rebuilds the error across the syscall boundary, so the
+        // route only ever sees a ConvexError carrying `.data`.
+        const rethrown = new ConvexError('Todo not found');
+        rethrown.data = { code: 'NOT_FOUND', message: 'Todo not found' };
+        return Promise.reject(rethrown);
+      },
+    };
+
+    const resp = await (proc as any)(
+      convexCtx,
+      new Request('https://example.com/api/todos/123')
+    );
+
+    expect(resp.status).toBe(404);
+    await expect(resp.json()).resolves.toEqual({
+      error: { code: 'NOT_FOUND', message: 'Todo not found' },
     });
   });
 
@@ -84,6 +143,64 @@ describe('server/http-builder', () => {
     expect(resp.status).toBe(400);
     await expect(resp.json()).resolves.toEqual({
       error: { code: 'BAD_REQUEST', message: 'Invalid input' },
+    });
+  });
+
+  test('procedure returns 400 BAD_REQUEST for an unparseable JSON body', async () => {
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .post('/x')
+      .input(z.object({ name: z.string() }))
+      .mutation(async ({ input }) => input);
+
+    for (const body of ['{"name": ', '']) {
+      const resp = await (proc as any)(
+        {},
+        new Request('https://example.com/x', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+      );
+
+      expect(resp.status).toBe(400);
+      await expect(resp.json()).resolves.toEqual({
+        error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' },
+      });
+    }
+  });
+
+  test('procedure returns 400 BAD_REQUEST for an unparseable form body', async () => {
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .post('/upload')
+      .form(z.object({ note: z.string() }))
+      .mutation(async ({ form }) => form);
+
+    const resp = await (proc as any)(
+      {},
+      new Request('https://example.com/upload', {
+        method: 'POST',
+        headers: {
+          'content-type': 'multipart/form-data; boundary=----nope',
+        },
+        body: 'not actually multipart',
+      })
+    );
+
+    expect(resp.status).toBe(400);
+    await expect(resp.json()).resolves.toEqual({
+      error: { code: 'BAD_REQUEST', message: 'Invalid form data' },
     });
   });
 
@@ -214,6 +331,69 @@ describe('server/http-builder', () => {
         type: 'httpAction',
       },
     ]);
+  });
+
+  test('http middleware wraps the procedure handler', async () => {
+    const events: string[] = [];
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .get('/x')
+      .use(async ({ next }) => {
+        events.push('before');
+        const result = await next();
+        events.push('after');
+        return result;
+      })
+      .query(async () => {
+        events.push('handler');
+        return { ok: true };
+      });
+
+    const resp = await (proc as any)({}, new Request('https://example.com/x'));
+
+    expect(resp.status).toBe(200);
+    expect(events).toEqual(['before', 'handler', 'after']);
+  });
+
+  test('middleware getRawInput reports malformed JSON as BAD_REQUEST', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const http = createHttpProcedureBuilder({
+        base: (handler) => handler as any,
+        createContext: () => ({}) as any,
+        meta: {},
+      });
+
+      const proc = http
+        .post('/x')
+        .use(async ({ getRawInput, next }) => {
+          await getRawInput();
+          return next();
+        })
+        .mutation(async () => ({ ok: true }));
+
+      const resp = await (proc as any)(
+        {},
+        new Request('https://example.com/x', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"name": ',
+        })
+      );
+
+      expect(resp.status).toBe(400);
+      await expect(resp.json()).resolves.toEqual({
+        error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' },
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test('procedure parses multipart form data via .form()', async () => {

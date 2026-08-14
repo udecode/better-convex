@@ -142,6 +142,30 @@ function isOrmNotFoundErrorLike(cause: unknown): cause is Error {
   return cause instanceof Error && cause.name === 'OrmNotFoundError';
 }
 
+type ConvexErrorLike = Error & { data: unknown };
+
+function isConvexErrorLike(cause: unknown): cause is ConvexErrorLike {
+  return cause instanceof Error && 'data' in cause;
+}
+
+/**
+ * `ctx.runQuery`/`ctx.runMutation` never rethrow the original error object:
+ * Convex builds a fresh `ConvexError` from the message and re-attaches `.data`.
+ * A cRPC error therefore arrives as a plain `ConvexError` whose `data` still
+ * carries the original `code`/`message`.
+ */
+function isCRPCErrorData(data: unknown): data is CRPCErrorData<any> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+
+  const { code, message } = data as { code?: unknown; message?: unknown };
+
+  return (
+    typeof code === 'string' &&
+    code in CRPC_ERROR_CODES_BY_KEY &&
+    (message === undefined || typeof message === 'string')
+  );
+}
+
 type APIErrorLike = Error & {
   status?: unknown;
   statusCode?: unknown;
@@ -216,6 +240,18 @@ export function toCRPCError(cause: unknown): CRPCError | null {
   if (cause instanceof CRPCError) return cause;
   if (cause instanceof Error && cause.name === 'CRPCError') {
     return cause as CRPCError;
+  }
+
+  if (isConvexErrorLike(cause) && isCRPCErrorData(cause.data)) {
+    const { code, message, ...data } = cause.data;
+    const err = new CRPCError({
+      code,
+      message,
+      cause,
+      data: data as Record<string, Value | undefined>,
+    }) as CRPCError;
+    if (cause.stack) err.stack = cause.stack;
+    return err;
   }
 
   if (isOrmNotFoundErrorLike(cause)) {

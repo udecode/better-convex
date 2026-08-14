@@ -92,6 +92,98 @@ describe('server/builder', () => {
     });
   });
 
+  test('next({ input }) is honored from any position in the middleware chain', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const passthrough = async ({ ctx, next }: any) => next({ ctx });
+    const enrich = async ({ ctx, next }: any) =>
+      next({ ctx, input: { x: 99 } });
+
+    const enrichFirst = c.query
+      .input(z.object({ x: z.number() }))
+      .use(enrich)
+      .use(passthrough)
+      .query(async ({ input }) => input.x);
+
+    const enrichSecond = c.query
+      .input(z.object({ x: z.number() }))
+      .use(passthrough)
+      .use(enrich)
+      .query(async ({ input }) => input.x);
+
+    await expect((enrichFirst as any)._handler({}, { x: 1 })).resolves.toBe(99);
+    await expect((enrichSecond as any)._handler({}, { x: 1 })).resolves.toBe(
+      99
+    );
+  });
+
+  test('middleware wrapping next() observes the resolver', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const events: string[] = [];
+    let elapsed = -1;
+
+    const fn = c.query
+      .use(async ({ ctx, next }) => {
+        const start = Date.now();
+        events.push('middleware-start');
+        try {
+          return await next({ ctx });
+        } finally {
+          elapsed = Date.now() - start;
+          events.push('middleware-end');
+        }
+      })
+      .query(async () => {
+        events.push('handler-start');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        events.push('handler-end');
+        return 'ok';
+      });
+
+    await expect((fn as any)._handler({}, {})).resolves.toBe('ok');
+    expect(events).toEqual([
+      'middleware-start',
+      'handler-start',
+      'handler-end',
+      'middleware-end',
+    ]);
+    expect(elapsed).toBeGreaterThanOrEqual(25);
+  });
+
+  test('middleware wrapping next() catches resolver errors', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const reported: string[] = [];
+
+    const fn = c.query
+      .use(async ({ ctx, next }) => {
+        try {
+          return await next({ ctx });
+        } catch (error) {
+          reported.push((error as Error).message);
+          throw error;
+        }
+      })
+      .query(async () => {
+        throw new CRPCError({ code: 'NOT_FOUND', message: 'missing' });
+      });
+
+    await expect((fn as any)._handler({}, {})).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(reported).toEqual(['missing']);
+  });
+
   test('middleware receives procedure info from server-only procedure name', async () => {
     const seen: unknown[] = [];
     const c = initCRPC
@@ -279,6 +371,297 @@ describe('server/builder', () => {
     });
 
     await expect((fn as any)._handler({}, { a: 'x' })).rejects.toBeTruthy();
+  });
+
+  test('object-level .refine() on an input schema is enforced', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ password: z.string(), confirm: z.string() })
+          .refine((v) => v.password === v.confirm, {
+            message: 'Passwords must match',
+          })
+      )
+      .query(async ({ input }) => input.password);
+
+    await expect(
+      (fn as any)._handler({}, { password: 'a', confirm: 'a' })
+    ).resolves.toBe('a');
+
+    await expect(
+      (fn as any)._handler({}, { password: 'a', confirm: 'b' })
+    ).rejects.toBeTruthy();
+  });
+
+  test('object-level .superRefine() on an input schema is enforced', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ start: z.number(), end: z.number() })
+          .superRefine((v, ctx) => {
+            if (v.end <= v.start) {
+              ctx.addIssue({
+                code: 'custom',
+                message: 'end must be after start',
+              });
+            }
+          })
+      )
+      .query(async ({ input }) => input.end - input.start);
+
+    await expect((fn as any)._handler({}, { start: 1, end: 5 })).resolves.toBe(
+      4
+    );
+
+    await expect(
+      (fn as any)._handler({}, { start: 5, end: 1 })
+    ).rejects.toBeTruthy();
+  });
+
+  test('chained .input() keeps each schema object-level checks independent', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .strictObject({ start: z.number(), end: z.number() })
+          .refine((v) => v.end > v.start, {
+            message: 'end must be after start',
+          })
+      )
+      .input(z.object({ label: z.string() }))
+      .query(async ({ input }) => `${input.label}:${input.end - input.start}`);
+
+    await expect(
+      (fn as any)._handler({}, { start: 1, end: 5, label: 'range' })
+    ).resolves.toBe('range:4');
+
+    await expect(
+      (fn as any)._handler({}, { start: 5, end: 1, label: 'range' })
+    ).rejects.toBeTruthy();
+  });
+
+  test('a redeclared key is validated only by the schema that declares it last', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    // `.paginated()` redeclares `limit`, so its `.default(20)` fills the gap
+    // rather than the earlier required declaration rejecting the payload.
+    const fn = c.query
+      .input(z.object({ limit: z.number() }))
+      .paginated({ limit: 20, item: z.object({ id: z.string() }) })
+      .query(async ({ input }) => ({
+        continueCursor: null,
+        isDone: true,
+        page: [{ id: String(input.limit) }],
+      }));
+
+    await expect((fn as any)._handler({}, {})).resolves.toMatchObject({
+      page: [{ id: '20' }],
+    });
+
+    await expect((fn as any)._handler({}, { limit: 5 })).resolves.toMatchObject(
+      { page: [{ id: '5' }] }
+    );
+
+    await expect(
+      (fn as any)._handler({}, { limit: 999 })
+    ).resolves.toMatchObject({ page: [{ id: '20' }] });
+  });
+
+  test('a shadowed key takes the later declaration type, not the earlier one', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    // `cursor` starts as a required string, then `.paginated()` redeclares it
+    // as `string | null` defaulting to null.
+    const fn = c.query
+      .input(z.object({ cursor: z.string() }))
+      .paginated({ limit: 10, item: z.object({ id: z.string() }) })
+      .query(async ({ input }) => ({
+        continueCursor: null,
+        isDone: true,
+        page: [{ id: String((input as any).cursor) }],
+      }));
+
+    await expect((fn as any)._handler({}, {})).resolves.toMatchObject({
+      page: [{ id: 'null' }],
+    });
+
+    await expect(
+      (fn as any)._handler({}, { cursor: 'c1' })
+    ).resolves.toMatchObject({ page: [{ id: 'c1' }] });
+  });
+
+  test('a redeclared key keeps the later schema type across plain .input() chaining', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(z.object({ value: z.string(), keep: z.string() }))
+      .input(z.object({ value: z.number() }))
+      .query(async ({ input }) => `${input.keep}:${input.value * 2}`);
+
+    await expect(
+      (fn as any)._handler({}, { value: 21, keep: 'k' })
+    ).resolves.toBe('k:42');
+
+    // the surviving declaration still validates
+    await expect(
+      (fn as any)._handler({}, { value: 'nope', keep: 'k' })
+    ).rejects.toBeTruthy();
+  });
+
+  test('a redeclared key is not re-validated by an earlier refined schema', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ value: z.string(), label: z.string() })
+          .refine((v) => v.label.length > 0, { message: 'label required' })
+      )
+      .input(z.object({ value: z.number() }))
+      .query(async ({ input }) => `${input.label}:${input.value * 2}`);
+
+    await expect(
+      (fn as any)._handler({}, { value: 21, label: 'k' })
+    ).resolves.toBe('k:42');
+
+    // the earlier schema's object-level rule still runs
+    await expect(
+      (fn as any)._handler({}, { value: 21, label: '' })
+    ).rejects.toBeTruthy();
+
+    // the surviving declaration still validates
+    await expect(
+      (fn as any)._handler({}, { value: 'nope', label: 'k' })
+    ).rejects.toBeTruthy();
+  });
+
+  test('an earlier object-level check reads the redeclared value the last schema produced', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ limit: z.number() })
+          .refine((v) => v.limit <= 10, { message: 'limit too high' })
+      )
+      .input(z.object({ limit: z.number().default(5) }))
+      .query(async ({ input }) => input.limit);
+
+    // the later default fills the gap and satisfies the earlier rule
+    await expect((fn as any)._handler({}, {})).resolves.toBe(5);
+
+    await expect((fn as any)._handler({}, { limit: 50 })).rejects.toBeTruthy();
+  });
+
+  test('paginated() composes with an .input() schema carrying object-level checks', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .input(
+        z
+          .object({ min: z.number(), max: z.number() })
+          .refine((v) => v.max >= v.min, { message: 'max must be >= min' })
+      )
+      .paginated({ limit: 10, item: z.object({ id: z.string() }) })
+      .query(async ({ input }) => ({
+        continueCursor: null,
+        isDone: true,
+        page: [{ id: `${input.min}-${input.max}:${input.limit}` }],
+      }));
+
+    await expect(
+      (fn as any)._handler({}, { min: 1, max: 4, limit: 999 })
+    ).resolves.toMatchObject({ page: [{ id: '1-4:10' }] });
+
+    await expect(
+      (fn as any)._handler({}, { min: 4, max: 1, limit: 5 })
+    ).rejects.toBeTruthy();
+  });
+
+  test('input transforms run exactly once', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    let stringTransforms = 0;
+    const stringFn = c.query
+      .input(
+        z.object({
+          s: z.string().transform((s) => {
+            stringTransforms += 1;
+            return s.length;
+          }),
+        })
+      )
+      .query(async ({ input }) => input.s);
+
+    await expect((stringFn as any)._handler({}, { s: 'hello' })).resolves.toBe(
+      5
+    );
+    expect(stringTransforms).toBe(1);
+
+    const doubleFn = c.query
+      .input(z.object({ n: z.number().transform((n) => n * 2) }))
+      .query(async ({ input }) => input.n);
+
+    await expect((doubleFn as any)._handler({}, { n: 3 })).resolves.toBe(6);
+  });
+
+  test('input refinements run exactly once', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    let refinements = 0;
+    const fn = c.query
+      .input(
+        z.object({
+          email: z.string().refine((value) => {
+            refinements += 1;
+            return value.includes('@');
+          }),
+        })
+      )
+      .query(async ({ input }) => input.email);
+
+    await expect((fn as any)._handler({}, { email: 'a@b.com' })).resolves.toBe(
+      'a@b.com'
+    );
+    expect(refinements).toBe(1);
   });
 
   test('paginated() records limit in _crpcMeta', () => {

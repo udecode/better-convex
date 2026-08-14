@@ -68,23 +68,23 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | Focused server tests | pending |
-| package/API/build | yes | Package build/types | pending |
+| source behavior | yes | 71 focused server tests after review repairs | complete |
+| package/API/build | yes | Package build and root typecheck | complete |
 | generated output | no | N/A: no generated output | N/A |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
 | docs/package skill | no | N/A: no docs/skill delta | N/A |
-| changeset | yes | `.changeset/crpc-procedure-contracts.md` audit | pending |
+| changeset | yes | Minor changeset names Convex/HTTP middleware and raw-input behavior | complete |
 | agent workflow | no | N/A: no agent action | N/A |
-| cleanup/review | yes | Deslop and autoreview | pending |
+| cleanup/review | yes | Deslop tradeoff audited; autoreview clean at 0.98 | complete |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 320 update/merge/read-back | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
+- [x] Each pre-delivery lane is proven or N/A with a concrete reason.
 - [x] Generated output is N/A: no generated owner is touched.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule/generated mirror changed.
@@ -97,20 +97,21 @@ Work Checklist:
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
-| None yet | 0 | | |
+| HTTP middleware returned before its handler | 1 | Make the resolver the shared runner terminal | Red event-order test became green |
+| Middleware raw JSON parse returned 500 | 1 | Route cloned JSON through the owned BAD_REQUEST reader | Red public route test became green |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused server tests | pending |
+| Targeted behavior proof | yes | Run focused server tests | passed: 71 tests, 182 assertions |
 | Source/generated audit | no | N/A: source-only runtime change | N/A |
-| Package/docs/scenario closure | yes | Build package and audit changeset | pending |
-| Deslop | yes | Run changed-file cleanup review | pending |
+| Package/docs/scenario closure | yes | Build package and audit changeset | passed |
+| Deslop | yes | Run changed-file cleanup review | Score +2.06; one fan-out finding accepted for canonical shared runner |
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
-| Final lint | yes | Run `bun lint:fix` | pending |
+| Final lint | yes | Run `bun lint:fix` | passed: 880 files; one formatting fix applied |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | clean at 0.98; zero actionable findings |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/320-close-crpc-correctness-pr.md` | pending |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
@@ -121,29 +122,43 @@ Completion Gates:
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
-| Inventory | in_progress | plan created | missing proof |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
+| Inventory | complete | VISION, PR, changeset, source, tests, checks, and four threads read | repair |
+| Repair | complete | Rebased onto `b80d7340`; fixed both live HTTP findings with TDD | review |
+| Review/checks | in_progress | Focused tests, build, typecheck, lint, deslop, and autoreview pass | exact check |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
 Verification evidence:
-- PR 320 CI/Vercel green at goal creation; no approval yet.
+- Pre-rebase PR 320 CI/Vercel green; stale after rebasing onto PR 322 merge.
+- Rebased both commits onto main at `b80d7340` without conflicts.
+- Focused builder/error/http-builder proof passes 71 tests with 182 assertions.
+- Red-to-green HTTP proof establishes middleware order as
+  `before -> handler -> after` and maps malformed JSON read through
+  `getRawInput()` to `400 BAD_REQUEST`.
+- Convex and HTTP procedures share `middleware-runner.ts` as the one terminal
+  chain owner; package build and root typecheck pass.
+- Changeset starts each bullet with an action verb and covers Convex/HTTP
+  wrapping plus middleware raw-input errors.
+- Deslop score improves by 2.06; the one new directory fan-out occurrence is
+  accepted because a canonical shared runner is safer than duplicated recursion.
+- Final autoreview reports zero actionable findings at 0.98 confidence.
 
 Timeline:
 - 2026-08-14T18:17:54.952Z Autoclosure plan created.
+- 2026-08-14T23:35:00+02:00 Rebased onto PR 322, closed both live HTTP
+  findings with red-to-green tests, and completed pre-gate review proof.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Review/checks |
+| Where am I going? | Exact repository gate, delivery, final audit |
 | What is the goal? | Merge proven cRPC validation, middleware, and HTTP correctness |
-| What have I learned? | See closure matrix |
-| What have I done? | See timeline |
+| What have I learned? | HTTP and Convex middleware need one terminal-chain owner |
+| What have I done? | Rebased, repaired both live findings, and proved focused behavior |
 
 Open risks:
-- Middleware terminal-chain changes can double-run or skip handlers if review misses propagation paths.
+- GitHub CI and final merge receipt remain pending.
 
 Findings:
 - cRPC error identity crosses a Convex syscall boundary and needs behavior-level tests.
@@ -152,4 +167,10 @@ Decisions and tradeoffs:
 - Keep the resolver as terminal middleware owner; reject adjacent API redesign.
 
 Review fixes:
-- Pending.
+- Last-schema ownership for overlapping refined inputs: fixed by the second
+  original commit and proved by focused tests.
+- Changeset action verbs: fixed by the second original commit and re-audited.
+- HTTP middleware terminal chaining: fixed with the shared resolver runner and
+  a public event-order regression.
+- Middleware `getRawInput()` malformed JSON: fixed through the BAD_REQUEST body
+  reader and a public 400-response regression.

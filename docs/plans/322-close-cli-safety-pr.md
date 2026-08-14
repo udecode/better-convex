@@ -79,7 +79,7 @@ Closure matrix:
 | agent workflow | yes | Active `cli.ts` add route has JSON refusal receipt and nonzero exit tests | complete |
 | cleanup/review | yes | Zero slop delta; agent-native audit and autoreview clean | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | PR 322 update/merge/read-back | pending |
+| GitHub delivery | yes | PR 322 update/merge/read-back | passed: squash-merged as `b80d7340` |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -87,8 +87,8 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: package skill source owner/mirror boundary recorded.
 - [x] Agent-native pack: safe CLI refusal and overwrite routes are discoverable.
 - [x] Agent-native pack: package skill mirror and fixtures are regenerated/proved.
@@ -112,9 +112,9 @@ Completion Gates:
 | Agent-native reviewer | yes | Review CLI agent route and receipts | Pass; active route and all proof surfaces mapped |
 | Final lint | yes | Run `bun lint:fix` | Pass; 879 files clean |
 | Repository check | yes | Run `bun check` | Pass; full tests, fixtures, and runtime scenarios |
-| GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/322-close-cli-safety-pr.md` | pending |
+| GitHub delivery | yes | Update, squash-merge, read back | passed: merged 2026-08-14T21:33:37Z as `b80d7340` |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: all three GitHub threads resolved; final local review clean |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/322-close-cli-safety-pr.md` | passed after merge receipt |
 | Agent source / generated sync | yes | Prove package skill mirror; `.agents/rules` N/A | Package skill and mirror byte-identical |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
 | Agent action discoverability | yes | Audit package skill CLI guidance | Package skill and CLI docs document `add --yes/--overwrite/--json` |
@@ -127,8 +127,8 @@ Phase / pass table:
 | Inventory | complete | PR, source owners, active dispatch, mirrors, and docs audited | repair |
 | Repair | complete | Two review regressions fixed with tests | review |
 | Review/checks | complete | Focused tests, build, typecheck, fixtures, sync, deslop, reviews, lint, and exact check pass | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Delivery | completed | Exact head `53bd56d4` passed CI/Vercel, all threads resolved, and PR merged as `b80d7340` | final audit |
+| Closeout | completed | Merge read-back and child goal checker passed | final |
 
 Verification evidence:
 - `bun test` for planner and schema ownership: 31 pass.
@@ -141,6 +141,9 @@ Verification evidence:
   findings with 0.99 confidence.
 - Exact `bun check` passes, including lint, typecheck, Bun/Vitest suites, 124
   CLI tests, Concave smoke, every fixture comparison, and runtime scenarios.
+- Exact head `53bd56d4` passed CI in 7m03s and Vercel, all three review
+  threads were source-backed and resolved, and PR 322 squash-merged as
+  `b80d7340` with auto-release unchecked.
 - Agent-native capability map: action `kitcn add --yes/--overwrite/--json`;
   active route `cli.ts` to `commands/add.ts`; mutation owner planner/apply helpers
   in `backend-core.ts`; guidance owners are CLI docs and package skill; generated
@@ -154,18 +157,20 @@ Timeline:
   focused regressions, synchronized generated owners, and completed pre-gate
   review evidence.
 - 2026-08-14T23:19:57+02:00 Exact repository check passed end to end.
+- 2026-08-14T21:33:37Z PR 322 squash-merged as `b80d7340` after exact-head
+  CI/Vercel passed and the post-CI thread audit was clean.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, GitHub checks, merge, final audit |
+| Where am I? | Complete |
+| Where am I going? | Next ranked batch PR |
 | What is the goal? | Merge safe CLI ownership and schema editing with full generated proof |
 | What have I learned? | Active add dispatch is modular; generated owners are synchronized |
 | What have I done? | Fixed both findings and proved every pre-delivery lane |
 
 Open risks:
-- GitHub CI and final merge receipt remain pending.
+- None for PR 322.
 
 Findings:
 - This is the batch's widest generated/fixture/agent-facing closeout surface.
@@ -174,6 +179,8 @@ Decisions and tradeoffs:
 - Require fixture sync/check and structured refusal proof before merge.
 
 Review fixes:
+- Replaced parse snapshots and suffix sweeps with in-memory transformed-module
+  parsing; user-owned former-suffix paths are preserved.
 - Replaced textual backward dot search with the AST property-access dot token,
   so periods inside chained-call comments cannot corrupt schema insertion.
 - Moved required runtime bindings out of whole type-only `kitcn/orm` imports
