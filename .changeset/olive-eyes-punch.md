@@ -10,7 +10,7 @@
   scanned rows. `offset` counts matches too.
 - Fix those same operators being ignored entirely under cursor pagination, which
   returned pages containing rows that did not match. Pages now hold only
-  matching rows and still fill to `limit`.
+  matching rows.
 - Fix `NOT` around one of those operators matching nothing instead of negating,
   with or without a cursor.
 - Fix `isNull` skipping rows whose column was never written once that column is
