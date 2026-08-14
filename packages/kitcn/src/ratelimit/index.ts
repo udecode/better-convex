@@ -6,7 +6,11 @@ export {
   slidingWindow,
   tokenBucket,
 } from './core/algorithms';
-export { calculateRatelimit } from './core/calculate-rate-limit';
+export type { EvaluationResult } from './core/calculate-rate-limit';
+export {
+  calculateRatelimit,
+  snapshotToState,
+} from './core/calculate-rate-limit';
 export type {
   Duration,
   DurationString,

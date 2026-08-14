@@ -3,11 +3,15 @@ import { v } from 'convex/values';
 import {
   applyDynamicLimit,
   fixedWindow,
+  shardAlgorithm,
   slidingWindow,
   tokenBucket,
 } from './core/algorithms';
 import { createReadDedupeCache, EphemeralBlockCache } from './core/cache';
-import { calculateRatelimit } from './core/calculate-rate-limit';
+import {
+  calculateRatelimit,
+  snapshotToState,
+} from './core/calculate-rate-limit';
 import {
   clearProtection,
   pickDeniedValue,
@@ -119,21 +123,18 @@ export class Ratelimit {
     await this.store.deleteStates(this.prefix, identifier);
     this.checkCache.clear();
     if (this.blockCache) {
-      this.blockCache.clear(identifier);
+      this.blockCache.clear(this.blockKey(identifier));
     }
     clearProtection(this.prefix, identifier);
   }
 
   async getRemaining(identifier: string): Promise<RemainingResponse> {
-    const value = await this.getValue(identifier, {
+    const snapshot = await this.getValue(identifier, {
       sampleShards: this.limiter.shards,
     });
     const evaluated = calculateRatelimit(
-      {
-        value: value.value,
-        ts: value.ts,
-      },
-      value.config,
+      snapshotToState(snapshot),
+      snapshot.config,
       Date.now(),
       0
     );
@@ -159,6 +160,7 @@ export class Ratelimit {
     }
 
     const algorithm = await this.resolveAlgorithm();
+    const perShard = shardAlgorithm(algorithm);
     const sampleShards = Math.max(
       1,
       Math.min(options?.sampleShards ?? 1, algorithm.shards)
@@ -172,14 +174,10 @@ export class Ratelimit {
       const state = normalizeState(
         await this.store.getState(this.prefix, identifier, shard)
       );
-      const evaluated = calculateRatelimit(state, algorithm, now, 0);
-      const value =
-        algorithm.kind === 'slidingWindow'
-          ? evaluated.remaining
-          : evaluated.state.value;
+      const evaluated = calculateRatelimit(state, perShard, now, 0);
 
       const current: RatelimitSnapshot = {
-        value,
+        value: scaleToGlobal(evaluated.remainingRaw, algorithm.shards),
         ts: evaluated.state.ts,
         shard,
         config: algorithm,
@@ -297,12 +295,11 @@ export class Ratelimit {
     }
 
     const algorithm = await this.resolveAlgorithm();
-    const count = consume ? normalizeCount(request) : 0;
-    const reserveRequested = consume && Boolean(request?.reserve);
+    const count = normalizeCount(request);
+    const reserveRequested = Boolean(request?.reserve);
 
     if (this.blockCache && count > 0) {
-      const cacheKey = `${this.prefix}:${identifier}`;
-      const blocked = this.blockCache.isBlocked(cacheKey);
+      const blocked = this.blockCache.isBlocked(this.blockKey(identifier));
       if (blocked.blocked) {
         return {
           success: false,
@@ -319,7 +316,7 @@ export class Ratelimit {
     const now = Date.now();
     const candidates = await this.evaluateCandidates(
       identifier,
-      algorithm,
+      shardAlgorithm(algorithm),
       now,
       count,
       reserveRequested
@@ -328,7 +325,7 @@ export class Ratelimit {
 
     if (successful.length > 0) {
       const best = successful.sort(
-        (a, b) => b.evaluated.remaining - a.evaluated.remaining
+        (a, b) => b.evaluated.remainingRaw - a.evaluated.remainingRaw
       )[0];
 
       if (consume && count !== 0) {
@@ -341,7 +338,7 @@ export class Ratelimit {
       }
 
       if (this.blockCache) {
-        this.blockCache.clear(`${this.prefix}:${identifier}`);
+        this.blockCache.clear(this.blockKey(identifier));
       }
       clearProtection(this.prefix, identifier);
       this.checkCache.clear();
@@ -349,8 +346,13 @@ export class Ratelimit {
       return {
         success: true,
         ok: true,
-        limit: best.evaluated.limit,
-        remaining: best.evaluated.remaining,
+        limit: this.rawLimit(algorithm),
+        remaining: Math.max(
+          0,
+          Math.floor(
+            scaleToGlobal(best.evaluated.remainingRaw, algorithm.shards)
+          )
+        ),
         reset: best.evaluated.reset,
         pending: Promise.resolve(),
       };
@@ -369,7 +371,7 @@ export class Ratelimit {
     const reset = now + retryAfter;
 
     if (consume && this.blockCache && count > 0) {
-      this.blockCache.blockUntil(`${this.prefix}:${identifier}`, reset);
+      this.blockCache.blockUntil(this.blockKey(identifier), reset);
     }
 
     if (consume && this.enableProtection) {
@@ -384,21 +386,25 @@ export class Ratelimit {
     return {
       success: false,
       ok: false,
-      limit: failure.evaluated.limit,
+      limit: this.rawLimit(algorithm),
       remaining: 0,
       reset,
       pending: Promise.resolve(),
     };
   }
 
+  private blockKey(identifier: string): string {
+    return `${this.prefix}:${identifier}`;
+  }
+
   private async evaluateCandidates(
     identifier: string,
-    algorithm: ResolvedAlgorithm,
+    perShard: ResolvedAlgorithm,
     now: number,
     count: number,
     reserveRequested: boolean
   ): Promise<EvaluationCandidate[]> {
-    const shards = pickCandidateShards(algorithm.shards);
+    const shards = pickCandidateShards(perShard.shards);
 
     const result: EvaluationCandidate[] = [];
 
@@ -406,14 +412,14 @@ export class Ratelimit {
       const state = normalizeState(
         await this.store.getState(this.prefix, identifier, shard)
       );
-      const evaluated = calculateRatelimit(state, algorithm, now, count);
+      const evaluated = calculateRatelimit(state, perShard, now, count);
 
       const canReserve =
         reserveRequested &&
         evaluated.retryAfter !== undefined &&
-        algorithm.kind !== 'slidingWindow' &&
-        (algorithm.maxReserved === undefined ||
-          Math.abs(evaluated.state.value) <= algorithm.maxReserved);
+        perShard.kind !== 'slidingWindow' &&
+        (perShard.maxReserved === undefined ||
+          Math.abs(evaluated.state.value) <= perShard.maxReserved);
 
       const success = evaluated.retryAfter === undefined || canReserve;
 
@@ -477,6 +483,14 @@ export class Ratelimit {
       reason: 'timeout',
     };
   }
+}
+
+/**
+ * Shards hold `budget / shards` each, so a sampled shard value is scaled back up
+ * to estimate the global figure. Exact when load is balanced, approximate otherwise.
+ */
+function scaleToGlobal(value: number, shards: number): number {
+  return shards <= 1 ? value : value * shards;
 }
 
 function normalizeCount(request?: LimitRequest | CheckRequest): number {

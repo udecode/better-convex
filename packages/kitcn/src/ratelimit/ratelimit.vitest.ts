@@ -5,6 +5,7 @@ import type { ConvexRatelimitDbWriter } from './types';
 const RATELIMIT_PLUGIN_REGEX =
   /convex\/lib\/plugins\/ratelimit\/schema\.ts|kitcn add ratelimit/i;
 const TIMER_UNSUPPORTED_REGEX = /not supported in convex queries\/mutations/i;
+const SHARD_BUDGET_REGEX = /must be at least shards/i;
 
 type TableRow = Record<string, unknown> & {
   _id: string;
@@ -100,6 +101,14 @@ function createMockDb(options?: { delayMs?: number }) {
   return { db, counters };
 }
 
+function createSeededRandom(seed = 1): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) % 4_294_967_296;
+    return state / 4_294_967_296;
+  };
+}
+
 async function withTimersDisabled<T>(run: () => Promise<T>): Promise<T> {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -155,6 +164,113 @@ describe('Ratelimit', () => {
     expect(check.success).toBe(true);
     expect(first.success).toBe(true);
     expect(second.success).toBe(false);
+  });
+
+  test('check evaluates the requested count without consuming tokens', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.fixedWindow(2, '10 s'),
+    });
+
+    const oversized = await limiter.check('check-count-user', { count: 5 });
+    const first = await limiter.limit('check-count-user');
+    const second = await limiter.limit('check-count-user');
+    const exhausted = await limiter.check('check-count-user');
+
+    expect(oversized.success).toBe(false);
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(exhausted.success).toBe(false);
+    expect(exhausted.remaining).toBe(0);
+  });
+
+  test('shards split the configured limit instead of multiplying it', async () => {
+    Math.random = createSeededRandom();
+
+    const granted: Record<string, number> = {};
+
+    for (const [limit, shards] of [
+      [5, 1],
+      [5, 2],
+      [5, 4],
+      [20, 8],
+    ] as const) {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.fixedWindow(limit, '1 m', { shards }),
+      });
+
+      let allowed = 0;
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const result = await limiter.limit('sharded-user');
+        if (result.success) {
+          allowed += 1;
+        }
+      }
+      granted[`limit${limit}/shards${shards}`] = allowed;
+    }
+
+    expect(granted).toEqual({
+      'limit5/shards1': 5,
+      'limit5/shards2': 4,
+      'limit5/shards4': 4,
+      'limit20/shards8': 16,
+    });
+  });
+
+  test('rejects shard counts that leave a shard under one token', () => {
+    expect(() => Ratelimit.fixedWindow(3, '1 m', { shards: 4 })).toThrow(
+      SHARD_BUDGET_REGEX
+    );
+    expect(() => Ratelimit.slidingWindow(3, '1 m', { shards: 4 })).toThrow(
+      SHARD_BUDGET_REGEX
+    );
+    expect(() => Ratelimit.tokenBucket(3, '1 m', 3, { shards: 4 })).toThrow(
+      SHARD_BUDGET_REGEX
+    );
+    expect(() => Ratelimit.fixedWindow(5, '1 m', { shards: 8 })).toThrow(
+      SHARD_BUDGET_REGEX
+    );
+
+    expect(() => Ratelimit.fixedWindow(4, '1 m', { shards: 4 })).not.toThrow();
+  });
+
+  test('getRemaining reports sliding window tokens left', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.slidingWindow(10, '1 m'),
+    });
+
+    const fresh = await limiter.getRemaining('sliding-user');
+    await limiter.limit('sliding-user');
+    const afterOne = await limiter.getRemaining('sliding-user');
+
+    expect(fresh.remaining).toBe(10);
+    expect(fresh.limit).toBe(10);
+    expect(afterOne.remaining).toBe(9);
+  });
+
+  test('resetUsedTokens clears the ephemeral block', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      prefix: 'reset-demo',
+      limiter: Ratelimit.fixedWindow(1, '1 m'),
+    });
+
+    const first = await limiter.limit('reset-user');
+    const blocked = await limiter.limit('reset-user');
+    await limiter.resetUsedTokens('reset-user');
+    const afterReset = await limiter.limit('reset-user');
+
+    expect(first.success).toBe(true);
+    expect(blocked.success).toBe(false);
+    expect(afterReset.success).toBe(true);
+    expect(afterReset.reason).toBeUndefined();
   });
 
   test('dynamic limits can be set and read', async () => {

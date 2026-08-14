@@ -201,7 +201,7 @@ All three algorithm builders accept an optional `options` object as the last arg
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `shards` | `number` | `1` | Number of shards for write distribution. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
+| `shards` | `number` | `1` | Number of shards for write distribution. The configured budget is split evenly across shards, so the total limit stays the same. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
 | `maxReserved` | `number` | `undefined` | Maximum tokens a request can "borrow" from future capacity. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
 | `capacity` | `number` | `limit` | Maximum stored tokens. Only applies to `fixedWindow`. Useful when you want a higher burst capacity than the per-window refill. |
 | `start` | `number` | `0` | Epoch offset (ms) for window alignment. Only applies to `fixedWindow`. Aligns windows to a custom origin instead of epoch zero. |
@@ -426,7 +426,7 @@ fixedWindow(limit: number, window: Duration, options?: AlgorithmOptions): FixedW
 | --- | --- | --- |
 | `limit` | `number` | Tokens replenished per window |
 | `window` | `Duration` | Window length (`number` in ms, or string like `'1 m'`) |
-| `options.shards` | `number` | Write distribution shards (default `1`) |
+| `options.shards` | `number` | Write distribution shards (default `1`). The budget is split evenly across shards. |
 | `options.maxReserved` | `number` | Max tokens that can be borrowed from future windows |
 | `options.capacity` | `number` | Max stored tokens (default = `limit`) |
 | `options.start` | `number` | Epoch offset for window alignment |
@@ -441,7 +441,7 @@ slidingWindow(limit: number, window: Duration, options?: AlgorithmOptions): Slid
 | --- | --- | --- |
 | `limit` | `number` | Max requests in the sliding window |
 | `window` | `Duration` | Window length |
-| `options.shards` | `number` | Write distribution shards (default `1`) |
+| `options.shards` | `number` | Write distribution shards (default `1`). The budget is split evenly across shards. |
 | `options.maxReserved` | `number` | Max tokens that can be borrowed |
 
 <Callout icon={<InfoIcon />}>
@@ -459,7 +459,7 @@ tokenBucket(refillRate: number, interval: Duration, maxTokens: number, options?:
 | `refillRate` | `number` | Tokens added per interval |
 | `interval` | `Duration` | Refill interval |
 | `maxTokens` | `number` | Maximum bucket capacity |
-| `options.shards` | `number` | Write distribution shards (default `1`) |
+| `options.shards` | `number` | Write distribution shards (default `1`). The budget is split evenly across shards. |
 | `options.maxReserved` | `number` | Max tokens that can be borrowed from future refills |
 
 ### Core methods
@@ -474,7 +474,7 @@ limit(identifier: string, options?: LimitRequest): Promise<RatelimitResponse>
 
 #### `check(identifier, options?)`
 
-Evaluate without consuming tokens. Use this for read-only checks (e.g. showing a warning before the user submits).
+Evaluate without consuming tokens. Use this for read-only checks (e.g. showing a warning before the user submits). It runs the same evaluation as `limit()` for the requested `count`, so `check()` and a following `limit()` agree — it just never writes state.
 
 ```ts
 check(identifier: string, options?: CheckRequest): Promise<RatelimitResponse>
@@ -549,7 +549,7 @@ Pass these options to `limit()` to customize behavior per-call.
 
 #### `CheckRequest`
 
-Same as `LimitRequest` but `reserve` defaults to not consuming tokens (since `check()` is read-only).
+Same fields as `LimitRequest`. `count` / `rate` set how many tokens the check is evaluated against, and `reserve` decides whether reserved capacity counts as available. Nothing is written, because `check()` is read-only.
 
 ### Response types
 
@@ -562,7 +562,7 @@ Returned by `limit()` and `check()`.
 | `success` | `boolean` | `true` if the request was allowed |
 | `ok` | `boolean` | Alias for `success` (Convex DX parity) |
 | `limit` | `number` | Maximum tokens for this algorithm |
-| `remaining` | `number` | Tokens left after this request (floored to 0) |
+| `remaining` | `number` | Tokens left after this request (floored to 0). With `shards > 1` this is extrapolated from the shard that served the request. |
 | `reset` | `number` | Epoch ms when tokens will be available |
 | `pending` | `Promise<unknown>` | Resolves when async side-effects complete |
 | `reason` | `'timeout' \| 'cacheBlock' \| 'denyList'` | Present when a reason applies. Note: `failureMode: 'open'` can return `success: true` with `reason: 'timeout'`. |
@@ -584,10 +584,12 @@ Returned by `getValue()`. Used for custom projections and the React hook.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | Current token count |
+| `value` | `number` | Tokens left at read time, scaled to the full limit when `shards > 1` |
 | `ts` | `number` | Timestamp of last state update |
 | `shard` | `number` | Which shard was read |
 | `config` | `ResolvedAlgorithm` | Full algorithm config for `calculateRatelimit()` |
+
+Pass a snapshot through `snapshotToState()` before handing it to `calculateRatelimit()`, which expects stored state rather than remaining tokens.
 
 ### Hook API
 
@@ -658,9 +660,34 @@ const result = calculateRatelimit(
 // result.remaining, result.reset, result.retryAfter
 ```
 
+`result.remaining` is floored to `0`; `result.remainingRaw` keeps the exact value and goes negative when the request overdraws.
+
+#### `snapshotToState`
+
+`getValue()` reports tokens left, while `calculateRatelimit()` takes stored state — the two differ for sliding windows, which store the used count. `snapshotToState` converts between them:
+
+```ts showLineNumbers
+import { calculateRatelimit, snapshotToState } from 'kitcn/ratelimit';
+
+const snapshot = await limiter.getValue('user_123');
+const result = calculateRatelimit(
+  snapshotToState(snapshot),
+  snapshot.config,
+  Date.now(),
+  1
+);
+```
+
 #### Sharding
 
-When `shards > 1`, each `limit()` call picks a random shard (or two, using power-of-two-choices when `shards >= 3`) to reduce write contention. The trade-off: reads (`check`, `getRemaining`, `getValue`) only sample a subset of shards, so remaining counts are approximate. For most use cases, `shards: 1` (the default) is fine. Increase shards only when you see write contention on hot identifiers.
+When `shards > 1`, the configured budget is divided evenly across shards and each `limit()` call picks a random shard (or two, using power-of-two-choices when `shards >= 3`) to reduce write contention. Total throughput stays at the configured limit.
+
+Two trade-offs come with it:
+
+- Reads (`check`, `getRemaining`, `getValue`) sample a subset of shards and scale the result back up, so remaining counts are approximate.
+- A single call spends from one shard, so `count` can never exceed `limit / shards`. Keep the per-shard share comfortably above your largest `count` — ten or more is a good target. The algorithm builders throw when `limit / shards` (or `maxTokens / shards` for `tokenBucket`) drops below `1`, since every request would otherwise be denied.
+
+For most use cases, `shards: 1` (the default) is fine. Increase shards only when you see write contention on hot identifiers.
 
 #### Ephemeral cache
 

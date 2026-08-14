@@ -1,5 +1,6 @@
 import type {
   FixedWindowAlgorithm,
+  RatelimitSnapshot,
   RatelimitState,
   ResolvedAlgorithm,
   SlidingWindowAlgorithm,
@@ -9,7 +10,10 @@ import type {
 export type EvaluationResult = {
   state: RatelimitState;
   retryAfter?: number;
+  /** Tokens left after this request, floored to `0`. */
   remaining: number;
+  /** Exact tokens left after this request. Negative when the request overdraws. */
+  remainingRaw: number;
   reset: number;
   limit: number;
 };
@@ -50,6 +54,7 @@ function calculateTokenBucket(
     state: { value: nextValue, ts: now },
     retryAfter,
     remaining: Math.max(0, Math.floor(nextValue)),
+    remainingRaw: nextValue,
     reset: retryAfter ? now + retryAfter : now,
     limit: config.maxTokens,
   };
@@ -87,6 +92,7 @@ function calculateFixedWindow(
     state: { value: nextValue, ts },
     retryAfter,
     remaining: Math.max(0, Math.floor(nextValue)),
+    remainingRaw: nextValue,
     reset: ts + config.window,
     limit: config.limit,
   };
@@ -135,9 +141,29 @@ function calculateSlidingWindow(
     },
     retryAfter,
     remaining: Math.max(0, Math.floor(remaining)),
+    remainingRaw: remaining,
     reset: windowStart + config.window,
     limit: config.limit,
   };
+}
+
+/**
+ * Convert a {@link RatelimitSnapshot} back into the `RatelimitState` shape that
+ * {@link calculateRatelimit} consumes.
+ *
+ * Snapshot `value` is always "tokens left". Fixed window and token bucket store
+ * that directly, but sliding window state stores the used count, so it has to be
+ * inverted before it can be replayed.
+ */
+export function snapshotToState(snapshot: RatelimitSnapshot): RatelimitState {
+  if (snapshot.config.kind === 'slidingWindow') {
+    return {
+      value: Math.max(0, snapshot.config.limit - snapshot.value),
+      ts: snapshot.ts,
+    };
+  }
+
+  return { value: snapshot.value, ts: snapshot.ts };
 }
 
 function alignWindowStart(now: number, window: number, start = 0): number {

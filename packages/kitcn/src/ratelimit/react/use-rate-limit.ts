@@ -1,7 +1,10 @@
 import { useConvex, useQuery } from 'convex/react';
 import { type FunctionReference, makeFunctionReference } from 'convex/server';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateRatelimit } from '../core/calculate-rate-limit';
+import {
+  calculateRatelimit,
+  snapshotToState,
+} from '../core/calculate-rate-limit';
 import type {
   HookCheckValue,
   RatelimitSnapshot,
@@ -162,20 +165,8 @@ function evaluateSnapshot(
   now: number,
   count: number
 ): { value: number; ts: number; retryAfter?: number } {
-  const baseState =
-    snapshot.config.kind === 'slidingWindow'
-      ? {
-          // hookAPI snapshots for sliding windows expose "remaining" at read time.
-          // Rebuild a conservative state so checks can recover as time advances.
-          value: Math.max(0, snapshot.config.limit - snapshot.value),
-          ts: snapshot.ts,
-        }
-      : {
-          value: snapshot.value,
-          ts: snapshot.ts,
-        };
   const evaluated = calculateRatelimit(
-    baseState,
+    snapshotToState(snapshot),
     snapshot.config as ResolvedAlgorithm,
     now,
     count
