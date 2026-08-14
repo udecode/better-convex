@@ -1188,6 +1188,58 @@ describe('M4 Where Filtering - explicit withIndex() precedence', () => {
     expect(users.map((user) => user.name)).toEqual(['ua']);
   });
 
+  test('withIndex() range survives cursor pagination with maxScan', async ({
+    ctx,
+  }) => {
+    const { cityA } = await seedTenants(ctx);
+    // Enough rows in the other city that a page built without the index range
+    // would be filled from it.
+    for (let i = 0; i < 10; i += 1) {
+      await ctx.db.insert('users', {
+        name: `other-${i}`,
+        email: `other-${i}@example.com`,
+        cityId: 'city_other',
+        status: 'active',
+      });
+    }
+
+    const page = await ctx.orm.query.users
+      .withIndex('by_city', (q) => q.eq('cityId', cityA))
+      .findMany({
+        where: { status: 'active' },
+        cursor: null,
+        limit: 5,
+        maxScan: 50,
+      });
+
+    expect(page.page.map((user) => user.name)).toEqual(['ua']);
+  });
+
+  test('withIndex() range survives cursor pagination with a residual filter', async ({
+    ctx,
+  }) => {
+    const { cityA } = await seedTenants(ctx);
+    for (let i = 0; i < 10; i += 1) {
+      await ctx.db.insert('users', {
+        name: `other-${i}`,
+        email: `other-${i}@example.com`,
+        cityId: 'city_other',
+        status: 'active',
+      });
+    }
+
+    const page = await ctx.orm.query.users
+      .withIndex('by_city', (q) => q.eq('cityId', cityA))
+      .findMany({
+        where: { name: { like: 'u%' } },
+        cursor: null,
+        limit: 5,
+        maxScan: 50,
+      });
+
+    expect(page.page.map((user) => user.name)).toEqual(['ua']);
+  });
+
   test('withIndex() range wins over a where on the same index', async ({
     ctx,
   }) => {

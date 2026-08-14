@@ -1515,28 +1515,7 @@ export class SingletonStream<
     return this.#equalityIndexFilter;
   }
   narrow(indexBounds: IndexBounds): QueryStream<T> {
-    const compareLowerBound = compareKeys(
-      {
-        value: indexBounds.lowerBound,
-        kind: indexBounds.lowerBoundInclusive ? 'exact' : 'successor',
-      },
-      {
-        value: this.#indexKey,
-        kind: 'exact',
-      }
-    );
-    const compareUpperBound = compareKeys(
-      {
-        value: this.#indexKey,
-        kind: 'exact',
-      },
-      {
-        value: indexBounds.upperBound,
-        kind: indexBounds.upperBoundInclusive ? 'exact' : 'predecessor',
-      }
-    );
-    // If lowerBound <= this.indexKey <= upperBound, return this.value
-    if (compareLowerBound <= 0 && compareUpperBound <= 0) {
+    if (indexKeyWithinBounds(this.#indexKey, indexBounds)) {
       return new SingletonStream(
         this.#value,
         this.#order,
@@ -1547,6 +1526,42 @@ export class SingletonStream<
     }
     return new EmptyStream(this.#order, this.#indexFields);
   }
+}
+
+/**
+ * True when `lowerBound <= indexKey <= upperBound`, honouring each bound's
+ * inclusivity.
+ *
+ * Bounds are compared as `predecessor`/`successor` rather than `exact`, the
+ * same convention `StreamQuery.narrow` uses. That is what lets a bound be a
+ * prefix of the key — including the empty prefix that means unbounded — and it
+ * agrees with `exact` whenever the two are the same length.
+ */
+export function indexKeyWithinBounds(
+  indexKey: IndexKey,
+  indexBounds: IndexBounds
+): boolean {
+  const compareLowerBound = compareKeys(
+    {
+      value: indexBounds.lowerBound,
+      kind: indexBounds.lowerBoundInclusive ? 'predecessor' : 'successor',
+    },
+    {
+      value: indexKey,
+      kind: 'exact',
+    }
+  );
+  const compareUpperBound = compareKeys(
+    {
+      value: indexKey,
+      kind: 'exact',
+    },
+    {
+      value: indexBounds.upperBound,
+      kind: indexBounds.upperBoundInclusive ? 'successor' : 'predecessor',
+    }
+  );
+  return compareLowerBound <= 0 && compareUpperBound <= 0;
 }
 
 /**

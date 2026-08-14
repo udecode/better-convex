@@ -19,7 +19,7 @@ import {
   text,
 } from 'kitcn/orm';
 import { it as baseIt, describe, expect } from 'vitest';
-import { convexTest, withOrm } from '../setup.testing';
+import { convexTest, countDocumentReads, withOrm } from '../setup.testing';
 
 const users = convexTable('rls_users', {
   name: text().notNull(),
@@ -256,6 +256,10 @@ const relations = defineRelations(tables, (r) => ({
       from: r.rls_users.id,
       to: r.rls_role_docs.ownerId,
       alias: 'rls-user-role-docs',
+    }),
+    secrets: r.many.rls_secrets({
+      from: r.rls_users.id,
+      to: r.rls_secrets.ownerId,
     }),
   },
 }));
@@ -803,5 +807,30 @@ describe('RLS', () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0].ownerId).toEqual(otherId);
+  });
+
+  it('keeps the relation read bound when rules are skipped', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    ctx.viewerId = viewerId;
+
+    for (let i = 0; i < 25; i += 1) {
+      await ctx.db.insert('rls_secrets', {
+        value: `allowed-${i}`,
+        ownerId: viewerId,
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.skipRules.query.rls_users.findMany({
+      limit: 10,
+      with: { secrets: { limit: 3 } },
+    });
+
+    expect((rows[0] as any).secrets).toHaveLength(3);
+    // skipRules filters nothing, so the per-parent limit must still be pushed
+    // into the read instead of collecting every child.
+    expect(reads.documents).toBeLessThan(25);
   });
 });

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import schema from '../schema';
-import { convexTest, runCtx } from '../setup.testing';
+import { convexTest, countDocumentReads, runCtx } from '../setup.testing';
 
 test('select chain union can interleave indexed streams', async () => {
   const t = convexTest(schema);
@@ -480,6 +480,46 @@ test('flatMap limit stays per parent across pages', async () => {
     }
 
     expect(walked).toEqual(['A0', 'A1', 'A2', 'B0', 'B1', 'B2']);
+  });
+});
+
+test('flatMap limit reads each child once and stays under maxScan', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-reads@example.com',
+    });
+    // Only 2 of 30 children match, so sizing the stage has to walk all 30.
+    for (let i = 0; i < 30; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: i === 10 || i === 20 ? 'note' : 'other',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const result = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', {
+        includeParent: false,
+        where: { type: 'note' },
+        limit: 5,
+      })
+      .paginate({ cursor: null, limit: 5, maxScan: 6 });
+
+    // 1 parent + 30 children. Sizing the stage consumes the child stream, so
+    // the rows it read must be replayed rather than fetched a second time.
+    expect(reads.documents).toBeLessThanOrEqual(31);
+    // And that walk has to be visible to maxScan, not happen behind it.
+    expect(result.pageStatus).toBe('SplitRequired');
   });
 });
 

@@ -108,8 +108,10 @@ import type { RlsContext } from './rls/types';
 import {
   EmptyStream,
   getIndexFields,
+  type IndexBounds,
+  indexKeyWithinBounds,
   mergedStream,
-  type QueryStream,
+  QueryStream,
   stream,
 } from './stream';
 import {
@@ -182,55 +184,109 @@ type GroupByOrderSpec = {
 };
 
 /**
+ * Replays an already-read run of `[doc | null, indexKey]` entries.
+ *
+ * `narrow()` filters the buffer instead of re-issuing the read, so a stream
+ * that had to be consumed to be sized is not consumed twice.
+ */
+class BufferedQueryStream<
+  T extends NonNullable<unknown>,
+> extends QueryStream<T> {
+  constructor(
+    private readonly entries: readonly [T | null, IndexKey][],
+    private readonly order: 'asc' | 'desc',
+    private readonly indexFields: string[],
+    private readonly equalityIndexFilter: any[]
+  ) {
+    super();
+  }
+
+  iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
+    const entries = this.entries;
+    return {
+      [Symbol.asyncIterator]() {
+        let index = 0;
+        return {
+          next() {
+            if (index >= entries.length) {
+              return Promise.resolve({
+                done: true as const,
+                value: undefined,
+              });
+            }
+            const value = entries[index] as [T | null, IndexKey];
+            index += 1;
+            return Promise.resolve({ done: false as const, value });
+          },
+        };
+      },
+    };
+  }
+
+  narrow(indexBounds: IndexBounds): QueryStream<T> {
+    return new BufferedQueryStream(
+      this.entries.filter(([, indexKey]) =>
+        indexKeyWithinBounds(indexKey, indexBounds)
+      ),
+      this.order,
+      this.indexFields,
+      this.equalityIndexFilter
+    );
+  }
+
+  getOrder(): 'asc' | 'desc' {
+    return this.order;
+  }
+
+  getIndexFields(): string[] {
+    return this.indexFields;
+  }
+
+  getEqualityIndexFilter(): any[] {
+    return this.equalityIndexFilter;
+  }
+}
+
+/**
  * Cap a stream at its first `limit` *matching* documents.
  *
- * Expressed as an index-key bound rather than a running counter, for two
- * reasons. `filterWith` does not drop excluded rows, it emits `[null, key]`
- * placeholders, so a counter would spend the limit on non-matches and a
- * `where` + `limit` pair could return nothing. And a counter resets whenever
- * pagination narrows the stream, so every page would hand back another `limit`
- * rows. A bound survives `narrow()` because every stream intersects bounds.
+ * A running counter cannot express this. `filterWith` does not drop excluded
+ * rows, it emits `[null, key]` placeholders, so a counter spends the limit on
+ * non-matches and a `where` + `limit` pair can return nothing. A counter also
+ * resets whenever pagination narrows the stream, so every page would hand back
+ * another `limit` rows.
  *
- * Reading the first `limit` matches up front is the same work the cap needs
- * anyway: the cut-off key is only knowable by reaching it.
+ * So the run is read once, up to the first row past the limit, and replayed.
+ * Reading that far is inherent — the cut-off is only knowable by reaching it —
+ * but the rows are kept rather than re-fetched, and the `null` placeholders are
+ * replayed too so the scan stays visible to `paginate`'s `maxScan` budget
+ * instead of happening invisibly behind it.
  */
 async function limitStreamByKey<T extends NonNullable<unknown>>(
   inner: QueryStream<T>,
   limit: number
 ): Promise<QueryStream<T>> {
+  const entries: [T | null, IndexKey][] = [];
   let matched = 0;
-  // The bound is the first row *past* the limit, held exclusively, rather than
-  // the last kept row held inclusively. A cursor always points at a row that
-  // was emitted, so an exclusive bound on a never-emitted row can never
-  // collapse into the empty `lowerBound === upperBound` range that index range
-  // splitting turns back into a point lookup.
-  let firstDroppedKey: IndexKey | null = null;
 
-  for await (const [doc, indexKey] of inner.iterWithKeys()) {
-    if (doc === null) {
-      continue;
+  for await (const entry of inner.iterWithKeys()) {
+    if (entry[0] !== null) {
+      matched += 1;
+      // The first row past the limit is read (it is the only way to learn the
+      // run ends here) but never handed on.
+      if (matched > limit) {
+        break;
+      }
     }
-    matched += 1;
-    if (matched > limit) {
-      firstDroppedKey = indexKey;
-      break;
-    }
+    entries.push(entry);
   }
 
-  // At most `limit` matches exist: nothing to cut off.
-  if (firstDroppedKey === null) {
-    return inner;
-  }
-
-  // `IndexBounds` is always stated in ascending index-key order, so a stream
-  // read descending runs out of allowed rows at the *lower* bound.
-  const isDescending = inner.getOrder() === 'desc';
-  return inner.narrow({
-    lowerBound: isDescending ? firstDroppedKey : [],
-    lowerBoundInclusive: !isDescending,
-    upperBound: isDescending ? [] : firstDroppedKey,
-    upperBoundInclusive: isDescending,
-  });
+  return new BufferedQueryStream<T>(
+    entries,
+    inner.getOrder(),
+    inner.getIndexFields(),
+    inner.getEqualityIndexFilter()
+  );
 }
 
 export class GelRankQuery<
@@ -6012,6 +6068,19 @@ export class GelRelationalQuery<
             schemaDefinition
           ).query(this.tableConfig.name as any);
 
+          // An explicit `.withIndex(name, range)` anchors this read too. A
+          // where clause that is not index-compilable leaves `queryConfig.index`
+          // unset and lands here, so without this the caller's index and its
+          // bounds — a tenant scope, say — would never reach the scan.
+          if (configuredIndex?.name) {
+            streamQuery = streamQuery.withIndex(
+              configuredIndex.name as any,
+              configuredIndex.range
+                ? (configuredIndex.range as any)
+                : (q: any) => q
+            );
+          }
+
           if (queryConfig.order && primaryOrder) {
             if (needsPostFetchSortForPrimary) {
               if (strict) {
@@ -7612,8 +7681,12 @@ export class GelRelationalQuery<
     // read, so a `take()` pushed into the FK query would spend its budget on
     // rows that are about to be discarded — `{ limit: 3, where: { published:
     // true } }` returns nothing when three unpublished children sort first.
+    //
+    // `mode: 'skip'` returns every row untouched, so it discards nothing and
+    // must not cost the read bound.
     const hasPostFetchTargetFilter =
-      isRlsEnabled(targetTableConfig.table as any) ||
+      (this.rls?.mode !== 'skip' &&
+        isRlsEnabled(targetTableConfig.table as any)) ||
       Boolean(relationDefinition?.where) ||
       Boolean(
         relationConfig &&
