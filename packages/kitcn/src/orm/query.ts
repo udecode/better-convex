@@ -5064,6 +5064,17 @@ export class GelRelationalQuery<
       }
     }
 
+    // Validate the root and explicit relation plan before the first database
+    // read. `_finalizeRows` repeats this for relations added by polymorphic
+    // variants before those relation rows are loaded.
+    this._assertRlsSelectPlan(
+      config.with as Record<string, unknown> | undefined,
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
+
     // Fast path: `id` lookups use `db.get()` (primary key) instead of an index plan.
     // This keeps `where: { id: ... }` and `where: { id: { in: [...] } }` ergonomic
     // without requiring allowFullScan, and avoids full collection scans.

@@ -82,7 +82,7 @@ Closure matrix:
 | agent workflow | no | N/A: no agent workflow/action changed | N/A |
 | cleanup/review | yes | Deslop and autoreview | passed: no accepted findings |
 | repository check | yes | `bun check` | passed |
-| GitHub delivery | yes | PR 318 update/merge/read-back | pending |
+| GitHub delivery | yes | PR 318 update/merge/read-back | passed: squash merge `eddfc083` |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -91,8 +91,8 @@ Work Checklist:
 - [x] Package build and living changeset match the final behavior; docs/skill/
       fixtures/scenarios are N/A for this runtime-only delta.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner: none.
 - [x] Agent-native pack: no rule or generated skill mirror is changed.
 - [x] Agent-native pack: no agent action is changed, so discoverability is N/A.
 - [x] Agent-native pack: `.agents/rules/**` and generated mirrors are N/A.
@@ -115,9 +115,9 @@ Completion Gates:
 | Agent-native reviewer | no | N/A: no agent-facing action changed | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
 | Repository check | yes | Run `bun check` | passed end to end |
-| GitHub delivery | yes | Update checkbox/branch, squash-merge, read back | pending |
+| GitHub delivery | yes | Update checkbox/branch, squash-merge, read back | passed: auto-release off; CI/Vercel green; merge `eddfc083` |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: clean branch review, confidence 0.98 |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/318-close-auth-adapter-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/318-close-auth-adapter-pr.md` | passed after merge read-back |
 | Agent source / generated sync | no | N/A: no agent source or mirror change | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
 | Agent action discoverability | no | N/A: no agent action change | N/A |
@@ -130,8 +130,8 @@ Phase / pass table:
 | Inventory | completed | PR contract/files/checks and proof gap reconstructed | repair |
 | Repair | completed | deterministic Vitest forwarding proof added | review |
 | Review/checks | completed | focused tests/build/types/lint/fixtures/verify/runtime, autoreview, and `bun check` passed | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Delivery | completed | PR body synchronized, auto-release disabled, CI/Vercel green, squash merge `eddfc083` read back | final audit |
+| Closeout | completed | no residual findings or blockers | final |
 
 Verification evidence:
 - PR 318 CI rerun `31827131380` passed before local repair.
@@ -146,6 +146,8 @@ Verification evidence:
 - Autoreview branch diff against `kitcn/main` -> clean, no accepted or actionable findings, confidence 0.98.
 - `bun check` -> passed end to end, including lint, types, tests, fixtures,
   verify, and runtime scenarios.
+- GitHub read-back -> PR 318 merged at 2026-08-14T19:03:07Z as
+  `eddfc083de4e1656237f1b871919c9c382eeb67e`; auto-release remained disabled.
 
 Timeline:
 - 2026-08-14T18:17:54.453Z Autoclosure plan created.
@@ -153,19 +155,19 @@ Timeline:
 - 2026-08-14T18:41:00Z Focused/build/lint/fixture/verify proof passed.
 - 2026-08-14T20:47:00Z Runtime scenarios and independent autoreview passed; exact final check remains.
 - 2026-08-14T20:54:00Z Exact `bun check` passed end to end.
+- 2026-08-14T21:03:07Z GitHub CI and Vercel passed; PR 318 squash-merged with auto-release disabled.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | GitHub checks, merge, read-back, final audit |
+| Where am I? | Closed |
+| Where am I going? | Batch continues with PR 316 |
 | What is the goal? | Merge PR 318 with deterministic auth adapter proof and no release trigger |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
 
 Open risks:
-- The latest branch removed nondeterministic `jwtCache` forwarding tests; a
-  stable proof owner must be accepted before merge.
+- None. The removed nondeterministic test was replaced by isolated Vitest proof.
 
 Findings:
 - Cross-table ID access can read, update, or delete the wrong model row.

@@ -520,6 +520,25 @@ describe('RLS', () => {
     });
   });
 
+  it('validates role-scoped policies before starting the root read', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const guardedDb = new Proxy(baseCtx.db, {
+        get(target, property, receiver) {
+          if (property === 'query' || property === 'get') {
+            throw new Error('ROOT_READ_STARTED');
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      const ctx = withOrm({ ...baseCtx, db: guardedDb }, relations);
+
+      await expect(ctx.orm.query.rls_role_docs.findMany()).rejects.toThrow(
+        /RLS_ROLE_RESOLVER_REQUIRED/
+      );
+    });
+  });
+
   it('throws for role-scoped relation targets when the parent has no rows', async () => {
     const t = convexTest(schema);
     await t.run(async (baseCtx) => {
