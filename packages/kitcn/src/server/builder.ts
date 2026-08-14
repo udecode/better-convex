@@ -17,6 +17,7 @@ import {
   mutationGeneric,
   queryGeneric,
 } from 'convex/server';
+import { ConvexError, type Value } from 'convex/values';
 import { z } from 'zod';
 import {
   type DataTransformerOptions,
@@ -24,11 +25,13 @@ import {
 } from '../crpc/transformer';
 import { customCtx } from '../internal/upstream/server/customFunctions';
 import {
+  convexToZodFields,
   zCustomAction,
   zCustomMutation,
   zCustomQuery,
   zodOutputToConvex,
   zodToConvex,
+  zodToConvexFields,
 } from '../internal/upstream/server/zod4';
 import { toCRPCError } from './error';
 import {
@@ -247,7 +250,15 @@ export function createMiddlewareFactory<TDefaultContext, TMeta = object>() {
 /** Result from middleware execution including potentially modified input */
 type MiddlewareExecutionResult = MiddlewareResult<unknown> & {
   input: unknown;
+  /** Value produced by the resolver at the end of the chain */
+  output?: unknown;
 };
+
+/** Terminal link of a middleware chain - runs the procedure resolver */
+type MiddlewareResolver = (opts: {
+  ctx: unknown;
+  input: unknown;
+}) => Promise<unknown>;
 
 const FUNCTION_NAME_SYMBOL = Symbol.for('functionName');
 
@@ -273,7 +284,13 @@ const resolveProcedureInfo = (
   };
 };
 
-/** Execute middleware chain recursively with input access */
+/**
+ * Execute the middleware chain, with the resolver as its terminal link.
+ *
+ * `next()` walks the remaining middleware and then runs the resolver, so a
+ * middleware that wraps `next()` can time the handler, catch its errors, and
+ * post-process its result - matching tRPC.
+ */
 async function executeMiddlewares(
   middlewares: AnyMiddleware[],
   ctx: unknown,
@@ -281,21 +298,24 @@ async function executeMiddlewares(
   procedure: MiddlewareProcedureInfo,
   input: unknown,
   getRawInput: GetRawInputFn,
+  resolve: MiddlewareResolver,
   index = 0
 ): Promise<MiddlewareExecutionResult> {
-  // Base case: no more middleware, return final context and input
+  // Base case: the whole chain ran, so the resolver is next
   if (index >= middlewares.length) {
     return {
       marker: undefined as never, // Runtime doesn't need the marker
       ctx,
       input,
+      output: await resolve({ ctx, input }),
     };
   }
 
   const middleware = middlewares[index];
 
-  // Track input modifications through the chain
+  // Track modifications made by this frame through the rest of the chain
   let currentInput = input;
+  let innerResult: MiddlewareExecutionResult | undefined;
 
   // Create next function for this middleware (tRPC-compatible signature)
   const next: MiddlewareNext<any, any> = async <
@@ -305,38 +325,40 @@ async function executeMiddlewares(
     input?: unknown;
   }) => {
     const nextCtx = opts?.ctx ?? ctx;
-    const nextInput = opts?.input ?? currentInput;
     // Track input modification
     if (opts?.input !== undefined) {
       currentInput = opts.input;
     }
-    const result = await executeMiddlewares(
+    innerResult = await executeMiddlewares(
       middlewares,
       nextCtx,
       meta,
       procedure,
-      nextInput,
+      currentInput,
       getRawInput,
+      resolve,
       index + 1
     );
-    return result as MiddlewareResult<any>;
+    return innerResult as MiddlewareResult<any>;
   };
 
   // Execute current middleware with input and getRawInput
-  const result = await middleware({
+  const result = (await middleware({
     ctx: ctx as any,
     meta,
     procedure,
     input,
     getRawInput,
     next,
-  });
+  })) as MiddlewareExecutionResult;
 
-  // Return result with potentially modified context and input
+  // Carry the inner frames' input and resolver output back out, so an override
+  // made by any middleware - not just the first - survives the return trip.
   return {
     marker: undefined as never,
     ctx: result.ctx ?? ctx,
-    input: currentInput,
+    input: result.input ?? innerResult?.input ?? currentInput,
+    output: result.output ?? innerResult?.output,
   };
 }
 
@@ -496,7 +518,12 @@ const withConvexSafeRunners = <TCtx>(ctx: TCtx): TCtx => {
 /** Internal definition storing procedure state */
 type ProcedureBuilderDef<TMeta = object> = {
   middlewares: AnyMiddleware[];
-  inputSchemas: Record<string, any>[];
+  /**
+   * Full `.input()` schemas, not their shapes: object-level checks
+   * (`.refine()`, `.superRefine()`, strict/catchall) only survive on the
+   * schema itself.
+   */
+  inputSchemas: z.ZodObject<any>[];
   outputSchema?: z.ZodTypeAny;
   meta?: TMeta;
   procedureName?: string;
@@ -607,6 +634,27 @@ const replaceUnencodableInputTypes = (schema: z.ZodTypeAny): z.ZodTypeAny => {
   return schema;
 };
 
+/**
+ * Rebuild a shape from the Convex validator it produces.
+ *
+ * The result is structurally identical (so the generated Convex validator is
+ * unchanged) but carries no checks, transforms, or defaults. cRPC's own
+ * `.input()` parse stays the single authoritative one, so refinements and
+ * transforms never run twice.
+ */
+const toWireShape = (
+  shape: Record<string, z.ZodTypeAny>
+): Record<string, z.ZodTypeAny> => {
+  try {
+    return convexToZodFields(zodToConvexFields(shape)) as Record<
+      string,
+      z.ZodTypeAny
+    >;
+  } catch {
+    return shape;
+  }
+};
+
 const resolveConvexArgsShape = (
   inputShape?: Record<string, z.ZodTypeAny>
 ): Record<string, z.ZodTypeAny> | undefined => {
@@ -615,18 +663,108 @@ const resolveConvexArgsShape = (
   const rawSchema = z.object(inputShape);
   try {
     zodToConvex(rawSchema as any);
-    return inputShape;
+    return toWireShape(inputShape);
   } catch {
     const compatibleSchema = replaceUnencodableInputTypes(rawSchema);
     try {
       zodToConvex(compatibleSchema as any);
-      return (compatibleSchema as z.ZodObject<any>).shape;
+      return toWireShape((compatibleSchema as z.ZodObject<any>).shape);
     } catch {
       const permissiveShape = Object.fromEntries(
         Object.keys(inputShape).map((key) => [key, z.any()])
       ) as Record<string, z.ZodTypeAny>;
       return permissiveShape;
     }
+  }
+};
+
+/**
+ * Drop keys a later `.input()` redeclares.
+ *
+ * Returns `undefined` when the schema carries object-level checks, since zod
+ * refuses to omit from those - such a schema keeps the key and reads the value
+ * its owner parsed.
+ */
+const omitSupersededKeys = (
+  schema: z.ZodObject<any>,
+  superseded: string[]
+): z.ZodObject<any> | undefined => {
+  if (superseded.length === 0) return schema;
+
+  try {
+    return schema.omit(
+      Object.fromEntries(superseded.map((key) => [key, true])) as any
+    );
+  } catch {
+    return;
+  }
+};
+
+/**
+ * Parse the wire payload through every `.input()` schema.
+ *
+ * Each schema parses only the keys it owns - the last `.input()` to declare a
+ * key wins, matching the merged shape the Convex arg validator is built from -
+ * so object-level checks run against the shape they were written for without an
+ * earlier, superseded declaration vetoing the payload.
+ */
+const parseInput = (
+  inputSchemas: z.ZodObject<any>[],
+  value: unknown
+): unknown => {
+  try {
+    if (inputSchemas.length === 1) {
+      return inputSchemas[0].parse(value);
+    }
+
+    const ownerOf = new Map<string, number>();
+    inputSchemas.forEach((schema, index) => {
+      for (const key of Object.keys(schema.shape)) {
+        ownerOf.set(key, index);
+      }
+    });
+
+    const source = isPlainObject(value) ? value : {};
+    const parsed: Record<string, unknown> = {};
+
+    // Walk owners first, so a schema still holding a superseded key can read
+    // the value its owner produced.
+    for (let index = inputSchemas.length - 1; index >= 0; index -= 1) {
+      const schema = inputSchemas[index];
+      const keys = Object.keys(schema.shape);
+      const superseded = keys.filter((key) => ownerOf.get(key) !== index);
+      const scoped = omitSupersededKeys(schema, superseded);
+
+      const narrowed: Record<string, unknown> = {};
+      for (const key of keys) {
+        if (superseded.includes(key)) {
+          // Omitted outright when zod allowed it, otherwise fed the owner value.
+          if (!scoped && key in parsed) narrowed[key] = parsed[key];
+          continue;
+        }
+        if (Object.hasOwn(source, key)) narrowed[key] = source[key];
+      }
+
+      const result = (scoped ?? schema).parse(narrowed) as Record<
+        string,
+        unknown
+      >;
+      for (const key of keys) {
+        if (ownerOf.get(key) === index && key in result) {
+          parsed[key] = result[key];
+        }
+      }
+    }
+
+    return parsed;
+  } catch (cause) {
+    if (cause instanceof z.ZodError) {
+      // Match the error shape the upstream Convex zod layer produces.
+      throw new ConvexError({
+        ZodError: JSON.parse(JSON.stringify(cause.issues, null, 2)) as Value[],
+      });
+    }
+    throw cause;
   }
 };
 
@@ -700,7 +838,7 @@ export class ProcedureBuilder<
   ): ProcedureBuilderDef<TMeta> {
     return {
       ...this._def,
-      inputSchemas: [...this._def.inputSchemas, schema.shape],
+      inputSchemas: [...this._def.inputSchemas, schema],
     };
   }
 
@@ -734,11 +872,11 @@ export class ProcedureBuilder<
   // Private Methods
   // ===========================================================================
 
-  /** Merge all input schemas into one */
+  /** Merge every `.input()` shape - used to build the Convex arg validator */
   protected _getMergedInput(): Record<string, any> | undefined {
     const { inputSchemas } = this._def;
     if (inputSchemas.length === 0) return;
-    return Object.assign({}, ...inputSchemas);
+    return Object.assign({}, ...inputSchemas.map((schema) => schema.shape));
   }
 
   protected _createFunction(
@@ -752,6 +890,7 @@ export class ProcedureBuilder<
   ) {
     const {
       middlewares,
+      inputSchemas,
       outputSchema,
       meta,
       procedureName,
@@ -761,7 +900,6 @@ export class ProcedureBuilder<
     const mergedInput = this._getMergedInput() as
       | Record<string, z.ZodTypeAny>
       | undefined;
-    const inputSchema = mergedInput ? z.object(mergedInput) : undefined;
     const convexArgs = resolveConvexArgsShape(mergedInput);
 
     // Use customCtx for initial context transformation only
@@ -792,9 +930,10 @@ export class ProcedureBuilder<
       handler: async (ctx: any, rawInput: any) => {
         const decodedInput =
           functionConfig.transformer.input.deserialize(rawInput);
-        const parsedInput = inputSchema
-          ? inputSchema.parse(decodedInput)
-          : decodedInput;
+        const parsedInput =
+          inputSchemas.length > 0
+            ? parseInput(inputSchemas, decodedInput)
+            : decodedInput;
         // Create getRawInput function for middleware
         const getRawInput: GetRawInputFn = async () => parsedInput;
 
@@ -804,30 +943,32 @@ export class ProcedureBuilder<
             resolvedProcedureName,
             fn
           );
-          // Execute middleware chain with input access
+          // Run the middleware chain, which invokes the handler at its end so
+          // wrapping middleware can observe it.
           const result = await executeMiddlewares(
             middlewares,
             ctx,
             meta,
             procedure,
             parsedInput,
-            getRawInput
+            getRawInput,
+            async ({ ctx: resolvedCtx, input: resolvedInput }) => {
+              const handlerInput =
+                resolvedInput === parsedInput
+                  ? parsedInput
+                  : functionConfig.transformer.input.deserialize(
+                      resolvedInput ?? parsedInput
+                    );
+              return await handler({
+                ctx: resolvedCtx,
+                input: handlerInput,
+              });
+            }
           );
 
-          // Call handler with middleware-modified context and input
-          const handlerInput =
-            result.input === parsedInput
-              ? parsedInput
-              : functionConfig.transformer.input.deserialize(
-                  result.input ?? parsedInput
-                );
-          const output = await handler({
-            ctx: result.ctx,
-            input: handlerInput,
-          });
           const validatedOutput = shouldValidateOutputWithZod
-            ? outputSchema.parse(output)
-            : output;
+            ? outputSchema.parse(result.output)
+            : result.output;
           return functionConfig.transformer.output.serialize(validatedOutput);
         } catch (cause) {
           const err = toCRPCError(cause);
@@ -995,10 +1136,7 @@ export class QueryProcedureBuilder<
 
     return new QueryProcedureBuilder({
       ...this._def,
-      inputSchemas: [
-        ...this._def.inputSchemas,
-        paginationSchemaWithDefault.shape,
-      ],
+      inputSchemas: [...this._def.inputSchemas, paginationSchemaWithDefault],
       outputSchema,
       meta: {
         ...this._def.meta,

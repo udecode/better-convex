@@ -5,7 +5,7 @@ import {
   type DataTransformerOptions,
   getTransformer,
 } from '../crpc/transformer';
-import { CRPCError } from './error';
+import { CRPCError, getHTTPStatusCodeFromError, toCRPCError } from './error';
 import type {
   CRPCHonoHandler,
   HttpHandlerOpts,
@@ -60,28 +60,19 @@ export function matchPathParams(
 
 // Convert CRPCError to HTTP Response
 export function handleHttpError(error: unknown): Response {
-  if (error instanceof CRPCError) {
-    const statusMap: Record<string, number> = {
-      BAD_REQUEST: 400,
-      UNAUTHORIZED: 401,
-      FORBIDDEN: 403,
-      NOT_FOUND: 404,
-      METHOD_NOT_SUPPORTED: 405,
-      CONFLICT: 409,
-      UNPROCESSABLE_CONTENT: 422,
-      TOO_MANY_REQUESTS: 429,
-      INTERNAL_SERVER_ERROR: 500,
-    };
+  // `toCRPCError` also recovers cRPC errors that lost their class identity
+  // crossing a `ctx.runQuery`/`ctx.runMutation` boundary.
+  const crpcError = toCRPCError(error);
 
-    const status = statusMap[error.code] ?? 500;
+  if (crpcError) {
     return Response.json(
       {
         error: {
-          code: error.code,
-          message: error.message,
+          code: crpcError.code,
+          message: crpcError.message,
         },
       },
-      { status }
+      { status: getHTTPStatusCodeFromError(crpcError) }
     );
   }
 
@@ -95,6 +86,32 @@ export function handleHttpError(error: unknown): Response {
     },
     { status: 500 }
   );
+}
+
+/** Read a JSON body, reporting parse failures as client errors. */
+async function readJsonBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch (cause) {
+    throw new CRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Invalid JSON body',
+      cause,
+    });
+  }
+}
+
+/** Read a form body, reporting parse failures as client errors. */
+async function readFormDataBody(request: Request): Promise<FormData> {
+  try {
+    return await request.formData();
+  } catch (cause) {
+    throw new CRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Invalid form data',
+      cause,
+    });
+  }
 }
 
 // Helper to get base schema type (unwrap Optional/Nullable/Default wrappers)
@@ -606,9 +623,9 @@ function createProcedure(
         let body: unknown;
 
         if (contentType.includes('application/json')) {
-          body = await request.json();
+          body = await readJsonBody(request);
         } else if (contentType.includes('application/x-www-form-urlencoded')) {
-          const formData = await request.formData();
+          const formData = await readFormDataBody(request);
           body = Object.fromEntries(formData.entries());
         } else {
           body = await request.json().catch(() => ({}));
@@ -633,7 +650,7 @@ function createProcedure(
       // Parse form data (multipart/form-data)
       let parsedForm: unknown;
       if (def.formSchema && request.method !== 'GET') {
-        const formData = await request.formData();
+        const formData = await readFormDataBody(request);
         const formObj: Record<string, unknown> = {};
         for (const [key, value] of formData.entries()) {
           formObj[key] = value;
