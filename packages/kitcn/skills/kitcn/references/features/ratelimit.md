@@ -27,7 +27,7 @@ Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 - Whole-token `maxReserved` headroom is dealt the same way, so configured reservations remain usable under sharding.
 - `tokenBucket` deals `maxTokens` and allocates `refillRate` in proportion to each shard's capacity share, so uneven capacities refill without clipping the configured total.
 - One call spends from one shard, so `count` can never exceed that shard's share. Aim for a share of ten or more times your largest `count`.
-- Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` throws on the same rule instead of silently denying every request.
+- Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` rejects non-positive, non-finite, or unservable overrides before writing them.
 - The ephemeral block cache is keyed per shard, requested count, and reservation mode, so an exhausted shard never blocks peers and a failed large or ordinary request never blocks a smaller or reserved one. Cache writes prune expired variants.
 - Preferred shards are tried first; if none can serve the request, the limiter retries the remaining shards before denying it.
 - Failure `reset` is the earliest retry across both cached and freshly evaluated shards.
@@ -96,7 +96,7 @@ For denied reserved fixed-window and token-bucket requests, `reset` is when the 
 
 ## Dynamic limits
 
-Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and is rejected when the shard split cannot serve it.
+Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and must be a positive finite budget that every configured shard can serve.
 
 ```ts
 await limiter.setDynamicLimit({ limit: 20 }); // false clears the override

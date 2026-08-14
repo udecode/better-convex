@@ -374,7 +374,7 @@ const { dynamicLimit } = await limiter.getDynamicLimit();
 await limiter.setDynamicLimit({ limit: false });
 ```
 
-The dynamic limit overrides the `limit` field of the algorithm. For token bucket, it overrides `refillRate` (and `maxTokens` if they were originally equal).
+The dynamic limit overrides the `limit` field of the algorithm. For token bucket, it overrides `refillRate` (and `maxTokens` if they were originally equal). Overrides must be positive, finite budgets that every configured shard can serve.
 
 ## Limits and mitigations you should know
 

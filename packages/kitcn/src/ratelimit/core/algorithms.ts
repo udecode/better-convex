@@ -68,9 +68,10 @@ export function applyDynamicLimit(
   algorithm: ResolvedAlgorithm,
   dynamicLimit: number | null
 ): ResolvedAlgorithm {
-  if (!dynamicLimit || dynamicLimit <= 0) {
+  if (dynamicLimit === null) {
     return algorithm;
   }
+  validatePositive(dynamicLimit, 'dynamicLimit');
 
   if (algorithm.kind === 'tokenBucket') {
     return assertShardBudget({

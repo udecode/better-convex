@@ -68,7 +68,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 47 focused ratelimit tests | complete |
+| source behavior | yes | 48 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
@@ -112,12 +112,13 @@ Error attempts:
 | Expired count-specific cache variants accumulated | 1 | Prune expired entries on cache writes | Red cache-size test became green |
 | Changeset combined unrelated outcomes and internals | 1 | Split concise user-facing outcomes | Breaking section is atomic |
 | Published skill still described even token refill splits | 1 | Update source guidance and regenerate mirror | Skill, mirror, and public docs describe capacity-proportional refill |
+| Token-bucket dynamic overrides persisted invalid refill rates | 1 | Validate every numeric override before writing | Red zero/negative/non-finite test became green |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 47 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 48 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -125,7 +126,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 15 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 16 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -145,7 +146,7 @@ Phase / pass table:
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 39 Vitest tests and 8 Bun tests across all four ratelimit
+- Focused proof passes 40 Vitest tests and 8 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -221,5 +222,7 @@ Review fixes:
 - Cache writes prune expired count variants, bounding stale entries in shared
   long-lived maps.
 - The changeset breaking section is split into concise user-facing outcomes.
+- Dynamic overrides are validated as positive finite budgets before persistence;
+  zero, negative, `NaN`, and infinite token-bucket refill overrides are rejected.
 - Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
   requires the state-bearing shape across server, hook, types, and docs.

@@ -13,7 +13,7 @@
 
 - Preserve configured `maxReserved` headroom across sharded limiters.
 - Reject limiter budgets that leave any shard with less than one usable token.
-- Reject dynamic limit overrides that cannot serve every configured shard.
+- Reject non-positive, non-finite, or unservable dynamic limit overrides.
 
 - Evaluate the requested `count` / `rate` in `check()` against the tokens already
   spent. It previously evaluated nothing and returned `success: true` for every

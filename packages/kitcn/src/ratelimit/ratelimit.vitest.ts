@@ -11,6 +11,7 @@ const RATELIMIT_PLUGIN_REGEX =
   /convex\/lib\/plugins\/ratelimit\/schema\.ts|kitcn add ratelimit/i;
 const TIMER_UNSUPPORTED_REGEX = /not supported in convex queries\/mutations/i;
 const SHARD_BUDGET_REGEX = /must be at least shards/i;
+const POSITIVE_NUMBER_REGEX = /positive number/i;
 
 type TableRow = Record<string, unknown> & {
   _id: string;
@@ -754,6 +755,24 @@ describe('Ratelimit', () => {
     const allowed = await limiter.limit('dynamic-shard-user');
     expect(allowed.success).toBe(true);
     expect(allowed.limit).toBe(20);
+  });
+
+  test('rejects invalid token-bucket refill overrides before persisting', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      dynamicLimits: true,
+      prefix: 'dynamic-token-refill',
+      limiter: Ratelimit.tokenBucket(5, '1 m', 10),
+    });
+
+    for (const limit of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(limiter.setDynamicLimit({ limit })).rejects.toThrow(
+        POSITIVE_NUMBER_REGEX
+      );
+    }
+
+    expect((await limiter.getDynamicLimit()).dynamicLimit).toBeNull();
   });
 
   test('deny list rejects matching values with reason', async () => {
