@@ -45,7 +45,7 @@ Default to `shards: 1`. Raise it only after observing write contention on hot id
 Use `getRemaining()` for quota headers and banners. Use `getValue()` for the React hook and custom projections where a cheap read matters more than exactness.
 
 Fixed-window projections scale by stored `capacity`; the response `limit` remains the configured per-window refill.
-`getRemaining()` evaluates every raw shard at one common timestamp before summing balances, so a full shard cannot absorb another shard's refill.
+`getRemaining()` evaluates every raw shard at one common timestamp and sums each shard's independently usable whole tokens. It never lets a full shard absorb another shard's refill, nets reserved debt against an open peer, or combines unusable fractions across isolated shards.
 
 ## `check()` vs `limit()`
 

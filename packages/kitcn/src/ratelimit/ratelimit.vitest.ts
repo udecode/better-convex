@@ -587,6 +587,49 @@ describe('Ratelimit', () => {
     }
   });
 
+  test('getRemaining does not net reserved debt against an open shard', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(2, '1 m', {
+        maxReserved: 1,
+        shards: 2,
+      }),
+    });
+
+    Math.random = () => 0;
+    await limiter.limit('usable-debt-user');
+    await limiter.limit('usable-debt-user', { reserve: true });
+    const remaining = await limiter.getRemaining('usable-debt-user');
+
+    expect(remaining.remaining).toBe(1);
+  });
+
+  test('getRemaining does not combine unusable shard fractions', async () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    try {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.tokenBucket(2, '1 s', 2, { shards: 2 }),
+      });
+
+      Math.random = () => 0;
+      await limiter.limit('usable-fraction-user');
+      await limiter.limit('usable-fraction-user');
+      now = 1500;
+      const remaining = await limiter.getRemaining('usable-fraction-user');
+
+      expect(remaining.remaining).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test('fixed-window projections scale by capacity instead of refill limit', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({

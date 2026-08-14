@@ -73,5 +73,6 @@
   global retry time.
 - Compute reserved-request retry times against `maxReserved` headroom rather
   than the non-reserved zero-debt threshold.
-- Evaluate sampled shard states at one common read timestamp and avoid refilling
-  their aggregated snapshot again in `getRemaining()`.
+- Evaluate sampled shard states at one common read timestamp, avoid refilling
+  their aggregate again, and sum each shard's independently usable whole tokens
+  in `getRemaining()` without netting debt or fractions across isolated shards.

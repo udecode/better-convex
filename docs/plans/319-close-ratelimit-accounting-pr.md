@@ -68,7 +68,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 43 focused ratelimit tests | complete |
+| source behavior | yes | 45 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
@@ -107,12 +107,13 @@ Error attempts:
 | Reserved retry used the non-reserved zero-debt deadline | 1 | Derive retry from excess debt beyond `maxReserved` | Red clocked token-bucket test became green |
 | Aggregated token snapshot was refilled twice | 1 | Evaluate raw shards once at a common final timestamp | Red clocked exact-read test became green |
 | Sliding snapshot discarded previous-window state | 1 | Carry projected state in the snapshot contract | Red server and React projection tests became green |
+| `getRemaining()` netted debt and fractions across isolated shards | 1 | Sum per-shard clamped whole balances | Two red usable-balance tests became green |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 43 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 45 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -120,7 +121,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | previous clean at 0.90; rerun pending after remote finding |
+| Autoreview | yes | Resolve every accepted actionable finding | 11 fixed; compatibility fallback rejected by hard-cut doctrine; clean rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -140,7 +141,7 @@ Phase / pass table:
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 35 Vitest tests and 8 Bun tests across all four ratelimit
+- Focused proof passes 37 Vitest tests and 8 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -200,3 +201,7 @@ Review fixes:
   fixed with deterministic clock-based regressions.
 - A post-CI review found lost sliding-window auxiliary snapshot state; server
   and React regressions now prove decay through the following boundary.
+- Per-shard usable-balance regressions prove `getRemaining()` neither nets debt
+  nor combines fractions that no individual shard can spend.
+- Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
+  requires the state-bearing shape across server, hook, types, and docs.

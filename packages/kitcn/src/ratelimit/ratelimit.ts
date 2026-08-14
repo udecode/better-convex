@@ -145,12 +145,7 @@ export class Ratelimit {
     return {
       remaining: Math.max(
         0,
-        Math.floor(
-          evaluated.reduce(
-            (total, shard) => total + shard.evaluated.remainingRaw,
-            0
-          )
-        )
+        evaluated.reduce((total, shard) => total + shard.evaluated.remaining, 0)
       ),
       reset: Math.min(...evaluated.map((shard) => shard.evaluated.reset)),
       limit: algorithmBudget(algorithm),

@@ -482,7 +482,7 @@ check(identifier: string, options?: CheckRequest): Promise<RatelimitResponse>
 
 #### `getRemaining(identifier)`
 
-Return the remaining tokens, reset time, and limit for an identifier. It reads every raw shard, evaluates them at one common timestamp, and then sums them, so the count is exact and a full shard cannot absorb another shard's refill.
+Return the remaining tokens, reset time, and limit for an identifier. It reads every raw shard at one common timestamp and sums each shard's independently usable whole tokens. It never lets a full shard absorb another shard's refill, nets reserved debt against an open peer, or combines unusable fractions across isolated shards.
 
 ```ts
 getRemaining(identifier: string): Promise<RemainingResponse>
