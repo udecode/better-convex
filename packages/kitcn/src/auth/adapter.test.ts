@@ -7,23 +7,11 @@ import {
 } from './adapter';
 
 describe('handlePagination', () => {
-  test('collects pages and follows split cursor for split-recommended pages', async () => {
+  test('resumes split-recommended pages after the rows they already returned', async () => {
+    // A page covers [cursor, continueCursor]; splitCursor points into the middle
+    // of that same page, so resuming there would replay rows.
+    const rows = Array.from({ length: 5 }, (_, index) => ({ id: index + 1 }));
     const calls: Array<{ cursor: string | null; numItems: number }> = [];
-    const results = [
-      {
-        continueCursor: 'cursor-1',
-        isDone: false,
-        page: [{ id: 1 }],
-        pageStatus: 'SplitRecommended' as const,
-        splitCursor: 'split-1',
-      },
-      {
-        continueCursor: 'cursor-2',
-        isDone: true,
-        page: [{ id: 2 }],
-        pageStatus: 'Done' as const,
-      },
-    ];
 
     const state = await handlePagination(
       async ({ paginationOpts }) => {
@@ -31,16 +19,29 @@ describe('handlePagination', () => {
           cursor: paginationOpts.cursor,
           numItems: paginationOpts.numItems,
         });
-        return results[calls.length - 1] as any;
+        const start = paginationOpts.cursor ? Number(paginationOpts.cursor) : 0;
+        const end = Math.min(start + paginationOpts.numItems, rows.length);
+        const page = rows.slice(start, end);
+        const isDone = end >= rows.length;
+
+        return {
+          continueCursor: String(end),
+          isDone,
+          page,
+          pageStatus: isDone
+            ? ('Done' as const)
+            : ('SplitRecommended' as const),
+          splitCursor: String(start + Math.floor(page.length / 2)),
+        } as any;
       },
       { limit: 10, numItems: 3 }
     );
 
     expect(calls).toEqual([
       { cursor: null, numItems: 3 },
-      { cursor: 'split-1', numItems: 3 },
+      { cursor: '3', numItems: 3 },
     ]);
-    expect(state.docs).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(state.docs).toEqual(rows);
     expect(state.isDone).toBe(true);
   });
 
@@ -646,6 +647,31 @@ describe('httpAdapter', () => {
     expect(runQuery).not.toHaveBeenCalled();
     expect(runMutation).not.toHaveBeenCalled();
   });
+
+  test('findMany and count reject mixed OR and AND where clauses', async () => {
+    const runQuery = mock(async () => ({
+      continueCursor: null,
+      isDone: true,
+      page: [{ _id: 'user-1', email: 'a@b.com' }],
+      pageStatus: 'Done' as const,
+    }));
+    const adapterFactory = httpAdapter({ runQuery } as any, {
+      authFunctions: { findMany: 'findMany' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+    const where = [
+      { connector: 'AND', field: 'email', operator: 'eq', value: 'a@b.com' },
+      { connector: 'OR', field: 'name', operator: 'eq', value: 'admin' },
+    ] as any;
+
+    await expect(adapter.findMany({ model: 'user', where })).rejects.toThrow(
+      'Mixed OR/AND where clauses are not supported for findMany'
+    );
+    await expect(adapter.count({ model: 'user', where })).rejects.toThrow(
+      'Mixed OR/AND where clauses are not supported for count'
+    );
+    expect(runQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe('dbAdapter', () => {
@@ -663,6 +689,8 @@ describe('dbAdapter', () => {
         store.set(id, { _id: id, ...data });
         return id;
       },
+      // Single-table fake: an id normalizes only when it names a stored row.
+      normalizeId: (_table: string, id: string) => (store.has(id) ? id : null),
       patch: async (id: string, update: Record<string, unknown>) => {
         const existing = store.get(id);
         if (!existing) return;
@@ -713,6 +741,30 @@ describe('dbAdapter', () => {
     );
     expect(ctx.runMutation).not.toHaveBeenCalled();
     expect(Array.from(store.keys())).toEqual(['user-1', 'user-2']);
+  });
+
+  test('findMany and count reject mixed OR and AND where clauses', async () => {
+    const { ctx } = createMemoryCtx({
+      'user-1': { _id: 'user-1', email: 'a@b.com', name: 'user' },
+      'user-2': { _id: 'user-2', email: 'z@z.com', name: 'admin' },
+    });
+
+    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+      authFunctions: {} as any,
+      schema,
+    });
+    const adapter = adapterFactory({} as any);
+    const where = [
+      { connector: 'AND', field: 'email', operator: 'eq', value: 'a@b.com' },
+      { connector: 'OR', field: 'name', operator: 'eq', value: 'admin' },
+    ] as any;
+
+    await expect(adapter.findMany({ model: 'user', where })).rejects.toThrow(
+      'Mixed OR/AND where clauses are not supported for findMany'
+    );
+    await expect(adapter.count({ model: 'user', where })).rejects.toThrow(
+      'Mixed OR/AND where clauses are not supported for count'
+    );
   });
 
   test('findOne OR tries each clause until a doc is found', async () => {

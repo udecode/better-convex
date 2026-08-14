@@ -135,6 +135,7 @@ describe('auth/create-api createApi()', () => {
         delete: async (id: string) => {
           store.delete(id);
         },
+        normalizeId: (_table: string, id: string) => id,
         get: async (id: string) => store.get(id) ?? null,
         insert: async (_model: string, data: Record<string, unknown>) => {
           const id = `user-${store.size + 1}`;
@@ -311,6 +312,7 @@ describe('auth/create-api createApi()', () => {
     const store = new Map<string, any>();
     const ctx = {
       db: {
+        normalizeId: (_table: string, id: string) => id,
         get: async (id: string) => store.get(id) ?? null,
         insert: async (_model: string, data: Record<string, unknown>) => {
           const id = `user-${store.size + 1}`;
@@ -418,6 +420,7 @@ describe('auth/create-api createApi()', () => {
         ctx: {
           db: {
             delete: dbDelete,
+            normalizeId: (_table: string, id: string) => id,
             get: async (id: string) => store.get(id) ?? null,
             insert: dbInsert,
             patch: dbPatch,
@@ -529,6 +532,7 @@ describe('auth/create-api createApi()', () => {
           delete: mock(async () => {
             throw new Error('db.delete should not be called when orm exists');
           }),
+          normalizeId: (_table: string, id: string) => id,
           get: async (id: string) => store.get(id) ?? null,
           insert: mock(async () => {
             throw new Error('db.insert should not be called when orm exists');
@@ -584,6 +588,7 @@ describe('auth/create-api createApi()', () => {
           delete: mock(async () => {
             throw new Error('db.delete should not be called when orm exists');
           }),
+          normalizeId: (_table: string, id: string) => id,
           get: async (id: string) => store.get(id) ?? null,
           insert: mock(async () => {
             throw new Error('db.insert should not be called when orm exists');
@@ -736,6 +741,7 @@ describe('auth/create-api createApi()', () => {
           delete: mock(async () => {
             throw new Error('db.delete should not be called when orm exists');
           }),
+          normalizeId: (_table: string, id: string) => id,
           get: async (id: string) => store.get(id) ?? null,
           insert: mock(async () => {
             throw new Error('db.insert should not be called when orm exists');
@@ -805,6 +811,7 @@ describe('auth/create-api createApi()', () => {
           delete: mock(async () => {
             throw new Error('db.delete should not be called when orm exists');
           }),
+          normalizeId: (_table: string, id: string) => id,
           get: async () => null,
           insert: mock(async () => {
             throw new Error('db.insert should not be called when orm exists');
@@ -886,6 +893,7 @@ describe('auth/create-api createApi()', () => {
           delete: mock(async () => {
             throw new Error('db.delete should not be called when orm exists');
           }),
+          normalizeId: (_table: string, id: string) => id,
           get: async () => null,
           insert: mock(async () => {
             throw new Error('db.insert should not be called when orm exists');
@@ -953,6 +961,7 @@ describe('auth/create-api createApi()', () => {
       const ctx = {
         db: {
           delete: dbDelete,
+          normalizeId: (_table: string, id: string) => id,
           get: async (id: string) => store.get(id) ?? null,
           insert: dbInsert,
           patch: dbPatch,
@@ -999,6 +1008,7 @@ describe('auth/create-api createApi()', () => {
       const ctx = {
         db: {
           delete: mock(async () => undefined),
+          normalizeId: (_table: string, id: string) => id,
           get: async (id: string) => ({
             _id: id,
             email: 'c@site.com',

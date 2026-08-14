@@ -9,7 +9,7 @@ import type {
   SchemaDefinition,
   TableNamesInDataModel,
 } from 'convex/server';
-import { type GenericId, type Infer, v } from 'convex/values';
+import { type Infer, v } from 'convex/values';
 import { asyncMap } from '../internal/upstream';
 import {
   mergedStream,
@@ -475,6 +475,24 @@ const filterByWhere = <
   return true;
 };
 
+// Convex's single-argument `db.get` is table-unchecked: it resolves an id from
+// any table. Auth models must never read, patch or delete another model's rows,
+// so every id lookup is normalized against the queried table first. Ids that
+// belong elsewhere, or that are not ids at all, resolve to "not found".
+const getByIdInTable = async (
+  ctx: GenericQueryCtx<GenericDataModel>,
+  model: string,
+  value: unknown
+) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalizedId = ctx.db.normalizeId(model as any, value);
+
+  return normalizedId === null ? null : await ctx.db.get(normalizedId);
+};
+
 const generateQuery = (
   ctx: GenericQueryCtx<GenericDataModel>,
   schema: SchemaDefinition<any, any>,
@@ -609,7 +627,7 @@ export const paginate = async <
       }) || {};
     const doc =
       uniqueWhere.field === '_id'
-        ? await ctx.db.get(uniqueWhere.value as GenericId<T>)
+        ? await getByIdInTable(ctx, args.model, uniqueWhere.value)
         : await ctx.db
             .query(args.model as any)
             .withIndex(index?.indexDescriptor as any, (q) =>
@@ -661,7 +679,7 @@ export const paginate = async <
     // For ids, just use asyncMap + .get()
     if (inWhere.field === '_id') {
       const docs = await asyncMap(inWhere.value as any[], async (value) =>
-        ctx.db.get(value as GenericId<T>)
+        getByIdInTable(ctx, args.model, value)
       );
       const filteredDocs = docs
         .flatMap((doc) => (doc ? [doc] : []))
@@ -727,28 +745,12 @@ export const paginate = async <
     };
   }
 
-  // Handle not_in operator separately as it requires filtering out documents
+  // `not_in` is applied inside the stream by `generateQuery`, like `ne` and
+  // `contains`, so the page limit counts only rows that satisfy the clause.
   const notInWhere = args.where?.find((w) => w.operator === 'not_in');
 
-  if (notInWhere) {
-    if (!Array.isArray(notInWhere.value)) {
-      throw new TypeError('not_in clause value must be an array');
-    }
-
-    // For not_in with IDs, we need to query all and filter out the excluded ones
-    const query = generateQuery(ctx, schema, {
-      ...args,
-      where: args.where?.filter((w) => w !== notInWhere),
-    });
-    const result = await query.paginate(paginationOpts);
-    const filteredPage = result.page.filter((doc) =>
-      filterByWhere(doc, [notInWhere])
-    );
-
-    return {
-      ...result,
-      page: filteredPage.map((doc) => selectFields(doc, args.select)),
-    };
+  if (notInWhere && !Array.isArray(notInWhere.value)) {
+    throw new TypeError('not_in clause value must be an array');
   }
 
   const query = generateQuery(ctx, schema, args);

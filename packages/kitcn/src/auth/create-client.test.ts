@@ -49,6 +49,7 @@ describe('createClient', () => {
 
     const ctx = {
       db: {
+        normalizeId: (_table: string, id: string) => id,
         get: async () => ({ _id: 'user-1', email: 'a@b.com' }),
       },
     } as any;

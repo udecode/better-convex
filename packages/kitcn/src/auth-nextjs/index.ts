@@ -109,25 +109,23 @@ export function convexBetterAuth<TApi extends Record<string, unknown>>(
 
   const { createContext, createCaller } = createCallerFactory({
     api: opts.api,
-    auth: jwtCacheEnabled
-      ? {
-          getToken: (siteUrl, headers, getTokenOpts) => {
-            const mutableHeaders = new Headers(headers);
-            stripHopByHopHeaders(mutableHeaders);
-            mutableHeaders.set('accept-encoding', 'identity');
-            return getToken(siteUrl, mutableHeaders, {
-              basePath: auth.basePath,
-              ...(getTokenOpts as GetTokenOptions),
-              jwtCache: {
-                enabled: true,
-                expirationToleranceSeconds: auth.expirationToleranceSeconds,
-                isAuthError: auth.isUnauthorized ?? defaultIsUnauthorized,
-              },
-            });
+    auth: {
+      getToken: (siteUrl, headers, getTokenOpts) => {
+        const mutableHeaders = new Headers(headers);
+        stripHopByHopHeaders(mutableHeaders);
+        mutableHeaders.set('accept-encoding', 'identity');
+        return getToken(siteUrl, mutableHeaders, {
+          basePath: auth.basePath,
+          ...(getTokenOpts as GetTokenOptions),
+          jwtCache: {
+            enabled: jwtCacheEnabled,
+            expirationToleranceSeconds: auth.expirationToleranceSeconds,
+            isAuthError: auth.isUnauthorized ?? defaultIsUnauthorized,
           },
-          isUnauthorized: auth.isUnauthorized ?? defaultIsUnauthorized,
-        }
-      : undefined,
+        });
+      },
+      isUnauthorized: auth.isUnauthorized ?? defaultIsUnauthorized,
+    },
     convexSiteUrl: opts.convexSiteUrl,
     convexUrl: opts.convexUrl,
   });

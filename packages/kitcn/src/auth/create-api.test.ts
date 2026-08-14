@@ -71,6 +71,7 @@ const createMemoryCtx = (docsById: Record<string, any>) => {
     delete: async (id: string) => {
       store.delete(id);
     },
+    normalizeId: (_table: string, id: string) => id,
     get: async (id: string) => store.get(id) ?? null,
     patch: async (id: string, update: Record<string, unknown>) => {
       const existing = store.get(id);
@@ -103,6 +104,7 @@ describe('createHandler', () => {
     const triggerCtx = { orm: true };
     const ctx = {
       db: {
+        normalizeId: (_table: string, id: string) => id,
         get: async (_id: string) =>
           insertedDoc ? { _id: 'user-1', ...insertedDoc } : null,
         insert: async (_model: string, data: Record<string, unknown>) => {
@@ -185,6 +187,7 @@ describe('createHandler', () => {
       createHandler(
         {
           db: {
+            normalizeId: (_table: string, id: string) => id,
             get: async () => null,
             insert: async () => 'user-1',
           },
@@ -208,6 +211,7 @@ describe('createHandler', () => {
     const insertCalls: Array<Record<string, unknown>> = [];
     const ctx = {
       db: {
+        normalizeId: (_table: string, id: string) => id,
         get: async (_id: string) => ({
           _id: 'user-1',
           createdAt: now,
@@ -261,6 +265,7 @@ describe('createHandler', () => {
     let insertedDoc: Record<string, unknown> | undefined;
     const ctx = {
       db: {
+        normalizeId: (_table: string, id: string) => id,
         get: async (_id: string) =>
           insertedDoc ? { _id: 'subscription-1', ...insertedDoc } : null,
         insert: async (_model: string, data: Record<string, unknown>) => {
@@ -308,6 +313,7 @@ describe('createHandler', () => {
       createHandler(
         {
           db: {
+            normalizeId: (_table: string, id: string) => id,
             get: async () => ({ _id: 'user-1', email: 'a@b.com' }),
             insert: async () => 'user-1',
           },

@@ -97,4 +97,75 @@ describe('convexBetterAuth', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test('jwtCache false still authenticates, skipping only the cookie cache', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response(JSON.stringify({ token: 'fresh-token' }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { createContext } = convexBetterAuth({
+        api: {},
+        auth: { jwtCache: false },
+        convexSiteUrl: 'https://my-app.convex.site',
+      });
+
+      const ctx = await createContext({
+        headers: new Headers({
+          cookie: 'better-auth.convex_jwt=cached.jwt.value',
+        }),
+      });
+
+      expect(ctx.token).toBe('fresh-token');
+      expect(ctx.isAuthenticated).toBe(true);
+      expect(requests).toHaveLength(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('jwtCache default reuses an unexpired token from the cookie', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response(JSON.stringify({ token: 'fresh-token' }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const encode = (value: object) =>
+      btoa(JSON.stringify(value))
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replaceAll('=', '');
+    const cachedToken = `${encode({ alg: 'RS256' })}.${encode({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })}.sig`;
+
+    try {
+      const { createContext } = convexBetterAuth({
+        api: {},
+        convexSiteUrl: 'https://my-app.convex.site',
+      });
+
+      const ctx = await createContext({
+        headers: new Headers({
+          cookie: `better-auth.convex_jwt=${cachedToken}`,
+        }),
+      });
+
+      expect(ctx.token).toBe(cachedToken);
+      expect(requests).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
