@@ -491,7 +491,7 @@ test('flatMap limit reads each child once and stays under maxScan', async () => 
       name: 'A',
       email: 'flatmap-reads@example.com',
     });
-    // Only 2 of 30 children match, so sizing the stage has to walk all 30.
+    // Only 2 of 30 children match, so maxScan must cap the physical walk.
     for (let i = 0; i < 30; i += 1) {
       await baseCtx.db.insert('posts', {
         text: `p${i}`,
@@ -515,9 +515,8 @@ test('flatMap limit reads each child once and stays under maxScan', async () => 
       })
       .paginate({ cursor: null, limit: 5, maxScan: 6 });
 
-    // 1 parent + 30 children. Sizing the stage consumes the child stream, so
-    // the rows it read must be replayed rather than fetched a second time.
-    expect(reads.documents).toBeLessThanOrEqual(31);
+    // 1 parent + at most 6 child reads for maxScan: 6.
+    expect(reads.documents).toBeLessThanOrEqual(7);
     // And that walk has to be visible to maxScan, not happen behind it.
     expect(result.pageStatus).toBe('SplitRequired');
   });

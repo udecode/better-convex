@@ -53,7 +53,7 @@ Blocked condition:
 Start Gates:
 | Gate | Applies | Evidence |
 | --- | --- | --- |
-| Active source/plan reconstructed | yes | PR 317 body/files/checks read |
+| Active source/plan reconstructed | yes | PR 317 body, 11 commits, 14 files, three unresolved threads, and pre-rebase checks read |
 | Intended delta and exclusions recorded | yes | Objective and Boundaries |
 | Closure matrix classified | yes | Matrix below |
 | GitHub delivery expectation recorded | yes | Rebase after PR 316, fresh check, merge |
@@ -67,14 +67,14 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | Focused ORM tests | pending |
-| package/API/build | yes | Package build/types | pending |
+| source behavior | yes | Focused ORM tests | passed: 180 Vitest tests + 28 Bun evaluator/filter tests after rebase |
+| package/API/build | yes | Package build/types | passed after rebase and repairs |
 | generated output | no | N/A: no generated output | N/A |
 | fixtures/scenarios | no | N/A: no scaffold behavior | N/A |
 | docs/package skill | no | N/A: no docs/skill delta | N/A |
-| changeset | yes | `.changeset/orm-query-planner-limit-index.md` audit | pending |
+| changeset | yes | `.changeset/orm-query-planner-limit-index.md` audit | passed: minor breaks and planner/read-bound patches match |
 | agent workflow | no | N/A: no agent workflow/action | N/A |
-| cleanup/review | yes | Deslop and autoreview | pending |
+| cleanup/review | yes | Deslop and autoreview | deslop passed with zero net findings; final autoreview pending |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | Rebase/push/merge/read-back | pending |
 
@@ -96,17 +96,18 @@ Work Checklist:
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
-| None yet | 0 | | |
+| Rebase import conflict in `query.ts` | 1 | Preserve RLS preflight and planner RLS detection imports | Resolved with all three evaluator imports |
+| Rebase relation-map conflict in `rls.test.ts` | 1 | Preserve PR 316 relations and add PR 317 `users.secrets` relation | Resolved with both test intents |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ORM tests after rebase | pending |
+| Targeted behavior proof | yes | Run focused ORM tests after rebase | passed: 180 Vitest + 28 Bun tests |
 | Source/generated audit | no | N/A: source-only runtime change | N/A |
-| Package/docs/scenario closure | yes | Build package and audit changeset | pending |
-| Deslop | yes | Run changed-file cleanup review | pending |
+| Package/docs/scenario closure | yes | Build package and audit changeset | passed: package build and minor changeset audit |
+| Deslop | yes | Run changed-file cleanup review | passed: 168 -> 168 findings, +0.18 score; only existing ORM/auth fan-out hotspots |
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
-| Final lint | yes | Run `bun lint:fix` | pending |
+| Final lint | yes | Run `bun lint:fix` | passed: 877 files; one formatting fix applied, focused proof rerun |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Rebase/push/squash-merge/read back | pending |
 | Autoreview | yes | Resolve every accepted actionable finding | pending |
@@ -120,29 +121,45 @@ Completion Gates:
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
-| Inventory | in_progress | plan created | missing proof |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
+| Inventory | completed | PR body/commits/files/checks/threads and overlap reconstructed | rebase |
+| Repair | completed | rebased onto `59b80d0f`; preserved both conflict intents; fixed eager flatMap and relation read bounds | review |
+| Review/checks | in_progress | focused proof and deslop pass | build/types/lint/autoreview/check |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
 Verification evidence:
 - Pre-rebase PR 317 CI/Vercel green; evidence becomes stale after PR 316 and must rerun.
+- Rebased all 11 commits onto PR 316 merge `59b80d0f`; conflicts preserved RLS
+  preflight, planner RLS detection, PR 316 relation fixtures, and PR 317
+  `users.secrets` proof.
+- Focused proof -> seven ORM Vitest files passed 180 tests with one skip;
+  filter-expression and mutation-utils Bun suites passed 28 tests.
+- ID-only pipeline proof reads one document by key; no repair required.
+- Red read-bound regressions proved eager flatMap read 31 documents and
+  relation loading read 44; lazy ordinal cursors and streaming post-fetch
+  relation filters reduce both to their asserted bounds.
+- Deslop -> 168 to 168 findings, score +0.18; no worthwhile local cleanup
+  finding beyond the existing ORM/auth directory fan-out hotspots.
+- Package build, root typecheck, and lint passed; the post-format focused rerun
+  passed 180 Vitest tests with one skip and 28 Bun tests.
 
 Timeline:
 - 2026-08-14T18:17:54.701Z Autoclosure plan created.
+- 2026-08-14T20:09:01Z PR 316 merged as `59b80d0f`.
+- 2026-08-14T22:10:00Z Rebased PR 317 and resolved both shared-file conflicts from primary sources.
+- 2026-08-14T22:16:00Z Closed flatMap and relation read-bound findings with red-to-green regressions.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Review/checks |
+| Where am I going? | Build/types/lint, autoreview, `bun check`, delivery |
 | What is the goal? | Rebase, prove, and merge PR 317 after PR 316 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
 
 Open risks:
-- Shared ORM files require source-backed conflict resolution and fresh full proof.
+- Fresh full repository and GitHub checks remain after the rebase.
 
 Findings:
 - PR 317 is the only dependent branch in the batch.
@@ -151,4 +168,11 @@ Decisions and tradeoffs:
 - Treat all pre-rebase checks as stale after PR 316 lands.
 
 Review fixes:
-- Pending.
+- ID-only `select()` pipeline could scan by creation time -> already fixed in
+  rebased commit and proved at one document read -> accepted as closed.
+- `flatMap.limit` eagerly buffered sparse children before `maxScan` -> accepted
+  -> lazy limited stream carries its match ordinal in the cursor, so physical
+  reads stop at the scan budget and the per-parent limit survives pagination.
+- Filtered/RLS many-relations collected every child -> accepted -> unordered
+  relation scans apply post-fetch visibility while streaming and stop after
+  `offset + limit` visible rows; scalar-filter and active-RLS read bounds pass.

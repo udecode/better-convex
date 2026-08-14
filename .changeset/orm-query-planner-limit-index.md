@@ -80,4 +80,5 @@ await db.query.users
   across many parents no longer spends reads no page can show.
 - Fix a relation `limit` combined with a relation `where` returning too few
   children — none when enough non-matching children sorted first. The limit now
-  counts matching children.
+  counts matching children. Without an explicit relation `orderBy`, the scan
+  also stops after the requested visible rows, including rows filtered by RLS.

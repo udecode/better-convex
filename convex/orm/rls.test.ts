@@ -833,4 +833,33 @@ describe('RLS', () => {
     // into the read instead of collecting every child.
     expect(reads.documents).toBeLessThan(25);
   });
+
+  it('stops RLS relation reads after the requested visible rows', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+    ctx.viewerId = viewerId;
+
+    for (let i = 0; i < 3; i += 1) {
+      await ctx.db.insert('rls_secrets', {
+        value: 'allowed',
+        ownerId: viewerId,
+      });
+    }
+    for (let i = 0; i < 40; i += 1) {
+      await ctx.db.insert('rls_secrets', {
+        value: `blocked-${i}`,
+        ownerId: viewerId,
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.query.rls_users.findMany({
+      limit: 10,
+      with: { secrets: { limit: 3 } },
+    });
+
+    expect((rows[0] as any).secrets).toHaveLength(3);
+    expect(reads.documents).toBeLessThanOrEqual(5);
+  });
 });

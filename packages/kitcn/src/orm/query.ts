@@ -251,47 +251,73 @@ class BufferedQueryStream<
   }
 }
 
-/**
- * Cap a stream at its first `limit` *matching* documents.
- *
- * A running counter cannot express this. `filterWith` does not drop excluded
- * rows, it emits `[null, key]` placeholders, so a counter spends the limit on
- * non-matches and a `where` + `limit` pair can return nothing. A counter also
- * resets whenever pagination narrows the stream, so every page would hand back
- * another `limit` rows.
- *
- * So the run is read once and replayed. It stops on the limit-th match rather
- * than one row past it: nothing after that match can be emitted, so reading it
- * would be a document `paginate` never sees — `maxScan` counts replayed entries,
- * and a row dropped here is never replayed. Every row that *is* read is kept,
- * `null` placeholders included, so the scan stays visible to the budget instead
- * of happening invisibly behind it.
- */
-async function limitStreamByKey<T extends NonNullable<unknown>>(
-  inner: QueryStream<T>,
-  limit: number
-): Promise<QueryStream<T>> {
-  const entries: [T | null, IndexKey][] = [];
-  let matched = 0;
+const PIPELINE_LIMIT_ORDINAL_FIELD = '__kitcn_limit_ordinal';
 
-  if (limit > 0) {
-    for await (const entry of inner.iterWithKeys()) {
-      entries.push(entry);
-      if (entry[0] !== null) {
-        matched += 1;
-        if (matched >= limit) {
-          break;
-        }
-      }
-    }
+/** Cap a stream at its first `limit` matching documents without eager reads. */
+class LimitedMatchesQueryStream<
+  T extends NonNullable<unknown>,
+> extends QueryStream<T> {
+  constructor(
+    private readonly inner: QueryStream<T>,
+    private readonly limit: number,
+    private readonly priorMatches = 0
+  ) {
+    super();
   }
 
-  return new BufferedQueryStream<T>(
-    entries,
-    inner.getOrder(),
-    inner.getIndexFields(),
-    inner.getEqualityIndexFilter()
-  );
+  iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
+    const inner = this.inner;
+    const limit = this.limit;
+    const priorMatches = this.priorMatches;
+    return {
+      async *[Symbol.asyncIterator]() {
+        let matched = priorMatches;
+        if (matched >= limit) return;
+
+        for await (const [doc, indexKey] of inner.iterWithKeys()) {
+          if (doc !== null) matched += 1;
+          yield [doc, [...indexKey, matched]] as [T | null, IndexKey];
+          if (matched >= limit) return;
+        }
+      },
+    };
+  }
+
+  narrow(indexBounds: IndexBounds): QueryStream<T> {
+    const innerFieldCount = this.inner.getIndexFields().length;
+    const startBound =
+      this.getOrder() === 'asc'
+        ? indexBounds.lowerBound
+        : indexBounds.upperBound;
+    const ordinal = startBound[innerFieldCount];
+    const priorMatches =
+      typeof ordinal === 'number' && Number.isInteger(ordinal) && ordinal >= 0
+        ? Math.max(this.priorMatches, ordinal)
+        : this.priorMatches;
+
+    return new LimitedMatchesQueryStream(
+      this.inner.narrow({
+        lowerBound: indexBounds.lowerBound.slice(0, innerFieldCount),
+        lowerBoundInclusive: indexBounds.lowerBoundInclusive,
+        upperBound: indexBounds.upperBound.slice(0, innerFieldCount),
+        upperBoundInclusive: indexBounds.upperBoundInclusive,
+      }),
+      this.limit,
+      priorMatches
+    );
+  }
+
+  getOrder(): 'asc' | 'desc' {
+    return this.inner.getOrder();
+  }
+
+  getIndexFields(): string[] {
+    return [...this.inner.getIndexFields(), PIPELINE_LIMIT_ORDINAL_FIELD];
+  }
+
+  getEqualityIndexFilter(): any[] {
+    return this.inner.getEqualityIndexFilter();
+  }
 }
 
 export class GelRankQuery<
@@ -2738,6 +2764,16 @@ export class GelRelationalQuery<
       ((indexName ?? 'by_creation_time') as any) ?? 'by_creation_time',
       schemaDefinition as any
     );
+    if (
+      stage.limit !== undefined &&
+      (!Number.isInteger(stage.limit) || stage.limit < 1)
+    ) {
+      throw new Error('pipeline.flatMap.limit must be a positive integer');
+    }
+    const mappedIndexFields =
+      stage.limit === undefined
+        ? innerIndexFields
+        : [...innerIndexFields, PIPELINE_LIMIT_ORDINAL_FIELD];
     const stageWherePredicate = this._buildTableFilterPredicate(
       stage.where,
       targetTableConfig
@@ -2772,10 +2808,7 @@ export class GelRelationalQuery<
       }
 
       if (stage.limit !== undefined) {
-        if (!Number.isInteger(stage.limit) || stage.limit < 1) {
-          throw new Error('pipeline.flatMap.limit must be a positive integer');
-        }
-        inner = await limitStreamByKey(inner, stage.limit);
+        inner = new LimitedMatchesQueryStream(inner, stage.limit);
       }
 
       if (stage.includeParent ?? true) {
@@ -2783,7 +2816,7 @@ export class GelRelationalQuery<
       }
 
       return inner;
-    }, innerIndexFields);
+    }, mappedIndexFields);
   }
 
   private async _applyPipelineStages(
@@ -7847,8 +7880,64 @@ export class GelRelationalQuery<
       return result;
     };
 
+    const applyPostFetchTargetFilters = async (
+      candidateTargets: any[]
+    ): Promise<any[]> => {
+      let filteredTargets = await this._applyRlsSelectFilter(
+        candidateTargets,
+        targetTableConfig
+      );
+
+      if (relationDefinition?.where) {
+        filteredTargets = filteredTargets.filter((target) =>
+          this._evaluateTableFilter(
+            target,
+            targetTableConfig,
+            relationDefinition.where as any
+          )
+        );
+      }
+
+      if (
+        relationConfig &&
+        typeof relationConfig === 'object' &&
+        'where' in relationConfig
+      ) {
+        const whereFilter = (relationConfig as any).where;
+        if (typeof whereFilter === 'function') {
+          const whereExpression = this._resolveWhereCallbackExpression(
+            whereFilter as (...args: any[]) => unknown,
+            targetTableConfig,
+            { context: 'relation' }
+          );
+          if (
+            whereExpression &&
+            !this._isPredicateWhereClause(whereExpression)
+          ) {
+            filteredTargets = filteredTargets.filter((target) =>
+              this._evaluatePostFetchFilter(target, whereExpression)
+            );
+          }
+        } else if (whereFilter) {
+          const targetEdges = this._getTargetTableEdges(edge.targetTable);
+          filteredTargets = await this._applyRelationsFilterToRows(
+            filteredTargets,
+            targetTableConfig,
+            whereFilter,
+            targetEdges,
+            depth + 1,
+            maxDepth,
+            (relationConfig as any).with
+          );
+        }
+      }
+
+      return filteredTargets;
+    };
+
     let targets: any[] = [];
     let throughBySourceKey: Map<string, any[]> | undefined;
+    let targetFiltersApplied = false;
 
     if (edge.through) {
       const throughTableConfig = this._getTableConfigByDbName(
@@ -7958,6 +8047,11 @@ export class GelRelationalQuery<
       );
 
       const entries = Array.from(sourceKeyMap.entries());
+      const streamPostFetchTargetFilters =
+        orderSpecs.length === 0 &&
+        hasPostFetchTargetFilter &&
+        effectivePerParentLimit !== undefined;
+      targetFiltersApplied = streamPostFetchTargetFilters;
       const targetGroups = await this._mapWithConcurrency(
         entries,
         async ([, values]) => {
@@ -7978,6 +8072,21 @@ export class GelRelationalQuery<
             return await query.take(fetchLimit);
           }
 
+          if (streamPostFetchTargetFilters) {
+            const visibleTargets: any[] = [];
+            const fetchLimit =
+              Math.max(perParentOffset ?? 0, 0) +
+              (effectivePerParentLimit ?? 0);
+            for await (const target of query) {
+              const filtered = await applyPostFetchTargetFilters([target]);
+              if (filtered.length > 0) {
+                visibleTargets.push(filtered[0]);
+                if (visibleTargets.length >= fetchLimit) break;
+              }
+            }
+            return visibleTargets;
+          }
+
           return await query.collect();
         }
       );
@@ -7985,47 +8094,8 @@ export class GelRelationalQuery<
       targets = targetGroups.flat();
     }
 
-    targets = await this._applyRlsSelectFilter(targets, targetTableConfig);
-
-    if (relationDefinition?.where) {
-      targets = targets.filter((target) =>
-        this._evaluateTableFilter(
-          target,
-          targetTableConfig,
-          relationDefinition.where as any
-        )
-      );
-    }
-
-    if (
-      relationConfig &&
-      typeof relationConfig === 'object' &&
-      'where' in relationConfig
-    ) {
-      const whereFilter = (relationConfig as any).where;
-      if (typeof whereFilter === 'function') {
-        const whereExpression = this._resolveWhereCallbackExpression(
-          whereFilter as (...args: any[]) => unknown,
-          targetTableConfig,
-          { context: 'relation' }
-        );
-        if (whereExpression && !this._isPredicateWhereClause(whereExpression)) {
-          targets = targets.filter((target) =>
-            this._evaluatePostFetchFilter(target, whereExpression)
-          );
-        }
-      } else if (whereFilter) {
-        const targetEdges = this._getTargetTableEdges(edge.targetTable);
-        targets = await this._applyRelationsFilterToRows(
-          targets,
-          targetTableConfig,
-          whereFilter,
-          targetEdges,
-          depth + 1,
-          maxDepth,
-          (relationConfig as any).with
-        );
-      }
+    if (!targetFiltersApplied) {
+      targets = await applyPostFetchTargetFilters(targets);
     }
 
     if (orderSpecs.length > 0) {
