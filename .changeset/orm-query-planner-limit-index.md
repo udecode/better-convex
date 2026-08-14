@@ -1,16 +1,64 @@
 ---
-"kitcn": patch
+"kitcn": minor
 ---
+
+## Breaking changes
+
+- `orderBy` on a field that no index *leads* now sorts after reading, and under
+  cursor pagination it raises instead of returning a page ordered by the wrong
+  column. An index merely containing the field no longer counts: Convex walks an
+  index in full key order, so `on(type, numLikes)` orders by `type` first. Add an
+  index led by the sort field, or read without a cursor.
+
+```ts
+// Before: paged, silently ordered by `type`
+index('numLikesAndType').on(t.type, t.numLikes);
+
+await db.query.posts.findMany({
+  orderBy: { numLikes: 'desc' },
+  cursor: null,
+  limit: 20,
+});
+
+// After: add an index the sort field leads
+index('numLikesAndType').on(t.type, t.numLikes);
+index('by_num_likes').on(t.numLikes);
+
+await db.query.posts.findMany({
+  orderBy: { numLikes: 'desc' },
+  cursor: null,
+  limit: 20,
+});
+```
+
+- `.withIndex(name, range)` now wins over the index a `where` object would have
+  selected, so a `where` the pinned index cannot serve becomes a scan the caller
+  has to bound. Under cursor pagination that combination now asks for `maxScan`
+  instead of quietly reading through a different index.
+
+```ts
+// Before: scanned `by_status` and returned rows from every city
+await db.query.users
+  .withIndex('by_city', (q) => q.eq('cityId', cityId))
+  .findMany({ where: { status: 'active' }, cursor: null, limit: 20 });
+
+// After: bound the scan
+await db.query.users
+  .withIndex('by_city', (q) => q.eq('cityId', cityId))
+  .findMany({
+    where: { status: 'active' },
+    cursor: null,
+    limit: 20,
+    maxScan: 500,
+  });
+```
 
 ## Patches
 
 - Fix `.withIndex(name, range)` being ignored whenever the `where` object also
   matched another index. The index and its bounds you asked for are now the ones
-  scanned, so a range used to scope a query — a tenant id, for instance — can no
-  longer be dropped and return rows outside it.
-- Fix `orderBy` on a field that is not the first field of a compound index
-  returning rows sorted by the wrong column. Ordering now uses an index only
-  when that field leads it, and sorts after reading otherwise.
+  scanned — including under cursor pagination — so a range used to scope a query,
+  a tenant id for instance, can no longer be dropped and return rows outside it.
 - Fix `where: { field: { in: [...] } }` combined with `orderBy` and `limit`
   returning an arbitrary slice — usually the oldest rows — instead of the
   requested window.
@@ -24,8 +72,8 @@
   `where` also returns its page shape instead of a bare array.
 - Fix `flatMap`'s `limit` counting rows excluded by its `where`, which returned
   fewer children than asked for and often none. The limit now counts matching
-  children and stays stable across pages instead of yielding a fresh batch per
-  page.
+  children, stays stable across pages instead of yielding a fresh batch per page,
+  and reads each child once within the `maxScan` budget.
 - Fix a relation `limit` combined with a relation `where` returning too few
   children — none when enough non-matching children sorted first. The limit now
   counts matching children.
