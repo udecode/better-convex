@@ -683,7 +683,7 @@ const result = calculateRatelimit(
 
 When `shards > 1`, the configured budget is dealt across the shards and each `limit()` call picks a random shard (or two, using power-of-two-choices when `shards >= 3`) to reduce write contention.
 
-The shares add back up to the budget you configured, so `fixedWindow(20, '1 m', { shards: 8 })` still grants 20 requests per minute. Budgets that do not divide evenly hand the remainder to the low-numbered shards — `limit: 5` over two shards becomes `3` and `2`, not `2.5` each, because a shard can only spend whole tokens. Fractional totals deal their whole portion first and retain the fraction on one shard. Whole-token `maxReserved` headroom is dealt the same way.
+The shares add back up to the budget you configured, so `fixedWindow(20, '1 m', { shards: 8 })` still grants 20 requests per minute. Budgets that do not divide evenly hand the remainder to the low-numbered shards — `limit: 5` over two shards becomes `3` and `2`, not `2.5` each, because a shard can only spend whole tokens. Fractional totals deal their whole portion first and retain the fraction on one shard. Whole-token `maxReserved` headroom is dealt the same way. Token buckets allocate `refillRate` in proportion to each shard's `maxTokens` share, so uneven capacities refill without clipping the configured total.
 
 Two trade-offs come with it:
 
@@ -695,7 +695,7 @@ For most use cases, `shards: 1` (the default) is fine. Increase shards only when
 
 #### Ephemeral cache
 
-The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps per shard, requested count, and reservation mode. When a shard fails, equivalent calls skip its database read until the block expires and try another shard; smaller or reserved requests still probe it. A request is cache-blocked only when every shard it could use is blocked, and `reset` is the earliest retry across cached and freshly evaluated shards. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
+The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps per shard, requested count, and reservation mode. When a shard fails, equivalent calls skip its database read until the block expires and try another shard; smaller or reserved requests still probe it. A request is cache-blocked only when every shard it could use is blocked, and `reset` is the earliest retry across cached and freshly evaluated shards. Cache writes prune expired variants. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
 
 #### `ok` alias
 

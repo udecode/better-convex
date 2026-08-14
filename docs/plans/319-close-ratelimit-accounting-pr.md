@@ -111,6 +111,7 @@ Error attempts:
 | Uneven token capacity shares clipped an even refill split | 1 | Allocate refill in proportion to shard capacity | Red fifth-refill test became green |
 | Expired count-specific cache variants accumulated | 1 | Prune expired entries on cache writes | Red cache-size test became green |
 | Changeset combined unrelated outcomes and internals | 1 | Split concise user-facing outcomes | Breaking section is atomic |
+| Published skill still described even token refill splits | 1 | Update source guidance and regenerate mirror | Skill, mirror, and public docs describe capacity-proportional refill |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
@@ -124,7 +125,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 14 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 15 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -215,6 +216,8 @@ Review fixes:
   nor combines fractions that no individual shard can spend.
 - Capacity-proportional refill restores the full configured token budget when
   whole-token capacity shares are uneven.
+- Package skill, generated mirror, and public docs describe the same
+  capacity-proportional refill rule; byte parity and Intent checks pass.
 - Cache writes prune expired count variants, bounding stale entries in shared
   long-lived maps.
 - The changeset breaking section is split into concise user-facing outcomes.
