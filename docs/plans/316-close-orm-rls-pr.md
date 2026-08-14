@@ -76,16 +76,16 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | passed: role/null/relation guidance agrees |
 | changeset | yes | `.changeset/orm-rls-fail-closed.md` audit | passed: minor breaking contract and patches match |
 | agent workflow | yes | Published skill discoverability and mirror parity | passed: ORM reference owns the action and constraints |
-| cleanup/review | yes | Deslop, agent-native review, autoreview | deslop and agent-native review passed; autoreview pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | Deslop, agent-native review, autoreview | passed: no accepted findings |
+| repository check | yes | `bun check` | passed end to end |
 | GitHub delivery | yes | PR 316 merge/read-back | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
+- [x] Each lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: package skill source owner and generated mirror are identified.
@@ -111,9 +111,9 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | passed: zero net findings; only unrelated auth fan-out hotspot |
 | Agent-native reviewer | yes | Review published skill guidance/mirror | passed: action route, owner, mirror, docs, and proof are aligned |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | passed end to end |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: clean branch review, confidence 0.97 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/316-close-orm-rls-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill and installed mirror | passed: byte-identical after regeneration |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -126,7 +126,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | completed | contract, owners, overlap, commits, files, and prior checks reconstructed after rebase | focused proof |
 | Repair | completed | moved explicit RLS-plan validation before root reads and added guarded regression proof | review |
-| Review/checks | in_progress | focused proof, build, types, lint, deslop, skill sync, Intent validation/stale, and agent-native review passed | autoreview and `bun check` |
+| Review/checks | completed | focused proof, build, types, lint, deslop, skill sync, Intent gates, agent-native review, autoreview, and `bun check` passed | delivery |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -140,17 +140,22 @@ Verification evidence:
 - Agent-native review -> published ORM route, source owner, generated mirror,
   docs, and proof command agree; no accepted finding remains.
 - `bun lint:fix` -> 876 files, no fixes; deslop delta has zero net findings.
+- Autoreview against `kitcn/main` -> no accepted/actionable findings,
+  correctness confidence 0.97.
+- `bun check` -> passed end to end, including all fixtures, verification, and
+  runtime scenarios.
 
 Timeline:
 - 2026-08-14T18:17:54.580Z Autoclosure plan created.
 - 2026-08-14T21:04:00Z Rebased onto current main and reconstructed the fail-closed RLS delta.
 - 2026-08-14T21:07:00Z Closed the pre-read validation gap and passed focused/package/agent-native gates.
+- 2026-08-14T21:16:00Z Independent autoreview and exact `bun check` passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Autoreview, repository check, delivery, final audit |
+| Where am I? | Delivery |
+| Where am I going? | Push, GitHub checks, merge, read-back, final audit |
 | What is the goal? | Merge fail-closed RLS owner before PR 317 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
