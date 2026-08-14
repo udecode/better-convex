@@ -5074,6 +5074,15 @@ export class GelRelationalQuery<
       0,
       3
     );
+    if (whereFilter) {
+      this._assertRlsSelectPlan(
+        this._buildFilterWithConfig(whereFilter, this.tableConfig),
+        this.tableConfig,
+        this.edgeMetadata,
+        0,
+        3
+      );
+    }
 
     // Fast path: `id` lookups use `db.get()` (primary key) instead of an index plan.
     // This keeps `where: { id: ... }` and `where: { id: { in: [...] } }` ergonomic

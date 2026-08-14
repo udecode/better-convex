@@ -12,6 +12,7 @@ import {
   extractRelationsConfig,
   id,
   index,
+  notInArray,
   rlsPolicy,
   rlsRole,
   text,
@@ -75,6 +76,20 @@ const nullableSecrets = convexTable(
     rlsPolicy('nullable_insert_own', {
       for: 'insert',
       withCheck: (ctx) => eq(t.ownerId, ctx.viewerId),
+    }),
+  ]
+);
+
+const excludedSecrets = convexTable(
+  'rls_excluded_secrets',
+  {
+    value: text().notNull(),
+    ownerId: id('rls_users').notNull(),
+  },
+  (t) => [
+    rlsPolicy('excluded_read', {
+      for: 'select',
+      using: (ctx) => notInArray(t.ownerId, [ctx.viewerId]),
     }),
   ]
 );
@@ -179,6 +194,7 @@ const tables = {
   rls_users: users,
   rls_secrets: secrets,
   rls_nullable_secrets: nullableSecrets,
+  rls_excluded_secrets: excludedSecrets,
   rls_orgs: orgs,
   rls_memberships: memberships,
   rls_tasks: tasks,
@@ -196,6 +212,7 @@ const schema = defineSchema(tables, {
 const relations = defineRelations(tables, (r) => ({
   rls_secrets: {},
   rls_nullable_secrets: {},
+  rls_excluded_secrets: {},
   rls_orgs: {},
   rls_memberships: {},
   rls_tasks: {},
@@ -547,6 +564,11 @@ describe('RLS', () => {
       await expect(
         ctx.orm.query.rls_users.findMany({ with: { roleDocs: true } })
       ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+      await expect(
+        ctx.orm.query.rls_users.findMany({
+          where: { roleDocs: { value: 'allowed' } },
+        })
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
     });
   });
 
@@ -631,6 +653,19 @@ describe('RLS', () => {
     await expect(async () => {
       await ctx.orm.insert(nullableSecrets).values({ value: 'ownerless' });
     }).rejects.toThrowError(/RLS/);
+  });
+
+  it('denies notInArray policies when a context list member is nullish', async ({
+    ctx,
+  }) => {
+    const ownerId = await ctx.db.insert('rls_users', { name: 'Owner' });
+    await ctx.db.insert('rls_excluded_secrets', {
+      value: 'private',
+      ownerId,
+    });
+
+    const anonymous = await ctx.orm.query.rls_excluded_secrets.findMany();
+    expect(anonymous).toHaveLength(0);
   });
 
   it('applies through-table policies when loading many-to-many relations', async ({

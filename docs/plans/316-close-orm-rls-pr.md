@@ -69,15 +69,15 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | Focused ORM RLS tests | passed: 25 Vitest tests and type errors clean |
+| source behavior | yes | Focused ORM RLS and tri-state tests | passed: 26 Vitest RLS + 23 Bun evaluator tests |
 | package/API/build | yes | Package build/types | passed |
 | generated output | yes | Package skill owner to `.agents` mirror audit | passed: regenerated and byte-identical |
 | fixtures/scenarios | no | N/A: no scaffold output changes | N/A |
 | docs/package skill | yes | www/package skill/mirror agreement | passed: role/null/relation guidance agrees |
 | changeset | yes | `.changeset/orm-rls-fail-closed.md` audit | passed: minor breaking contract and patches match |
 | agent workflow | yes | Published skill discoverability and mirror parity | passed: ORM reference owns the action and constraints |
-| cleanup/review | yes | Deslop, agent-native review, autoreview | passed: no accepted findings |
-| repository check | yes | `bun check` | passed end to end |
+| cleanup/review | yes | Deslop, agent-native review, autoreview | accepted GitHub findings fixed; autoreview rerun pending |
+| repository check | yes | `bun check` | prior pass predates feedback fixes; rerun pending |
 | GitHub delivery | yes | PR 316 merge/read-back | pending |
 
 Work Checklist:
@@ -85,7 +85,7 @@ Work Checklist:
 - [x] Each lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [x] Accepted cleanup and review findings are closed.
+- [ ] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: package skill source owner and generated mirror are identified.
@@ -105,15 +105,15 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused RLS tests | passed: 25 tests; includes pre-read guard |
+| Targeted behavior proof | yes | Run focused RLS tests | passed: 26 RLS + 23 evaluator tests; includes pre-read, relation-where, and null-list guards |
 | Source/generated audit | yes | Prove package skill to `.agents` mirror parity | passed: sync command plus `cmp` |
 | Package/docs/scenario closure | yes | Build package; audit docs/skill/changeset | passed; scenarios N/A because scaffold output unchanged |
 | Deslop | yes | Run changed-file cleanup review | passed: zero net findings; only unrelated auth fan-out hotspot |
 | Agent-native reviewer | yes | Review published skill guidance/mirror | passed: action route, owner, mirror, docs, and proof are aligned |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
-| Repository check | yes | Run `bun check` | passed end to end |
+| Repository check | yes | Run `bun check` | rerun pending after feedback fixes |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | passed: clean branch review, confidence 0.97 |
+| Autoreview | yes | Resolve every accepted actionable finding | rerun pending after feedback fixes |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/316-close-orm-rls-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill and installed mirror | passed: byte-identical after regeneration |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -126,7 +126,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | completed | contract, owners, overlap, commits, files, and prior checks reconstructed after rebase | focused proof |
 | Repair | completed | moved explicit RLS-plan validation before root reads and added guarded regression proof | review |
-| Review/checks | completed | focused proof, build, types, lint, deslop, skill sync, Intent gates, agent-native review, autoreview, and `bun check` passed | delivery |
+| Review/checks | in_progress | two GitHub findings fixed; focused proof/build/types/lint passed again | autoreview and `bun check` rerun |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -144,18 +144,21 @@ Verification evidence:
   correctness confidence 0.97.
 - `bun check` -> passed end to end, including all fixtures, verification, and
   runtime scenarios.
+- GitHub feedback repair proof -> 26 RLS Vitest tests and 23 mutation-utils Bun
+  tests passed; package build, root typecheck, and lint passed again.
 
 Timeline:
 - 2026-08-14T18:17:54.580Z Autoclosure plan created.
 - 2026-08-14T21:04:00Z Rebased onto current main and reconstructed the fail-closed RLS delta.
 - 2026-08-14T21:07:00Z Closed the pre-read validation gap and passed focused/package/agent-native gates.
 - 2026-08-14T21:16:00Z Independent autoreview and exact `bun check` passed.
+- 2026-08-14T21:19:00Z Fixed `NOT IN` null-member semantics and relational-where preflight gaps from GitHub review.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, GitHub checks, merge, read-back, final audit |
+| Where am I? | Review/checks |
+| Where am I going? | Autoreview and repository-check reruns, delivery, final audit |
 | What is the goal? | Merge fail-closed RLS owner before PR 317 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
@@ -173,3 +176,9 @@ Review fixes:
 - Docs promised pre-read policy validation but root reads validated only during
   finalization -> accepted -> moved explicit plan validation before the first
   database read and added a `query`/`get` guard regression test.
+- `notInArray` with a nullish list member returned true for non-matches ->
+  accepted -> SQL tri-state `IN`/`NOT IN` now returns unknown unless a concrete
+  match decides the result; focused evaluator and RLS tests added.
+- Named-role tables referenced only through relational `where` were skipped by
+  empty roots -> accepted -> preflight now walks the relation plan derived from
+  `where`; empty-root regression proof added.

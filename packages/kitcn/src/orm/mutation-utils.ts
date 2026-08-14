@@ -2355,12 +2355,14 @@ export function evaluateCheckConstraintTriState(
       case 'inArray': {
         const arr = compareValue as any[];
         if (!Array.isArray(arr)) return false;
-        return arr.includes(fieldValue as any);
+        if (arr.includes(fieldValue as any)) return true;
+        return arr.some(nullish) ? 'unknown' : false;
       }
       case 'notInArray': {
         const arr = compareValue as any[];
         if (!Array.isArray(arr)) return false;
-        return !arr.includes(fieldValue as any);
+        if (arr.includes(fieldValue as any)) return false;
+        return arr.some(nullish) ? 'unknown' : true;
       }
       case 'arrayContains': {
         if (!Array.isArray(fieldValue)) return false;

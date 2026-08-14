@@ -1,6 +1,15 @@
 /** biome-ignore-all lint/performance/useTopLevelRegex: inline regex assertions are intentional in tests. */
 import { describe, expect, test, vi } from 'vitest';
-import { and, eq, gt, isNull, not, or } from './filter-expression';
+import {
+  and,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  not,
+  notInArray,
+  or,
+} from './filter-expression';
 import { convexTable, date, index, integer, text, timestamp } from './index';
 import {
   applyDefaults,
@@ -179,6 +188,32 @@ describe('mutation-utils', () => {
     expect(evaluateCheckConstraintTriState({ age: null }, expression)).toBe(
       'unknown'
     );
+
+    const values = ['active', undefined] as any;
+    expect(
+      evaluateCheckConstraintTriState(
+        { status: 'active' },
+        inArray(users.status, values)
+      )
+    ).toBe(true);
+    expect(
+      evaluateCheckConstraintTriState(
+        { status: 'active' },
+        notInArray(users.status, values)
+      )
+    ).toBe(false);
+    expect(
+      evaluateCheckConstraintTriState(
+        { status: 'inactive' },
+        inArray(users.status, values)
+      )
+    ).toBe('unknown');
+    expect(
+      evaluateCheckConstraintTriState(
+        { status: 'inactive' },
+        notInArray(users.status, values)
+      )
+    ).toBe('unknown');
   });
 
   test('enforceCheckConstraints throws violations and allows unknown checks', () => {
