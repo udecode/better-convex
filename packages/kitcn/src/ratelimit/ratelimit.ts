@@ -125,7 +125,7 @@ export class Ratelimit {
     await this.store.deleteStates(this.prefix, identifier);
     this.checkCache.clear();
     if (this.blockCache) {
-      this.blockCache.clear(this.blockKey(identifier), this.limiter.shards);
+      this.blockCache.clear(this.blockKey(identifier));
     }
     clearProtection(this.prefix, identifier);
   }
@@ -329,7 +329,7 @@ export class Ratelimit {
         attempted.add(shard);
         const blocked =
           this.blockCache && count > 0
-            ? this.blockCache.isBlocked(this.blockKey(identifier), shard)
+            ? this.blockCache.isBlocked(this.blockKey(identifier), shard, count)
             : undefined;
 
         if (blocked?.blocked) {
@@ -386,6 +386,7 @@ export class Ratelimit {
           this.blockCache.blockUntil(
             this.blockKey(identifier),
             candidate.shard,
+            count,
             now + (candidate.evaluated.retryAfter ?? 1)
           );
         }
@@ -440,7 +441,7 @@ export class Ratelimit {
         )[0] ?? candidates[0];
 
     const retryAfter = failure.evaluated.retryAfter ?? 1;
-    const reset = now + retryAfter;
+    const reset = Math.min(now + retryAfter, blockedUntil);
 
     if (consume && this.enableProtection) {
       recordRatelimitFailure({

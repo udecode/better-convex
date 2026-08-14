@@ -1,18 +1,19 @@
 /**
  * Remembers exhausted shards so a request routed to one skips its read.
  *
- * Entries are per shard, never per identifier: a shard runs out while its peers
- * still hold tokens, and an identifier-wide entry would strand their budget for
- * the rest of the window.
+ * Entries are per shard and requested count, never per identifier: a shard can
+ * reject a large request while still serving a smaller one, and its peers may
+ * still hold tokens.
  */
 export class EphemeralBlockCache {
   constructor(private readonly cache: Map<string, number>) {}
 
   isBlocked(
     identifier: string,
-    shard: number
+    shard: number,
+    count: number
   ): { blocked: boolean; reset: number } {
-    const key = shardKey(identifier, shard);
+    const key = shardKey(identifier, shard, count);
     const reset = this.cache.get(key);
     if (!reset) {
       return { blocked: false, reset: 0 };
@@ -24,13 +25,21 @@ export class EphemeralBlockCache {
     return { blocked: true, reset };
   }
 
-  blockUntil(identifier: string, shard: number, reset: number): void {
-    this.cache.set(shardKey(identifier, shard), reset);
+  blockUntil(
+    identifier: string,
+    shard: number,
+    count: number,
+    reset: number
+  ): void {
+    this.cache.set(shardKey(identifier, shard, count), reset);
   }
 
-  clear(identifier: string, shards: number): void {
-    for (let shard = 0; shard < shards; shard++) {
-      this.cache.delete(shardKey(identifier, shard));
+  clear(identifier: string): void {
+    const prefix = identifierPrefix(identifier);
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
     }
   }
 
@@ -39,8 +48,12 @@ export class EphemeralBlockCache {
   }
 }
 
-function shardKey(identifier: string, shard: number): string {
-  return `${identifier}:${shard}`;
+function shardKey(identifier: string, shard: number, count: number): string {
+  return `${identifierPrefix(identifier)}${shard}:${count}`;
+}
+
+function identifierPrefix(identifier: string): string {
+  return `${identifier.length}:${identifier}:`;
 }
 
 export type ReadDedupeCache<T> = {

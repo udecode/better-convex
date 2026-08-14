@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { EphemeralBlockCache } from './core/cache';
 import { Ratelimit } from './ratelimit';
 import type { ConvexRatelimitDbWriter } from './types';
 
@@ -342,6 +343,46 @@ describe('Ratelimit', () => {
     expect(cached.success).toBe(false);
     expect(cached.reason).toBe('cacheBlock');
     expect(counters.uniqueReads).toBe(readsAfterBlock);
+  });
+
+  test('a cached large request does not block a smaller request', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.fixedWindow(6, '1 m', { shards: 2 }),
+    });
+
+    const oversized = await limiter.limit('count-cache-user', { count: 4 });
+    const smaller = await limiter.limit('count-cache-user', { count: 1 });
+
+    expect(oversized.success).toBe(false);
+    expect(smaller.success).toBe(true);
+  });
+
+  test('a cached shard contributes to the earliest retry time', async () => {
+    const { db } = createMockDb();
+    const cache = new Map<string, number>();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: cache,
+      limiter: Ratelimit.tokenBucket(2, '10 s', 2, { shards: 2 }),
+    });
+
+    Math.random = () => 0.9;
+    await limiter.limit('retry-cache-user');
+
+    const cachedReset = Date.now() + 1000;
+    new EphemeralBlockCache(cache).blockUntil(
+      'kitcn/ratelimit:retry-cache-user',
+      0,
+      1,
+      cachedReset
+    );
+    Math.random = () => 0;
+    const denied = await limiter.limit('retry-cache-user');
+
+    expect(denied.success).toBe(false);
+    expect(denied.reset).toBe(cachedReset);
   });
 
   test('rejects budgets that leave a shard under one token', () => {

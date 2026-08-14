@@ -65,3 +65,6 @@
   portion and keeping the fractional remainder on one shard.
 - Scale fixed-window snapshots and response balances by `capacity` rather than
   the refill `limit`, so burst configurations report valid remaining tokens.
+- Scope ephemeral blocks by shard and requested count, so a failed large request
+  does not hide tokens from a smaller request, and include cached shards when
+  reporting the earliest global retry time.

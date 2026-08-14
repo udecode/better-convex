@@ -694,7 +694,7 @@ For most use cases, `shards: 1` (the default) is fine. Increase shards only when
 
 #### Ephemeral cache
 
-The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps. When a shard fails, later calls skip its database read until the block expires and try another shard. A request is cache-blocked only when every shard it could use is blocked. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
+The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps per shard and requested count. When a shard fails, later calls for the same count skip its database read until the block expires and try another shard; smaller requests still probe it. A request is cache-blocked only when every shard it could use is blocked, and `reset` is the earliest retry across cached and freshly evaluated shards. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
 
 #### `ok` alias
 
