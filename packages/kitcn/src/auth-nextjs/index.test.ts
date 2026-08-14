@@ -1,11 +1,7 @@
 import { convexBetterAuth } from './index';
 
-// `auth.jwtCache` forwarding is deliberately not unit-tested here. The only
-// observable seam is the shared `../auth/internal/token` module namespace, and
-// a spy on it in Bun's single-process runner records calls other test files
-// make, so no assertion through it is deterministic. The cached vs uncached
-// behaviour it selects is covered by `auth/internal/token.ts`. Please do not
-// re-add a spy-based test for it.
+// `auth.jwtCache` forwarding is covered by the isolated Vitest lane because
+// Bun shares module spies across test files in one process.
 describe('convexBetterAuth', () => {
   // Bun shares one process across test files, so a fetch stub installed by an
   // earlier file can still be live here. Pin the global around every test so
