@@ -178,8 +178,9 @@ describe('RLS', () => {
     const page = await ctx.orm.query.rls_secrets.findMany({
       cursor: null,
       limit: 1,
-      where: (secrets, { and, eq, like }) =>
-        and(eq(secrets.value, 'allowed'), like(secrets.value, '%allowed%')),
+      where: {
+        AND: [{ value: 'allowed' }, { value: { like: '%allowed%' } }],
+      },
     });
 
     expect(page.page).toHaveLength(1);
@@ -205,8 +206,9 @@ describe('RLS', () => {
 
     const rows = await ctx.orm.query.rls_secrets.findMany({
       limit: 1,
-      where: (secrets, { and, eq, like }) =>
-        and(eq(secrets.value, 'allowed'), like(secrets.value, '%allowed%')),
+      where: {
+        AND: [{ value: 'allowed' }, { value: { like: '%allowed%' } }],
+      },
     });
 
     expect(rows).toHaveLength(1);

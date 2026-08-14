@@ -95,8 +95,8 @@ Closure matrix:
 | docs/package skill | no | N/A: internal ORM correctness only; no public usage shape or docs/skill contract changed | complete |
 | changeset | yes | `.changeset/olive-eyes-punch.md` covers the six user-visible fixes and no longer overclaims standalone full-page filling | complete |
 | agent workflow | no | N/A: changed-file audit contains no agent rule, skill, mirror, lock, helper, or user-action tooling | complete |
-| cleanup/review | yes | deslop stayed at zero net regression; agent-native audit unchanged; final autoreview rerun pending after accepted findings | pending |
-| repository check | yes | prior full check passed but is stale after final repair; rerun required | pending |
+| cleanup/review | yes | deslop stayed at zero net regression; agent-native audit unchanged; all in-scope findings fixed, final ordering finding rejected with `origin/main` source evidence | complete |
+| repository check | yes | final `bun lint:fix` and restarted `bun check` exited 0 across every repo lane | complete |
 | GitHub delivery | yes | whole-checkout commit/push, replies/resolution, PR read-back | pending |
 
 Feedback ledger:
@@ -130,6 +130,12 @@ Review fixes:
   runs before fallback slicing; one red test simultaneously returned `[]` for
   `limit: 1` and the matching row for `offset: 1`, then green returned the
   matching limited row and no offset row.
+- Rejected final P2 after the mandatory two-cycle pause: secondary cursor
+  ordering is not a regression in the residual stream branch. `origin/main`
+  emits the same promise that secondary fields are applied per page in its
+  existing cursor branches, but those branches also finalize the native page
+  without sorting. Fixing only the new branch would make cursor behavior
+  inconsistent; the canonical all-branch ordering contract is separate scope.
 
 Work Checklist:
 - [ ] Intended behavior and exclusions are reconstructed from real sources.
@@ -155,6 +161,8 @@ Error attempts:
 | First metadata-free fallback repro hit the relation sizing guard | 1 | Enable the fixture's explicit full-scan authority so it reaches the slicing owner | The corrected repro returned the two opposite wrong results before the ordering fix |
 | Patch context drifted after the first owner edit | 1 | Re-read exact bounded ranges and patch smaller hunks | Applied cleanly; `git diff --check` passed |
 | `gh pr view` briefly reported a stale head SHA after push | 1 | Read the branch ref and PR head directly through GitHub API | Both direct API endpoints agreed on the pushed SHA |
+| First final `bun check` found implicit-any parameters in new RLS tests | 1 | Replace callback filters with equivalent typed object filters, then rerun the owning typecheck and RLS suite | Convex typecheck and all 14 RLS tests passed; final full check passed |
+| Corrected full check stalled in a GitHub fetch during Vite fixture creation | 1 | Prove the exact child/network state, interrupt only the stalled check tree, and rerun the exact gate | Restarted `bun check` crossed Vite normally and exited 0 |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -164,8 +172,8 @@ Completion Gates:
 | Package/docs/scenario closure | pending | Run every applicable local contract | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
-| Repository check | yes | Run `bun check` | pending |
+| Final lint | yes | Run `bun lint:fix` | complete: 874 files, no fixes |
+| Repository check | yes | Run `bun check` | complete: exit 0 on restarted final run |
 | GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
 | Autoreview | yes | Resolve every accepted actionable finding | pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-14-pr-314-closure-and-feedback.md` | pending |
@@ -223,6 +231,17 @@ Verification evidence:
   after moving membership ahead of fallback slicing it became
   `[['Candidate with post'], []]`. The 6-file lane passed 131 tests with 1 skip,
   compiler tests passed 18, package build passed, and deslop stayed unchanged.
+- The post-cycle autoreview reported secondary per-page ordering in the new
+  residual branch. Source comparison against `origin/main` proved the same
+  warning/omission exists in all established cursor branches. Rejected as a
+  pre-existing cross-branch ordering contract, not a PR 314 regression.
+- Final `bun lint:fix` checked 874 files with no fixes. The first full check
+  exposed implicit-any test callbacks; typed object filters fixed them and the
+  owning Convex typecheck/RLS suite passed. A later Vite fixture Git fetch
+  stalled with no progress, so only that process tree was interrupted. The
+  exact restarted `bun check` exited 0 across lint, typechecks, all tests, CLI
+  123/123, Concave smoke, every fixture, bare verify, and all runtime/auth
+  scenarios.
 
 Timeline:
 - 2026-08-14T10:55:17.599Z Autoclosure plan created.
@@ -252,16 +271,25 @@ Timeline:
 - 2026-08-14 Second and final review-fix cycle found the metadata-free fallback
   ordering remainder. Reproduced both limited and offset failure directions in
   one test, moved membership before slicing, and reran all owner proof green.
+- 2026-08-14 Mandatory post-cycle pause reclassified the only remaining review
+  finding as a pre-existing all-cursor ordering contract; no third speculative
+  patch cycle was started.
+- 2026-08-14 Final lint passed. Full check caught and closed the RLS test typing
+  gap; its first corrected run later stalled in an external GitHub template
+  fetch, and the exact clean restart passed every lane with exit 0.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Focused repair proof complete after the second review-fix cycle |
-| Where am I going? | Commit, re-review/check, push, feedback replies/resolution, GitHub read-back, final audit |
+| Where am I? | All local closure lanes passed; GitHub delivery pending |
+| Where am I going? | Push, feedback replies/resolution, GitHub read-back, final audit |
 | What is the goal? | Close PR 314 with zero unhandled actionable feedback and every applicable proof/delivery gate complete |
 | What have I learned? | Residual predicates, RLS, and relation membership form one final-visible-row predicate; any pushed-down limit must count that composite result |
 | What have I done? | Reclassified the metadata case and fixed final-visible sizing in both stream and fallback paths; final review/check/delivery remain |
 
 Open risks:
-- Final autoreview, full check, repush, replies/resolution, final CI/PR head
-  read-back, and the goal-plan checker remain after the owner repair.
+- Secondary cursor `orderBy` fields are not applied per page in any existing
+  cursor branch despite the current warning; this pre-existing cross-branch
+  contract needs separate ownership and does not block PR 314.
+- Push, replies/resolution, final CI/PR head read-back, and the goal-plan checker
+  remain.
