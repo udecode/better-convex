@@ -76,8 +76,8 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | passed: role/null/relation guidance agrees |
 | changeset | yes | `.changeset/orm-rls-fail-closed.md` audit | passed: minor breaking contract and patches match |
 | agent workflow | yes | Published skill discoverability and mirror parity | passed: ORM reference owns the action and constraints |
-| cleanup/review | yes | Deslop, agent-native review, autoreview | fifth GitHub finding fixed; final autoreview rerun pending |
-| repository check | yes | `bun check` | rerun pending after nested relation-filter repair |
+| cleanup/review | yes | Deslop, agent-native review, autoreview | passed: final autoreview clean at 0.98 confidence; GitHub thread resolution pending |
+| repository check | yes | `bun check` | passed after nested relation-filter repair |
 | GitHub delivery | yes | PR 316 merge/read-back | pending |
 
 Work Checklist:
@@ -111,9 +111,9 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | passed: zero net findings; only unrelated auth fan-out hotspot |
 | Agent-native reviewer | yes | Review published skill guidance/mirror | passed: action route, owner, mirror, docs, and proof are aligned |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
-| Repository check | yes | Run `bun check` | rerun pending after nested relation-filter repair |
+| Repository check | yes | Run `bun check` | passed end to end after nested relation-filter repair |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | rerun pending after nested relation-filter repair |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: no accepted/actionable findings, correctness confidence 0.98 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/316-close-orm-rls-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill and installed mirror | passed: byte-identical after regeneration |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -126,7 +126,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | completed | contract, owners, overlap, commits, files, and prior checks reconstructed after rebase | focused proof |
 | Repair | completed | moved explicit RLS-plan validation before root reads and added guarded regression proof | review |
-| Review/checks | in_progress | five GitHub findings fixed; 28 RLS + 23 evaluator tests and build/types/lint passed | final autoreview and `bun check` |
+| Review/checks | completed | five GitHub findings fixed; 28 RLS + 23 evaluator tests, build/types/lint, autoreview, and `bun check` passed | publish and resolve thread |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -154,6 +154,8 @@ Verification evidence:
   0.98; exact `bun check` passed end to end after the last repair.
 - Nested relation-filter repair proof -> red regression resolved to 28 passing
   RLS tests; 23 evaluator tests, package build, root typecheck, and lint pass.
+- Final nested-filter autoreview -> no accepted/actionable findings,
+  correctness confidence 0.98; exact `bun check` passed end to end.
 
 Timeline:
 - 2026-08-14T18:17:54.580Z Autoclosure plan created.
@@ -165,12 +167,13 @@ Timeline:
 - 2026-08-14T21:28:00Z Moved update/delete role validation ahead of every candidate-row read.
 - 2026-08-14T21:34:00Z Final autoreview and exact repository check passed after all four repairs.
 - 2026-08-14T21:37:00Z Added nested relation-filter preflight after a fresh GitHub review finding.
+- 2026-08-14T21:43:00Z Final autoreview and repository check passed after the nested-filter repair.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Final autoreview/check, publish fix, resolve GitHub thread, merge |
+| Where am I? | Delivery |
+| Where am I going? | Publish fix, resolve GitHub thread, merge |
 | What is the goal? | Merge fail-closed RLS owner before PR 317 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
