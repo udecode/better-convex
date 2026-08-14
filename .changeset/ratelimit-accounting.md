@@ -4,12 +4,15 @@
 
 ## Breaking changes
 
-- Split the configured budget evenly across `shards` instead of giving every
-  shard the full budget. A limiter with `shards: S` previously allowed `S` times
-  its configured limit, so existing sharded configs now enforce the limit you
-  wrote. Builders throw when `limit / shards` (or `maxTokens / shards`) drops
-  below `1`, because a shard holding less than one token can never grant a
-  request.
+- Deal the configured budget across `shards` instead of giving every shard the
+  full budget. A limiter with `shards: S` previously allowed `S` times its
+  configured limit, so existing sharded configs now enforce the limit you wrote.
+  Shares are whole tokens that add back up to the configured total, so
+  `fixedWindow(5, '1 m', { shards: 2 })` deals `3` and `2` and still grants five
+  requests. Builders throw when `limit / shards` (or `capacity / shards`, or
+  `maxTokens / shards`) drops below `1`, because a shard holding less than one
+  token can never grant a request. `setDynamicLimit()` rejects an override that
+  fails the same rule instead of denying every later request.
 
   ```ts
   // Before: 5 per minute per shard, so 20 per minute in total
@@ -47,5 +50,10 @@
   headers showed the opposite of the truth.
 - Fix `resetUsedTokens()` leaving an identifier blocked by the ephemeral cache,
   so an admin quota reset silently failed for the rest of the window.
+- Key the ephemeral block cache per shard. One exhausted shard used to block the
+  identifier outright, stranding every other shard's tokens until the window
+  reset and enforcing well under the configured limit.
+- Sum every shard in `getRemaining()` rather than extrapolating the fullest one.
+  A half-drained sharded limiter reported its full budget as still available.
 - Improve shard selection to compare exact token balances, so sharded limiters
   spread load onto the emptier shard instead of tying on rounded counts.

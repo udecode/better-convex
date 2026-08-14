@@ -365,7 +365,7 @@ import { ratelimitExtension } from "../lib/plugins/ratelimit/schema";
 export default defineSchema(tables).extend(ratelimitExtension());
 ```
 
-Create `convex/lib/plugins/ratelimit/plugin.ts` and call `ratelimit.middleware()` from mutation builders. Use the default bucket for normal writes and reserve `.meta({ ratelimit: ... })` for named overrides.
+Create `convex/lib/plugins/ratelimit/plugin.ts` and call `ratelimit.middleware()` from mutation builders. Use the default bucket for normal writes and reserve `.meta({ ratelimit: ... })` for named overrides. Runtime accounting (`shards`, `check()`, snapshots, read accuracy) lives in `features/ratelimit.md`.
 
 Use `RatelimitPlugin` from `kitcn/ratelimit`:
 

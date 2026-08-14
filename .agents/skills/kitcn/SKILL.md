@@ -484,6 +484,7 @@ Before calling a feature done:
 - `references/features/aggregates.md`: aggregate component patterns
 - `references/features/migrations.md`: built-in online data migrations (defineMigration, CLI, deploy, drift). Load when: task involves data backfills, optional→required field hardening, field renames/removals, type narrowing, or `kitcn migrate` CLI commands. Skip for backward-compatible changes (new optional fields, new tables, code-level defaults).
 - `references/features/create-plugins.md`: canonical plugin authoring patterns (split package entries, token config, scaffold/lockfile/CLI manifest rules). Load when: creating or refactoring plugins.
+- `references/features/ratelimit.md`: ratelimit runtime accounting (shard budget dealing, `check()` vs `limit()`, snapshot conversion, read accuracy, failure modes). Load when: tuning `shards`, reading remaining quota, or debugging unexpected denials. Skip for plain `ratelimit.middleware()` wiring, which `setup/server.md` owns.
 - `references/features/auth.md`: full Better Auth core flow
 - `references/features/auth-admin.md`: admin plugin details
 - `references/features/auth-organizations.md`: org/multi-tenant plugin details

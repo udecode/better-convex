@@ -201,9 +201,9 @@ All three algorithm builders accept an optional `options` object as the last arg
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `shards` | `number` | `1` | Number of shards for write distribution. The configured budget is split evenly across shards, so the total limit stays the same. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
+| `shards` | `number` | `1` | Number of shards for write distribution. The configured budget is dealt across the shards and adds back up to the total you wrote, so the enforced limit is unchanged. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
 | `maxReserved` | `number` | `undefined` | Maximum tokens a request can "borrow" from future capacity. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
-| `capacity` | `number` | `limit` | Maximum stored tokens. Only applies to `fixedWindow`. Useful when you want a higher burst capacity than the per-window refill. |
+| `capacity` | `number` | `limit` | Maximum stored tokens. Only applies to `fixedWindow`. Useful when you want a higher burst capacity than the per-window refill. Dealt across shards like `limit`, so it must also be at least `shards`. |
 | `start` | `number` | `0` | Epoch offset (ms) for window alignment. Only applies to `fixedWindow`. Aligns windows to a custom origin instead of epoch zero. |
 
 ### Duration formats
@@ -482,7 +482,7 @@ check(identifier: string, options?: CheckRequest): Promise<RatelimitResponse>
 
 #### `getRemaining(identifier)`
 
-Return the remaining tokens, reset time, and limit for an identifier.
+Return the remaining tokens, reset time, and limit for an identifier. It reads every shard and sums them, so the count is exact.
 
 ```ts
 getRemaining(identifier: string): Promise<RemainingResponse>
@@ -562,7 +562,7 @@ Returned by `limit()` and `check()`.
 | `success` | `boolean` | `true` if the request was allowed |
 | `ok` | `boolean` | Alias for `success` (Convex DX parity) |
 | `limit` | `number` | Maximum tokens for this algorithm |
-| `remaining` | `number` | Tokens left after this request (floored to 0). With `shards > 1` this is extrapolated from the shard that served the request. |
+| `remaining` | `number` | Tokens left after this request (floored to 0). With `shards > 1` this is extrapolated from the shard that served the request, so it is an estimate — use `getRemaining()` for an exact count. |
 | `reset` | `number` | Epoch ms when tokens will be available |
 | `pending` | `Promise<unknown>` | Resolves when async side-effects complete |
 | `reason` | `'timeout' \| 'cacheBlock' \| 'denyList'` | Present when a reason applies. Note: `failureMode: 'open'` can return `success: true` with `reason: 'timeout'`. |
@@ -584,9 +584,9 @@ Returned by `getValue()`. Used for custom projections and the React hook.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `value` | `number` | Tokens left at read time, scaled to the full limit when `shards > 1` |
+| `value` | `number` | Tokens left at read time across the whole limit. Sampled shards are summed, then scaled up by the share of the budget they cover |
 | `ts` | `number` | Timestamp of last state update |
-| `shard` | `number` | Which shard was read |
+| `shard` | `number` | The sampled shard holding the most tokens |
 | `config` | `ResolvedAlgorithm` | Full algorithm config for `calculateRatelimit()` |
 
 Pass a snapshot through `snapshotToState()` before handing it to `calculateRatelimit()`, which expects stored state rather than remaining tokens.
@@ -680,18 +680,20 @@ const result = calculateRatelimit(
 
 #### Sharding
 
-When `shards > 1`, the configured budget is divided evenly across shards and each `limit()` call picks a random shard (or two, using power-of-two-choices when `shards >= 3`) to reduce write contention. Total throughput stays at the configured limit.
+When `shards > 1`, the configured budget is dealt across the shards and each `limit()` call picks a random shard (or two, using power-of-two-choices when `shards >= 3`) to reduce write contention.
+
+The shares add back up to the budget you configured, so `fixedWindow(20, '1 m', { shards: 8 })` still grants 20 requests per minute. Budgets that do not divide evenly hand the remainder to the low-numbered shards — `limit: 5` over two shards becomes `3` and `2`, not `2.5` each, because a shard can only spend whole tokens.
 
 Two trade-offs come with it:
 
-- Reads (`check`, `getRemaining`, `getValue`) sample a subset of shards and scale the result back up, so remaining counts are approximate.
-- A single call spends from one shard, so `count` can never exceed `limit / shards`. Keep the per-shard share comfortably above your largest `count` — ten or more is a good target. The algorithm builders throw when `limit / shards` (or `maxTokens / shards` for `tokenBucket`) drops below `1`, since every request would otherwise be denied.
+- `getValue()` samples a subset of shards and scales the result up, so its count is an estimate. `getRemaining()` reads every shard and is exact.
+- A single call spends from one shard, so `count` can never exceed that shard's share. Keep the per-shard share comfortably above your largest `count` — ten or more is a good target. The algorithm builders throw when `limit / shards` (or `capacity / shards`, or `maxTokens / shards` for `tokenBucket`) drops below `1`, since a shard holding less than one token cannot serve a request.
 
 For most use cases, `shards: 1` (the default) is fine. Increase shards only when you see write contention on hot identifiers.
 
 #### Ephemeral cache
 
-The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps. When a `limit()` call fails, subsequent calls for the same identifier skip the database read entirely until the block expires. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
+The ephemeral block cache is an in-memory `Map<string, number>` that caches "blocked until" timestamps. When a `limit()` call fails, later calls routed to the same shard skip the database read entirely until the block expires. Entries are per shard, so an exhausted shard never blocks the ones that still hold tokens. The cache is per-`Ratelimit` instance and resets on each Convex function invocation. Pass `ephemeralCache: false` to disable it, or pass a shared `Map` across multiple `Ratelimit` instances to share the cache.
 
 #### `ok` alias
 

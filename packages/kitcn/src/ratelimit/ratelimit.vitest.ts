@@ -215,13 +215,92 @@ describe('Ratelimit', () => {
 
     expect(granted).toEqual({
       'limit5/shards1': 5,
-      'limit5/shards2': 4,
-      'limit5/shards4': 4,
-      'limit20/shards8': 16,
+      'limit5/shards2': 5,
+      'limit5/shards4': 5,
+      'limit20/shards8': 20,
     });
   });
 
-  test('rejects shard counts that leave a shard under one token', () => {
+  test('shards keep the full budget when a limit is indivisible', async () => {
+    Math.random = createSeededRandom(7);
+
+    const granted: Record<string, number> = {};
+
+    for (const [limit, shards] of [
+      [7, 2],
+      [10, 3],
+      [23, 4],
+    ] as const) {
+      const { db } = createMockDb();
+      const limiter = new Ratelimit({
+        db,
+        limiter: Ratelimit.slidingWindow(limit, '1 m', { shards }),
+      });
+
+      let allowed = 0;
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const result = await limiter.limit('remainder-user');
+        if (result.success) {
+          allowed += 1;
+        }
+      }
+      granted[`limit${limit}/shards${shards}`] = allowed;
+    }
+
+    expect(granted).toEqual({
+      'limit7/shards2': 7,
+      'limit10/shards3': 10,
+      'limit23/shards4': 23,
+    });
+  });
+
+  test('an exhausted shard does not strand the other shards via the cache', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.fixedWindow(4, '1 m', { shards: 2 }),
+    });
+
+    // Route the first three requests to shard 0 and the rest to shard 1.
+    const routes = [0.1, 0.1, 0.1, 0.9, 0.9];
+    const outcomes: Array<{ success: boolean; reason?: string }> = [];
+
+    for (const route of routes) {
+      Math.random = () => route;
+      const result = await limiter.limit('strand-user');
+      outcomes.push({ success: result.success, reason: result.reason });
+    }
+
+    expect(outcomes).toEqual([
+      { success: true, reason: undefined },
+      { success: true, reason: undefined },
+      { success: false, reason: undefined },
+      { success: true, reason: undefined },
+      { success: true, reason: undefined },
+    ]);
+  });
+
+  test('a request routed to an exhausted shard is served from the cache', async () => {
+    const { db, counters } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      limiter: Ratelimit.fixedWindow(2, '1 m', { shards: 2 }),
+    });
+
+    Math.random = () => 0;
+    await limiter.limit('cached-user');
+    const denied = await limiter.limit('cached-user');
+    const readsAfterBlock = counters.uniqueReads;
+    const cached = await limiter.limit('cached-user');
+
+    expect(denied.success).toBe(false);
+    expect(denied.reason).toBeUndefined();
+    expect(cached.success).toBe(false);
+    expect(cached.reason).toBe('cacheBlock');
+    expect(counters.uniqueReads).toBe(readsAfterBlock);
+  });
+
+  test('rejects budgets that leave a shard under one token', () => {
     expect(() => Ratelimit.fixedWindow(3, '1 m', { shards: 4 })).toThrow(
       SHARD_BUDGET_REGEX
     );
@@ -234,8 +313,14 @@ describe('Ratelimit', () => {
     expect(() => Ratelimit.fixedWindow(5, '1 m', { shards: 8 })).toThrow(
       SHARD_BUDGET_REGEX
     );
+    expect(() =>
+      Ratelimit.fixedWindow(10, '1 m', { capacity: 1, shards: 2 })
+    ).toThrow(SHARD_BUDGET_REGEX);
 
     expect(() => Ratelimit.fixedWindow(4, '1 m', { shards: 4 })).not.toThrow();
+    expect(() =>
+      Ratelimit.fixedWindow(10, '1 m', { capacity: 20, shards: 2 })
+    ).not.toThrow();
   });
 
   test('getRemaining reports sliding window tokens left', async () => {
@@ -252,6 +337,26 @@ describe('Ratelimit', () => {
     expect(fresh.remaining).toBe(10);
     expect(fresh.limit).toBe(10);
     expect(afterOne.remaining).toBe(9);
+  });
+
+  test('getRemaining sums every shard instead of extrapolating one', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(10, '1 m', { shards: 2 }),
+    });
+
+    // Drain shard 0 only; shard 1 keeps its full five-token share.
+    Math.random = () => 0;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await limiter.limit('aggregate-user');
+    }
+
+    const remaining = await limiter.getRemaining('aggregate-user');
+
+    expect(remaining.remaining).toBe(5);
+    expect(remaining.limit).toBe(10);
   });
 
   test('resetUsedTokens clears the ephemeral block', async () => {
@@ -289,6 +394,28 @@ describe('Ratelimit', () => {
     await limiter.limit('user-3');
     const second = await limiter.limit('user-3');
     expect(second.success).toBe(false);
+  });
+
+  test('rejects a dynamic limit the shard split cannot serve', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      dynamicLimits: true,
+      prefix: 'dynamic-shards',
+      limiter: Ratelimit.fixedWindow(100, '1 m', { shards: 10 }),
+    });
+
+    await expect(limiter.setDynamicLimit({ limit: 5 })).rejects.toThrow(
+      SHARD_BUDGET_REGEX
+    );
+
+    const current = await limiter.getDynamicLimit();
+    expect(current.dynamicLimit).toBeNull();
+
+    await limiter.setDynamicLimit({ limit: 20 });
+    const allowed = await limiter.limit('dynamic-shard-user');
+    expect(allowed.success).toBe(true);
+    expect(allowed.limit).toBe(20);
   });
 
   test('deny list rejects matching values with reason', async () => {
