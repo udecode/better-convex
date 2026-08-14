@@ -76,18 +76,18 @@ Closure matrix:
 | docs/package skill | yes | www/package skill/mirror agreement | passed: role/null/relation guidance agrees |
 | changeset | yes | `.changeset/orm-rls-fail-closed.md` audit | passed: minor breaking contract and patches match |
 | agent workflow | yes | Published skill discoverability and mirror parity | passed: ORM reference owns the action and constraints |
-| cleanup/review | yes | Deslop, agent-native review, autoreview | passed: final autoreview clean at 0.97 confidence; GitHub thread resolution pending |
+| cleanup/review | yes | Deslop, agent-native review, autoreview | passed: final autoreview clean at 0.97 confidence; all seven GitHub findings resolved |
 | repository check | yes | `bun check` | passed after count/variant preflight repairs |
-| GitHub delivery | yes | PR 316 merge/read-back | pending |
+| GitHub delivery | yes | PR 316 merge/read-back | passed: squash merge `59b80d0f` at 2026-08-14T20:09:01Z |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
 - [x] Each lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
+- [x] No residual blocker or waiver remains.
 - [x] Agent-native pack: package skill source owner and generated mirror are identified.
 - [x] Agent-native pack: ORM RLS action/constraints remain discoverable.
 - [x] Agent-native pack: package skill mirror parity is proved; `.agents/rules/**` is N/A.
@@ -112,9 +112,9 @@ Completion Gates:
 | Agent-native reviewer | yes | Review published skill guidance/mirror | passed: action route, owner, mirror, docs, and proof are aligned |
 | Final lint | yes | Run `bun lint:fix` | passed: 876 files, no fixes |
 | Repository check | yes | Run `bun check` | passed end to end after count/variant preflight repairs |
-| GitHub delivery | yes | Update, squash-merge, read back | pending |
+| GitHub delivery | yes | Update, squash-merge, read back | passed: PR 316 merged as `59b80d0f` |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: no accepted/actionable findings, correctness confidence 0.97 |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/316-close-orm-rls-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/316-close-orm-rls-pr.md` | passed after durable merge receipt |
 | Agent source / generated sync | yes | Verify package skill and installed mirror | passed: byte-identical after regeneration |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
 | Agent action discoverability | yes | Source-audit ORM package skill route | passed: ORM RLS section names required configuration and forbidden fail-open behavior |
@@ -127,8 +127,8 @@ Phase / pass table:
 | Inventory | completed | contract, owners, overlap, commits, files, and prior checks reconstructed after rebase | focused proof |
 | Repair | completed | moved explicit RLS-plan validation before root reads and added guarded regression proof | review |
 | Review/checks | completed | seven GitHub findings fixed; 30 RLS + 23 evaluator tests, build/types/lint, autoreview, and `bun check` passed | publish and resolve threads |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Delivery | completed | PR 316 squash-merged as `59b80d0f` after CI, Vercel, and thread read-back | final audit |
+| Closeout | completed | Durable merge receipt recorded on PR 317 branch | final |
 
 Verification evidence:
 - PR 316 CI and Vercel were green at goal creation; no approval yet.
@@ -161,6 +161,8 @@ Verification evidence:
   pass.
 - Final count/variant autoreview -> no accepted/actionable findings,
   correctness confidence 0.97; exact `bun check` passed end to end.
+- Final GitHub CI and Vercel passed on head `ca634456`; all review threads were
+  resolved before squash merge `59b80d0f`.
 
 Timeline:
 - 2026-08-14T18:17:54.580Z Autoclosure plan created.
@@ -175,18 +177,19 @@ Timeline:
 - 2026-08-14T21:43:00Z Final autoreview and repository check passed after the nested-filter repair.
 - 2026-08-14T21:54:00Z Added empty-parent count and pre-read withVariants validation after two fresh GitHub findings.
 - 2026-08-14T22:00:00Z Final autoreview and repository check passed after all seven review repairs.
+- 2026-08-14T20:09:01Z PR 316 squash-merged as `59b80d0f`; delivery read-back passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Publish fixes, resolve GitHub threads, merge |
+| Where am I? | Closed |
+| Where am I going? | PR 317 owns the dependent planner rebase |
 | What is the goal? | Merge fail-closed RLS owner before PR 317 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
 
 Open risks:
-- PR 317 overlaps `packages/kitcn/src/orm/query.ts` and `convex/orm/rls.test.ts`.
+- None for PR 316; PR 317 owns its dependent rebase proof.
 
 Findings:
 - PR 316 is the dependency root for the two-PR ORM sequence.

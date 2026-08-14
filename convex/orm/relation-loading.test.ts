@@ -22,7 +22,12 @@ import {
 import { test as baseTest, describe, expect } from 'vitest';
 import type { MutationCtx } from '../_generated/server';
 import { cities, posts, users } from '../schema';
-import { convexTest, withOrm, withOrmCtx } from '../setup.testing';
+import {
+  convexTest,
+  countDocumentReads,
+  withOrm,
+  withOrmCtx,
+} from '../setup.testing';
 
 // M6.5 Phase 2: Comments table and relations for nested testing (local to this test file)
 const ormComments = convexTable(
@@ -1012,6 +1017,122 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
   });
 
   describe('Per-Parent Limiting', () => {
+    test('limit counts matching relations, not skipped ones', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'alice@example.com',
+      });
+
+      // The non-matching children sort first, so a limit pushed into the
+      // foreign-key read would be spent before reaching a published post.
+      for (let i = 0; i < 5; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `draft-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: false,
+        });
+      }
+      for (let i = 0; i < 3; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `live-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: true,
+        });
+      }
+
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { posts: { limit: 3, where: { published: true } } },
+      });
+
+      expect((users[0] as any).posts.map((post: any) => post.text)).toEqual([
+        'live-0',
+        'live-1',
+        'live-2',
+      ]);
+    });
+
+    test('stops relation reads after the requested matches', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'bounded-relations@example.com',
+      });
+
+      for (let i = 0; i < 3; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `live-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: true,
+        });
+      }
+      for (let i = 0; i < 40; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `draft-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: false,
+        });
+      }
+
+      const reads = countDocumentReads(ctx);
+      const rows = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { posts: { limit: 3, where: { published: true } } },
+      });
+
+      expect((rows[0] as any).posts).toHaveLength(3);
+      expect(reads.documents).toBeLessThanOrEqual(5);
+    });
+
+    test('offset with a relation where skips matches, not scanned rows', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'alice@example.com',
+      });
+
+      for (let i = 0; i < 4; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `draft-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: false,
+        });
+      }
+      for (let i = 0; i < 3; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `live-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+          published: true,
+        });
+      }
+
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { posts: { limit: 2, offset: 1, where: { published: true } } },
+      });
+
+      expect((users[0] as any).posts.map((post: any) => post.text)).toEqual([
+        'live-1',
+        'live-2',
+      ]);
+    });
+
     test('should limit relations per parent (not globally)', async ({
       ctx,
     }) => {

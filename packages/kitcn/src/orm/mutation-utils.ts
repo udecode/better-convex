@@ -16,7 +16,13 @@ import type {
   LogicalExpression,
   UnaryExpression,
 } from './filter-expression';
-import { fieldRef, isFieldReference } from './filter-expression';
+import {
+  fieldRef,
+  filterValueInList,
+  filterValuesEqual,
+  isFieldReference,
+  matchLikePattern,
+} from './filter-expression';
 import { findIndexForColumns, getIndexes } from './index-utils';
 import type { TablesRelationalConfig } from './relations';
 import type { RlsContext } from './rls/types';
@@ -2088,28 +2094,7 @@ export function selectReturningRow(
   return result;
 }
 
-function matchLike(
-  value: string,
-  pattern: string,
-  caseInsensitive: boolean
-): boolean {
-  const targetValue = caseInsensitive ? value.toLowerCase() : value;
-  const targetPattern = caseInsensitive ? pattern.toLowerCase() : pattern;
-
-  if (targetPattern.startsWith('%') && targetPattern.endsWith('%')) {
-    const substring = targetPattern.slice(1, -1);
-    return targetValue.includes(substring);
-  }
-  if (targetPattern.startsWith('%')) {
-    const suffix = targetPattern.slice(1);
-    return targetValue.endsWith(suffix);
-  }
-  if (targetPattern.endsWith('%')) {
-    const prefix = targetPattern.slice(0, -1);
-    return targetValue.startsWith(prefix);
-  }
-  return targetValue === targetPattern;
-}
+const matchLike = matchLikePattern;
 
 export function evaluateFilter(
   row: Record<string, unknown>,
@@ -2160,9 +2145,9 @@ export function evaluateFilter(
         return fieldValue.includes(value as string);
       }
       case 'eq':
-        return fieldValue === value;
+        return filterValuesEqual(fieldValue, value);
       case 'ne':
-        return fieldValue !== value;
+        return !filterValuesEqual(fieldValue, value);
       case 'gt':
         return (fieldValue as any) > value;
       case 'gte':
@@ -2171,14 +2156,10 @@ export function evaluateFilter(
         return (fieldValue as any) < value;
       case 'lte':
         return (fieldValue as any) <= value;
-      case 'inArray': {
-        const arr = value as any[];
-        return arr.includes(fieldValue as any);
-      }
-      case 'notInArray': {
-        const arr = value as any[];
-        return !arr.includes(fieldValue as any);
-      }
+      case 'inArray':
+        return filterValueInList(fieldValue, value as any[]);
+      case 'notInArray':
+        return !filterValueInList(fieldValue, value as any[]);
       case 'arrayContains': {
         if (!Array.isArray(fieldValue)) return false;
         const arr = value as any[];

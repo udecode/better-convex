@@ -148,6 +148,124 @@ export function isFieldReference(value: any): value is FieldReference<any> {
 }
 
 // ============================================================================
+// Post-fetch Evaluation Helpers
+// ============================================================================
+
+/**
+ * SQL `LIKE` semantics: `%` matches any run of characters, `_` matches exactly
+ * one, everything else is literal. Wildcards work anywhere in the pattern, not
+ * only at the ends.
+ *
+ * Matched with a single-backtrack scan rather than a compiled regex. A pattern
+ * is caller data — anything interpolated into `` `%${query}%` `` reaches here —
+ * and translating `%` to a regex quantifier makes `'%%%%%z'` backtrack
+ * exponentially, which would burn the whole Convex function CPU budget on one
+ * row. This scan remembers only the most recent `%`, so the worst case is
+ * O(value * pattern) with no catastrophic case at all.
+ */
+export function matchLikePattern(
+  value: string,
+  pattern: string,
+  caseInsensitive: boolean
+): boolean {
+  const target = Array.from(caseInsensitive ? value.toLowerCase() : value);
+  const source = Array.from(caseInsensitive ? pattern.toLowerCase() : pattern);
+
+  let valueIndex = 0;
+  let patternIndex = 0;
+  // Position of the `%` we are currently stretching, and how much of the value
+  // it has consumed so far. -1 means we have not passed a `%` yet.
+  let wildcardPatternIndex = -1;
+  let wildcardValueIndex = 0;
+
+  while (valueIndex < target.length) {
+    const patternChar =
+      patternIndex < source.length ? source[patternIndex] : undefined;
+
+    if (patternChar === '_' || patternChar === target[valueIndex]) {
+      valueIndex += 1;
+      patternIndex += 1;
+    } else if (patternChar === '%') {
+      // Consecutive `%` collapse naturally: each one overwrites the mark and
+      // starts by consuming nothing.
+      wildcardPatternIndex = patternIndex;
+      wildcardValueIndex = valueIndex;
+      patternIndex += 1;
+    } else if (wildcardPatternIndex === -1) {
+      return false;
+    } else {
+      // Let the last `%` swallow one more character and retry from there.
+      wildcardValueIndex += 1;
+      valueIndex = wildcardValueIndex;
+      patternIndex = wildcardPatternIndex + 1;
+    }
+  }
+
+  while (patternIndex < source.length && source[patternIndex] === '%') {
+    patternIndex += 1;
+  }
+
+  return patternIndex === source.length;
+}
+
+/**
+ * Structural equality matching Convex's own `q.eq`. Arrays, objects and bytes
+ * are compared by content: reference identity would make every `eq`/`in` filter
+ * on a `custom(v.array(...))` / `custom(v.object(...))` column match nothing.
+ */
+export function filterValuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (
+    a === null ||
+    b === null ||
+    typeof a !== 'object' ||
+    typeof b !== 'object'
+  ) {
+    return false;
+  }
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!(Array.isArray(a) && Array.isArray(b)) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((item, index) => filterValuesEqual(item, b[index]));
+  }
+
+  if (a instanceof ArrayBuffer || b instanceof ArrayBuffer) {
+    if (
+      !(a instanceof ArrayBuffer && b instanceof ArrayBuffer) ||
+      a.byteLength !== b.byteLength
+    ) {
+      return false;
+    }
+    const left = new Uint8Array(a);
+    const right = new Uint8Array(b);
+    return left.every((byte, index) => byte === right[index]);
+  }
+
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  return aKeys.every(
+    (key) =>
+      Object.hasOwn(b, key) &&
+      filterValuesEqual(
+        (a as Record<string, unknown>)[key],
+        (b as Record<string, unknown>)[key]
+      )
+  );
+}
+
+/** `inArray`/`notInArray` membership using {@link filterValuesEqual}. */
+export function filterValueInList(value: unknown, list: unknown[]): boolean {
+  return list.some((candidate) => filterValuesEqual(candidate, value));
+}
+
+// ============================================================================
 // Column Wrapper
 // ============================================================================
 

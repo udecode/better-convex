@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import schema from '../schema';
-import { convexTest, runCtx } from '../setup.testing';
+import { convexTest, countDocumentReads, runCtx } from '../setup.testing';
 
 test('select chain union can interleave indexed streams', async () => {
   const t = convexTest(schema);
@@ -398,5 +398,507 @@ test('select flatMap pagination walks every child exactly once', async () => {
     }
 
     expect(walked).toEqual(singlePage.page.map((row) => row.text));
+  });
+});
+
+test('flatMap limit counts matches, not skipped rows', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-limit@example.com',
+    });
+    // The non-matching children sort first, so a limit that counted scanned
+    // rows would be exhausted before reaching a single note.
+    for (const [index, type] of [
+      'other',
+      'other',
+      'note',
+      'note',
+      'note',
+    ].entries()) {
+      await baseCtx.db.insert('posts', {
+        text: `${type}-${index}`,
+        numLikes: 0,
+        type,
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const result = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', {
+        includeParent: false,
+        where: { type: 'note' },
+        limit: 2,
+      })
+      .paginate({ cursor: null, limit: 50 });
+
+    expect(result.page.map((row) => row.text)).toEqual(['note-2', 'note-3']);
+  });
+});
+
+test('flatMap limit stays per parent across pages', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    for (const name of ['A', 'B']) {
+      const author = await baseCtx.db.insert('users', {
+        name,
+        email: `flatmap-pages-${name}@example.com`,
+      });
+      for (let i = 0; i < 5; i += 1) {
+        await baseCtx.db.insert('posts', {
+          text: `${name}${i}`,
+          numLikes: 0,
+          type: 'note',
+          authorId: author,
+        });
+      }
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 10; page += 1) {
+      const result = await ctx.orm.query.users
+        .select()
+        .flatMap('posts', { includeParent: false, limit: 3 })
+        .paginate({ cursor, limit: 2 });
+      walked.push(...result.page.map((row) => row.text));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(['A0', 'A1', 'A2', 'B0', 'B1', 'B2']);
+  });
+});
+
+test('flatMap limit advances past an exhausted parent with maxScan', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-exhausted@example.com',
+    });
+    for (let i = 0; i < 2; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: 'note',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    let isDone = false;
+
+    for (let page = 0; page < 5; page += 1) {
+      const result = await ctx.orm.query.users
+        .select()
+        .flatMap('posts', { includeParent: false, limit: 2 })
+        .paginate({ cursor, limit: 10, maxScan: 1 });
+      walked.push(...result.page.map((row) => row.text));
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+      if (isDone) break;
+      expect(cursor).not.toBeNull();
+      const nextCursor = cursor as string;
+      expect(cursors.has(nextCursor)).toBe(false);
+      cursors.add(nextCursor);
+    }
+
+    expect(isDone).toBe(true);
+    expect(walked).toEqual(['p0', 'p1']);
+  });
+});
+
+test('flatMap limit skips a missing optional one relation', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-missing-one@example.com',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const result = await ctx.orm.query.users
+      .select()
+      .flatMap('homeCity', { includeParent: false, limit: 1 })
+      .paginate({ cursor: null, limit: 10 });
+
+    expect(result.page).toEqual([]);
+    expect(result.isDone).toBe(true);
+  });
+});
+
+test('flatMap limit reads each child once and stays under maxScan', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-reads@example.com',
+    });
+    // Only 2 of 30 children match, so maxScan must cap the physical walk.
+    for (let i = 0; i < 30; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: i === 10 || i === 20 ? 'note' : 'other',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const result = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', {
+        includeParent: false,
+        where: { type: 'note' },
+        limit: 5,
+      })
+      .paginate({ cursor: null, limit: 5, maxScan: 6 });
+
+    // 1 parent + at most 6 child reads for maxScan: 6.
+    expect(reads.documents).toBeLessThanOrEqual(7);
+    // And that walk has to be visible to maxScan, not happen behind it.
+    expect(result.pageStatus).toBe('SplitRequired');
+  });
+});
+
+test('flatMap limit stops on the limit-th child, not one past it', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'flatmap-limit-stop@example.com',
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: 0,
+        type: 'note',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', { includeParent: false, limit: 2 })
+      .limit(10);
+
+    expect(rows.map((row) => row.text)).toEqual(['p0', 'p1']);
+    // 1 parent + exactly 2 children. A third child read would be a document
+    // nothing can emit and maxScan never sees, since only replayed rows count.
+    expect(reads.documents).toBe(3);
+  });
+});
+
+test('flatMap limit holds under desc order and a stage where', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    for (const name of ['A', 'B']) {
+      const author = await baseCtx.db.insert('users', {
+        name,
+        email: `flatmap-desc-${name}@example.com`,
+      });
+      for (let i = 0; i < 6; i += 1) {
+        await baseCtx.db.insert('posts', {
+          text: `${name}${i}`,
+          numLikes: 0,
+          type: i % 2 === 0 ? 'note' : 'other',
+          authorId: author,
+        });
+      }
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 12; page += 1) {
+      const result = await ctx.orm.query.users
+        .select()
+        .orderBy({ createdAt: 'desc' })
+        .flatMap('posts', {
+          includeParent: false,
+          where: { type: 'note' },
+          limit: 2,
+        })
+        .paginate({ cursor, limit: 1 });
+      walked.push(...result.page.map((row) => row.text));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(['B4', 'B2', 'A4', 'A2']);
+  });
+});
+
+test('select() pipeline stages run for an id-only where', async () => {
+  const t = convexTest(schema);
+  let postId = '';
+
+  await t.run(async (baseCtx) => {
+    postId = await baseCtx.db.insert('posts', {
+      text: 'test',
+      numLikes: 0,
+      type: 'text',
+      title: 'hello',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    const filtered = await ctx.orm.query.posts
+      .select()
+      .where({ id: postId })
+      .filter(() => false)
+      .limit(10);
+    expect(filtered).toEqual([]);
+
+    const mapped = await ctx.orm.query.posts
+      .select()
+      .where({ id: postId })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+    expect(mapped).toEqual([{ onlyTitle: 'hello' }]);
+  });
+});
+
+test('select() pipeline reads an id-only where by key, not by scan', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    // The last row inserted: a creation-time scan would have to read all 40.
+    const mapped = await ctx.orm.query.posts
+      .select()
+      .where({ id: ids.at(-1) as string })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+
+    expect(mapped).toEqual([{ onlyTitle: 'title-39' }]);
+    expect(reads.documents).toBe(1);
+  });
+});
+
+test('select() pipeline reads an id `in` where by key, in creation order', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const mapped = await ctx.orm.query.posts
+      .select()
+      // Out of order, and with a duplicate, to pin both the de-dupe and the
+      // stream order the scan would have produced.
+      .where({ id: { in: [ids[30], ids[5], ids[30]] as string[] } })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+
+    expect(mapped).toEqual([
+      { onlyTitle: 'title-5' },
+      { onlyTitle: 'title-30' },
+    ]);
+    expect(reads.documents).toBe(2);
+  });
+});
+
+test('select() pipeline pages an id-only where without scanning', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 40; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 5; page += 1) {
+      const result = await ctx.orm.query.posts
+        .select()
+        .where({ id: { in: [ids[30], ids[5], ids[12]] as string[] } })
+        .map((row) => ({ onlyTitle: row.title }))
+        .paginate({ cursor, limit: 2 });
+      walked.push(...result.page.map((row) => row.onlyTitle as string));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(['title-5', 'title-12', 'title-30']);
+  });
+});
+
+test('select() rejects id-list pagination with maxScan', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 3; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    await expect(
+      ctx.orm.query.posts
+        .select()
+        .where({ id: { in: ids } })
+        .map((row) => row)
+        .paginate({ cursor: null, limit: 1, maxScan: 1 })
+    ).rejects.toThrow(/id.*in.*maxScan/i);
+  });
+});
+
+test('select() flatMap runs off an id-only where without scanning', async () => {
+  const t = convexTest(schema);
+  let authorId = '';
+
+  await t.run(async (baseCtx) => {
+    for (const name of ['Ada', 'Bo']) {
+      const author = await baseCtx.db.insert('users', {
+        name,
+        email: `${name}@flatmap-id.example.com`,
+      });
+      if (name === 'Bo') {
+        authorId = author;
+      }
+      for (let i = 0; i < 3; i += 1) {
+        await baseCtx.db.insert('posts', {
+          text: `${name}${i}`,
+          numLikes: 0,
+          type: 'note',
+          authorId: author,
+        });
+      }
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .where({ id: authorId })
+      .flatMap('posts', { includeParent: false })
+      .limit(10);
+
+    expect(rows.map((row) => row.text)).toEqual(['Bo0', 'Bo1', 'Bo2']);
+    // 1 parent read by key + its 3 children. Ada is never touched.
+    expect(reads.documents).toBe(4);
+  });
+});
+
+test('pageByKey keeps its shape for an id-only where', async () => {
+  const t = convexTest(schema);
+  let userId = '';
+
+  await t.run(async (baseCtx) => {
+    userId = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'a@idkey.example.com',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const page = await ctx.orm.query.users.findMany({
+      where: { id: userId },
+      pageByKey: { index: 'by_name', targetMaxRows: 5 },
+    });
+
+    expect(page.page.map((row) => row.name)).toEqual(['A']);
+    expect(page.indexKeys).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
   });
 });

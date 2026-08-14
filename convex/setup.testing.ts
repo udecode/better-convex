@@ -117,6 +117,82 @@ export function convexTest<Schema extends SchemaDefinition<any, any>>(
   return wrapConvexTestDateReturns(baseConvexTest(schema, convexModules));
 }
 
+/**
+ * Count documents pulled out of `ctx.db` from this point on.
+ *
+ * Read bounds are part of the ORM's contract, and several of them are invisible
+ * in the returned rows: a query that reads a table twice and a query that reads
+ * it once can return exactly the same page. Call this before the query under
+ * test and assert on `reads.documents`.
+ */
+export function countDocumentReads(ctx: { db: GenericDatabaseWriter<any> }): {
+  documents: number;
+} {
+  const reads = { documents: 0 };
+  const baseQuery = ctx.db.query.bind(ctx.db);
+  const baseGet = ctx.db.get.bind(ctx.db);
+
+  const wrap = (query: object): any =>
+    new Proxy(query, {
+      get(target: any, property) {
+        if (property === Symbol.asyncIterator) {
+          return () => {
+            const iterator = target[Symbol.asyncIterator]();
+            return {
+              async next() {
+                const result = await iterator.next();
+                if (!result.done) {
+                  reads.documents += 1;
+                }
+                return result;
+              },
+            };
+          };
+        }
+
+        const value = target[property];
+        if (typeof value !== 'function') {
+          return value;
+        }
+
+        return (...args: unknown[]) => {
+          const result = value.apply(target, args);
+          if (property === 'collect' || property === 'take') {
+            return Promise.resolve(result).then((rows: unknown[]) => {
+              reads.documents += rows.length;
+              return rows;
+            });
+          }
+          if (property === 'first' || property === 'unique') {
+            return Promise.resolve(result).then((row: unknown) => {
+              if (row) {
+                reads.documents += 1;
+              }
+              return row;
+            });
+          }
+          if (result && typeof (result as any).then === 'function') {
+            return result;
+          }
+          if (result && typeof result === 'object') {
+            return wrap(result);
+          }
+          return result;
+        };
+      },
+    });
+
+  (ctx.db as any).query = (table: unknown) => wrap(baseQuery(table as never));
+  (ctx.db as any).get = async (id: unknown) => {
+    const row = await baseGet(id as never);
+    if (row) {
+      reads.documents += 1;
+    }
+    return row;
+  };
+  return reads;
+}
+
 export const withOrm = <
   Ctx extends { db: GenericDatabaseWriter<any> },
   Schema extends object,
