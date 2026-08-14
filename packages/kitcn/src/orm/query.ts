@@ -5134,6 +5134,11 @@ export class GelRelationalQuery<
     // Fast path: `id` lookups use `db.get()` (primary key) instead of an index plan.
     // This keeps `where: { id: ... }` and `where: { id: { in: [...] } }` ergonomic
     // without requiring allowFullScan, and avoids full collection scans.
+    //
+    // It returns raw documents and returns early, so it must not swallow a
+    // request whose result shape is produced later: pipeline stages
+    // (map/filter/flatMap/distinct/union) and pageByKey both live past this
+    // point and would silently be dropped.
     const idLookup = this._extractIdOnlyWhere(whereFilter);
     if (
       idLookup &&
@@ -5141,6 +5146,9 @@ export class GelRelationalQuery<
       !searchConfig &&
       !wherePredicate &&
       !isCursorPaginated &&
+      !pipeline &&
+      !pageByKey &&
+      endCursor === undefined &&
       configuredIndex === undefined
     ) {
       const orderSpecs = this._orderBySpecs(config.orderBy);

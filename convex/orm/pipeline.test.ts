@@ -400,3 +400,59 @@ test('select flatMap pagination walks every child exactly once', async () => {
     expect(walked).toEqual(singlePage.page.map((row) => row.text));
   });
 });
+
+test('select() pipeline stages run for an id-only where', async () => {
+  const t = convexTest(schema);
+  let postId = '';
+
+  await t.run(async (baseCtx) => {
+    postId = await baseCtx.db.insert('posts', {
+      text: 'test',
+      numLikes: 0,
+      type: 'text',
+      title: 'hello',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    const filtered = await ctx.orm.query.posts
+      .select()
+      .where({ id: postId })
+      .filter(() => false)
+      .limit(10);
+    expect(filtered).toEqual([]);
+
+    const mapped = await ctx.orm.query.posts
+      .select()
+      .where({ id: postId })
+      .map((row) => ({ onlyTitle: row.title }))
+      .limit(10);
+    expect(mapped).toEqual([{ onlyTitle: 'hello' }]);
+  });
+});
+
+test('pageByKey keeps its shape for an id-only where', async () => {
+  const t = convexTest(schema);
+  let userId = '';
+
+  await t.run(async (baseCtx) => {
+    userId = await baseCtx.db.insert('users', {
+      name: 'A',
+      email: 'a@idkey.example.com',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const page = await ctx.orm.query.users.findMany({
+      where: { id: userId },
+      pageByKey: { index: 'by_name', targetMaxRows: 5 },
+    });
+
+    expect(page.page.map((row) => row.name)).toEqual(['A']);
+    expect(page.indexKeys).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+  });
+});
