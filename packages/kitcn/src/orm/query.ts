@@ -2297,15 +2297,17 @@ export class GelRelationalQuery<
   }
 
   /**
-   * Stream equivalent of the non-paginated `db.query(...)` chain, used when a
-   * post-fetch filter has to run in JavaScript before `limit` can be applied.
+   * Stream equivalent of the `db.query(...)` chain, used when a post-fetch
+   * filter has to run in JavaScript before `limit` or a page boundary can be
+   * applied. `filterWith` evaluates the predicate as rows are pulled, so
+   * `take`/`paginate` size by matches instead of by scanned rows.
    *
    * It deliberately mirrors the index and order decisions the caller already
    * made for the plain query rather than re-deriving them, so switching to the
    * stream cannot change which index is scanned or in what direction.
    *
    * Returns null when the schema definition needed by `stream()` is missing;
-   * the caller then falls back to collect-and-slice.
+   * the caller then falls back to its plain-query path.
    */
   private _buildResidualFilterStream(params: {
     queryConfig: {
@@ -2315,7 +2317,8 @@ export class GelRelationalQuery<
     configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
     orderIndexName: string | null;
     primaryOrder?: { direction: 'asc' | 'desc'; field: string };
-    needsPostFetchSortForPrimary: boolean;
+    /** Direction to use when the query has no orderBy at all. */
+    fallbackOrder: 'asc' | 'desc';
   }): QueryStream<any> | null {
     const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
     if (!schemaDefinition) {
@@ -2327,7 +2330,7 @@ export class GelRelationalQuery<
       configuredIndex,
       orderIndexName,
       primaryOrder,
-      needsPostFetchSortForPrimary,
+      fallbackOrder,
     } = params;
 
     let streamQuery: any = stream(
@@ -2355,14 +2358,12 @@ export class GelRelationalQuery<
       streamQuery = streamQuery.withIndex(orderIndexName as any, (q: any) => q);
     }
 
-    // The plain query only calls .order() when the index already sorts by the
-    // requested field; otherwise the rows are sorted post-fetch and this branch
-    // is not used. Streams always need an explicit direction, and Convex
-    // defaults to ascending.
+    // Streams always need an explicit direction. The plain query leaves the
+    // Convex default (ascending) when there is no orderBy in the non-paginated
+    // path, and explicitly orders 'desc' in the cursor path, so the caller
+    // supplies which of the two applies.
     streamQuery = streamQuery.order(
-      primaryOrder && !needsPostFetchSortForPrimary
-        ? primaryOrder.direction
-        : 'asc'
+      primaryOrder ? primaryOrder.direction : fallbackOrder
     );
 
     streamQuery = streamQuery.filterWith((row: any) =>
@@ -5895,6 +5896,82 @@ export class GelRelationalQuery<
       const convexPostFilters = queryConfig.postFilters.filter((filter) =>
         this._isConvexEnforceableFilter(filter)
       );
+      const hasResidualPostFilter =
+        convexPostFilters.length !== queryConfig.postFilters.length;
+
+      // A residual predicate runs in JavaScript, and Convex's native paginate
+      // has no place to run it: the page is built entirely inside Convex. The
+      // two stream branches above only cover unindexed and multi-probe plans,
+      // so an indexed plan would otherwise emit a page containing rows that
+      // violate the predicate. Route it through the same stream the
+      // non-paginated path uses, where `filterWith` runs while the page is
+      // assembled — that keeps pages full instead of filtering them down after
+      // the fact.
+      const residualPageStream = hasResidualPostFilter
+        ? this._buildResidualFilterStream({
+            queryConfig,
+            configuredIndex,
+            orderIndexName,
+            primaryOrder,
+            fallbackOrder: 'desc',
+          })
+        : null;
+
+      if (residualPageStream) {
+        if (queryConfig.order && primaryOrder) {
+          if (needsPostFetchSortForPrimary && strict) {
+            throw new Error(
+              `Pagination: Field '${primaryOrder.field}' has no index. Add an index or disable strict.`
+            );
+          }
+          if (needsPostFetchSortForPrimary) {
+            console.warn(
+              `Pagination: Field '${primaryOrder.field}' has no index. ` +
+                'Falling back to _creationTime ordering.'
+            );
+          }
+          if (hasSecondaryOrders) {
+            console.warn(
+              'Pagination: Only the first orderBy field is used for cursor ordering. ' +
+                'Secondary orderBy fields are applied per page and may be unstable across pages.'
+            );
+          }
+        }
+
+        const paginationResult = await residualPageStream.paginate({
+          cursor: cursor ?? null,
+          endCursor: endCursor ?? undefined,
+          limit: config.limit,
+          maxScan,
+        });
+
+        let pageRows = paginationResult.page;
+
+        pageRows = await this._applyRlsSelectFilter(pageRows, this.tableConfig);
+
+        if (whereFilter) {
+          pageRows = await this._applyRelationsFilterToRows(
+            pageRows,
+            this.tableConfig,
+            whereFilter,
+            this.edgeMetadata,
+            0,
+            3,
+            this.config.with as Record<string, unknown> | undefined
+          );
+        }
+
+        const selectedPage = await this._finalizeRows(pageRows);
+
+        return {
+          page: selectedPage,
+          continueCursor: paginationResult.continueCursor,
+          isDone: paginationResult.isDone,
+          pageStatus: (paginationResult as any).pageStatus,
+          splitCursor: (paginationResult as any).splitCursor,
+        } as TResult;
+      }
+
       if (convexPostFilters.length > 0) {
         query = query.filter((q: any) => {
           let result: any | null = null;
@@ -6020,7 +6097,7 @@ export class GelRelationalQuery<
             configuredIndex,
             orderIndexName,
             primaryOrder,
-            needsPostFetchSortForPrimary,
+            fallbackOrder: 'asc',
           })
         : null;
 

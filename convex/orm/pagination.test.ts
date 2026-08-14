@@ -642,3 +642,126 @@ test('pagination with combined WHERE and ORDER BY (non-indexed)', async () => {
     ).rejects.toThrow(/Pagination: Field 'numLikes' has no index/);
   });
 });
+
+test('cursor pagination applies post-fetch operators on an indexed plan', async () => {
+  const t = convexTest(schema);
+
+  // 5 "Bob N" and 5 "Alice N", all active. `status` is indexed (by_status), so
+  // the plan picks an index and the string operator stays a residual predicate
+  // that only JavaScript can evaluate.
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 5; i++) {
+      await baseCtx.db.insert('users', {
+        name: `Bob ${i}`,
+        email: `bob${i}@paginate.example.com`,
+        status: 'active',
+      });
+      await baseCtx.db.insert('users', {
+        name: `Alice ${i}`,
+        email: `alice${i}@paginate.example.com`,
+        status: 'active',
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const db = ctx.orm;
+
+    const bare = await db.query.users.findMany({
+      cursor: null,
+      limit: 20,
+      where: (users, { and, eq, notLike }) =>
+        and(eq(users.status, 'active'), notLike(users.name, '%Bob%')),
+    });
+
+    const negated = await db.query.users.findMany({
+      cursor: null,
+      limit: 20,
+      where: (users, { and, eq, like, not }) =>
+        and(eq(users.status, 'active'), not(like(users.name, '%Bob%'))),
+    });
+
+    // The identical predicate without a cursor is the source of truth.
+    const nonPaginated = await db.query.users.findMany({
+      limit: 20,
+      where: (users, { and, eq, like, not }) =>
+        and(eq(users.status, 'active'), not(like(users.name, '%Bob%'))),
+    });
+
+    const names = (rows: { name: string }[]) =>
+      rows.map((row) => row.name).sort();
+
+    expect(names(nonPaginated)).toEqual([
+      'Alice 0',
+      'Alice 1',
+      'Alice 2',
+      'Alice 3',
+      'Alice 4',
+    ]);
+    expect(names(bare.page)).toEqual(names(nonPaginated));
+    expect(names(negated.page)).toEqual(names(nonPaginated));
+  });
+});
+
+test('cursor pagination fills pages to the limit with a residual predicate', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 5; i++) {
+      await baseCtx.db.insert('users', {
+        name: `Bob ${i}`,
+        email: `bob${i}@fill.example.com`,
+        status: 'pending',
+      });
+      await baseCtx.db.insert('users', {
+        name: `Alice ${i}`,
+        email: `alice${i}@fill.example.com`,
+        status: 'pending',
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const db = ctx.orm;
+
+    // 5 rows match. A page of 4 must contain 4 matches, not 4 scanned rows
+    // filtered down afterwards.
+    const first = await db.query.users.findMany({
+      cursor: null,
+      limit: 4,
+      where: (users, { and, eq, notLike }) =>
+        and(eq(users.status, 'pending'), notLike(users.name, '%Bob%')),
+    });
+
+    expect(first.page).toHaveLength(4);
+    for (const row of first.page) {
+      expect(row.name).not.toContain('Bob');
+    }
+
+    // Walking the rest must yield the 5th match and no duplicates.
+    const walked = first.page.map((row) => row.name);
+    let cursor = first.continueCursor;
+    let isDone = first.isDone;
+    for (let page = 0; page < 5 && !isDone; page++) {
+      const next = await db.query.users.findMany({
+        cursor,
+        limit: 4,
+        where: (users, { and, eq, notLike }) =>
+          and(eq(users.status, 'pending'), notLike(users.name, '%Bob%')),
+      });
+      walked.push(...next.page.map((row) => row.name));
+      cursor = next.continueCursor;
+      isDone = next.isDone;
+    }
+
+    expect(walked.sort()).toEqual([
+      'Alice 0',
+      'Alice 1',
+      'Alice 2',
+      'Alice 3',
+      'Alice 4',
+    ]);
+  });
+});
