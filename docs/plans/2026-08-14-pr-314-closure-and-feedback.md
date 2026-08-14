@@ -88,28 +88,32 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | focused ORM regression tests plus full `bun check` runtime suites passed | complete |
-| package/API/build | yes | `bun --cwd packages/kitcn build`, root typecheck, package artifacts, and full check passed; no public API shape changed | complete |
+| source behavior | yes | final fail-closed repair, 21 pagination tests, and focused combined 115-test ORM lane passed | complete |
+| package/API/build | yes | final `bun --cwd packages/kitcn build` passed; no public API shape changed | complete |
 | generated output | yes | `bun run fixtures:check` proved all committed fixtures match fresh scaffold output | complete |
 | fixtures/scenarios | yes | `bun run fixtures:check` passed every fixture; scenario runtime N/A because ORM runtime behavior is covered by integration tests and no scaffold behavior changed | complete |
 | docs/package skill | no | N/A: internal ORM correctness only; no public usage shape or docs/skill contract changed | complete |
 | changeset | yes | `.changeset/olive-eyes-punch.md` covers the six user-visible fixes and no longer overclaims standalone full-page filling | complete |
 | agent workflow | no | N/A: changed-file audit contains no agent rule, skill, mirror, lock, helper, or user-action tooling | complete |
-| cleanup/review | yes | deslop zero net regression; agent-native audit PASS; branch autoreview clean with zero findings at 0.87 confidence | complete |
-| repository check | yes | `bun lint:fix` no changes; `bun check` exited 0 across CI, verify, and runtime lanes | complete |
+| cleanup/review | yes | final deslop stayed at zero net regression; agent-native audit unchanged; autoreview rerun pending | pending |
+| repository check | yes | prior full check passed but is stale after final repair; rerun required | pending |
 | GitHub delivery | yes | whole-checkout commit/push, replies/resolution, PR read-back | pending |
 
 Feedback ledger:
 | ID / URL | Type | Path | Reviewer claim | Verdict | Owner / proof | Reply | Resolution |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `PRRT_kwDOPTlS686Y-7VP` / `discussion_r3776629135` | review thread | `packages/kitcn/src/orm/query.ts:5896` | Cursor pagination drops residual predicates | fixed: commit `c570c3c` routes schema-backed residual predicates through stream pagination | `bunx vitest run convex/orm/pagination.test.ts` -> 21 passed | pending | pending |
-| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Standalone `defineRelations` has no schema metadata, so the cursor branch can still drop residual filters | fixed: native fallback applies residual predicates after pagination instead of returning violating rows | focused standalone test red with 5 forbidden `Bob` rows, green after fix; full pagination file 21 passed | pending | pending |
+| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Metadata-free relations can drop residual cursor filters | fixed-differently after source/author evidence: unsupported standalone schema ownership now fails closed through the canonical `defineSchema()` guard, also preventing silent `maxScan` loss | focused test red because the partial native fallback resolved instead of rejecting, green after guard; full pagination file 21 passed | pending | pending |
 
 Feedback triage notes:
 - `changeset-bot` top-level comment is status boilerplate with no actionable
   question; no reply needed.
 - Both Codex review bodies are boilerplate wrappers; their actionable findings
   are represented by the two inline threads above.
+- A substantive PR-author reply arrived after the first fix/check cycle. Source
+  confirmed standalone relation exports are rejected by schema ownership and
+  advanced pagination already owns a canonical `defineSchema()` guard. The
+  permissive native-page filter was replaced with that fail-closed invariant.
 
 Work Checklist:
 - [ ] Intended behavior and exclusions are reconstructed from real sources.
@@ -162,7 +166,10 @@ Phase / pass table:
 | Closeout | pending | | final |
 
 Verification evidence:
-- `bunx vitest run convex/orm/pagination.test.ts -t "cursor pagination preserves residual filters without schema metadata"` -> red before implementation: returned all five forbidden `Bob` rows; green after implementation: 1 passed.
+- First standalone repro returned all five forbidden `Bob` rows. After the
+  author/source correction, the final TDD case expected the canonical advanced
+  pagination error and failed red because the partial fallback resolved; the
+  explicit `defineSchema()` guard made it green.
 - `bunx vitest run convex/orm/pagination.test.ts` -> 21 passed, including
   schema-backed full-page residual filtering and standalone metadata-free
   residual filtering.
@@ -183,6 +190,9 @@ Verification evidence:
 - Final `bun check` -> exit 0: lint, all package typechecks/tests/builds, CLI
   123/123, Concave smoke, fixture parity, bare Convex verify, and runtime
   scenario matrix including auth smoke all passed.
+- After the final fail-closed repair: focused combined Vitest lane -> 5 files,
+  115 passed, 1 skipped, no type errors; package build passed; deslop remained
+  166 to 166 with zero score change.
 
 Timeline:
 - 2026-08-14T10:55:17.599Z Autoclosure plan created.
@@ -201,15 +211,21 @@ Timeline:
   branch autoreview clean with zero accepted/actionable findings.
 - 2026-08-14 Final `bun lint:fix` and complete `bun check` passed; GitHub
   delivery is the only remaining executable lane.
+- 2026-08-14 A new PR-author reply changed the second finding's source verdict:
+  standalone exports are unsupported and silently dropping `maxScan` remained.
+  Replaced the permissive fallback with the canonical fail-closed schema guard;
+  all 21 pagination tests passed. Prior autoreview/check evidence is stale until
+  rerun.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | GitHub delivery |
-| Where am I going? | Push, feedback replies/resolution, GitHub read-back, final audit |
+| Where am I? | Repair rerun after new author evidence |
+| Where am I going? | Re-review/check, push, feedback replies/resolution, GitHub read-back, final audit |
 | What is the goal? | Close PR 314 with zero unhandled actionable feedback and every applicable proof/delivery gate complete |
-| What have I learned? | The latest schema-backed fix was correct, but standalone relations lacked stream metadata and silently returned residual-filter violations |
-| What have I done? | Closed every local proof/review/check lane; only GitHub delivery and the mechanical goal audit remain |
+| What have I learned? | Schema-backed relations are supported; fresh-object standalone relations are intentionally rejected by CLI ownership, so advanced cursor filters must fail closed rather than run a partial native fallback |
+| What have I done? | Reclassified and replaced the second fix after new author/source evidence; focused pagination proof is green and final review/check reruns remain |
 
 Open risks:
-- Push, replies/resolution, CI/PR head read-back, and the goal-plan checker remain.
+- Package build, deslop/review, full check, repush, replies/resolution, CI/PR
+  head read-back, and the goal-plan checker remain after the final repair.

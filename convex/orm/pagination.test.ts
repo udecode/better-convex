@@ -766,7 +766,7 @@ test('cursor pagination fills pages to the limit with a residual predicate', asy
   });
 });
 
-test('cursor pagination preserves residual filters without schema metadata', async () => {
+test('cursor pagination rejects residual filters without schema metadata', async () => {
   const standaloneTables = { ...tables };
   const standaloneRelations = defineRelations(standaloneTables);
   const standaloneSchema = defineSchema(standaloneTables);
@@ -785,19 +785,13 @@ test('cursor pagination preserves residual filters without schema metadata', asy
       });
     }
 
-    const result = await ctx.orm.query.users.findMany({
-      cursor: null,
-      limit: 20,
-      where: (users, { and, eq, notLike }) =>
-        and(eq(users.status, 'active'), notLike(users.name, '%Bob%')),
-    });
-
-    expect(result.page.map((row) => row.name).sort()).toEqual([
-      'Alice 0',
-      'Alice 1',
-      'Alice 2',
-      'Alice 3',
-      'Alice 4',
-    ]);
+    await expect(
+      ctx.orm.query.users.findMany({
+        cursor: null,
+        limit: 20,
+        where: (users, { and, eq, notLike }) =>
+          and(eq(users.status, 'active'), notLike(users.name, '%Bob%')),
+      })
+    ).rejects.toThrow(/Advanced pagination requires defineSchema/);
   });
 });

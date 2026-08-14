@@ -5896,10 +5896,8 @@ export class GelRelationalQuery<
       const convexPostFilters = queryConfig.postFilters.filter((filter) =>
         this._isConvexEnforceableFilter(filter)
       );
-      const residualPostFilters = queryConfig.postFilters.filter(
-        (filter) => !this._isConvexEnforceableFilter(filter)
-      );
-      const hasResidualPostFilter = residualPostFilters.length > 0;
+      const hasResidualPostFilter =
+        convexPostFilters.length !== queryConfig.postFilters.length;
 
       // A residual predicate runs in JavaScript, and Convex's native paginate
       // has no place to run it: the page is built entirely inside Convex. The
@@ -5918,6 +5916,10 @@ export class GelRelationalQuery<
             fallbackOrder: 'desc',
           })
         : null;
+
+      if (hasResidualPostFilter && !residualPageStream) {
+        this._getSchemaDefinitionOrThrow();
+      }
 
       if (residualPageStream) {
         if (queryConfig.order && primaryOrder) {
@@ -6026,18 +6028,6 @@ export class GelRelationalQuery<
       });
 
       let pageRows = paginationResult.page;
-
-      // `defineRelations()` can be created before `defineSchema()`, leaving no
-      // schema metadata for the stream fallback above. Native pagination may
-      // underfill after this pass, but it must never return rows that violate a
-      // JavaScript-only predicate.
-      if (hasResidualPostFilter) {
-        pageRows = pageRows.filter((row: any) =>
-          residualPostFilters.every((filter) =>
-            this._evaluatePostFetchFilter(row, filter)
-          )
-        );
-      }
 
       pageRows = await this._applyRlsSelectFilter(pageRows, this.tableConfig);
 
