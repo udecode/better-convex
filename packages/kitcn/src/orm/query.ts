@@ -62,6 +62,8 @@ import {
   contains,
   endsWith,
   eq,
+  filterValueInList,
+  filterValuesEqual,
   gt,
   gte,
   ilike,
@@ -72,6 +74,7 @@ import {
   like,
   lt,
   lte,
+  matchLikePattern,
   ne,
   not,
   notBetween,
@@ -665,22 +668,7 @@ export class GelRelationalQuery<
     pattern: string,
     caseInsensitive: boolean
   ): boolean {
-    const targetValue = caseInsensitive ? value.toLowerCase() : value;
-    const targetPattern = caseInsensitive ? pattern.toLowerCase() : pattern;
-
-    if (targetPattern.startsWith('%') && targetPattern.endsWith('%')) {
-      const substring = targetPattern.slice(1, -1);
-      return targetValue.includes(substring);
-    }
-    if (targetPattern.startsWith('%')) {
-      const suffix = targetPattern.slice(1);
-      return targetValue.endsWith(suffix);
-    }
-    if (targetPattern.endsWith('%')) {
-      const prefix = targetPattern.slice(0, -1);
-      return targetValue.startsWith(prefix);
-    }
-    return targetValue === targetPattern;
+    return matchLikePattern(value, pattern, caseInsensitive);
   }
 
   /**
@@ -774,9 +762,9 @@ export class GelRelationalQuery<
         }
         // Basic operators fallback (shouldn't reach here normally)
         case 'eq':
-          return fieldValue === normalizedValue;
+          return filterValuesEqual(fieldValue, normalizedValue);
         case 'ne':
-          return fieldValue !== normalizedValue;
+          return !filterValuesEqual(fieldValue, normalizedValue);
         case 'gt':
           return fieldValue > comparableValue;
         case 'gte':
@@ -785,14 +773,10 @@ export class GelRelationalQuery<
           return fieldValue < comparableValue;
         case 'lte':
           return fieldValue <= comparableValue;
-        case 'inArray': {
-          const arr = normalizedValue as any[];
-          return arr.includes(fieldValue);
-        }
-        case 'notInArray': {
-          const arr = normalizedValue as any[];
-          return !arr.includes(fieldValue);
-        }
+        case 'inArray':
+          return filterValueInList(fieldValue, normalizedValue as any[]);
+        case 'notInArray':
+          return !filterValueInList(fieldValue, normalizedValue as any[]);
         case 'arrayContains': {
           if (!Array.isArray(fieldValue)) return false;
           const arr = normalizedValue as any[];
@@ -895,9 +879,12 @@ export class GelRelationalQuery<
       Array.isArray(filter)
     ) {
       if (fieldName) {
-        return fieldValue === this._normalizeComparableValue(fieldName, filter);
+        return filterValuesEqual(
+          fieldValue,
+          this._normalizeComparableValue(fieldName, filter)
+        );
       }
-      return fieldValue === filter;
+      return filterValuesEqual(fieldValue, filter);
     }
 
     const entries = Object.entries(filter as Record<string, any>);
@@ -951,7 +938,7 @@ export class GelRelationalQuery<
           const normalized = fieldName
             ? this._normalizeComparableValue(fieldName, value)
             : value;
-          results.push((normalized as any[]).includes(fieldValue));
+          results.push(filterValueInList(fieldValue, normalized as any[]));
           continue;
         }
         case 'notIn': {
@@ -962,7 +949,7 @@ export class GelRelationalQuery<
           const normalized = fieldName
             ? this._normalizeComparableValue(fieldName, value)
             : value;
-          results.push(!(normalized as any[]).includes(fieldValue));
+          results.push(!filterValueInList(fieldValue, normalized as any[]));
           continue;
         }
         case 'arrayContains': {

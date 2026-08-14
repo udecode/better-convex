@@ -913,3 +913,82 @@ describe('M5: post-fetch operators combined with limit', () => {
     }
   });
 });
+
+// ============================================================================
+// SQL Wildcard Placement
+// ============================================================================
+
+describe('like() wildcard placement', () => {
+  const seedTitles = async (ctx: TestCtx, titles: string[]) => {
+    for (const title of titles) {
+      await ctx.db.insert('posts', {
+        text: 'test',
+        numLikes: 0,
+        type: 'text',
+        title,
+      });
+    }
+  };
+
+  test('% in the middle of a pattern matches', async ({ ctx }) => {
+    await seedTitles(ctx, ['Java Advanced Guide', 'Python Guide', 'JavaGuide']);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: 'Java%Guide' } },
+      limit: 50,
+    });
+
+    expect(posts.map((post) => post.title).sort()).toEqual([
+      'Java Advanced Guide',
+      'JavaGuide',
+    ]);
+  });
+
+  test('_ matches exactly one character', async ({ ctx }) => {
+    await seedTitles(ctx, ['cat', 'cart', 'ct']);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: 'c_t' } },
+      limit: 50,
+    });
+
+    expect(posts.map((post) => post.title)).toEqual(['cat']);
+  });
+
+  test('regex metacharacters stay literal', async ({ ctx }) => {
+    await seedTitles(ctx, ['a.c', 'abc']);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { like: 'a.c' } },
+      limit: 50,
+    });
+
+    expect(posts.map((post) => post.title)).toEqual(['a.c']);
+  });
+
+  test('ilike honours an interior wildcard case-insensitively', async ({
+    ctx,
+  }) => {
+    await seedTitles(ctx, ['Java Advanced Guide', 'Python Guide']);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { ilike: 'java%guide' } },
+      limit: 50,
+    });
+
+    expect(posts.map((post) => post.title)).toEqual(['Java Advanced Guide']);
+  });
+
+  test('notLike with an interior wildcard excludes matches', async ({
+    ctx,
+  }) => {
+    await seedTitles(ctx, ['Java Advanced Guide', 'Python Guide']);
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { title: { notLike: 'Java%Guide' } },
+      limit: 50,
+    });
+
+    expect(posts.map((post) => post.title)).toEqual(['Python Guide']);
+  });
+});
