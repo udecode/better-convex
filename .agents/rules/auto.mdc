@@ -15,6 +15,10 @@ records durable state, selects the next checkpoint from evidence, invokes the
 real owner, verifies the result, and continues until the auditable stop
 condition is true.
 
+Before the first file mutation, capture a walkthrough diff baseline when UI or
+rendered output may change. Use
+`.agents/skills/walkthrough/scripts/diff-baseline.mjs` and record its path.
+
 The loop is:
 
 ```text
@@ -459,6 +463,7 @@ Report outcome first, then:
 - source and packets completed;
 - key behavior/public API decisions;
 - proof and repository gates;
+- annotated `walkthrough` images when UI or rendered output changed;
 - generated/docs/package-skill sync;
 - review findings resolved or rejected with evidence;
 - GitHub PR/check state;

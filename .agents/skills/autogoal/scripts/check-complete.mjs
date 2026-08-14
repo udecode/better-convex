@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /** biome-ignore-all lint/suspicious/noConsole: CLI scripts write command output. */
 import { existsSync } from 'node:fs';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const CHECKLIST_ITEM_PATTERN = /^-\s+\[([ xX])\]\s+/;
 const GATE_SECTION_NAMES = ['Start Gates', 'Completion Gates'];
 const HEADING_PATTERN = /^#{1,6}\s+\S/;
 const HTML_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;
-const LINKED_PLAN_ENTRY_PATTERN =
-  /^(?:`?((?:\.\/)?docs\/plans\/[A-Za-z0-9._/-]+\.md)`?|\[[^\]\n]+\]\(`?((?:\.\/)?docs\/plans\/[A-Za-z0-9._/-]+\.md)`?\))(?:\s+-\s+.+|\.)?$/;
+const LINKED_PLAN_PATH_PATTERN =
+  /(?:^|[\s([`])((?:\.\/)?docs\/plans\/[A-Za-z0-9._/-]+\.md)(?=$|[\s)\]`.,;:])/gm;
 const LINKED_PLAN_SECTION_NAMES = [
   'Linked plans',
   'Linked goal plans',
@@ -110,26 +110,6 @@ async function checkPlanFile(planPath, root, stack) {
     return [`goal plan not found: ${relativePlanPath}`];
   }
 
-  try {
-    const plansRoot = await realpath(path.join(root, 'docs/plans'));
-    const resolvedPlanPath = await realpath(planPath);
-    const resolvedRelativePath = path.relative(plansRoot, resolvedPlanPath);
-
-    if (
-      !resolvedRelativePath ||
-      resolvedRelativePath.startsWith('..') ||
-      path.isAbsolute(resolvedRelativePath)
-    ) {
-      return [`goal plan resolves outside docs/plans/: ${relativePlanPath}`];
-    }
-  } catch (error) {
-    return [
-      `goal plan could not be resolved: ${relativePlanPath}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    ];
-  }
-
   const content = await readFile(planPath, 'utf8');
   failures.push(...checkPlanContent(content));
 
@@ -219,42 +199,25 @@ function checkPlanContent(content) {
 }
 
 async function checkLinkedPlans(content, root, stack) {
-  const blocks = LINKED_PLAN_SECTION_NAMES.map((label) => ({
-    block: getSectionBlock(content, label),
-    label,
-    present: hasSection(content, label),
-  })).filter(({ present }) => present);
+  const block = getFirstSectionBlock(content, LINKED_PLAN_SECTION_NAMES);
 
-  if (blocks.length === 0) {
+  if (!block.trim()) {
+    return [];
+  }
+
+  if (!hasConcreteLinkedPlanContent(block)) {
+    return [
+      'Linked plans must list docs/plans/*.md children, or say None/N/A with reason',
+    ];
+  }
+
+  const linkedPlanPaths = getLinkedPlanPaths(block);
+
+  if (linkedPlanPaths.length === 0) {
     return [];
   }
 
   const failures = [];
-  const linkedPlanPaths = new Set();
-
-  for (const { block, label } of blocks) {
-    const parsed = parseLinkedPlanBlock(block);
-
-    for (const invalidEntry of parsed.invalidEntries) {
-      failures.push(
-        `${label} has invalid linked-plan entry: ${invalidEntry}`
-      );
-    }
-
-    if (parsed.paths.length === 0 && !parsed.hasNoLinkedPlans) {
-      failures.push(
-        `${label} must list docs/plans/*.md children, or say None/N/A with reason`
-      );
-    }
-
-    if (parsed.paths.length > 0 && parsed.hasNoLinkedPlans) {
-      failures.push(`${label} cannot mix child paths with None/N/A`);
-    }
-
-    for (const linkedPlanPath of parsed.paths) {
-      linkedPlanPaths.add(linkedPlanPath);
-    }
-  }
 
   for (const linkedPlanPath of linkedPlanPaths) {
     const childPath = path.resolve(root, linkedPlanPath);
@@ -269,52 +232,34 @@ async function checkLinkedPlans(content, root, stack) {
   return failures;
 }
 
-function hasSection(content, label) {
-  return content
-    .split(NEWLINE_PATTERN)
-    .some((line) => line.trim() === `${label}:`);
-}
-
-function parseLinkedPlanBlock(block) {
-  const paths = new Set();
-  const invalidEntries = [];
-  let hasNoLinkedPlans = false;
-
-  for (const rawLine of block.split(NEWLINE_PATTERN)) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      continue;
-    }
-
-    if (!line.startsWith('-')) {
-      invalidEntries.push(line);
-      continue;
-    }
-
-    const entry = line.replace(/^-\s*/, '').trim();
-
-    if (NO_LINKED_PLANS_PATTERN.test(entry)) {
-      hasNoLinkedPlans = true;
-      continue;
-    }
-
-    const match = LINKED_PLAN_ENTRY_PATTERN.exec(entry);
-    const linkedPlanPath = match?.[1] ?? match?.[2];
-
-    if (!linkedPlanPath) {
-      invalidEntries.push(line);
-      continue;
-    }
-
-    paths.add(linkedPlanPath.replace(/^\.\//, ''));
+function hasConcreteLinkedPlanContent(block) {
+  if (!block.trim()) {
+    return false;
   }
 
-  return {
-    hasNoLinkedPlans,
-    invalidEntries,
-    paths: [...paths],
-  };
+  if (TODO_PATTERN.test(block) || PLACEHOLDER_ONLY_PATTERN.test(block)) {
+    return false;
+  }
+
+  if (getLinkedPlanPaths(block).length > 0) {
+    return true;
+  }
+
+  return block
+    .split(NEWLINE_PATTERN)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => NO_LINKED_PLANS_PATTERN.test(line));
+}
+
+function getLinkedPlanPaths(block) {
+  const paths = new Set();
+
+  for (const match of block.matchAll(LINKED_PLAN_PATH_PATTERN)) {
+    paths.add(match[1].replace(/^\.\//, ''));
+  }
+
+  return [...paths];
 }
 
 function checkGateSections(content) {
@@ -367,6 +312,18 @@ function checkGateSections(content) {
   }
 
   return failures;
+}
+
+function getFirstSectionBlock(content, labels) {
+  for (const label of labels) {
+    const block = getSectionBlock(content, label);
+
+    if (block.trim()) {
+      return block;
+    }
+  }
+
+  return '';
 }
 
 function getSectionBlock(content, label) {

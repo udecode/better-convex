@@ -70,6 +70,9 @@ Use those skills when relevant:
   local task packets, implementation, proof, sync, review, checks, and GitHub
   PR delivery.
 - `task` for normal repo task execution.
+- `walkthrough` after final proof whenever a task, major task, or auto run
+  changes UI or rendered output. Show the annotated images in the final
+  handoff.
 - `major-task` for heavyweight architecture, framework comparison, migration, benchmark, or proposal work.
 - `vision` before durable product/API/DX decisions; `sync-vision` for incremental
   doctrine-drift audits.

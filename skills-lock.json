@@ -11,13 +11,13 @@
       "source": "udecode/dotai",
       "sourceType": "github",
       "skillPath": "skills/autogoal/SKILL.md",
-      "computedHash": "c33a1de068e9b6059c4e469315821e64c9f834483561d9b95f19bfac995e41a8"
+      "computedHash": "ea4e044fa250bb1d78bda711308ecbec638a1cbcabeb7e713980511a085481aa"
     },
     "autoreview": {
       "source": "openclaw/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/autoreview/SKILL.md",
-      "computedHash": "db09c4873aeff8cea467b82e27fc858667b7d5bff2dfe58ca478f66542d5586b"
+      "computedHash": "71038de9ed60dcfdad51e0e28188e033ed4b968b01045bf639fb322f3c2ddb9c"
     },
     "avoid-feature-creep": {
       "source": "waynesutton/convexskills",
@@ -42,6 +42,12 @@
       "sourceType": "github",
       "skillPath": "skills/find-skills/SKILL.md",
       "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "linear-backlog": {
+      "source": "udecode/dotai",
+      "sourceType": "github",
+      "skillPath": "skills/linear-backlog/SKILL.md",
+      "computedHash": "e90871109c643d7a6169a8b584dbfa06f0751a57f99312c1cf5f4c969fd6772c"
     },
     "next-dev-loop": {
       "source": "vercel/next.js",
@@ -84,6 +90,12 @@
       "sourceType": "github",
       "skillPath": "skills/video-transcripts/SKILL.md",
       "computedHash": "76081a34506afc0fccb812ef41286247dd954b8b22af435171da7fd9c06bac95"
+    },
+    "walkthrough": {
+      "source": "udecode/dotai",
+      "sourceType": "github",
+      "skillPath": "skills/walkthrough/SKILL.md",
+      "computedHash": "220bdfaaf5d241f0a016aba070f7185a0f264743c548568fb7deb0ab952765c0"
     }
   }
 }

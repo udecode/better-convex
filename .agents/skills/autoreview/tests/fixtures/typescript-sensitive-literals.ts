@@ -7,4 +7,4 @@ const slackToken = "xoxb-FAKE000000000-FAKE000000000-FAKE00000000000000000000000
 const authorization = "Bearer eyJhbGciOiJIUzI1NiJ9.RkFLRS1OT1QtQS1SRUFM.TOKENFAKESIGNATURE";
 const resolvedToken = resolveToken({ value: "FAKE_B8g0L3n5R9w7P4y6S2q1U0a9" });
 const filePassword = tryReadSecretFileSync(path, "FAKE-A7f9K2m4Q8v6N3x5R1p0T9z8");
-const resolvedPassword = readPassword("alice", "FAKE correct horse secret battery 2026");
+const password = readPassword("alice", "FAKE correct horse secret battery 2026");

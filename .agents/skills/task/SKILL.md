@@ -33,6 +33,9 @@ they earn their keep, and verify before calling the task done.
   analytical/blocked/inconclusive, or a real blocker is recorded.
 - Before calling a task blocked on a repo-wide gate, rule out local install
   corruption once when the failure smells wrong for the diff.
+- Before the first file mutation, capture a walkthrough diff baseline when UI
+  or rendered output may change. Use
+  `.agents/skills/walkthrough/scripts/diff-baseline.mjs` and record its path.
 
 ## Intake
 
@@ -406,6 +409,8 @@ move. Do not create a generic diary or duplicate existing doctrine.
 - For GitHub comments, write for QA or the issue owner, not internal
   implementation history.
 - For browser work, include the exact route and human verification steps.
+- When UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md`
+  after final proof and show its annotated images inline.
 
 ## Task-Style PR Body
 

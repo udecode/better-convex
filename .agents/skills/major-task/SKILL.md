@@ -26,6 +26,9 @@ Handle $ARGUMENTS. Use this for architectural, comparative, benchmark, migration
 - Do not default to review swarms, browser proof, PR work, or compounding.
 - Use external docs only when repo evidence and local clones are not enough or the task explicitly depends on third-party behavior.
 - If the task turns into code-changing execution, prefer the best durable ownership fix over a local patch.
+- Before the first file mutation, capture a walkthrough diff baseline when UI
+  or rendered output may change. Use
+  `.agents/skills/walkthrough/scripts/diff-baseline.mjs` and record its path.
 
 ## Use This For
 
@@ -304,6 +307,9 @@ Keep verification mandatory but proportional.
   - same verification reporting
   - same browser-proof rules when applicable
   - same PR and GitHub issue sync expectations when applicable
+- When implementation changed UI or rendered output, run
+  `.agents/skills/walkthrough/SKILL.md` after final proof and show its annotated
+  images inline.
 - If this stayed analytical, the handoff must still say:
   - what decision was made
   - what evidence supported it

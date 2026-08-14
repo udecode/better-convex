@@ -74,6 +74,7 @@ Start Gates:
 | Gate | Applies | Evidence |
 | --- | --- | --- |
 | Run profile compiled | pending | pending |
+| Walkthrough baseline for possible UI change | pending | Before the first mutation, capture `.agents/skills/walkthrough/scripts/diff-baseline.mjs` or record N/A because UI/rendered output cannot change |
 | Vision/docs map read | pending | pending |
 | Source intake complete | pending | pending |
 | Mode and stop condition reconciled | pending | pending |
@@ -182,6 +183,7 @@ Completion Gates:
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
 | All-lane score | yes | Every applicable lane at least 95 | pending |
+| UI walkthrough | pending | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | pending |
 | Autoreview | yes | Resolve every accepted actionable finding | pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs {{PLAN_PATH}}` | pending |
 

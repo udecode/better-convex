@@ -3,7 +3,6 @@ type CredentialUnavailableDiagnostic = { path: string; reason: string };
 
 declare const tokenRef: SecretRef;
 declare const keyRef: SecretRef;
-declare const accountId: string;
 declare const inlinePassword: string;
 declare const inlineSecret: string;
 declare const accountFileToken: string;

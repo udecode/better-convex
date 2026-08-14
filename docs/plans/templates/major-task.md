@@ -94,6 +94,7 @@ Start Gates:
 | Gate | Applies | Evidence |
 |------|---------|----------|
 | Timed checkpoint parsed | pending | pending |
+| Walkthrough baseline for possible UI change | pending | Before the first mutation, capture `.agents/skills/walkthrough/scripts/diff-baseline.mjs` or record N/A because UI/rendered output cannot change |
 | `major-task` loaded | pending | pending |
 | Active goal checked or created | pending | pending |
 | Source of truth read before analysis | pending | pending |
@@ -159,6 +160,7 @@ Completion Gates:
 | Output budget discipline | pending | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | pending |
 | Timed checkpoint | pending | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | pending |
 | Agent-native reviewer | pending | Run when agent workflow changes or record N/A | pending |
+| UI walkthrough | pending | If implementation changed UI or rendered output, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | pending |
 | Autoreview | yes | Run final review and close every accepted actionable finding | pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs {{PLAN_PATH}}` | pending |
 

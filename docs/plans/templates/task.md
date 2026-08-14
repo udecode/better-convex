@@ -110,6 +110,7 @@ Start Gates:
 | Gate | Applies | Evidence |
 |------|---------|----------|
 | Timed checkpoint parsed | pending | pending |
+| Walkthrough baseline for possible UI change | pending | Before the first mutation, capture `.agents/skills/walkthrough/scripts/diff-baseline.mjs` or record N/A because UI/rendered output cannot change |
 | Skill analysis before edits | pending | pending |
 | Active goal checked or created | pending | pending |
 | Source of truth read before edits | pending | pending |
@@ -205,6 +206,7 @@ Completion Gates:
 | Workspace authority proof | pending | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | pending |
 | Browser surface changed | pending | Capture Browser Use proof or record explicit waiver/blocker | pending |
 | Browser final proof | pending | Attach screenshot or exact browser verification caveat when browser proof applies | pending |
+| UI walkthrough | pending | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | pending |
 | Scaffold or fixture output changed | pending | Run `bun run fixtures:sync` and `bun run fixtures:check`, or record N/A | pending |
 | Package behavior or public API changed | pending | Add a changeset or record why no changeset applies | pending |
 | Docs and kitcn skill sync changed | pending | Keep `www/**` and `packages/kitcn/skills/kitcn/**` in sync, or record N/A | pending |
