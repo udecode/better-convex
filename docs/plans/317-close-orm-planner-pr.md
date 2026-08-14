@@ -74,8 +74,8 @@ Closure matrix:
 | docs/package skill | no | N/A: no docs/skill delta | N/A |
 | changeset | yes | `.changeset/orm-query-planner-limit-index.md` audit | passed: minor breaks and planner/read-bound patches match |
 | agent workflow | no | N/A: no agent workflow/action | N/A |
-| cleanup/review | yes | Deslop and autoreview | deslop passed with zero net findings; final autoreview pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | Deslop and autoreview | passed: zero net slop findings; autoreview clean at 0.98 confidence |
+| repository check | yes | `bun check` | passed end to end after rebase and repairs |
 | GitHub delivery | yes | Rebase/push/merge/read-back | pending |
 
 Work Checklist:
@@ -108,9 +108,9 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | passed: 168 -> 168 findings, +0.18 score; only existing ORM/auth fan-out hotspots |
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 877 files; one formatting fix applied, focused proof rerun |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | passed end to end after rebase and repairs |
 | GitHub delivery | yes | Rebase/push/squash-merge/read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: no accepted/actionable findings, correctness confidence 0.98 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/317-close-orm-planner-pr.md` | pending |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
@@ -123,7 +123,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | completed | PR body/commits/files/checks/threads and overlap reconstructed | rebase |
 | Repair | completed | rebased onto `59b80d0f`; preserved both conflict intents; fixed eager flatMap and relation read bounds | review |
-| Review/checks | in_progress | focused proof and deslop pass | build/types/lint/autoreview/check |
+| Review/checks | completed | focused proof, build/types/lint, deslop, autoreview, and `bun check` passed | publish and resolve threads |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -142,18 +142,21 @@ Verification evidence:
   finding beyond the existing ORM/auth directory fan-out hotspots.
 - Package build, root typecheck, and lint passed; the post-format focused rerun
   passed 180 Vitest tests with one skip and 28 Bun tests.
+- Final autoreview -> no accepted/actionable findings, correctness confidence
+  0.98; exact `bun check` passed end to end after the rebase and repairs.
 
 Timeline:
 - 2026-08-14T18:17:54.701Z Autoclosure plan created.
 - 2026-08-14T20:09:01Z PR 316 merged as `59b80d0f`.
 - 2026-08-14T22:10:00Z Rebased PR 317 and resolved both shared-file conflicts from primary sources.
 - 2026-08-14T22:16:00Z Closed flatMap and relation read-bound findings with red-to-green regressions.
+- 2026-08-14T22:26:00Z Final autoreview and exact repository check passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Build/types/lint, autoreview, `bun check`, delivery |
+| Where am I? | Delivery |
+| Where am I going? | Force-push rebased head, resolve GitHub threads, merge |
 | What is the goal? | Rebase, prove, and merge PR 317 after PR 316 |
 | What have I learned? | See closure matrix |
 | What have I done? | See timeline |
