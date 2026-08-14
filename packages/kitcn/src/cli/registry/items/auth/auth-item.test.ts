@@ -1,12 +1,264 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { applyPluginInstallPlanFiles } from '../../../backend-core';
 import { createDefaultConfig } from '../../../test-utils';
 import { getPluginCatalogEntry } from '../../index';
+import { INIT_CRPC_TEMPLATE } from '../../init/init-crpc.template.js';
+import { INIT_HTTP_TEMPLATE } from '../../init/init-http.template.js';
+import { INIT_NEXT_CONVEX_PROVIDER_TEMPLATE } from '../../init/next/init-next-convex-provider.template.js';
+import { INIT_NEXT_SERVER_TEMPLATE } from '../../init/next/init-next-server.template.js';
+import { renderInitTemplateContent } from '../../plan-helpers.js';
 import {
   loadDefaultManagedAuthOptions,
   renderManagedAuthSchemaUnits,
 } from './reconcile-auth-schema.js';
+
+const silentPromptAdapter = {
+  confirm: async () => false,
+  isInteractive: () => false,
+  multiselect: async () => [],
+  select: async () => 'ignored',
+};
+
+const writeNextAuthProject = (dir: string, params: { userEdits: boolean }) => {
+  const functionsDir = path.join(dir, 'convex', 'functions');
+  const libDir = path.join(dir, 'convex', 'lib');
+  const clientDir = path.join(dir, 'src', 'lib', 'convex');
+  const crpcFilePath = path.join(libDir, 'crpc.ts');
+  const httpFilePath = path.join(functionsDir, 'http.ts');
+  fs.mkdirSync(functionsDir, { recursive: true });
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.mkdirSync(clientDir, { recursive: true });
+
+  const userSuffix = params.userEdits
+    ? '\nexport const userOwnedMarker = 42;\n'
+    : '';
+
+  fs.writeFileSync(
+    crpcFilePath,
+    renderInitTemplateContent({
+      template: INIT_CRPC_TEMPLATE,
+      filePath: crpcFilePath,
+      functionsDir,
+      crpcFilePath,
+    }) + userSuffix,
+    'utf8'
+  );
+  fs.writeFileSync(
+    httpFilePath,
+    renderInitTemplateContent({
+      template: INIT_HTTP_TEMPLATE,
+      filePath: httpFilePath,
+      functionsDir,
+      crpcFilePath,
+    }),
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(clientDir, 'convex-provider.tsx'),
+    INIT_NEXT_CONVEX_PROVIDER_TEMPLATE + userSuffix,
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(clientDir, 'server.ts'),
+    INIT_NEXT_SERVER_TEMPLATE + userSuffix,
+    'utf8'
+  );
+
+  return {
+    config: createDefaultConfig(),
+    functionsDir,
+    lockfile: { plugins: {} },
+    overwrite: false,
+    preset: 'default' as const,
+    preview: false,
+    promptAdapter: silentPromptAdapter,
+    roots: {
+      appRootDir: path.join(dir, 'src', 'app'),
+      clientLibRootDir: path.join(dir, 'src', 'lib'),
+      crpcFilePath,
+      envFilePath: path.join(libDir, 'get-env.ts'),
+      functionsRootDir: functionsDir,
+      libRootDir: libDir,
+      projectContext: {
+        appDir: 'src/app',
+        clientEntryFile: null,
+        componentsDir: 'src/components',
+        convexClientDir: 'src/lib/convex',
+        framework: 'next' as const,
+        mode: 'next-app' as const,
+      },
+      sharedApiFilePath: path.join(dir, 'convex', 'shared', 'api.ts'),
+    },
+    yes: true,
+  };
+};
+
+describe('auth registry item overwrite safety', () => {
+  test('does not clobber user-edited crpc.ts, provider, or server without --overwrite', async () => {
+    const dir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-auth-owner-'))
+    );
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      const params = writeNextAuthProject(dir, { userEdits: true });
+      const descriptor = getPluginCatalogEntry('auth');
+      const files = descriptor.integration?.buildPlanFiles?.(params) ?? [];
+
+      const result = await applyPluginInstallPlanFiles(files, {
+        overwrite: false,
+        yes: true,
+        promptAdapter: silentPromptAdapter,
+      });
+
+      expect(result.refused).toEqual(
+        expect.arrayContaining([
+          'convex/lib/crpc.ts',
+          'src/lib/convex/convex-provider.tsx',
+          'src/lib/convex/server.ts',
+        ])
+      );
+      // Refusals are not "already up to date" and must stay distinguishable.
+      expect(result.skipped).toEqual([]);
+      expect(
+        fs.readFileSync(path.join(dir, 'convex', 'lib', 'crpc.ts'), 'utf8')
+      ).toContain('userOwnedMarker');
+      expect(
+        fs.readFileSync(
+          path.join(dir, 'src', 'lib', 'convex', 'convex-provider.tsx'),
+          'utf8'
+        )
+      ).toContain('userOwnedMarker');
+      expect(
+        fs.readFileSync(
+          path.join(dir, 'src', 'lib', 'convex', 'server.ts'),
+          'utf8'
+        )
+      ).toContain('userOwnedMarker');
+      // http.ts is patched in place, so it stays writable without --overwrite.
+      expect(result.updated).toContain('convex/functions/http.ts');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('wires auth into crpc.ts after `add ratelimit` without --overwrite', async () => {
+    const dir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-auth-owner-'))
+    );
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      const params = writeNextAuthProject(dir, { userEdits: false });
+      const ratelimitFiles =
+        getPluginCatalogEntry('ratelimit').integration?.buildPlanFiles?.(
+          params
+        ) ?? [];
+      const ratelimitResult = await applyPluginInstallPlanFiles(
+        ratelimitFiles,
+        { overwrite: false, yes: true, promptAdapter: silentPromptAdapter }
+      );
+      expect(ratelimitResult.updated).toContain('convex/lib/crpc.ts');
+
+      const authFiles =
+        getPluginCatalogEntry('auth').integration?.buildPlanFiles?.(params) ??
+        [];
+      const authResult = await applyPluginInstallPlanFiles(authFiles, {
+        overwrite: false,
+        yes: true,
+        promptAdapter: silentPromptAdapter,
+      });
+
+      expect(authResult.refused).toEqual([]);
+      expect(authResult.updated).toContain('convex/lib/crpc.ts');
+
+      const crpc = fs.readFileSync(
+        path.join(dir, 'convex', 'lib', 'crpc.ts'),
+        'utf8'
+      );
+      expect(crpc).toContain('export const authQuery = c.query');
+      expect(crpc).toContain('export const authMutation = c.mutation');
+      // The ratelimit wiring from the earlier `add` survives.
+      expect(crpc).toContain('ratelimit.middleware()');
+      expect(crpc).toContain('RatelimitBucket');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('upgrades untouched managed baselines without --overwrite', async () => {
+    const dir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-auth-owner-'))
+    );
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      const params = writeNextAuthProject(dir, { userEdits: false });
+      const descriptor = getPluginCatalogEntry('auth');
+      const files = descriptor.integration?.buildPlanFiles?.(params) ?? [];
+
+      const result = await applyPluginInstallPlanFiles(files, {
+        overwrite: false,
+        yes: true,
+        promptAdapter: silentPromptAdapter,
+      });
+
+      expect(result.skipped).toEqual([]);
+      expect(result.updated).toEqual(
+        expect.arrayContaining([
+          'convex/lib/crpc.ts',
+          'src/lib/convex/convex-provider.tsx',
+          'src/lib/convex/server.ts',
+        ])
+      );
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('prompts before replacing user-edited integration files', async () => {
+    const dir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-auth-owner-'))
+    );
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      const params = writeNextAuthProject(dir, { userEdits: true });
+      const descriptor = getPluginCatalogEntry('auth');
+      const files = descriptor.integration?.buildPlanFiles?.(params) ?? [];
+      const prompts: string[] = [];
+
+      await applyPluginInstallPlanFiles(files, {
+        overwrite: false,
+        yes: false,
+        promptAdapter: {
+          ...silentPromptAdapter,
+          isInteractive: () => true,
+          confirm: async (message: string) => {
+            prompts.push(message);
+            return false;
+          },
+        },
+      });
+
+      expect(prompts).toEqual(
+        expect.arrayContaining([
+          'Overwrite convex/lib/crpc.ts?',
+          'Overwrite src/lib/convex/convex-provider.tsx?',
+          'Overwrite src/lib/convex/server.ts?',
+        ])
+      );
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+});
 
 describe('auth registry item', () => {
   test('claims jwks on first managed auth scaffold pass', async () => {

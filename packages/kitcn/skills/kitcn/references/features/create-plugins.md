@@ -107,7 +107,7 @@ Trigger composition rules:
 3. Non-function helpers live under `convex/<paths.lib>/plugins/<plugin>/...`.
 4. `kitcn codegen` must not generate plugin runtime modules.
 5. Scaffold templates need stable template IDs.
-6. `add` can merge/upsert scaffold mappings; never clobber custom files unless overwrite is explicit.
+6. `add` can merge/upsert scaffold mappings; never clobber custom files unless overwrite is explicit. Plan files of kind `scaffold`, `config`, and `env` need explicit consent to replace an existing file, so a builder that renders a whole template is safe by default. Only a builder that reads the existing source and patches it may set `requiresExplicitOverwrite: false`. List every shape another kitcn plugin can leave behind in `managedBaselineContent` so a file kitcn itself wrote is still recognized as managed. A refused file makes `add` exit non-zero and report `refused` in `--json`.
 7. `add --dry-run`, `add --diff [path]`, and `add --view [path]` preview one shared install plan: scaffold files, env bootstrap, `kitcn.json`, schema registration, lockfile write, dependency install status, codegen/hooks, env reminders.
 8. Preview comparisons for `.ts`, `.tsx`, `.js`, `.jsx`, and `.json` should be semantic enough to ignore formatter-only churn.
 9. `view` is read-only plan inspection. Default template source is lockfile mappings, fallback is the resolved preset, `--preset` forces preset selection.

@@ -274,7 +274,10 @@ export type InitRunResult = {
   cwd: string;
   created: string[];
   updated: string[];
+  /** Left alone: already up to date, or kept because they were edited. */
   skipped: string[];
+  /** The subset of `skipped` that was kept because it had been edited. */
+  refused: string[];
   usedShadcn: boolean;
   template: string | null;
   codegen: InitCodegenStatus;
@@ -3769,7 +3772,10 @@ async function runScaffoldCommandFlow(params: {
       cwd: scaffoldProjectDir,
       created: applyResult.created,
       updated: applyResult.updated,
-      skipped: applyResult.skipped,
+      // Re-running init over an existing project is expected to leave files
+      // alone, so both outcomes stay a single "skipped" count here.
+      skipped: [...applyResult.skipped, ...applyResult.refused],
+      refused: applyResult.refused,
       usedShadcn: params.template !== undefined && params.template !== 'expo',
       template: params.template ?? null,
       codegen: codegenResult.codegen,
@@ -4044,14 +4050,18 @@ export async function applyPluginInstallPlanFiles(
 ): Promise<{
   created: string[];
   manualActions: string[];
-  updated: string[];
+  /** Files that needed explicit consent to be replaced and did not get it. */
+  refused: string[];
+  /** Files that were already up to date. */
   skipped: string[];
+  updated: string[];
 }> {
   const result = {
     created: [] as string[],
     manualActions: [] as string[],
-    updated: [] as string[],
+    refused: [] as string[],
     skipped: [] as string[],
+    updated: [] as string[],
   };
 
   for (const file of files) {
@@ -4076,10 +4086,13 @@ export async function applyPluginInstallPlanFiles(
       : typeof file.managedBaselineContent === 'string'
         ? [file.managedBaselineContent]
         : [];
+    // Fail closed: a scaffold write replaces the file wholesale, so it needs
+    // explicit consent unless the builder opts out because it patches the
+    // user's existing source instead of replacing it.
     const requiresExplicitOverwrite =
       file.requiresExplicitOverwrite ??
       (file.kind === 'config' ||
-        (file.kind === 'scaffold' && file.templateId !== undefined) ||
+        file.kind === 'scaffold' ||
         (file.kind === 'env' &&
           file.templateId !== LOCAL_CONVEX_ENV_TEMPLATE_ID &&
           file.templateId !== KITCN_ENV_HELPER_TEMPLATE_ID));
@@ -4106,7 +4119,7 @@ export async function applyPluginInstallPlanFiles(
     }
 
     if (!shouldOverwrite) {
-      result.skipped.push(file.path);
+      result.refused.push(file.path);
       continue;
     }
 
@@ -7034,13 +7047,14 @@ export async function run(
       created: applyResult.created,
       manualActions: applyResult.manualActions,
       updated: applyResult.updated,
-      skipped: applyResult.skipped,
+      skipped: [...applyResult.skipped, ...applyResult.refused],
+      refused: applyResult.refused,
     };
     if (addArgs.json) {
       console.info(JSON.stringify(payload));
     } else {
       logger.success(
-        `✔ ${selectedPlugin} scaffold results: ${applyResult.created.length} created, ${applyResult.updated.length} updated, ${applyResult.skipped.length} skipped.`
+        `✔ ${selectedPlugin} scaffold results: ${applyResult.created.length} created, ${applyResult.updated.length} updated, ${payload.skipped.length} skipped.`
       );
       if (applyResult.created.length > 0) {
         logger.write(
@@ -7056,9 +7070,9 @@ export async function run(
             .join('\n')}`
         );
       }
-      if (applyResult.skipped.length > 0) {
+      if (payload.skipped.length > 0) {
         logger.write(
-          `Skipped files:\n${applyResult.skipped
+          `Skipped files:\n${payload.skipped
             .map((file) => `  - ${file}`)
             .join('\n')}`
         );

@@ -41,6 +41,7 @@ import {
   normalizeRelativePathOrThrow,
 } from './path-utils.js';
 import { createPlanFile, resolveRelativeImportPath } from './plan-helpers.js';
+import { findDefineSchemaChain, hasCallExpression } from './schema-chain.js';
 import {
   assertSchemaFileExists,
   getPluginLockfilePath,
@@ -79,7 +80,6 @@ const READ_OPTIONAL_RUNTIME_ENV_RE =
   /(\s*readOptionalRuntimeEnv\s*:\s*\[)([\s\S]*?)(\]\s*,?)/m;
 const LEADING_WHITESPACE_RE = /^\s*/;
 const STRING_LITERAL_ARRAY_ENTRY_RE = /^(['"])([^'"]+)\1$/;
-const WHITESPACE_RE = /\s/;
 
 const findMatchingObjectBraceIndex = (source: string, openIndex: number) => {
   let depth = 0;
@@ -737,105 +737,33 @@ const getPlannedFileContent = (
   return files?.find((file) => file.path === normalizedPath)?.content;
 };
 
-const skipWhitespace = (source: string, start: number) => {
-  let index = start;
-  while (index < source.length && WHITESPACE_RE.test(source[index] ?? '')) {
-    index += 1;
-  }
-  return index;
-};
-
-const findBalancedParenEnd = (source: string, openParenIndex: number) => {
-  let depth = 0;
-
-  for (let index = openParenIndex; index < source.length; index += 1) {
-    const char = source[index];
-
-    if (char === '(') {
-      depth += 1;
-      continue;
-    }
-
-    if (char !== ')') {
-      continue;
-    }
-
-    depth -= 1;
-    if (depth === 0) {
-      return index;
-    }
-  }
-
-  return -1;
-};
-
 const findSchemaExtensionInsertIndex = (source: string) => {
-  const defineSchemaIndex = source.indexOf('defineSchema(');
-  if (defineSchemaIndex < 0) {
+  const chain = findDefineSchemaChain(source);
+  if (!chain) {
     return { closeParenIndex: -1, hasExtend: false, insertIndex: -1 };
   }
 
-  const defineSchemaOpenParenIndex = source.indexOf('(', defineSchemaIndex);
-  if (defineSchemaOpenParenIndex < 0) {
-    return { closeParenIndex: -1, hasExtend: false, insertIndex: -1 };
-  }
-
-  const defineSchemaCloseParenIndex = findBalancedParenEnd(
-    source,
-    defineSchemaOpenParenIndex
-  );
-  if (defineSchemaCloseParenIndex < 0) {
-    return { closeParenIndex: -1, hasExtend: false, insertIndex: -1 };
-  }
-
-  const cursor = defineSchemaCloseParenIndex + 1;
-
-  while (cursor < source.length) {
-    const nextSegmentIndex = skipWhitespace(source, cursor);
-
-    if (
-      source.startsWith('.relations(', nextSegmentIndex) ||
-      source.startsWith('.triggers(', nextSegmentIndex)
-    ) {
-      return {
-        closeParenIndex: -1,
-        hasExtend: false,
-        insertIndex: nextSegmentIndex,
-      };
-    }
-
-    if (!source.startsWith('.extend(', nextSegmentIndex)) {
-      return {
-        closeParenIndex: -1,
-        hasExtend: false,
-        insertIndex: nextSegmentIndex,
-      };
-    }
-
-    const extendOpenParenIndex = source.indexOf('(', nextSegmentIndex);
-    if (extendOpenParenIndex < 0) {
-      return { closeParenIndex: -1, hasExtend: false, insertIndex: -1 };
-    }
-
-    const extendCloseParenIndex = findBalancedParenEnd(
-      source,
-      extendOpenParenIndex
-    );
-    if (extendCloseParenIndex < 0) {
-      return { closeParenIndex: -1, hasExtend: false, insertIndex: -1 };
-    }
-
+  const firstCall = chain.calls[0];
+  if (!firstCall) {
     return {
-      closeParenIndex: extendCloseParenIndex,
+      closeParenIndex: -1,
+      hasExtend: false,
+      insertIndex: chain.defineSchemaEnd,
+    };
+  }
+
+  if (firstCall.name === 'extend') {
+    return {
+      closeParenIndex: firstCall.closeParenIndex,
       hasExtend: true,
-      insertIndex: extendCloseParenIndex,
+      insertIndex: firstCall.closeParenIndex,
     };
   }
 
   return {
     closeParenIndex: -1,
     hasExtend: false,
-    insertIndex: cursor,
+    insertIndex: firstCall.dotIndex,
   };
 };
 
@@ -865,7 +793,7 @@ export const buildSchemaRegistrationPlanFile = (
   );
 
   let source = bootstrappedSchemaSource ?? fs.readFileSync(schemaPath, 'utf8');
-  if (!source.includes(`${pluginFactory}()`)) {
+  if (!hasCallExpression(source, pluginFactory)) {
     const importRegex = new RegExp(
       `import\\s+\\{[^}]*\\b${pluginFactory}\\b[^}]*\\}\\s+from\\s+['"]${pluginImportPath}['"];?`
     );

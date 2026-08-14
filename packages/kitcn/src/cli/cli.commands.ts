@@ -1725,6 +1725,68 @@ describe('cli/cli', () => {
     }
   });
 
+  test('run(add ratelimit --yes) reports refused files separately and exits non-zero', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'kitcn-cli-add-refused-')
+    );
+    const oldCwd = process.cwd();
+    writePackageJson(dir);
+    process.chdir(dir);
+
+    const infoLines: string[] = [];
+    const originalInfo = console.info;
+
+    try {
+      const deps = {
+        realConvex: '/fake/convex/main.js',
+        execa: mock(async () => ({ exitCode: 0 }) as any) as any,
+        generateMeta: mock(async () => {}) as any,
+        syncEnv: mock(async () => {}) as any,
+        loadCliConfig: mock(() => createDefaultConfig()) as any,
+      };
+
+      expect(
+        await run(['add', 'ratelimit', '--yes', '--no-codegen'], deps)
+      ).toBe(0);
+
+      const pluginPath = path.join(
+        dir,
+        'convex',
+        'lib',
+        'plugins',
+        'ratelimit',
+        'plugin.ts'
+      );
+      fs.writeFileSync(
+        pluginPath,
+        `${fs.readFileSync(pluginPath, 'utf8')}\nexport const userOwnedMarker = 42;\n`
+      );
+
+      console.info = (...args: unknown[]) => {
+        infoLines.push(args.map(String).join(' '));
+      };
+      const exitCode = await run(
+        ['add', 'ratelimit', '--yes', '--no-codegen', '--json'],
+        deps
+      );
+      console.info = originalInfo;
+
+      expect(exitCode).toBe(1);
+      const payload = JSON.parse(infoLines.at(-1) ?? '{}');
+      expect(payload.refused).toEqual([
+        'convex/lib/plugins/ratelimit/plugin.ts',
+      ]);
+      expect(payload.skipped).not.toContain(
+        'convex/lib/plugins/ratelimit/plugin.ts'
+      );
+      expect(payload.complete).toBe(false);
+      expect(fs.readFileSync(pluginPath, 'utf8')).toContain('userOwnedMarker');
+    } finally {
+      console.info = originalInfo;
+      process.chdir(oldCwd);
+    }
+  });
+
   test('run(init -t next --yes) falls back to one-shot local bootstrap when cold codegen needs it', async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'kitcn-cli-create-next-bootstrap-')
@@ -5046,7 +5108,9 @@ describe('cli/cli', () => {
         syncEnv: syncEnvStub as any,
         loadCliConfig: loadConfigStub as any,
       });
-      expect(secondRunExitCode).toBe(0);
+      // Refusing to clobber leaves the plugin partially installed, so the run
+      // reports failure instead of a misleading success.
+      expect(secondRunExitCode).toBe(1);
       expect(fs.readFileSync(resendFile, 'utf8')).toBe(
         '// user-customized resend integration\n'
       );
@@ -5881,9 +5945,11 @@ describe('cli/cli', () => {
         loadCliConfig: loadConfigStub as any,
       });
 
-      expect(exitCode).toBe(0);
+      // Refused, not "already up to date": partial install exits non-zero.
+      expect(exitCode).toBe(1);
       expect(fs.readFileSync(apiPath, 'utf8')).toBe('// stale\n');
       expect(infoLines.join('\n')).toContain('--overwrite');
+      expect(infoLines.join('\n')).toContain('Refused files');
     } finally {
       console.info = originalInfo;
       process.chdir(oldCwd);

@@ -25,6 +25,7 @@ import { renderLocalConvexEnvContent } from '../../planner.js';
 import { reconcileRootSchemaOwnership } from '../../schema-ownership.js';
 import { getSchemaFilePath } from '../../state.js';
 import type { PluginRegistryBuildPlanFilesParams } from '../../types.js';
+import { patchRatelimitCrpcSource } from '../ratelimit/ratelimit-crpc.js';
 import {
   AUTH_CONVEX_TEMPLATE,
   AUTH_EXPO_TEMPLATE,
@@ -232,7 +233,12 @@ function buildAuthCrpcRegistrationPlanFile(
     kind: 'scaffold',
     filePath: crpcPath,
     content: renderAuthCrpcTemplate({ withRatelimit }),
-    managedBaselineContent: baselineCrpcSource,
+    // Every shape another kitcn plugin can leave behind counts as managed, so
+    // `add ratelimit` before `add auth` still upgrades without --overwrite.
+    managedBaselineContent: [
+      baselineCrpcSource,
+      patchRatelimitCrpcSource(baselineCrpcSource),
+    ],
     createReason: 'Create crpc.ts with auth-aware procedures.',
     updateReason: 'Register auth-aware procedures in crpc.ts.',
     skipReason: 'Auth-aware procedures are already registered in crpc.ts.',
@@ -305,6 +311,8 @@ app.use(
     filePath: httpPath,
     content: source,
     managedBaselineContent: baselineHttpSource,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create http.ts with auth middleware.',
     updateReason: 'Register auth middleware in http.ts.',
     skipReason: 'Auth middleware is already registered in http.ts.',
@@ -615,6 +623,8 @@ export default http;
     kind: 'scaffold',
     filePath: httpPath,
     content: source,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create Convex http.ts with auth routes.',
     updateReason: 'Register auth routes in Convex http.ts.',
     skipReason: 'Convex http.ts already registers auth routes.',
@@ -704,6 +714,8 @@ function buildAuthConvexNextProviderPlanFile(
     kind: 'scaffold',
     filePath: providerPath,
     content: source,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create auth-aware Convex client provider.',
     updateReason: 'Update Convex client provider with auth.',
     skipReason: 'Convex client provider already includes auth.',
@@ -750,6 +762,8 @@ function buildAuthConvexStartProviderPlanFile(
     kind: 'scaffold',
     filePath: providerPath,
     content: source,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create auth-aware Start provider.',
     updateReason: 'Update Start provider with auth.',
     skipReason: 'Start provider already includes auth.',
@@ -802,6 +816,8 @@ function buildAuthConvexReactEntryPlanFile(
     kind: 'scaffold',
     filePath: entryPath,
     content: source,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create auth-aware client entry.',
     updateReason: 'Update client entry with auth.',
     skipReason: 'Client entry already includes auth.',

@@ -8,16 +8,9 @@ import {
   renderInitTemplateContent,
 } from '../../plan-helpers.js';
 import type { PluginRegistryBuildPlanFilesParams } from '../../types.js';
+import { patchRatelimitCrpcSource } from './ratelimit-crpc.js';
 import { RATELIMIT_PLUGIN_TEMPLATE } from './ratelimit-plugin.template.js';
 import { RATELIMIT_SCHEMA_TEMPLATE } from './ratelimit-schema.template.js';
-
-const CRPC_META_RATELIMIT_RE = /ratelimit\?: string;/;
-const CRPC_RATELIMIT_BUCKET_RE = /ratelimit\?: RatelimitBucket;/;
-const CRPC_CREATE_LINE_RE = /const c = initCRPC\.create\(\);/;
-const CRPC_META_CREATE_RE =
-  /const c = initCRPC\s*\.meta<\{\s*([\s\S]*?)\s*\}>\(\)\s*\.create\(\);/;
-const PUBLIC_MUTATION_LINE_RE =
-  /export const publicMutation = c\.mutation(?:\.use\(ratelimit\.middleware\(\)\))?;/;
 
 const RATELIMIT_FILES = [
   createRegistryFile({
@@ -45,68 +38,19 @@ function buildRatelimitCrpcRegistrationPlanFile(
     functionsDir: params.functionsDir,
     crpcFilePath: crpcPath,
   });
-  let source = fs.existsSync(crpcPath)
-    ? fs.readFileSync(crpcPath, 'utf8')
-    : baselineCrpcSource;
-
-  if (!source.includes("from './plugins/ratelimit/plugin'")) {
-    if (source.includes('import type { ActionCtx, MutationCtx, QueryCtx }')) {
-      source = source.replace(
-        "import type { ActionCtx, MutationCtx, QueryCtx } from '../functions/generated/server';",
-        `import { type RatelimitBucket, ratelimit } from './plugins/ratelimit/plugin';
-import type { ActionCtx, MutationCtx, QueryCtx } from '../functions/generated/server';`
-      );
-    } else {
-      source = `import { type RatelimitBucket, ratelimit } from './plugins/ratelimit/plugin';\n${source}`;
-    }
-  }
-
-  if (CRPC_META_RATELIMIT_RE.test(source)) {
-    source = source.replace(
-      CRPC_META_RATELIMIT_RE,
-      'ratelimit?: RatelimitBucket;'
-    );
-  }
-
-  if (!CRPC_RATELIMIT_BUCKET_RE.test(source)) {
-    if (CRPC_META_CREATE_RE.test(source)) {
-      source = source.replace(CRPC_META_CREATE_RE, (_match, fields: string) => {
-        const nextFields = [
-          ...fields
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean),
-          'ratelimit?: RatelimitBucket;',
-        ]
-          .map((line) => `    ${line}`)
-          .join('\n');
-
-        return `const c = initCRPC\n  .meta<{\n${nextFields}\n  }>()\n  .create();`;
-      });
-    } else if (CRPC_CREATE_LINE_RE.test(source)) {
-      source = source.replace(
-        CRPC_CREATE_LINE_RE,
-        `const c = initCRPC
-  .meta<{
-    ratelimit?: RatelimitBucket;
-  }>()
-  .create();`
-      );
-    }
-  }
-
-  if (PUBLIC_MUTATION_LINE_RE.test(source)) {
-    source = source.replace(
-      PUBLIC_MUTATION_LINE_RE,
-      'export const publicMutation = c.mutation.use(ratelimit.middleware());'
-    );
-  }
+  const source = patchRatelimitCrpcSource(
+    fs.existsSync(crpcPath)
+      ? fs.readFileSync(crpcPath, 'utf8')
+      : baselineCrpcSource
+  );
 
   return createPlanFile({
     kind: 'scaffold',
     filePath: crpcPath,
     content: source,
     managedBaselineContent: baselineCrpcSource,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create crpc.ts with ratelimit middleware.',
     updateReason: 'Register ratelimit middleware in crpc.ts.',
     skipReason: 'Ratelimit middleware is already registered in crpc.ts.',

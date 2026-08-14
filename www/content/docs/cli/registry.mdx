@@ -227,6 +227,17 @@ patches the supported frontend shell in place, but it stays conservative:
 | `--no-codegen` | Skip automatic codegen after add |
 | `--preset <name>` | Plugin preset override |
 
+### Files you edited
+
+`add` never replaces a scaffold file whose contents differ from the scaffold it
+wrote. Such a file is kept and listed under `Refused files`, and the command
+exits `1` because the plugin is only partially installed. Re-run with
+`--overwrite` to replace it, or merge the change yourself.
+
+With `--json`, `skipped` lists files that were already up to date, `refused`
+lists files kept because they were edited, and `complete` is `false` whenever
+anything was refused.
+
 ## view
 
 Use `view` when you want the resolved plugin plan without writing files.

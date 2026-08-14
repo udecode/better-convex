@@ -1725,34 +1725,37 @@ async function parseModuleRuntime(
   procedures: ProcedureMeta[];
 }> {
   const source = fs.readFileSync(filePath, 'utf8');
+  // Bun can resolve a bare `kitcn/server` back through its own install cache,
+  // so the specifier is rewritten to the project parser shim before the module
+  // is evaluated. See docs/solutions/integration-issues/
+  // bunx-kitcn-self-resolution-must-not-break-scaffold-codegen-20260407.md.
   const rewrittenSource = source.replaceAll(
     /from\s+(['"])kitcn\/server\1/g,
     `from ${JSON.stringify(
       normalizeImportPath(getProjectServerParserShimPath())
     )}`
   );
-  const importPath =
-    rewrittenSource === source
-      ? filePath
-      : (() => {
-          const tempFilePath = `${filePath}.kitcn-parse.ts`;
-          fs.writeFileSync(tempFilePath, rewrittenSource, 'utf8');
-          return tempFilePath;
-        })();
   const result: ModuleMeta = {};
   const httpRoutes: HttpRoutes = {};
   const procedures: ProcedureMeta[] = [];
   const isHttp = filePath.endsWith('http.ts');
 
-  // Use jiti to import TypeScript files
-  const module = await jitiInstance.import(importPath);
+  // Use jiti to evaluate TypeScript files. A rewritten module is evaluated in
+  // memory rather than through a sibling temp file: anchoring it to `filePath`
+  // keeps its relative imports and stack traces pointing at the real module,
+  // and codegen never writes to — or deletes from — the Convex directory.
+  const module =
+    rewrittenSource === source
+      ? await jitiInstance.import(filePath)
+      : await jitiInstance.evalModule(rewrittenSource, {
+          async: true,
+          ext: '.ts',
+          filename: filePath,
+        });
 
   if (!module || typeof module !== 'object') {
     if (isHttp) {
       logger.error('  http.ts: module is empty or not an object');
-    }
-    if (importPath !== filePath) {
-      fs.rmSync(importPath, { force: true });
     }
     return { meta: null, httpRoutes: {}, procedures: [] };
   }
@@ -1818,10 +1821,6 @@ async function parseModuleRuntime(
         }
       }
     }
-  }
-
-  if (importPath !== filePath) {
-    fs.rmSync(importPath, { force: true });
   }
 
   return {

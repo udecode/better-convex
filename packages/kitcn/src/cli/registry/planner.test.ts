@@ -6,7 +6,11 @@ import {
   writeMinimalSchema,
   writePackageJson,
 } from '../test-utils';
-import { buildPluginInstallPlan, renderEnvHelperContent } from './planner';
+import {
+  buildPluginInstallPlan,
+  buildSchemaRegistrationPlanFile,
+  renderEnvHelperContent,
+} from './planner';
 
 describe('cli registry planner', () => {
   test('defaults SITE_URL to localhost:3000 in the generated env helper', () => {
@@ -473,5 +477,122 @@ export const getEnv = createEnv({
     } finally {
       process.chdir(originalCwd);
     }
+  });
+});
+
+describe('buildSchemaRegistrationPlanFile', () => {
+  const descriptor = {
+    key: 'resend',
+    packageName: '@kitcn/resend',
+    schemaRegistration: {
+      importName: 'resendExtension',
+      path: 'schema.ts',
+      target: 'lib' as const,
+    },
+  };
+
+  const runWithSchema = (schemaSource: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-planner-schema-'));
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const functionsDir = path.join(dir, 'convex');
+      fs.mkdirSync(path.join(dir, 'convex', 'lib'), { recursive: true });
+      fs.writeFileSync(
+        path.join(functionsDir, 'schema.ts'),
+        schemaSource,
+        'utf8'
+      );
+
+      return buildSchemaRegistrationPlanFile(
+        functionsDir,
+        descriptor as never,
+        {
+          appRootDir: null,
+          clientLibRootDir: null,
+          crpcFilePath: path.join(dir, 'convex', 'lib', 'crpc.ts'),
+          envFilePath: path.join(dir, 'convex', 'lib', 'get-env.ts'),
+          functionsRootDir: functionsDir,
+          libRootDir: path.join(dir, 'convex', 'lib'),
+          projectContext: null,
+          sharedApiFilePath: path.join(dir, 'convex', 'shared', 'api.ts'),
+        } as never
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  };
+
+  test('registers the extension on the real defineSchema call, not a comment', () => {
+    const plan =
+      runWithSchema(`import { convexTable, defineSchema, text } from 'kitcn/orm';
+
+export const tables = {};
+
+/**
+ * Chain relations with defineSchema(tables).relations((r) => ({})).
+ */
+export default defineSchema(tables);
+`);
+
+    expect(plan.content).toContain(
+      'export default defineSchema(tables).extend(resendExtension());'
+    );
+    expect(plan.content).toContain(
+      ' * Chain relations with defineSchema(tables).relations((r) => ({})).'
+    );
+  });
+
+  test('registers before a chained call with a sentence comment', () => {
+    const plan = runWithSchema(`import { defineSchema } from 'kitcn/orm';
+
+export const tables = {};
+
+export default defineSchema(tables). /* explanatory sentence. */ relations((r) => ({}));
+`);
+
+    expect(plan.content).toContain(
+      'defineSchema(tables).extend(resendExtension()). /* explanatory sentence. */ relations'
+    );
+    expect(plan.content).not.toContain(
+      'explanatory sentence.extend(resendExtension())'
+    );
+  });
+
+  test('ignores a commented-out defineSchema call', () => {
+    const plan =
+      runWithSchema(`import { convexTable, defineSchema, text } from 'kitcn/orm';
+
+export const tables = {};
+
+// export default defineSchema(legacyTables);
+export default defineSchema(tables);
+`);
+
+    expect(plan.content).toContain(
+      'export default defineSchema(tables).extend(resendExtension());'
+    );
+    expect(plan.content).toContain(
+      '// export default defineSchema(legacyTables);'
+    );
+  });
+
+  test('ignores a defineSchema mention inside a string literal', () => {
+    const plan =
+      runWithSchema(`import { convexTable, defineSchema, text } from 'kitcn/orm';
+
+export const docs = 'defineSchema(tables)';
+
+export const tables = {};
+
+export default defineSchema(tables);
+`);
+
+    expect(plan.content).toContain(
+      'export default defineSchema(tables).extend(resendExtension());'
+    );
+    expect(plan.content).toContain(
+      "export const docs = 'defineSchema(tables)';"
+    );
   });
 });

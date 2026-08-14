@@ -127,6 +127,15 @@ export function buildMetaIndex(api: Record<string, unknown>): Meta {
   return meta;
 }
 
+/**
+ * Suffix of a parse snapshot — a mirror of a Convex module that kitcn builds
+ * predating in-memory evaluation could strand in a project. Codegen writes no
+ * snapshot, so this exists only so readers of the Convex functions directory
+ * skip a stranded file rather than parse it as a real module. Nothing deletes
+ * one: kitcn cannot prove it owns a file it did not write.
+ */
+export const PARSE_SNAPSHOT_SUFFIX = '.kitcn-parse.ts';
+
 /** Files to exclude from meta generation */
 const EXCLUDED_FILES = new Set([
   'schema.ts',
@@ -148,6 +157,7 @@ const DIRECT_CODEGEN_META_CAPTURE_REGEX = /\b_crpc(?:Meta|HttpRoute)\b/;
  * Filters out private files/directories (prefixed with _) and config files.
  */
 export function isValidConvexFile(file: string): boolean {
+  if (file.endsWith(PARSE_SNAPSHOT_SUFFIX)) return false;
   if (file.endsWith('.runtime.ts')) return false;
   if (file.endsWith('.test.ts')) return false;
   if (file.endsWith('.spec.ts')) return false;

@@ -5,6 +5,9 @@ import {
   reconcileRootSchemaOwnership,
 } from './schema-ownership';
 
+const TEXT_VALUE_IMPORT_RE =
+  /import \{[\s\S]*\btext,?[\s\S]*\} from 'kitcn\/orm';/;
+
 const createPromptAdapter = () => ({
   confirm: async () => true,
   isInteractive: () => false,
@@ -339,6 +342,226 @@ describe('root schema ownership', () => {
       })
     ).rejects.toThrow(
       'Schema patch error: use `defineSchema(...).relations(...)` in schema.ts. Root schema patching no longer supports standalone `defineRelations(...)` exports.'
+    );
+  });
+});
+
+describe('schema ownership source safety', () => {
+  const jwksUnit: RootSchemaTableUnit = {
+    declaration: `export const jwksTable = convexTable("jwks", {
+  publicKey: text().notNull(),
+  privateKey: text().notNull(),
+});`,
+    importNames: ['convexTable', 'text'],
+    key: 'jwks',
+    registration: 'jwks: jwksTable',
+  };
+
+  const reconcile = (source: string, tables: RootSchemaTableUnit[]) =>
+    reconcileRootSchemaOwnership({
+      lock: null,
+      overwrite: true,
+      pluginKey: 'auth',
+      preview: false,
+      promptAdapter: createPromptAdapter(),
+      schemaPath: '/repo/convex/functions/schema.ts',
+      source,
+      tables,
+      yes: true,
+    });
+
+  test('preserves a block-bodied index callback while merging managed fields', async () => {
+    const source = `import { convexTable, defineSchema, index, text } from "kitcn/orm";
+
+export const jwksTable = convexTable(
+  "jwks",
+  {
+    publicKey: text().notNull(),
+  },
+  (jwksTable) => {
+    return [index("publicKey").on(jwksTable.publicKey)];
+  }
+);
+
+export const tables = {
+  jwks: jwksTable,
+};
+
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [jwksUnit]);
+    expect(result.content).toContain(
+      'return [index("publicKey").on(jwksTable.publicKey)];'
+    );
+    expect(result.content).toContain('privateKey: text().notNull(),');
+  });
+
+  test('preserves a hoisted index callback identifier', async () => {
+    const source = `import { convexTable, defineSchema, index, text } from "kitcn/orm";
+
+const jwksIndexes = (t) => [index("publicKey").on(t.publicKey)];
+
+export const jwksTable = convexTable(
+  "jwks",
+  {
+    publicKey: text().notNull(),
+  },
+  jwksIndexes
+);
+
+export const tables = {
+  jwks: jwksTable,
+};
+
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [jwksUnit]);
+    expect(result.content).toContain('  jwksIndexes\n);');
+    expect(result.content).toContain('privateKey: text().notNull(),');
+  });
+
+  test('still refuses to merge managed indexes into an unparsed callback', async () => {
+    const source = `import { convexTable, defineSchema, index, text } from "kitcn/orm";
+
+export const userTable = convexTable(
+  "user",
+  {
+    email: text().notNull(),
+  },
+  (userTable) => {
+    return [index("email").on(userTable.email)];
+  }
+);
+
+export const tables = {
+  user: userTable,
+};
+
+export default defineSchema(tables);
+`;
+
+    await expect(reconcile(source, [usernameUserUnit])).rejects.toThrow(
+      'auth indexes for table "user" could not be merged into the existing schema callback'
+    );
+  });
+
+  test('keeps a concise-body index callback while merging managed fields', async () => {
+    const source = `import { convexTable, defineSchema, index, text } from "kitcn/orm";
+
+export const jwksTable = convexTable(
+  "jwks",
+  {
+    publicKey: text().notNull(),
+  },
+  (jwksTable) => [index("publicKey").on(jwksTable.publicKey)]
+);
+
+export const tables = {
+  jwks: jwksTable,
+};
+
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [jwksUnit]);
+    expect(result.content).toContain(
+      'index("publicKey").on(jwksTable.publicKey)'
+    );
+    expect(result.content).toContain('privateKey: text().notNull(),');
+  });
+
+  test('keeps a type-only kitcn/orm import type-only', async () => {
+    const source = `import type { InferSelectModel } from "kitcn/orm";
+import { convexTable, defineSchema, text } from "kitcn/orm";
+
+export const messagesTable = convexTable("messages", {
+  body: text().notNull(),
+});
+
+export const tables = {
+  messages: messagesTable,
+};
+
+export type Message = InferSelectModel<typeof messagesTable>;
+
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).toContain(
+      'import type { InferSelectModel } from "kitcn/orm";'
+    );
+    expect(result.content).not.toContain('InferSelectModel,');
+    expect(result.content.match(/from ['"]kitcn\/orm['"]/g)).toHaveLength(2);
+  });
+
+  test('moves required bindings out of a whole type-only import', async () => {
+    const source = `import type { InferSelectModel, text } from "kitcn/orm";
+import * as orm from "kitcn/orm";
+
+export const tables = {};
+
+export type Value = InferSelectModel<{ value: ReturnType<typeof text> }>;
+
+export default orm.defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).toContain(
+      'import type { InferSelectModel } from "kitcn/orm";'
+    );
+    expect(result.content).not.toContain(
+      'import type { InferSelectModel, text } from "kitcn/orm";'
+    );
+    expect(result.content).toMatch(TEXT_VALUE_IMPORT_RE);
+  });
+
+  test('adds a value import when only a namespace kitcn/orm import exists', async () => {
+    const source = `import * as orm from "kitcn/orm";
+
+export const tables = {};
+
+export default orm.defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).toContain("from 'kitcn/orm';");
+    expect(result.content).toContain('convexTable');
+    expect(result.content).toContain('import * as orm from "kitcn/orm";');
+  });
+
+  test('does not merge a plain name into an existing inline type specifier', async () => {
+    const source = `import { convexTable, defineSchema, type text } from "kitcn/orm";
+
+export const tables = {};
+
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).not.toContain('type text,');
+    expect(result.content).toContain('text,');
+  });
+
+  test('chains relations onto the real defineSchema call, not a comment', async () => {
+    const source = `import { convexTable, defineSchema, text } from "kitcn/orm";
+
+export const tables = {};
+
+/**
+ * Chain relations with defineSchema(tables).relations((r) => ({})).
+ */
+export default defineSchema(tables);
+`;
+
+    const result = await reconcile(source, [userUnit]);
+    expect(result.content).toContain(
+      'export default defineSchema(tables).relations((r) => ('
+    );
+    expect(result.content).toContain(
+      ' * Chain relations with defineSchema(tables).relations((r) => ({})).'
     );
   });
 });
