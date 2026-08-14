@@ -4,15 +4,10 @@
 
 ## Patches
 
-- Fix signed-in users being logged out when their name or email contains
-  non-ASCII characters. JWT expirations are now read from the token's base64url
-  payload instead of being misread as an opaque session token.
-- Fix server callers replaying a failed call after any error when the JWT came
-  from the cookie cache, which could charge a card or write a row twice. Calls
-  are now replayed only when the failure is an authorization error, so
-  mutations and actions are never re-executed after a business-logic failure.
-  Recovery from an expired cached token still happens automatically, without
-  needing to configure `isUnauthorized`.
+- Fix signed-in users being signed out when their name or email contains
+  non-ASCII characters.
+- Fix server callers re-running a failed mutation or action after a
+  non-authorization error, which could charge a card or write a row twice.
 - Fix results of auth-scoped actions surviving sign-out and being served to the
   next user in the same tab.
 - Fix `skipUnauth` being ignored on queries and action queries, so backend
