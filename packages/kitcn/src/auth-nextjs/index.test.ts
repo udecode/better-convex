@@ -1,6 +1,21 @@
 import { convexBetterAuth } from './index';
 
+// `auth.jwtCache` forwarding is covered by the isolated Vitest lane because
+// Bun shares module spies across test files in one process.
 describe('convexBetterAuth', () => {
+  // Bun shares one process across test files, so a fetch stub installed by an
+  // earlier file can still be live here. Pin the global around every test so
+  // this file neither inherits nor leaks one.
+  let ambientFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    ambientFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ambientFetch;
+  });
+
   test('creates GET/POST/OPTIONS handlers that rewrite request URL to convex site', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{

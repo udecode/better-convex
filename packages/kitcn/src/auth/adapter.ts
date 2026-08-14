@@ -46,11 +46,10 @@ export const handlePagination = async (
   const onResult = (
     result: SetOptional<PaginationResult<any>, 'page'> & { count?: number }
   ) => {
-    state.cursor =
-      result.pageStatus === 'SplitRecommended' ||
-      result.pageStatus === 'SplitRequired'
-        ? (result.splitCursor ?? result.continueCursor)
-        : result.continueCursor;
+    // A page always covers [cursor, continueCursor], including when Convex
+    // recommends or requires a split. `splitCursor` points into the middle of
+    // the page we just consumed, so resuming there would replay rows.
+    state.cursor = result.continueCursor;
 
     if (result.page) {
       state.docs.push(...result.page);
@@ -104,9 +103,12 @@ type AdapterWhere = Where & { join?: undefined };
 const hasOrWhere = (where?: AdapterWhere[]): where is AdapterWhere[] =>
   where?.some((clause) => clause.connector === 'OR') ?? false;
 
-const assertSupportedBulkOrWhere = (
+// OR where clauses are executed as one query per clause and unioned, which
+// discards the AND semantics of the remaining clauses. Refusing the mixed case
+// keeps authorization-scoped reads from silently widening.
+const assertSupportedOrWhere = (
   where: AdapterWhere[] | undefined,
-  operation: 'deleteMany' | 'updateMany'
+  operation: 'count' | 'deleteMany' | 'findMany' | 'updateMany'
 ) => {
   if (
     hasOrWhere(where) &&
@@ -306,6 +308,7 @@ export const httpAdapter = <
         },
         count: async (data) => {
           // Yes, count is just findMany returning a number.
+          assertSupportedOrWhere(data.where, 'count');
           if (hasOrWhere(data.where)) {
             const results = await asyncMap(data.where, async (w) =>
               handlePagination(
@@ -361,7 +364,7 @@ export const httpAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
-          assertSupportedBulkOrWhere(data.where, 'deleteMany');
+          assertSupportedOrWhere(data.where, 'deleteMany');
           if (hasOrWhere(data.where)) {
             const ids = await collectIdsForOrWhere({
               model: data.model,
@@ -395,6 +398,7 @@ export const httpAdapter = <
           if (data.offset) {
             throw new Error('offset not supported');
           }
+          assertSupportedOrWhere(data.where, 'findMany');
           if (hasOrWhere(data.where)) {
             const { select: _ignoredSelect, ...queryData } = data;
             const results = await asyncMap(data.where, async (w) =>
@@ -507,7 +511,7 @@ export const httpAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
-          assertSupportedBulkOrWhere(data.where, 'updateMany');
+          assertSupportedOrWhere(data.where, 'updateMany');
           if (hasOrWhere(data.where)) {
             const ids = await collectIdsForOrWhere({
               model: data.model,
@@ -617,6 +621,7 @@ export const dbAdapter = <
           isRunMutationCtx: isRunMutationCtx(ctx),
         },
         count: async (data) => {
+          assertSupportedOrWhere(data.where, 'count');
           if (hasOrWhere(data.where)) {
             const results = await asyncMap(data.where, async (w) =>
               handlePagination(
@@ -682,7 +687,7 @@ export const dbAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
-          assertSupportedBulkOrWhere(data.where, 'deleteMany');
+          assertSupportedOrWhere(data.where, 'deleteMany');
           if (hasOrWhere(data.where)) {
             const ids = await collectIdsForOrWhere({
               model: data.model,
@@ -716,6 +721,7 @@ export const dbAdapter = <
           if (data.offset) {
             throw new Error('offset not supported');
           }
+          assertSupportedOrWhere(data.where, 'findMany');
           if (hasOrWhere(data.where)) {
             const { select: _ignoredSelect, ...queryData } = data;
             const results = await asyncMap(data.where, async (w) =>
@@ -851,7 +857,7 @@ export const dbAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
-          assertSupportedBulkOrWhere(data.where, 'updateMany');
+          assertSupportedOrWhere(data.where, 'updateMany');
           if (hasOrWhere(data.where)) {
             const ids = await collectIdsForOrWhere({
               model: data.model,

@@ -339,19 +339,23 @@ describe('cli/commands/dev', () => {
     await closeHttpServer(reservedProxy);
     const originalFetch = globalThis.fetch;
     globalThis.fetch = Bun.fetch as typeof fetch;
-    const proxy = await startLocalSiteProxy({
-      listenHost: '127.0.0.1',
-      listenPort: proxyPort,
-      targetOrigin: `http://127.0.0.1:${upstreamPort}`,
-    });
+    // Everything after the stub is installed must sit inside the try, or a
+    // throw here leaks Bun.fetch into every later test file in the process.
+    let proxy: Awaited<ReturnType<typeof startLocalSiteProxy>> | undefined;
 
     try {
+      proxy = await startLocalSiteProxy({
+        listenHost: '127.0.0.1',
+        listenPort: proxyPort,
+        targetOrigin: `http://127.0.0.1:${upstreamPort}`,
+      });
+
       await expect(postChunked(proxyPort)).resolves.toBe(204);
 
       expect(upstreamContentType).toBe('application/json');
       expect(upstreamTransferEncoding).toBeUndefined();
     } finally {
-      proxy.kill();
+      proxy?.kill();
       globalThis.fetch = originalFetch;
       await closeHttpServer(upstream);
     }

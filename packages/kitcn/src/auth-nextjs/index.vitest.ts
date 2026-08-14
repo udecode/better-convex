@@ -1,10 +1,48 @@
 import { createServer } from 'node:http';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import * as tokenModule from '../auth/internal/token';
 import { convexBetterAuth } from './index';
 
 describe('convexBetterAuth (Node)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('jwtCache false disables caching without disabling auth', async () => {
+    const getToken = vi
+      .spyOn(tokenModule, 'getToken')
+      .mockResolvedValue({ isFresh: true, token: 'token' });
+    const isUnauthorized = () => false;
+    const { createContext } = convexBetterAuth({
+      api: {},
+      auth: {
+        expirationToleranceSeconds: 15,
+        isUnauthorized,
+        jwtCache: false,
+      },
+      convexSiteUrl: 'https://example.convex.site',
+    });
+
+    await createContext({
+      headers: new Headers({ connection: 'keep-alive' }),
+    });
+
+    expect(getToken).toHaveBeenCalledOnce();
+    const [siteUrl, headers, options] = getToken.mock.calls[0] ?? [];
+    expect(siteUrl).toBe('https://example.convex.site');
+    expect(headers?.get('connection')).toBeNull();
+    expect(headers?.get('accept-encoding')).toBe('identity');
+    expect(options).toMatchObject({
+      jwtCache: {
+        enabled: false,
+        expirationToleranceSeconds: 15,
+        isAuthError: isUnauthorized,
+      },
+    });
+  });
+
   test('POST handler forwards non-2xx upstream responses', async () => {
     let requestBody = '';
     const server = createServer((req, res) => {
