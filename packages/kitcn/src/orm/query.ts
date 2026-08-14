@@ -99,7 +99,11 @@ import { asc, desc } from './order-by';
 import { getPage } from './pagination';
 import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
-import { assertRlsRolesResolvable, filterSelectRows } from './rls/evaluator';
+import {
+  assertRlsRolesResolvable,
+  filterSelectRows,
+  isRlsEnabled,
+} from './rls/evaluator';
 import type { RlsContext } from './rls/types';
 import {
   EmptyStream,
@@ -7600,6 +7604,20 @@ export class GelRelationalQuery<
     const relationDefinition = tableConfig.relations[relationName];
     const strict = tableConfig.strict !== false;
 
+    // RLS and the relation `where` clauses are applied in JavaScript after the
+    // read, so a `take()` pushed into the FK query would spend its budget on
+    // rows that are about to be discarded — `{ limit: 3, where: { published:
+    // true } }` returns nothing when three unpublished children sort first.
+    const hasPostFetchTargetFilter =
+      isRlsEnabled(targetTableConfig.table as any) ||
+      Boolean(relationDefinition?.where) ||
+      Boolean(
+        relationConfig &&
+          typeof relationConfig === 'object' &&
+          'where' in relationConfig &&
+          (relationConfig as { where?: unknown }).where
+      );
+
     let orderSpecs: { field: string; direction: 'asc' | 'desc' }[] = [];
     if (
       relationConfig &&
@@ -7783,6 +7801,7 @@ export class GelRelationalQuery<
 
           if (
             orderSpecs.length === 0 &&
+            !hasPostFetchTargetFilter &&
             effectivePerParentLimit !== undefined
           ) {
             const fetchLimit =
