@@ -83,7 +83,7 @@ Start Gates:
 | Agent-facing action surface identified | no | N/A: PR 314 changes ORM runtime/tests, not agent-facing behavior |
 | Source rule versus generated mirror boundary identified | no | N/A: no `.agents/rules/**` or generated skill mirror is in PR 314 |
 | Installed-skill lock versus local-rule owner identified | no | N/A: no installed-skill or lock change is in PR 314 |
-| `agent-native-reviewer` loaded or waiver recorded | yes | Skill read completely; final capability audit remains required by autoclosure |
+| `agent-native-reviewer` loaded or waiver recorded | yes | Skill read completely; capability audit PASS/N/A because no agent-facing surface changed |
 
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
@@ -97,13 +97,13 @@ Closure matrix:
 | agent workflow | no | N/A: changed-file audit contains no agent rule, skill, mirror, lock, helper, or user-action tooling | complete |
 | cleanup/review | yes | deslop stayed at zero net regression; agent-native audit unchanged; all in-scope findings fixed, final ordering finding rejected with `origin/main` source evidence | complete |
 | repository check | yes | final `bun lint:fix` and restarted `bun check` exited 0 across every repo lane | complete |
-| GitHub delivery | yes | whole-checkout commit/push, replies/resolution, PR read-back | pending |
+| GitHub delivery | yes | code head `2d86ee52` pushed/read back through branch and PR APIs; two replies posted, both threads resolved, ledger empty, CI/Vercel green | complete |
 
 Feedback ledger:
 | ID / URL | Type | Path | Reviewer claim | Verdict | Owner / proof | Reply | Resolution |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `PRRT_kwDOPTlS686Y-7VP` / `discussion_r3776629135` | review thread | `packages/kitcn/src/orm/query.ts:5896` | Cursor pagination drops residual predicates | fixed: schema-backed residual predicates, RLS visibility, and relation membership run inside stream pagination before page sizing | 22 pagination + 14 RLS tests; combined 6-file ORM lane passed 130 with 1 skip | pending | pending |
-| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Metadata-free relations can drop residual cursor filters | fixed-differently after source/author evidence: unsupported standalone schema ownership fails closed through the canonical `defineSchema()` guard, also preventing silent `maxScan` loss | focused test red because the partial native fallback resolved instead of rejecting, green after guard; pagination file passed 22 tests | pending | pending |
+| `PRRT_kwDOPTlS686Y-7VP` / `discussion_r3776629135` | review thread | `packages/kitcn/src/orm/query.ts:5896` | Cursor pagination drops residual predicates | fixed: schema-backed residual predicates, RLS visibility, and relation membership run inside stream pagination before page sizing | 23 pagination + 14 RLS tests; combined 6-file ORM lane passed 131 with 1 skip | replied at `discussion_r3783416826` | resolved; final ledger empty |
+| `PRRT_kwDOPTlS686ZPpy4` / `discussion_r3783055926` | review thread | `packages/kitcn/src/orm/query.ts:2324` | Metadata-free relations can drop residual cursor filters | fixed-differently after source/author evidence: unsupported standalone schema ownership fails closed through the canonical `defineSchema()` guard, also preventing silent `maxScan` loss | focused test red because the partial native fallback resolved instead of rejecting, green after guard; pagination file passed 23 tests | replied at `discussion_r3783417023` | resolved; final ledger empty |
 
 Feedback triage notes:
 - `changeset-bot` top-level comment is status boilerplate with no actionable
@@ -138,21 +138,21 @@ Review fixes:
   inconsistent; the canonical all-branch ordering contract is separate scope.
 
 Work Checklist:
-- [ ] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
+- [x] Intended behavior and exclusions are reconstructed from real sources.
+- [x] Each lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner.
+- [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
+- [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
+- [x] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
+- [x] Agent-native pack: installed skills are changed only through
       `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
+- [x] Agent-native pack: routing, required receipts, placeholder failure,
       completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -167,30 +167,30 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | Run smallest missing owning proof | pending |
-| Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
-| Package/docs/scenario closure | pending | Run every applicable local contract | pending |
-| Deslop | pending | Run bounded cleanup or N/A | pending |
-| Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
+| Targeted behavior proof | yes | Run smallest missing owning proof | complete: 6 files, 131 passed, 1 skipped; compiler 18 passed |
+| Source/generated audit | yes | Prove correct source and regenerated mirrors | complete: package source owns behavior; fixture parity passed every variant |
+| Package/docs/scenario closure | yes | Run every applicable local contract | complete: package build, changeset, fixtures, bare verify, runtime/auth matrix passed; docs/skill N/A |
+| Deslop | yes | Run bounded cleanup or N/A | complete: findings 166 to 166, score unchanged |
+| Agent-native reviewer | no | Run for workflow changes or N/A | N/A: no agent-facing file or action changed; capability audit PASS |
 | Final lint | yes | Run `bun lint:fix` | complete: 874 files, no fixes |
 | Repository check | yes | Run `bun check` | complete: exit 0 on restarted final run |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-14-pr-314-closure-and-feedback.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| GitHub delivery | yes | Commit/push/open or update PR and read back | complete: `2d86ee52` read back, ledger empty, CI/Vercel/release sync green |
+| Autoreview | yes | Resolve every accepted actionable finding | complete: two accepted fix cycles closed; final ordering claim rejected with `origin/main` evidence |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-14-pr-314-closure-and-feedback.md` | complete: final checker passed |
+| Agent source / generated sync | no | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent source or generated mirror changed |
+| Installed lock audit | no | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill or lock changed |
+| Agent action discoverability | no | Source-audit the skill/rule path an agent will read | N/A: no agent action changed |
+| Helper and template smoke | no | Syntax-check helpers and prove incomplete failure/completed representation when applicable | N/A: no helper or template changed |
+| Agent-native review | no | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | N/A with PASS capability audit: ORM runtime/tests only |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
-| Inventory | in_progress | plan created | missing proof |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Inventory | complete | PR, source owners, feedback, and exclusions reconstructed | complete |
+| Repair | complete | all accepted owner findings fixed and TDD-proven | complete |
+| Review/checks | complete | deslop, agent-native audit, autoreview classification, lint, and `bun check` complete | complete |
+| Delivery | complete | code pushed, API read-back matched, replies/resolution complete, remote checks green | complete |
+| Closeout | complete | final ledger empty and goal-plan checker passed | complete |
 
 Verification evidence:
 - First standalone repro returned all five forbidden `Bob` rows. After the
@@ -242,6 +242,11 @@ Verification evidence:
   exact restarted `bun check` exited 0 across lint, typechecks, all tests, CLI
   123/123, Concave smoke, every fixture, bare verify, and all runtime/auth
   scenarios.
+- GitHub branch-ref and PR-head APIs both read back
+  `2d86ee52d21b0951db68c6654841796a6b2debeb`. Replies
+  `discussion_r3783416826` and `discussion_r3783417023` were posted; both
+  threads resolved and the final feedback fetch returned `review_threads: []`.
+  CI passed in 7m43s; Vercel, preview comments, and release sync passed.
 
 Timeline:
 - 2026-08-14T10:55:17.599Z Autoclosure plan created.
@@ -277,19 +282,22 @@ Timeline:
 - 2026-08-14 Final lint passed. Full check caught and closed the RLS test typing
   gap; its first corrected run later stalled in an external GitHub template
   fetch, and the exact clean restart passed every lane with exit 0.
+- 2026-08-14 Pushed code head `2d86ee52`, read it back from both direct GitHub
+  APIs, replied to and resolved both review threads, re-fetched an empty ledger,
+  and observed CI/Vercel/release sync pass on that exact head.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | All local closure lanes passed; GitHub delivery pending |
-| Where am I going? | Push, feedback replies/resolution, GitHub read-back, final audit |
+| Where am I? | PR 314 closure complete; only external human approval remains |
+| Where am I going? | Final plan-only receipt push and head read-back |
 | What is the goal? | Close PR 314 with zero unhandled actionable feedback and every applicable proof/delivery gate complete |
 | What have I learned? | Residual predicates, RLS, and relation membership form one final-visible-row predicate; any pushed-down limit must count that composite result |
-| What have I done? | Reclassified the metadata case and fixed final-visible sizing in both stream and fallback paths; final review/check/delivery remain |
+| What have I done? | Fixed and proved all in-scope feedback, passed every local/remote gate, pushed the branch, and closed the review ledger |
 
 Open risks:
 - Secondary cursor `orderBy` fields are not applied per page in any existing
   cursor branch despite the current warning; this pre-existing cross-branch
   contract needs separate ownership and does not block PR 314.
-- Push, replies/resolution, final CI/PR head read-back, and the goal-plan checker
-  remain.
+- PR 314 remains open with `REVIEW_REQUIRED`; human approval is branch policy,
+  not unresolved implementation feedback. No PR 314 closure blocker remains.
