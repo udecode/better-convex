@@ -8,6 +8,7 @@ import {
   convexTable,
   defineRelations,
   defineSchema,
+  discriminator,
   eq,
   extractRelationsConfig,
   id,
@@ -151,6 +152,16 @@ const roleWrites = convexTable(
   ]
 );
 
+const auditEvents = convexTable('rls_audit_events', {
+  eventType: discriminator({
+    variants: {
+      role_doc: {
+        roleDocId: id('rls_role_docs').notNull(),
+      },
+    },
+  }),
+});
+
 const pseudoRoleDocs = convexTable(
   'rls_pseudo_role_docs',
   {
@@ -202,6 +213,7 @@ const tables = {
   rls_linked: linked,
   rls_role_docs: roleDocs,
   rls_role_writes: roleWrites,
+  rls_audit_events: auditEvents,
   rls_pseudo_role_docs: pseudoRoleDocs,
 };
 const schema = defineSchema(tables, {
@@ -226,6 +238,13 @@ const relations = defineRelations(tables, (r) => ({
   rls_linked: {},
   rls_role_docs: {},
   rls_role_writes: {},
+  rls_audit_events: {
+    roleDoc: r.one.rls_role_docs({
+      from: r.rls_audit_events.roleDocId,
+      to: r.rls_role_docs.id,
+      optional: true,
+    }),
+  },
   rls_pseudo_role_docs: {},
   rls_users: {
     orgs: r.many.rls_orgs({
@@ -591,6 +610,38 @@ describe('RLS', () => {
             },
           },
         })
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+    });
+  });
+
+  it('throws for RLS relation counts when the parent has no rows', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const ctx = withOrm(baseCtx, relations);
+
+      await expect(
+        ctx.orm.query.rls_users.findMany({
+          with: { _count: { roleDocs: true } },
+        })
+      ).rejects.toThrow(/COUNT_RLS_UNSUPPORTED/);
+    });
+  });
+
+  it('preflights RLS relations added by withVariants before reading', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const guardedDb = new Proxy(baseCtx.db, {
+        get(target, property, receiver) {
+          if (property === 'query' || property === 'get') {
+            throw new Error('ROOT_READ_STARTED');
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      const ctx = withOrm({ ...baseCtx, db: guardedDb }, relations);
+
+      await expect(
+        ctx.orm.query.rls_audit_events.findMany({ withVariants: true })
       ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
     });
   });

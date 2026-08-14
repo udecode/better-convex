@@ -2000,9 +2000,10 @@ export class GelRelationalQuery<
     if (!withConfig || depth >= maxDepth) return;
 
     for (const [relationName, relationConfig] of Object.entries(withConfig)) {
-      // `with._count` runs through the aggregate path, which rejects
-      // RLS-enabled tables with its own error.
-      if (relationName === '_count') continue;
+      if (relationName === '_count') {
+        this._assertRelationCountRlsPlan(relationConfig, edges);
+        continue;
+      }
 
       const edge = edges.find((entry) => entry.edgeName === relationName);
       // Unknown relations raise their own error while loading.
@@ -2054,6 +2055,43 @@ export class GelRelationalQuery<
         depth + 1,
         maxDepth
       );
+    }
+  }
+
+  private _assertRelationCountRlsPlan(
+    relationCountConfig: unknown,
+    edges: EdgeMetadata[]
+  ): void {
+    if (!this._isRecord(relationCountConfig)) return;
+
+    for (const [relationName, relationSelection] of Object.entries(
+      relationCountConfig
+    )) {
+      if (relationSelection === undefined || relationSelection === false) {
+        continue;
+      }
+
+      const edge = edges.find((entry) => entry.edgeName === relationName);
+      if (!edge) continue;
+
+      const where = this._coerceRelationCountWhere(
+        relationName,
+        relationSelection
+      );
+      if (edge.through) {
+        const throughTableConfig = this._getTableConfigByDbName(
+          edge.through.table
+        );
+        if (throughTableConfig) {
+          ensureCountAllowedForRls(throughTableConfig, this.rls?.mode as any);
+        }
+        if (this._isEmptyWhere(where) || where === undefined) continue;
+      }
+
+      const targetTableConfig = this._getTableConfigByDbName(edge.targetTable);
+      if (targetTableConfig) {
+        ensureCountAllowedForRls(targetTableConfig, this.rls?.mode as any);
+      }
     }
   }
 
@@ -5083,11 +5121,14 @@ export class GelRelationalQuery<
       }
     }
 
-    // Validate the root and explicit relation plan before the first database
-    // read. `_finalizeRows` repeats this for relations added by polymorphic
-    // variants before those relation rows are loaded.
-    this._assertRlsSelectPlan(
+    // Validate the root and effective relation plan before the first database
+    // read. `_finalizeRows` repeats this before relation rows are loaded.
+    const preflightWith = this._resolveWithVariantsState(
       config.with as Record<string, unknown> | undefined,
+      this._resolvePolymorphicFinalizeState()
+    ).effectiveWith;
+    this._assertRlsSelectPlan(
+      preflightWith,
       this.tableConfig,
       this.edgeMetadata,
       0,
