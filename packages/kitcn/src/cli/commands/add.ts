@@ -597,14 +597,20 @@ export const handleAddCommand = async (argv: string[], deps: AddDeps = {}) => {
     manualActions: applyResult.manualActions,
     updated: applyResult.updated,
     skipped: applyResult.skipped,
+    refused: applyResult.refused,
+    complete: applyResult.refused.length === 0,
   };
+
+  const resultLine = `${selectedPlugin} scaffold results: ${applyResult.created.length} created, ${applyResult.updated.length} updated, ${applyResult.skipped.length} skipped, ${applyResult.refused.length} refused.`;
 
   if (addArgs.json) {
     console.info(JSON.stringify(payload));
   } else {
-    logger.success(
-      `✔ ${selectedPlugin} scaffold results: ${applyResult.created.length} created, ${applyResult.updated.length} updated, ${applyResult.skipped.length} skipped.`
-    );
+    if (applyResult.refused.length > 0) {
+      logger.error(`✖ ${resultLine}`);
+    } else {
+      logger.success(`✔ ${resultLine}`);
+    }
     if (applyResult.created.length > 0) {
       logger.write(
         `Created files:\n${applyResult.created.map((file) => `  - ${file}`).join('\n')}`
@@ -617,11 +623,17 @@ export const handleAddCommand = async (argv: string[], deps: AddDeps = {}) => {
     }
     if (applyResult.skipped.length > 0) {
       logger.write(
-        `Skipped files:\n${applyResult.skipped.map((file) => `  - ${file}`).join('\n')}`
+        `Skipped files (already up to date):\n${applyResult.skipped.map((file) => `  - ${file}`).join('\n')}`
       );
-      if (!addArgs.schema && !addArgs.overwrite) {
-        logger.info('Re-run with --overwrite to replace changed files.');
-      }
+    }
+    if (applyResult.refused.length > 0) {
+      logger.write(
+        `Refused files (your changes were kept):\n${applyResult.refused.map((file) => `  - ${file}`).join('\n')}`
+      );
+      logger.info(
+        'Re-run with --overwrite to replace these files, or merge the changes yourself.'
+      );
+      logger.error(`${selectedPlugin} is only partially installed.`);
     }
     if (applyResult.manualActions.length > 0) {
       logger.info('Manual actions:');
@@ -738,5 +750,7 @@ export const handleAddCommand = async (argv: string[], deps: AddDeps = {}) => {
     }
   }
 
-  return 0;
+  // A refused file means the plugin is only partially wired, so the run must
+  // not look successful to a script or agent keying on the exit code.
+  return applyResult.refused.length > 0 ? 1 : 0;
 };

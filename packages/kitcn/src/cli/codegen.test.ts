@@ -4297,6 +4297,98 @@ export default createHttpRouter({}, router({}));
     }
   });
 
+  test('generateMeta removes its parse snapshot when a module throws at import time', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { initCRPC } from 'kitcn/server';
+        throw new Error('boom');
+        export const list = { _crpcMeta: { type: 'query' }, c: initCRPC };
+        `.trim()
+      );
+
+      await expect(generateMeta(undefined, { silent: true })).rejects.toThrow(
+        'boom'
+      );
+
+      expect(
+        fs
+          .readdirSync(path.join(dir, 'convex'))
+          .filter((entry) => entry.includes('.kitcn-parse.'))
+      ).toEqual([]);
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta recovers once the failing module is removed', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { initCRPC } from 'kitcn/server';
+        throw new Error('boom');
+        export const list = { _crpcMeta: { type: 'query' }, c: initCRPC };
+        `.trim()
+      );
+
+      await expect(generateMeta(undefined, { silent: true })).rejects.toThrow(
+        'boom'
+      );
+
+      fs.rmSync(path.join(dir, 'convex', 'todos.ts'));
+      writeFile(
+        path.join(dir, 'convex', 'tasks.ts'),
+        `
+        import { initCRPC } from 'kitcn/server';
+        export const list = { _crpcMeta: { type: 'query' }, c: initCRPC };
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const { outputFile } = getConvexConfig();
+      expect(fs.readFileSync(outputFile, 'utf-8')).toContain('tasks');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta sweeps stale parse snapshots left by older runs', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts.kitcn-parse.ts'),
+        "throw new Error('stale snapshot');"
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      expect(
+        fs.existsSync(path.join(dir, 'convex', 'todos.ts.kitcn-parse.ts'))
+      ).toBe(false);
+      const { outputFile } = getConvexConfig();
+      expect(fs.readFileSync(outputFile, 'utf-8')).not.toContain('kitcn-parse');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
   test('codegen no longer contains plugin codegen/lockfile reconciliation paths', () => {
     const source = fs.readFileSync(
       path.join(process.cwd(), 'packages/kitcn/src/cli/codegen.ts'),

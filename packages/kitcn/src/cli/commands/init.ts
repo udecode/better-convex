@@ -141,6 +141,7 @@ export const handleInitCommand = async (
         created: result.created,
         updated: result.updated,
         skipped: result.skipped,
+        refused: result.refused,
         usedShadcn: result.usedShadcn,
         template: result.template,
         codegen: result.codegen,

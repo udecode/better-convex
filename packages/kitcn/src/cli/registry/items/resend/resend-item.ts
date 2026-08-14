@@ -111,6 +111,8 @@ function buildResendHttpRegistrationPlanFile(
     filePath: httpPath,
     content: source,
     managedBaselineContent: baselineHttpSource,
+    // Patches the existing source in place, so it never clobbers user code.
+    requiresExplicitOverwrite: false,
     createReason: 'Create http.ts with resend webhook route.',
     updateReason: 'Register resend webhook in http.ts.',
     skipReason: 'Resend webhook is already registered in http.ts.',

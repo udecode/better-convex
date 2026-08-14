@@ -6,6 +6,7 @@ import { OrmSchemaOptions } from '../orm/symbols';
 import {
   hasPotentialCodegenExports,
   isValidConvexFile,
+  PARSE_SNAPSHOT_SUFFIX,
 } from '../shared/meta-utils';
 import { CRPC_BUILDER_STUB_SOURCE } from './utils/crpc-builder-stub.js';
 import { logger } from './utils/logger.js';
@@ -163,6 +164,21 @@ function listFilesRecursive(cwd: string, relDir = ''): string[] {
     }
   }
   return files;
+}
+
+/**
+ * Delete parse snapshots stranded by an earlier crashed run so a project that
+ * is already wedged heals itself on the next codegen.
+ */
+function sweepStaleParseSnapshots(functionsDir: string): void {
+  if (!fs.existsSync(functionsDir)) {
+    return;
+  }
+  for (const relPath of listFilesRecursive(functionsDir)) {
+    if (relPath.endsWith(PARSE_SNAPSHOT_SUFFIX)) {
+      fs.rmSync(path.join(functionsDir, relPath), { force: true });
+    }
+  }
 }
 
 function ensureRelativeImportPath(value: string): string {
@@ -1725,6 +1741,30 @@ async function parseModuleRuntime(
   procedures: ProcedureMeta[];
 }> {
   const source = fs.readFileSync(filePath, 'utf8');
+  let parseSnapshotPath: string | null = null;
+  try {
+    return await parseModuleRuntimeSource(filePath, source, jitiInstance, {
+      onSnapshot: (snapshotPath) => {
+        parseSnapshotPath = snapshotPath;
+      },
+    });
+  } finally {
+    if (parseSnapshotPath) {
+      fs.rmSync(parseSnapshotPath, { force: true });
+    }
+  }
+}
+
+async function parseModuleRuntimeSource(
+  filePath: string,
+  source: string,
+  jitiInstance: ReturnType<typeof createProjectJiti>,
+  hooks: { onSnapshot: (snapshotPath: string) => void }
+): Promise<{
+  meta: ModuleMeta | null;
+  httpRoutes: HttpRoutes;
+  procedures: ProcedureMeta[];
+}> {
   const rewrittenSource = source.replaceAll(
     /from\s+(['"])kitcn\/server\1/g,
     `from ${JSON.stringify(
@@ -1735,8 +1775,9 @@ async function parseModuleRuntime(
     rewrittenSource === source
       ? filePath
       : (() => {
-          const tempFilePath = `${filePath}.kitcn-parse.ts`;
+          const tempFilePath = `${filePath}${PARSE_SNAPSHOT_SUFFIX}`;
           fs.writeFileSync(tempFilePath, rewrittenSource, 'utf8');
+          hooks.onSnapshot(tempFilePath);
           return tempFilePath;
         })();
   const result: ModuleMeta = {};
@@ -1750,9 +1791,6 @@ async function parseModuleRuntime(
   if (!module || typeof module !== 'object') {
     if (isHttp) {
       logger.error('  http.ts: module is empty or not an object');
-    }
-    if (importPath !== filePath) {
-      fs.rmSync(importPath, { force: true });
     }
     return { meta: null, httpRoutes: {}, procedures: [] };
   }
@@ -1820,10 +1858,6 @@ async function parseModuleRuntime(
     }
   }
 
-  if (importPath !== filePath) {
-    fs.rmSync(importPath, { force: true });
-  }
-
   return {
     meta: Object.keys(result).length > 0 ? result : null,
     httpRoutes,
@@ -1842,6 +1876,7 @@ export async function generateMeta(
 ): Promise<void> {
   const startTime = Date.now();
   const { functionsDir, outputFile } = getConvexConfig(sharedDir);
+  sweepStaleParseSnapshots(functionsDir);
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
   const ormOutputFile = getGeneratedOrmOutputFile(functionsDir);
   const crpcOutputFile = getGeneratedCrpcOutputFile(functionsDir);

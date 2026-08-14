@@ -127,6 +127,13 @@ export function buildMetaIndex(api: Record<string, unknown>): Meta {
   return meta;
 }
 
+/**
+ * Suffix codegen appends to its throwaway parse snapshots. Snapshots live next
+ * to the module they mirror so relative imports still resolve, so every reader
+ * of the Convex functions directory must ignore them.
+ */
+export const PARSE_SNAPSHOT_SUFFIX = '.kitcn-parse.ts';
+
 /** Files to exclude from meta generation */
 const EXCLUDED_FILES = new Set([
   'schema.ts',
@@ -148,6 +155,7 @@ const DIRECT_CODEGEN_META_CAPTURE_REGEX = /\b_crpc(?:Meta|HttpRoute)\b/;
  * Filters out private files/directories (prefixed with _) and config files.
  */
 export function isValidConvexFile(file: string): boolean {
+  if (file.endsWith(PARSE_SNAPSHOT_SUFFIX)) return false;
   if (file.endsWith('.runtime.ts')) return false;
   if (file.endsWith('.test.ts')) return false;
   if (file.endsWith('.spec.ts')) return false;

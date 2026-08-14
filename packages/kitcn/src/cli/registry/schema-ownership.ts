@@ -7,6 +7,7 @@ import type {
   PromptAdapter,
 } from '../types.js';
 import { createTypeScriptProxy } from '../utils/typescript-runtime.js';
+import { findDefineSchemaChain } from './schema-chain.js';
 
 export type RootSchemaTableUnit = {
   declaration: string;
@@ -55,7 +56,6 @@ type MergeNamedEntriesResult = {
 const OBJECT_ENTRY_INDENT = '  ';
 const LEADING_INDENT_RE = /^[ \t]*/;
 const LEGACY_MANAGED_COMMENT_RE = /^[ \t]*\/\* kitcn-managed [^*]+ \*\/\n?/gm;
-const WHITESPACE_RE = /\s/;
 const ts = createTypeScriptProxy();
 let printer: tsType.Printer | null = null;
 
@@ -640,6 +640,11 @@ const mergeIndexEntries = (params: {
   const desiredParamName =
     params.desiredInfo.indexParamName ?? params.desiredInfo.varName;
   const desiredEntries = params.desiredInfo.indexEntries;
+  const unparsedThirdArgText =
+    params.existingInfo.thirdArgText && !params.existingInfo.indexEntries
+      ? params.existingInfo.thirdArgText
+      : null;
+
   if (!desiredEntries || desiredEntries.length === 0) {
     return {
       changed: false,
@@ -648,10 +653,13 @@ const mergeIndexEntries = (params: {
       ),
       indexParamName: targetParamName,
       requiresIndexArg: Boolean(params.existingInfo.thirdArgText),
+      // Nothing to merge, so keep whatever the user wrote verbatim instead of
+      // re-rendering (and dropping) an argument we cannot represent as entries.
+      verbatimIndexArgText: unparsedThirdArgText,
     };
   }
 
-  if (params.existingInfo.thirdArgText && !params.existingInfo.indexEntries) {
+  if (unparsedThirdArgText) {
     throw new Error(
       `Schema patch conflict in ${params.displayPath}: ${params.pluginKey} indexes for table "${params.tableKey}" could not be merged into the existing schema callback.`
     );
@@ -720,6 +728,7 @@ const mergeIndexEntries = (params: {
     requiresIndexArg: Boolean(
       params.existingInfo.thirdArgText ?? nextEntries.length > 0
     ),
+    verbatimIndexArgText: null as string | null,
   };
 };
 
@@ -729,14 +738,16 @@ const renderTableStatement = (params: {
   indexParamName?: string | null;
   tableNameText: string;
   varName: string;
+  verbatimIndexArgText?: string | null;
 }) => {
   const fieldsText = renderObjectLiteral(
     '  ',
     params.fieldEntries.map(ensureTrailingComma)
   );
   const indexEntries = params.indexEntries ?? [];
-  const indexBlock =
-    indexEntries.length > 0
+  const indexBlock = params.verbatimIndexArgText
+    ? `,\n  ${params.verbatimIndexArgText}`
+    : indexEntries.length > 0
       ? `,\n  (${params.indexParamName ?? params.varName}) => ${renderArrayLiteral(
           '  ',
           indexEntries
@@ -803,6 +814,7 @@ const mergeTableDeclaration = (params: {
     indexParamName: indexMerge.indexParamName,
     tableNameText: existingInfo.tableNameText,
     varName: existingInfo.varName,
+    verbatimIndexArgText: indexMerge.verbatimIndexArgText,
   });
 
   return {
@@ -864,80 +876,21 @@ const updateTablesObject = (
   );
 };
 
-const skipWhitespace = (source: string, start: number) => {
-  let cursor = start;
-  while (cursor < source.length && WHITESPACE_RE.test(source[cursor]!)) {
-    cursor += 1;
-  }
-  return cursor;
-};
-
-const findBalancedParenEnd = (source: string, openParenIndex: number) => {
-  let depth = 0;
-  for (let index = openParenIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === '(') {
-      depth += 1;
-    } else if (char === ')') {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
-    }
-  }
-  return -1;
-};
-
 const findRelationsInsertIndex = (source: string) => {
-  const defineSchemaIndex = source.indexOf('defineSchema(');
-  if (defineSchemaIndex < 0) {
+  const chain = findDefineSchemaChain(source);
+  if (!chain) {
     return -1;
   }
 
-  const defineSchemaOpenParenIndex = source.indexOf('(', defineSchemaIndex);
-  if (defineSchemaOpenParenIndex < 0) {
-    return -1;
+  let insertIndex = chain.defineSchemaEnd;
+  for (const call of chain.calls) {
+    if (call.name !== 'extend') {
+      return call.dotIndex;
+    }
+    insertIndex = call.end;
   }
 
-  const defineSchemaCloseParenIndex = findBalancedParenEnd(
-    source,
-    defineSchemaOpenParenIndex
-  );
-  if (defineSchemaCloseParenIndex < 0) {
-    return -1;
-  }
-
-  let cursor = defineSchemaCloseParenIndex + 1;
-  while (cursor < source.length) {
-    const nextSegmentIndex = skipWhitespace(source, cursor);
-
-    if (source.startsWith('.relations(', nextSegmentIndex)) {
-      return nextSegmentIndex;
-    }
-    if (source.startsWith('.triggers(', nextSegmentIndex)) {
-      return nextSegmentIndex;
-    }
-    if (!source.startsWith('.extend(', nextSegmentIndex)) {
-      return nextSegmentIndex;
-    }
-
-    const extendOpenParenIndex = source.indexOf('(', nextSegmentIndex);
-    if (extendOpenParenIndex < 0) {
-      return -1;
-    }
-
-    const extendCloseParenIndex = findBalancedParenEnd(
-      source,
-      extendOpenParenIndex
-    );
-    if (extendCloseParenIndex < 0) {
-      return -1;
-    }
-
-    cursor = extendCloseParenIndex + 1;
-  }
-
-  return cursor;
+  return insertIndex;
 };
 
 const mergeRelationProperty = (params: {
@@ -1240,11 +1193,18 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
   }
 
   const sourceFile = parseSource(source);
+  // Only a named *value* import can host the generated declarations' bindings.
+  // Rewriting `import type {...}` would drop the `type` modifier and duplicate
+  // identifiers; rewriting `import * as orm` would drop the namespace.
   const ormImport = sourceFile.statements.find(
     (statement): statement is tsType.ImportDeclaration =>
       ts.isImportDeclaration(statement) &&
       isStringLiteralLike(statement.moduleSpecifier) &&
-      statement.moduleSpecifier.text === 'kitcn/orm'
+      statement.moduleSpecifier.text === 'kitcn/orm' &&
+      statement.importClause !== undefined &&
+      !statement.importClause.isTypeOnly &&
+      statement.importClause.namedBindings !== undefined &&
+      ts.isNamedImports(statement.importClause.namedBindings)
   );
 
   if (!ormImport) {
@@ -1252,18 +1212,20 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
     return `${importText}${source}`;
   }
 
-  if (
-    !ormImport.importClause?.namedBindings ||
-    !ts.isNamedImports(ormImport.importClause.namedBindings)
-  ) {
-    return source;
+  const namedBindings = ormImport.importClause
+    ?.namedBindings as tsType.NamedImports;
+  const specifiersByLocalName = new Map<string, string>();
+  for (const element of namedBindings.elements) {
+    specifiersByLocalName.set(element.name.text, element.getText(sourceFile));
+  }
+  // A generated declaration needs the value binding, so an inline `type X`
+  // specifier has to collapse into the plain name rather than coexist with it.
+  for (const name of importNames) {
+    specifiersByLocalName.set(name, name);
   }
 
-  const existingImports = ormImport.importClause.namedBindings.elements.map(
-    (element) => element.getText(sourceFile)
-  );
-  const mergedImports = [...new Set([...existingImports, ...importNames])].sort(
-    (a, b) => a.localeCompare(b)
+  const mergedImports = [...specifiersByLocalName.values()].sort((a, b) =>
+    a.localeCompare(b)
   );
   const nextImport = `import {\n  ${mergedImports.join(',\n  ')},\n} from 'kitcn/orm';`;
   return replaceRange(

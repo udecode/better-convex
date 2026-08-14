@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PARSE_SNAPSHOT_SUFFIX } from '../shared/meta-utils.js';
 import {
   resolveConfiguredBackend,
   resolveRunDeps,
@@ -134,7 +135,7 @@ export function shouldIgnoreWatchPath(
 
   return (
     normalizedPath.endsWith('.runtime.ts') ||
-    normalizedPath.endsWith('.kitcn-parse.ts')
+    normalizedPath.endsWith(PARSE_SNAPSHOT_SUFFIX)
   );
 }
 
