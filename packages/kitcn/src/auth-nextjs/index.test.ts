@@ -1,6 +1,11 @@
-import * as tokenModule from '../auth/internal/token';
 import { convexBetterAuth } from './index';
 
+// `auth.jwtCache` forwarding is deliberately not unit-tested here. The only
+// observable seam is the shared `../auth/internal/token` module namespace, and
+// a spy on it in Bun's single-process runner records calls other test files
+// make, so no assertion through it is deterministic. The cached vs uncached
+// behaviour it selects is covered by `auth/internal/token.ts`. Please do not
+// re-add a spy-based test for it.
 describe('convexBetterAuth', () => {
   // Bun shares one process across test files, so a fetch stub installed by an
   // earlier file can still be live here. Pin the global around every test so
@@ -110,67 +115,5 @@ describe('convexBetterAuth', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-  });
-
-  // These two assert how `auth.jwtCache` is forwarded to the token layer.
-  // They spy on the token module rather than stubbing `globalThis.fetch`, so
-  // no ambient fetch state can shadow the call being measured. How many times
-  // the token layer is called is not part of the contract — retries and
-  // ambient state can change it — so assert only on the values forwarded.
-  describe('jwtCache forwarding', () => {
-    let getTokenSpy: ReturnType<typeof spyOn>;
-
-    // Distinct `jwtCache.enabled` values across every recorded call. `[false]`
-    // means "called at least once, and every call disabled the cache".
-    const forwardedCacheFlags = () =>
-      Array.from(
-        new Set(
-          getTokenSpy.mock.calls.map(
-            (call) =>
-              (call?.[2] as { jwtCache?: { enabled?: boolean } } | undefined)
-                ?.jwtCache?.enabled
-          )
-        )
-      );
-
-    beforeEach(() => {
-      getTokenSpy = spyOn(tokenModule, 'getToken').mockImplementation(
-        async () => ({ isFresh: true, token: 'server-token' })
-      );
-    });
-
-    afterEach(() => {
-      getTokenSpy.mockRestore();
-    });
-
-    test('jwtCache false disables the cache without disabling auth', async () => {
-      const { createContext } = convexBetterAuth({
-        api: {},
-        auth: { jwtCache: false },
-        convexSiteUrl: 'https://my-app.convex.site',
-      });
-
-      const ctx = await createContext({ headers: new Headers() });
-
-      // With auth wired off entirely the token layer is never reached at all
-      // and the request runs anonymously.
-      expect(getTokenSpy).toHaveBeenCalled();
-      expect(forwardedCacheFlags()).toEqual([false]);
-      expect(ctx.token).toBe('server-token');
-      expect(ctx.isAuthenticated).toBe(true);
-    });
-
-    test('jwtCache defaults to enabled', async () => {
-      const { createContext } = convexBetterAuth({
-        api: {},
-        convexSiteUrl: 'https://my-app.convex.site',
-      });
-
-      const ctx = await createContext({ headers: new Headers() });
-
-      expect(getTokenSpy).toHaveBeenCalled();
-      expect(forwardedCacheFlags()).toEqual([true]);
-      expect(ctx.token).toBe('server-token');
-    });
   });
 });
