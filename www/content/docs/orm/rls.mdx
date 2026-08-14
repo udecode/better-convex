@@ -139,9 +139,35 @@ const ormDb = orm.db(ctx, {
 });
 ```
 
-<Callout icon={<InfoIcon />}>
-**Note:** `to` clauses are only enforced when you provide a `roleResolver`. Without one, role-scoped policies are silently skipped.
+<Callout icon={<AlertTriangle />}>
+**Important:** A `roleResolver` is required by any policy scoped to a named role. Every query and mutation validates this for each table it touches before reading rows, so a missing resolver throws `RLS_ROLE_RESOLVER_REQUIRED` even when the table is empty, rather than granting the policy to every caller. Use `ctx.orm.skipRules` for trusted code that intentionally bypasses policies.
 </Callout>
+
+The SQL pseudo-roles `'public'`, `'current_user'`, `'current_role'`, and `'session_user'` resolve to the calling user, so they apply to everyone and need no `roleResolver`.
+
+## Null Handling
+
+Policy expressions follow SQL null semantics: a comparison against a missing document field or a missing context value evaluates to unknown, and unknown is treated as a denial.
+
+```ts showLineNumbers
+rlsPolicy('read_own', {
+  for: 'select',
+  using: (ctx, t) => eq(t.ownerId, ctx.viewerId),
+});
+```
+
+An unauthenticated caller (`ctx.viewerId` is `undefined`) is denied rows whose `ownerId` is unset -- the two missing values never match each other. Use `isNull` when you deliberately want to match rows with an absent column.
+
+## Relations
+
+Loading a relation with `with` enforces the related table's policies. For many-to-many relations, the junction table's policies are enforced too, so a caller only traverses the links they are allowed to read.
+
+```ts showLineNumbers
+// memberships carries `rlsPolicy('read_own', { using: (ctx, t) => eq(t.userId, ctx.viewerId) })`
+await ctx.orm.query.users.findMany({ with: { organizations: true } });
+```
+
+Other users come back with an empty `organizations` array, because their membership rows fail the junction policy.
 
 ## Drizzle Differences
 

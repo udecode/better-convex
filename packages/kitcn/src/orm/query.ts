@@ -96,7 +96,7 @@ import { asc, desc } from './order-by';
 import { getPage } from './pagination';
 import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
-import { filterSelectRows } from './rls/evaluator';
+import { assertRlsRolesResolvable, filterSelectRows } from './rls/evaluator';
 import type { RlsContext } from './rls/types';
 import {
   EmptyStream,
@@ -512,7 +512,9 @@ export class GelRelationalQuery<
     rows: any[],
     tableConfig?: TableRelationalConfig
   ): Promise<any[]> {
-    if (!rows.length || !tableConfig) return rows;
+    if (!tableConfig) return rows;
+    // Empty result sets still reach `filterSelectRows` so policy configuration
+    // is validated independently of what the table currently stores.
     return await filterSelectRows({
       table: tableConfig.table as any,
       rows,
@@ -1975,6 +1977,124 @@ export class GelRelationalQuery<
     }
   }
 
+  /**
+   * Validate role-scoped policies for every table this read plan touches before
+   * relations are loaded. Relation loaders skip work when a parent page is
+   * empty, so per-row evaluation alone would make a misconfigured table fail
+   * only once it holds rows. Mirrors the `_loadRelations` depth budget so the
+   * plan walked here matches the plan that would be executed.
+   */
+  private _assertRlsSelectPlan(
+    withConfig: Record<string, unknown> | undefined,
+    tableConfig: TableRelationalConfig,
+    edges: EdgeMetadata[],
+    depth: number,
+    maxDepth: number
+  ): void {
+    assertRlsRolesResolvable({
+      table: tableConfig.table as any,
+      operation: 'select',
+      rls: this.rls,
+    });
+
+    if (!withConfig || depth >= maxDepth) return;
+
+    for (const [relationName, relationConfig] of Object.entries(withConfig)) {
+      if (relationName === '_count') {
+        this._assertRelationCountRlsPlan(relationConfig, edges);
+        continue;
+      }
+
+      const edge = edges.find((entry) => entry.edgeName === relationName);
+      // Unknown relations raise their own error while loading.
+      if (!edge) continue;
+
+      if (edge.through) {
+        const throughTableConfig = this._getTableConfigByDbName(
+          edge.through.table
+        );
+        if (throughTableConfig) {
+          assertRlsRolesResolvable({
+            table: throughTableConfig.table as any,
+            operation: 'select',
+            rls: this.rls,
+          });
+        }
+      }
+
+      const targetTableConfig = this._getTableConfigByDbName(edge.targetTable);
+      if (!targetTableConfig) continue;
+
+      let nestedWith: Record<string, unknown> | undefined;
+      if (relationConfig && typeof relationConfig === 'object') {
+        const configuredWith = (relationConfig as any).with;
+        if (this._isRecord(configuredWith)) {
+          nestedWith = { ...configuredWith };
+        }
+
+        const relationWhere = (relationConfig as any).where;
+        if (relationWhere && typeof relationWhere !== 'function') {
+          const filterWith = this._buildFilterWithConfig(
+            relationWhere,
+            targetTableConfig
+          );
+          if (Object.keys(filterWith).length > 0) {
+            if (nestedWith) {
+              this._mergeWithConfig(nestedWith, filterWith);
+            } else {
+              nestedWith = filterWith;
+            }
+          }
+        }
+      }
+
+      this._assertRlsSelectPlan(
+        nestedWith,
+        targetTableConfig,
+        this._getTargetTableEdges(edge.targetTable),
+        depth + 1,
+        maxDepth
+      );
+    }
+  }
+
+  private _assertRelationCountRlsPlan(
+    relationCountConfig: unknown,
+    edges: EdgeMetadata[]
+  ): void {
+    if (!this._isRecord(relationCountConfig)) return;
+
+    for (const [relationName, relationSelection] of Object.entries(
+      relationCountConfig
+    )) {
+      if (relationSelection === undefined || relationSelection === false) {
+        continue;
+      }
+
+      const edge = edges.find((entry) => entry.edgeName === relationName);
+      if (!edge) continue;
+
+      const where = this._coerceRelationCountWhere(
+        relationName,
+        relationSelection
+      );
+      if (edge.through) {
+        const throughTableConfig = this._getTableConfigByDbName(
+          edge.through.table
+        );
+        if (throughTableConfig) {
+          ensureCountAllowedForRls(throughTableConfig, this.rls?.mode as any);
+        }
+        if (this._isEmptyWhere(where) || where === undefined) continue;
+      }
+
+      const targetTableConfig = this._getTableConfigByDbName(edge.targetTable);
+      if (targetTableConfig) {
+        ensureCountAllowedForRls(targetTableConfig, this.rls?.mode as any);
+      }
+    }
+  }
+
   private async _finalizeRows(rows: any[]): Promise<any[]> {
     const polymorphicState = this._resolvePolymorphicFinalizeState();
     const requestedWith = this.config.with as
@@ -1999,6 +2119,14 @@ export class GelRelationalQuery<
         resolvedExtras
       );
     }
+
+    this._assertRlsSelectPlan(
+      effectiveWith,
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
 
     let rowsWithRelations = rows;
     if (effectiveWith) {
@@ -4993,6 +5121,29 @@ export class GelRelationalQuery<
       }
     }
 
+    // Validate the root and effective relation plan before the first database
+    // read. `_finalizeRows` repeats this before relation rows are loaded.
+    const preflightWith = this._resolveWithVariantsState(
+      config.with as Record<string, unknown> | undefined,
+      this._resolvePolymorphicFinalizeState()
+    ).effectiveWith;
+    this._assertRlsSelectPlan(
+      preflightWith,
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
+    if (whereFilter) {
+      this._assertRlsSelectPlan(
+        this._buildFilterWithConfig(whereFilter, this.tableConfig),
+        this.tableConfig,
+        this.edgeMetadata,
+        0,
+        3
+      );
+    }
+
     // Fast path: `id` lookups use `db.get()` (primary key) instead of an index plan.
     // This keeps `where: { id: ... }` and `where: { id: { in: [...] } }` ergonomic
     // without requiring allowFullScan, and avoids full collection scans.
@@ -7509,7 +7660,10 @@ export class GelRelationalQuery<
             values,
             throughIndexName
           );
-          const throughRows = await query.collect();
+          const throughRows = await this._applyRlsSelectFilter(
+            await query.collect(),
+            throughTableConfig
+          );
           return { key, rows: throughRows };
         }
       );

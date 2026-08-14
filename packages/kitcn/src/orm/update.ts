@@ -29,7 +29,10 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { evaluateUpdateDecision } from './rls/evaluator';
+import {
+  assertRlsRolesResolvable,
+  evaluateUpdateDecision,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -424,6 +427,11 @@ export class ConvexUpdateBuilder<
       }
     }
 
+    const rls = ormContext?.rls;
+    // Policy configuration must fail before any candidate-row reads so the
+    // error is independent of table size and mutation collection limits.
+    assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
+
     const onUpdateSet: Record<string, unknown> = {};
     for (const [columnName, builder] of Object.entries(
       getTableColumns(this.table)
@@ -614,7 +622,6 @@ export class ConvexUpdateBuilder<
       );
     }
 
-    const rls = ormContext?.rls;
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(

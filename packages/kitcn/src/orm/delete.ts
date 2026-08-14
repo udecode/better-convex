@@ -27,7 +27,7 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { canDeleteRow } from './rls/evaluator';
+import { assertRlsRolesResolvable, canDeleteRow } from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -415,6 +415,11 @@ export class ConvexDeleteBuilder<
       }
     }
 
+    const rls = ormContext?.rls;
+    // Policy configuration must fail before any candidate-row reads so the
+    // error is independent of table size and mutation collection limits.
+    assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
+
     let rows: Record<string, unknown>[];
     let continueCursor: string | null = null;
     let isDone = true;
@@ -585,7 +590,6 @@ export class ConvexDeleteBuilder<
     const results: Record<string, unknown>[] = [];
     let numAffected = 0;
 
-    const rls = ormContext?.rls;
     const foreignKeyGraph = ormContext?.foreignKeyGraph;
     if (!foreignKeyGraph) {
       throw new Error(
