@@ -68,88 +68,116 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | Focused ratelimit tests | pending |
-| package/API/build | yes | Package build/types | pending |
-| generated output | yes | Package skill to `.agents` mirror | pending |
+| source behavior | yes | 35 focused ratelimit tests | complete |
+| package/API/build | yes | Package build and root typecheck | complete |
+| generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
-| docs/package skill | yes | www/package skill/mirror agreement | pending |
-| changeset | yes | `.changeset/ratelimit-accounting.md` audit | pending |
-| agent workflow | yes | Published behavior/guard discoverability | pending |
-| cleanup/review | yes | Deslop, agent-native review, autoreview | pending |
+| docs/package skill | yes | www/package skill/mirror agreement | complete |
+| changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
+| agent workflow | yes | Published behavior/guard discoverability | complete |
+| cleanup/review | yes | Deslop and agent-native pass; autoreview rerun | in_progress |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Each pre-delivery lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed in focused proof.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: package skill owner/mirror boundary recorded.
-- [ ] Agent-native pack: ratelimit semantics and invalid shard guard are discoverable.
-- [ ] Agent-native pack: package skill/mirror parity proved; `.agents/rules` N/A.
+- [x] Agent-native pack: ratelimit semantics and invalid shard guard are discoverable.
+- [x] Agent-native pack: package skill/mirror parity proved; `.agents/rules` N/A.
 - [x] Agent-native pack: installed skill membership unchanged.
-- [ ] Agent-native pack: published guidance represents exact budget/guard behavior.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: published guidance represents exact budget/guard behavior.
+- [x] Agent-native pack: agent-native review passes with no findings.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
-| None yet | 0 | | |
+| `maxReserved: 1` became unusable fractional shares | 1 | Deal whole reservation headroom | Red reservation test became green |
+| Preferred exhausted shard denied while another had capacity | 1 | Retry untouched shards only after preferred failure | Red routing/cache tests became green |
+| Fractional budget stranded whole requests | 1 | Deal whole portion and retain one fractional remainder | Red 4-of-5 test became green |
+| Fixed-window capacity projected through refill limit | 1 | Scale stored balances with algorithm capacity | Red 150-versus-100 test became green |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | pending |
-| Source/generated audit | yes | Prove package skill/mirror parity | pending |
-| Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | pending |
-| Deslop | yes | Run changed-file cleanup review | pending |
-| Agent-native reviewer | yes | Review published ratelimit guidance | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 35 tests across four files |
+| Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
+| Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
+| Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
+| Agent-native reviewer | yes | Review published ratelimit guidance | pass: complete route/owner/mirror/proof chain |
+| Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | four findings repaired; clean rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
-| Agent source / generated sync | yes | Verify package skill/mirror | pending |
+| Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
-| Agent action discoverability | yes | Audit published ratelimit skill route | pending |
+| Agent action discoverability | yes | Audit published ratelimit skill route | passed: main skill links exact reference |
 | Helper and template smoke | no | N/A: no workflow helper/template | N/A |
-| Agent-native review | yes | Close accepted guidance findings | pending |
+| Agent-native review | yes | Close accepted guidance findings | passed with no findings |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
-| Inventory | in_progress | plan created | missing proof |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
+| Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
+| Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
+| Review/checks | in_progress | Focused tests, build, types, lint, sync, Intent, deslop, and agent-native pass | clean autoreview |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
+- Rebased both original commits onto main at `799dc4f8` without conflicts.
+- Focused proof passes 28 Vitest tests and 7 Bun tests across all four ratelimit
+  test files.
+- TDD proves shard fallback, exact fractional whole-request capacity,
+  whole-token reservation headroom, and capacity-based fixed-window projections.
+- `bun --cwd packages/kitcn build`, root typecheck, and lint pass.
+- Package skill, generated mirror, public docs, and changeset describe the same
+  sharding, fallback, capacity, dynamic-limit, cache, snapshot, and check contracts.
+- Package skill/mirror byte comparisons, `intent:validate`, and `intent:stale` pass.
+- Deslop has zero net findings and zero score change; its added/resolved wrapper
+  pair is the same existing `createFixedWindow` wrapper moved by the larger file.
+- Agent-native review passes: `kitcn` route -> package skill owner -> generated
+  mirror/public docs -> focused tests, sync, and Intent proof.
 
 Timeline:
 - 2026-08-14T18:17:55.073Z Autoclosure plan created.
+- 2026-08-15T00:13:00+02:00 Rebased onto PR 320, repaired the remaining
+  reservation finding and three independent review findings with red-to-green
+  tests, synchronized guidance, and completed focused proof.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Review/checks |
+| Where am I going? | Clean autoreview, exact repository gate, delivery, final audit |
 | What is the goal? | Merge correct limiter accounting with synchronized guidance |
-| What have I learned? | See closure matrix |
-| What have I done? | See timeline |
+| What have I learned? | Exact global quotas need fallback and capacity-aware scaling, not only per-shard division |
+| What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- PR currently changes www docs without the matching published package skill; closeout must repair that owner drift.
+- Clean autoreview, exact `bun check`, remote gates, and merge receipt remain.
 
 Findings:
-- Repo policy requires www docs and package skill synchronization.
+- The preferred-shard fast path must fall back before it can claim global exhaustion.
+- Fixed-window balances are capacity values even when the response limit is the refill rate.
 
 Decisions and tradeoffs:
-- Add/update package skill owner, regenerate mirror, and keep runtime scope unchanged.
+- Retry untouched shards only after preferred candidates fail, preserving the
+  low-contention fast path while enforcing the configured global budget.
+- Keep fractional value on one shard after dealing the whole portion; rejecting
+  valid fractional counts would narrow the existing numeric API unnecessarily.
 
 Review fixes:
-- Pending.
+- Per-shard cache, dynamic shard guards, fixed capacity guards, exact
+  `getRemaining()`, package skill synchronization, and indivisible budget
+  documentation were fixed by the second original commit and re-proved.
+- Whole-token reservation headroom was fixed with a red-to-green regression.
+- Independent autoreview findings for shard fallback, capacity scaling, and
+  fractional budgets were fixed with red-to-green regressions.

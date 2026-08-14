@@ -23,10 +23,13 @@ Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 `shards > 1` distributes writes to cut contention. The configured budget is **dealt** across shards, never duplicated.
 
 - Shares are whole tokens that sum to the configured budget, with the remainder going to the low-numbered shards. `fixedWindow(5, '1 m', { shards: 2 })` deals `3` and `2`, and enforces exactly 5/min.
+- Fractional totals deal their whole portion first and retain the fraction on one shard, so whole requests are not stranded.
+- Whole-token `maxReserved` headroom is dealt the same way, so configured reservations remain usable under sharding.
 - `tokenBucket` deals `maxTokens` but splits `refillRate` evenly — a bucket refills continuously, so a fractional rate still accumulates.
 - One call spends from one shard, so `count` can never exceed that shard's share. Aim for a share of ten or more times your largest `count`.
 - Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` throws on the same rule instead of silently denying every request.
 - The ephemeral block cache is keyed per shard, so an exhausted shard never blocks shards that still hold tokens.
+- Preferred shards are tried first; if none can serve the request, the limiter retries the remaining shards before denying it.
 
 Default to `shards: 1`. Raise it only after observing write contention on hot identifiers.
 
@@ -39,6 +42,8 @@ Default to `shards: 1`. Raise it only after observing write contention on hot id
 | `limit()` / `check()` → `remaining` | the serving shard | estimate under `shards > 1` |
 
 Use `getRemaining()` for quota headers and banners. Use `getValue()` for the React hook and custom projections where a cheap read matters more than exactness.
+
+Fixed-window projections scale by stored `capacity`; the response `limit` remains the configured per-window refill.
 
 ## `check()` vs `limit()`
 

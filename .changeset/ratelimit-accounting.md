@@ -9,7 +9,9 @@
   configured limit, so existing sharded configs now enforce the limit you wrote.
   Shares are whole tokens that add back up to the configured total, so
   `fixedWindow(5, '1 m', { shards: 2 })` deals `3` and `2` and still grants five
-  requests. Builders throw when `limit / shards` (or `capacity / shards`, or
+  requests. Whole-token `maxReserved` headroom is dealt the same way, so a
+  configured reservation is not stranded as fractional shares. Builders throw
+  when `limit / shards` (or `capacity / shards`, or
   `maxTokens / shards`) drops below `1`, because a shard holding less than one
   token can never grant a request. `setDynamicLimit()` rejects an override that
   fails the same rule instead of denying every later request.
@@ -57,3 +59,9 @@
   A half-drained sharded limiter reported its full budget as still available.
 - Improve shard selection to compare exact token balances, so sharded limiters
   spread load onto the emptier shard instead of tying on rounded counts.
+- Retry the remaining shards when the preferred candidates are exhausted, so
+  routing cannot deny a request while another shard can still serve it.
+- Preserve whole-request capacity for fractional budgets by dealing the whole
+  portion and keeping the fractional remainder on one shard.
+- Scale fixed-window snapshots and response balances by `capacity` rather than
+  the refill `limit`, so burst configurations report valid remaining tokens.

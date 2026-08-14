@@ -2,6 +2,7 @@ import { mutationGeneric, queryGeneric } from 'convex/server';
 import { v } from 'convex/values';
 import {
   algorithmBudget,
+  algorithmCapacity,
   applyDynamicLimit,
   fixedWindow,
   shardAlgorithm,
@@ -169,7 +170,7 @@ export class Ratelimit {
     const now = Date.now();
 
     let sampledRemaining = 0;
-    let sampledBudget = 0;
+    let sampledCapacity = 0;
     let latestTs: number | null = null;
     let fullestShard: number | null = null;
     let fullestRemaining = Number.NEGATIVE_INFINITY;
@@ -182,7 +183,7 @@ export class Ratelimit {
       const evaluated = calculateRatelimit(state, perShard, now, 0);
 
       sampledRemaining += evaluated.remainingRaw;
-      sampledBudget += algorithmBudget(perShard);
+      sampledCapacity += algorithmCapacity(perShard);
       latestTs =
         latestTs === null
           ? evaluated.state.ts
@@ -197,7 +198,7 @@ export class Ratelimit {
     const result: RatelimitSnapshot =
       fullestShard === null
         ? {
-            value: algorithmBudget(algorithm),
+            value: algorithmCapacity(algorithm),
             ts: now,
             shard: 0,
             config: algorithm,
@@ -205,8 +206,8 @@ export class Ratelimit {
         : {
             value: scaleToGlobal(
               sampledRemaining,
-              sampledBudget,
-              algorithmBudget(algorithm)
+              sampledCapacity,
+              algorithmCapacity(algorithm)
             ),
             ts: latestTs ?? now,
             shard: fullestShard,
@@ -319,25 +320,55 @@ export class Ratelimit {
     const reserveRequested = Boolean(request?.reserve);
 
     const picked = pickCandidateShards(algorithm.shards);
-    const open: number[] = [];
+    const attempted = new Set<number>();
     let blockedUntil = Number.POSITIVE_INFINITY;
 
-    for (const shard of picked) {
-      const blocked =
-        this.blockCache && count > 0
-          ? this.blockCache.isBlocked(this.blockKey(identifier), shard)
-          : undefined;
+    const findOpen = (shards: number[]): number[] => {
+      const open: number[] = [];
+      for (const shard of shards) {
+        attempted.add(shard);
+        const blocked =
+          this.blockCache && count > 0
+            ? this.blockCache.isBlocked(this.blockKey(identifier), shard)
+            : undefined;
 
-      if (blocked?.blocked) {
-        blockedUntil = Math.min(blockedUntil, blocked.reset);
-      } else {
-        open.push(shard);
+        if (blocked?.blocked) {
+          blockedUntil = Math.min(blockedUntil, blocked.reset);
+        } else {
+          open.push(shard);
+        }
       }
+      return open;
+    };
+
+    const now = Date.now();
+    const candidates = await this.evaluateCandidates(
+      identifier,
+      algorithm,
+      findOpen(picked),
+      now,
+      count,
+      reserveRequested
+    );
+
+    if (!candidates.some((candidate) => candidate.success)) {
+      const fallback = Array.from(
+        { length: algorithm.shards },
+        (_, shard) => shard
+      ).filter((shard) => !attempted.has(shard));
+      candidates.push(
+        ...(await this.evaluateCandidates(
+          identifier,
+          algorithm,
+          findOpen(fallback),
+          now,
+          count,
+          reserveRequested
+        ))
+      );
     }
 
-    // Only the shards this request was routed to matter. Peers keep their
-    // tokens, exactly as they would if the cache were disabled.
-    if (open.length === 0) {
+    if (candidates.length === 0) {
       return {
         success: false,
         ok: false,
@@ -349,15 +380,18 @@ export class Ratelimit {
       };
     }
 
-    const now = Date.now();
-    const candidates = await this.evaluateCandidates(
-      identifier,
-      algorithm,
-      open,
-      now,
-      count,
-      reserveRequested
-    );
+    if (consume && this.blockCache && count > 0) {
+      for (const candidate of candidates) {
+        if (!candidate.success) {
+          this.blockCache.blockUntil(
+            this.blockKey(identifier),
+            candidate.shard,
+            now + (candidate.evaluated.retryAfter ?? 1)
+          );
+        }
+      }
+    }
+
     const successful = candidates.filter((candidate) => candidate.success);
 
     if (successful.length > 0) {
@@ -386,8 +420,8 @@ export class Ratelimit {
           Math.floor(
             scaleToGlobal(
               best.evaluated.remainingRaw,
-              algorithmBudget(shardAlgorithm(algorithm, best.shard)),
-              algorithmBudget(algorithm)
+              algorithmCapacity(shardAlgorithm(algorithm, best.shard)),
+              algorithmCapacity(algorithm)
             )
           )
         ),
@@ -407,16 +441,6 @@ export class Ratelimit {
 
     const retryAfter = failure.evaluated.retryAfter ?? 1;
     const reset = now + retryAfter;
-
-    if (consume && this.blockCache && count > 0) {
-      for (const candidate of candidates) {
-        this.blockCache.blockUntil(
-          this.blockKey(identifier),
-          candidate.shard,
-          now + (candidate.evaluated.retryAfter ?? retryAfter)
-        );
-      }
-    }
 
     if (consume && this.enableProtection) {
       recordRatelimitFailure({

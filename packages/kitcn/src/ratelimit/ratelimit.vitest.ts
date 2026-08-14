@@ -254,7 +254,48 @@ describe('Ratelimit', () => {
     });
   });
 
-  test('an exhausted shard does not strand the other shards via the cache', async () => {
+  test('shards preserve whole requests for fractional budgets', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(5.5, '1 m', { shards: 2 }),
+    });
+
+    let allowed = 0;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      Math.random = () => (attempt % 2 === 0 ? 0.1 : 0.9);
+      const result = await limiter.limit('fractional-shard-user');
+      if (result.success) {
+        allowed += 1;
+      }
+    }
+
+    expect(allowed).toBe(5);
+  });
+
+  test('shards keep whole-token reservation headroom', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(2, '1 m', {
+        maxReserved: 1,
+        shards: 2,
+      }),
+    });
+
+    Math.random = () => 0;
+    const first = await limiter.limit('reserved-shard-user');
+    const reserved = await limiter.limit('reserved-shard-user', {
+      reserve: true,
+    });
+
+    expect(first.success).toBe(true);
+    expect(reserved.success).toBe(true);
+  });
+
+  test('an exhausted shard falls back to preserve the configured budget', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({
       db,
@@ -274,13 +315,13 @@ describe('Ratelimit', () => {
     expect(outcomes).toEqual([
       { success: true, reason: undefined },
       { success: true, reason: undefined },
+      { success: true, reason: undefined },
+      { success: true, reason: undefined },
       { success: false, reason: undefined },
-      { success: true, reason: undefined },
-      { success: true, reason: undefined },
     ]);
   });
 
-  test('a request routed to an exhausted shard is served from the cache', async () => {
+  test('a fully exhausted sharded limiter is served from the cache', async () => {
     const { db, counters } = createMockDb();
     const limiter = new Ratelimit({
       db,
@@ -288,11 +329,14 @@ describe('Ratelimit', () => {
     });
 
     Math.random = () => 0;
-    await limiter.limit('cached-user');
+    const first = await limiter.limit('cached-user');
+    const second = await limiter.limit('cached-user');
     const denied = await limiter.limit('cached-user');
     const readsAfterBlock = counters.uniqueReads;
     const cached = await limiter.limit('cached-user');
 
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
     expect(denied.success).toBe(false);
     expect(denied.reason).toBeUndefined();
     expect(cached.success).toBe(false);
@@ -357,6 +401,26 @@ describe('Ratelimit', () => {
 
     expect(remaining.remaining).toBe(5);
     expect(remaining.limit).toBe(10);
+  });
+
+  test('fixed-window projections scale by capacity instead of refill limit', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(3, '1 m', {
+        capacity: 100,
+        shards: 2,
+      }),
+    });
+
+    Math.random = () => 0.9;
+    const fresh = await limiter.getValue('capacity-user');
+    const consumed = await limiter.limit('capacity-user');
+
+    expect(fresh.value).toBe(100);
+    expect(consumed.limit).toBe(3);
+    expect(consumed.remaining).toBe(98);
   });
 
   test('resetUsedTokens clears the ephemeral block', async () => {

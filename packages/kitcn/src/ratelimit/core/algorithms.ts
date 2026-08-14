@@ -117,12 +117,12 @@ export function shardAlgorithm(
   }
 
   const share = (value: number) => shardShare(value, shards, shard);
-  // Reserved headroom is a threshold, not a counter, so it splits evenly and
-  // never needs a whole token.
+  // Reservation headroom is spent as debt, so whole tokens must stay whole.
+  // Otherwise maxReserved: 1 over two shards becomes two unusable 0.5 shares.
   const maxReserved =
     algorithm.maxReserved === undefined
       ? undefined
-      : algorithm.maxReserved / shards;
+      : share(algorithm.maxReserved);
 
   if (algorithm.kind === 'tokenBucket') {
     return {
@@ -158,6 +158,14 @@ export function algorithmBudget(algorithm: ResolvedAlgorithm): number {
     : algorithm.limit;
 }
 
+/** Tokens the algorithm can hold, including fixed-window burst capacity. */
+export function algorithmCapacity(algorithm: ResolvedAlgorithm): number {
+  if (algorithm.kind === 'fixedWindow') {
+    return algorithm.capacity;
+  }
+  return algorithmBudget(algorithm);
+}
+
 /**
  * Deal a whole-token budget across `shards` so the shares sum back to `total`.
  *
@@ -169,10 +177,11 @@ export function algorithmBudget(algorithm: ResolvedAlgorithm): number {
  * even split.
  */
 function shardShare(total: number, shards: number, shard: number): number {
-  if (!Number.isInteger(total)) {
-    return total / shards;
-  }
-  return Math.floor(total / shards) + (shard < total % shards ? 1 : 0);
+  const whole = Math.floor(total);
+  const fractional = total - whole;
+  const wholeShare =
+    Math.floor(whole / shards) + (shard < whole % shards ? 1 : 0);
+  return wholeShare + (shard === 0 ? fractional : 0);
 }
 
 function normalizeShards(shards: number | undefined): number {
