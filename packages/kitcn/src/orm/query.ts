@@ -2024,12 +2024,31 @@ export class GelRelationalQuery<
       const targetTableConfig = this._getTableConfigByDbName(edge.targetTable);
       if (!targetTableConfig) continue;
 
+      let nestedWith: Record<string, unknown> | undefined;
+      if (relationConfig && typeof relationConfig === 'object') {
+        const configuredWith = (relationConfig as any).with;
+        if (this._isRecord(configuredWith)) {
+          nestedWith = { ...configuredWith };
+        }
+
+        const relationWhere = (relationConfig as any).where;
+        if (relationWhere && typeof relationWhere !== 'function') {
+          const filterWith = this._buildFilterWithConfig(
+            relationWhere,
+            targetTableConfig
+          );
+          if (Object.keys(filterWith).length > 0) {
+            if (nestedWith) {
+              this._mergeWithConfig(nestedWith, filterWith);
+            } else {
+              nestedWith = filterWith;
+            }
+          }
+        }
+      }
+
       this._assertRlsSelectPlan(
-        relationConfig && typeof relationConfig === 'object'
-          ? ((relationConfig as any).with as
-              | Record<string, unknown>
-              | undefined)
-          : undefined,
+        nestedWith,
         targetTableConfig,
         this._getTargetTableEdges(edge.targetTable),
         depth + 1,

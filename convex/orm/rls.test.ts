@@ -213,7 +213,13 @@ const relations = defineRelations(tables, (r) => ({
   rls_secrets: {},
   rls_nullable_secrets: {},
   rls_excluded_secrets: {},
-  rls_orgs: {},
+  rls_orgs: {
+    users: r.many.rls_users({
+      from: r.rls_orgs.id.through(r.rls_memberships.orgId),
+      to: r.rls_users.id.through(r.rls_memberships.userId),
+      alias: 'rls-org-users',
+    }),
+  },
   rls_memberships: {},
   rls_tasks: {},
   rls_locked: {},
@@ -567,6 +573,23 @@ describe('RLS', () => {
       await expect(
         ctx.orm.query.rls_users.findMany({
           where: { roleDocs: { value: 'allowed' } },
+        })
+      ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
+    });
+  });
+
+  it('throws for nested relation filters when the root has no rows', async () => {
+    const t = convexTest(schema);
+    await t.run(async (baseCtx) => {
+      const ctx = withOrm(baseCtx, relations);
+
+      await expect(
+        ctx.orm.query.rls_orgs.findMany({
+          with: {
+            users: {
+              where: { roleDocs: { value: 'allowed' } },
+            },
+          },
         })
       ).rejects.toThrow(/RLS_ROLE_RESOLVER_REQUIRED/);
     });
