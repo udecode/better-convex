@@ -1,6 +1,20 @@
+import * as tokenModule from '../auth/internal/token';
 import { convexBetterAuth } from './index';
 
 describe('convexBetterAuth', () => {
+  // Bun shares one process across test files, so a fetch stub installed by an
+  // earlier file can still be live here. Pin the global around every test so
+  // this file neither inherits nor leaks one.
+  let ambientFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    ambientFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ambientFetch;
+  });
+
   test('creates GET/POST/OPTIONS handlers that rewrite request URL to convex site', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{
@@ -98,74 +112,52 @@ describe('convexBetterAuth', () => {
     }
   });
 
-  test('jwtCache false still authenticates, skipping only the cookie cache', async () => {
-    const originalFetch = globalThis.fetch;
-    const requests: string[] = [];
+  // These two assert how `auth.jwtCache` is forwarded to the token layer.
+  // They spy on the token module rather than stubbing `globalThis.fetch`, so
+  // no ambient fetch state can shadow the call being measured.
+  describe('jwtCache forwarding', () => {
+    let getTokenSpy: ReturnType<typeof spyOn>;
+    const jwtCacheOf = (call: unknown[]) =>
+      (call?.[2] as { jwtCache?: { enabled?: boolean } } | undefined)?.jwtCache;
 
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      requests.push(String(input));
-      return new Response(JSON.stringify({ token: 'fresh-token' }), {
-        headers: { 'content-type': 'application/json' },
-      });
-    }) as typeof fetch;
+    beforeEach(() => {
+      getTokenSpy = spyOn(tokenModule, 'getToken').mockImplementation(
+        async () => ({ isFresh: true, token: 'server-token' })
+      );
+    });
 
-    try {
+    afterEach(() => {
+      getTokenSpy.mockRestore();
+    });
+
+    test('jwtCache false disables the cache without disabling auth', async () => {
       const { createContext } = convexBetterAuth({
         api: {},
         auth: { jwtCache: false },
         convexSiteUrl: 'https://my-app.convex.site',
       });
 
-      const ctx = await createContext({
-        headers: new Headers({
-          cookie: 'better-auth.convex_jwt=cached.jwt.value',
-        }),
-      });
+      const ctx = await createContext({ headers: new Headers() });
 
-      expect(ctx.token).toBe('fresh-token');
+      // With auth wired off entirely, getToken is never reached and the
+      // request runs anonymously.
+      expect(getTokenSpy).toHaveBeenCalledTimes(1);
+      expect(jwtCacheOf(getTokenSpy.mock.calls[0] ?? [])?.enabled).toBe(false);
+      expect(ctx.token).toBe('server-token');
       expect(ctx.isAuthenticated).toBe(true);
-      expect(requests).toHaveLength(1);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
+    });
 
-  test('jwtCache default reuses an unexpired token from the cookie', async () => {
-    const originalFetch = globalThis.fetch;
-    const requests: string[] = [];
-
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      requests.push(String(input));
-      return new Response(JSON.stringify({ token: 'fresh-token' }), {
-        headers: { 'content-type': 'application/json' },
-      });
-    }) as typeof fetch;
-
-    const encode = (value: object) =>
-      btoa(JSON.stringify(value))
-        .replaceAll('+', '-')
-        .replaceAll('/', '_')
-        .replaceAll('=', '');
-    const cachedToken = `${encode({ alg: 'RS256' })}.${encode({
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    })}.sig`;
-
-    try {
+    test('jwtCache defaults to enabled', async () => {
       const { createContext } = convexBetterAuth({
         api: {},
         convexSiteUrl: 'https://my-app.convex.site',
       });
 
-      const ctx = await createContext({
-        headers: new Headers({
-          cookie: `better-auth.convex_jwt=${cachedToken}`,
-        }),
-      });
+      const ctx = await createContext({ headers: new Headers() });
 
-      expect(ctx.token).toBe(cachedToken);
-      expect(requests).toHaveLength(0);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+      expect(getTokenSpy).toHaveBeenCalledTimes(1);
+      expect(jwtCacheOf(getTokenSpy.mock.calls[0] ?? [])?.enabled).toBe(true);
+      expect(ctx.token).toBe('server-token');
+    });
   });
 });
