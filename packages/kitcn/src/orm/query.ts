@@ -1035,18 +1035,22 @@ export class GelRelationalQuery<
         }
         case 'eq':
           results.push(
-            fieldValue ===
-              (fieldName
+            filterValuesEqual(
+              fieldValue,
+              fieldName
                 ? this._normalizeComparableValue(fieldName, value)
-                : value)
+                : value
+            )
           );
           continue;
         case 'ne':
           results.push(
-            fieldValue !==
-              (fieldName
+            !filterValuesEqual(
+              fieldValue,
+              fieldName
                 ? this._normalizeComparableValue(fieldName, value)
-                : value)
+                : value
+            )
           );
           continue;
         case 'gt':

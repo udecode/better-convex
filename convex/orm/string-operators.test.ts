@@ -971,7 +971,7 @@ describe('like() wildcard placement', () => {
   }) => {
     await seedTitles(ctx, ['Java Advanced Guide', 'Python Guide']);
 
-    const posts = await ctx.orm.query.posts.findMany({
+    const posts = await ctx.orm.query.posts.withIndex('by_title').findMany({
       where: { title: { ilike: 'java%guide' } },
       limit: 50,
     });
@@ -984,7 +984,7 @@ describe('like() wildcard placement', () => {
   }) => {
     await seedTitles(ctx, ['Java Advanced Guide', 'Python Guide']);
 
-    const posts = await ctx.orm.query.posts.findMany({
+    const posts = await ctx.orm.query.posts.withIndex('by_title').findMany({
       where: { title: { notLike: 'Java%Guide' } },
       limit: 50,
     });

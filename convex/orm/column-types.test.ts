@@ -93,7 +93,7 @@ describe('filters on array and object columns', () => {
         .returning();
 
       const rows = await orm.query.tagged_posts.findMany({
-        where: { tags: ['x', 'y'] },
+        where: { tags: { eq: ['x', 'y'] } },
         allowFullScan: true,
       });
 
