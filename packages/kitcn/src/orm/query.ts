@@ -105,7 +105,7 @@ import {
   EmptyStream,
   getIndexFields,
   mergedStream,
-  QueryStream,
+  type QueryStream,
   stream,
 } from './stream';
 import {
@@ -177,59 +177,56 @@ type GroupByOrderSpec = {
   path: string[];
 };
 
-class LimitedQueryStream<
-  T extends NonNullable<unknown>,
-> extends QueryStream<T> {
-  constructor(
-    private readonly inner: QueryStream<T>,
-    private readonly limit: number
-  ) {
-    super();
+/**
+ * Cap a stream at its first `limit` *matching* documents.
+ *
+ * Expressed as an index-key bound rather than a running counter, for two
+ * reasons. `filterWith` does not drop excluded rows, it emits `[null, key]`
+ * placeholders, so a counter would spend the limit on non-matches and a
+ * `where` + `limit` pair could return nothing. And a counter resets whenever
+ * pagination narrows the stream, so every page would hand back another `limit`
+ * rows. A bound survives `narrow()` because every stream intersects bounds.
+ *
+ * Reading the first `limit` matches up front is the same work the cap needs
+ * anyway: the cut-off key is only knowable by reaching it.
+ */
+async function limitStreamByKey<T extends NonNullable<unknown>>(
+  inner: QueryStream<T>,
+  limit: number
+): Promise<QueryStream<T>> {
+  let matched = 0;
+  // The bound is the first row *past* the limit, held exclusively, rather than
+  // the last kept row held inclusively. A cursor always points at a row that
+  // was emitted, so an exclusive bound on a never-emitted row can never
+  // collapse into the empty `lowerBound === upperBound` range that index range
+  // splitting turns back into a point lookup.
+  let firstDroppedKey: IndexKey | null = null;
+
+  for await (const [doc, indexKey] of inner.iterWithKeys()) {
+    if (doc === null) {
+      continue;
+    }
+    matched += 1;
+    if (matched > limit) {
+      firstDroppedKey = indexKey;
+      break;
+    }
   }
 
-  iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
-    const iterable = this.inner.iterWithKeys();
-    const max = this.limit;
-    return {
-      [Symbol.asyncIterator]() {
-        const iterator = iterable[Symbol.asyncIterator]();
-        let seen = 0;
-        return {
-          async next() {
-            if (seen >= max) {
-              return { done: true as const, value: undefined };
-            }
-            const next = await iterator.next();
-            if (!next.done) {
-              seen += 1;
-            }
-            return next as any;
-          },
-        };
-      },
-    };
+  // At most `limit` matches exist: nothing to cut off.
+  if (firstDroppedKey === null) {
+    return inner;
   }
 
-  narrow(indexBounds: {
-    lowerBound: IndexKey;
-    lowerBoundInclusive: boolean;
-    upperBound: IndexKey;
-    upperBoundInclusive: boolean;
-  }): QueryStream<T> {
-    return new LimitedQueryStream(this.inner.narrow(indexBounds), this.limit);
-  }
-
-  getOrder(): 'asc' | 'desc' {
-    return this.inner.getOrder();
-  }
-
-  getIndexFields(): string[] {
-    return this.inner.getIndexFields();
-  }
-
-  getEqualityIndexFilter(): any[] {
-    return this.inner.getEqualityIndexFilter();
-  }
+  // `IndexBounds` is always stated in ascending index-key order, so a stream
+  // read descending runs out of allowed rows at the *lower* bound.
+  const isDescending = inner.getOrder() === 'desc';
+  return inner.narrow({
+    lowerBound: isDescending ? firstDroppedKey : [],
+    lowerBoundInclusive: !isDescending,
+    upperBound: isDescending ? [] : firstDroppedKey,
+    upperBoundInclusive: isDescending,
+  });
 }
 
 export class GelRankQuery<
@@ -2630,7 +2627,7 @@ export class GelRelationalQuery<
         if (!Number.isInteger(stage.limit) || stage.limit < 1) {
           throw new Error('pipeline.flatMap.limit must be a positive integer');
         }
-        inner = new LimitedQueryStream(inner, stage.limit);
+        inner = await limitStreamByKey(inner, stage.limit);
       }
 
       if (stage.includeParent ?? true) {
