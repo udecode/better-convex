@@ -589,7 +589,7 @@ export type QueryReflection<
   table: T;
   index: IndexName;
   indexFields: string[];
-  /** `indexFields`, each split on `.` once, for reading keys out of documents. */
+  /** `indexFields`, each split on `.` once, for reading document keys. */
   indexFieldPaths: string[][];
   order: 'asc' | 'desc';
   bounds: IndexBounds;
@@ -1067,12 +1067,13 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
       streams.map((stream) => stream.getOrder()),
       'Cannot merge streams with different orders'
     );
+    // Each wrapper gets its own copy of the ordering fields, because the
+    // wrapper normalizes them in place and would otherwise mutate the
+    // caller's array.
     this.#streams =
       preOrdered === PRE_ORDERED_STREAMS
         ? streams
         : streams.map(
-            // Each wrapper gets its own copy: the constructor normalizes the
-            // array in place, which would otherwise mutate the caller's.
             (stream) => new OrderByStream(stream, orderByIndexFields.slice())
           );
     this.#indexFields = allSame(
@@ -1814,7 +1815,8 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
   override iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
     const stream = this.#stream;
     const distinctIndexFieldsLength = this.#distinctIndexFieldsLength;
-    const comparisonInversion = stream.getOrder() === 'asc' ? 1 : -1;
+    const order = stream.getOrder();
+    const comparisonInversion = order === 'asc' ? 1 : -1;
     return {
       [Symbol.asyncIterator]() {
         let currentIterator = stream.iterWithKeys()[Symbol.asyncIterator]();
@@ -1861,23 +1863,23 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
             // so both describe the same range -- but chaining rebuilds the
             // whole stream tree on every item, which multiplies the number of
             // index ranges opened per emitted row.
-            const nextStream =
-              comparisonInversion === 1
-                ? stream.narrow({
-                    lowerBound: distinctIndexKey,
-                    lowerBoundInclusive: false,
-                    upperBound: [],
-                    upperBoundInclusive: true,
-                  })
-                : stream.narrow({
-                    lowerBound: [],
-                    lowerBoundInclusive: true,
-                    upperBound: distinctIndexKey,
-                    upperBoundInclusive: false,
-                  });
-            currentIterator = nextStream
-              .iterWithKeys()
-              [Symbol.asyncIterator]();
+            let narrowed: QueryStream<T>;
+            if (order === 'asc') {
+              narrowed = stream.narrow({
+                lowerBound: distinctIndexKey,
+                lowerBoundInclusive: false,
+                upperBound: [],
+                upperBoundInclusive: true,
+              });
+            } else {
+              narrowed = stream.narrow({
+                lowerBound: [],
+                lowerBoundInclusive: true,
+                upperBound: distinctIndexKey,
+                upperBoundInclusive: false,
+              });
+            }
+            currentIterator = narrowed.iterWithKeys()[Symbol.asyncIterator]();
             return result;
           },
         };
