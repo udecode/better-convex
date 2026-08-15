@@ -30,7 +30,6 @@ import {
   zCustomMutation,
   zCustomQuery,
   zodOutputToConvex,
-  zodToConvex,
   zodToConvexFields,
 } from '../internal/upstream/server/zod4';
 import { toCRPCError } from './error';
@@ -545,34 +544,28 @@ const replaceUnencodableInputTypes = (schema: z.ZodTypeAny): z.ZodTypeAny => {
  * unchanged) but carries no checks, transforms, or defaults. cRPC's own
  * `.input()` parse stays the single authoritative one, so refinements and
  * transforms never run twice.
+ *
+ * Throws when the shape has no Convex equivalent, which is also the
+ * feasibility test `resolveConvexArgsShape` steps down its fallback ladder on.
  */
 const toWireShape = (
   shape: Record<string, z.ZodTypeAny>
-): Record<string, z.ZodTypeAny> => {
-  try {
-    return convexToZodFields(zodToConvexFields(shape)) as Record<
-      string,
-      z.ZodTypeAny
-    >;
-  } catch {
-    return shape;
-  }
-};
+): Record<string, z.ZodTypeAny> =>
+  convexToZodFields(zodToConvexFields(shape)) as Record<string, z.ZodTypeAny>;
 
 const resolveConvexArgsShape = (
   inputShape?: Record<string, z.ZodTypeAny>
 ): Record<string, z.ZodTypeAny> | undefined => {
   if (!inputShape) return;
 
-  const rawSchema = z.object(inputShape);
   try {
-    zodToConvex(rawSchema as any);
     return toWireShape(inputShape);
   } catch {
-    const compatibleSchema = replaceUnencodableInputTypes(rawSchema);
+    const compatibleSchema = replaceUnencodableInputTypes(
+      z.object(inputShape)
+    ) as z.ZodObject<any>;
     try {
-      zodToConvex(compatibleSchema as any);
-      return toWireShape((compatibleSchema as z.ZodObject<any>).shape);
+      return toWireShape(compatibleSchema.shape);
     } catch {
       const permissiveShape = Object.fromEntries(
         Object.keys(inputShape).map((key) => [key, z.any()])
