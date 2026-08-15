@@ -40,9 +40,9 @@ export const parseSchemaSource = (
 
   parseCache.set(key, parsed);
   if (parseCache.size > PARSE_CACHE_LIMIT) {
-    const oldest = parseCache.keys().next().value;
-    if (oldest !== undefined) {
-      parseCache.delete(oldest);
+    const oldestKey = parseCache.keys().next().value;
+    if (oldestKey) {
+      parseCache.delete(oldestKey);
     }
   }
 
