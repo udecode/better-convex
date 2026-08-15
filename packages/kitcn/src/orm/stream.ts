@@ -188,14 +188,22 @@ export function getIndexFields<
   return fields;
 }
 
+/**
+ * Read the index key out of a document.
+ *
+ * Takes field paths already split on `.` rather than the field names: the field
+ * list is fixed for the life of a query, so splitting it once at `withIndex`
+ * time saves an array allocation per field per document pulled through the
+ * stream.
+ */
 function getIndexKey<
   DataModel extends GenericDataModel,
   T extends TableNamesInDataModel<DataModel>,
->(doc: DocumentByName<DataModel, T>, indexFields: string[]): IndexKey {
+>(doc: DocumentByName<DataModel, T>, indexFieldPaths: string[][]): IndexKey {
   const key: IndexKey = [];
-  for (const field of indexFields) {
+  for (const path of indexFieldPaths) {
     let obj: any = doc;
-    for (const subfield of field.split('.')) {
+    for (const subfield of path) {
       obj = obj[subfield];
     }
     key.push(obj);
@@ -581,6 +589,8 @@ export type QueryReflection<
   table: T;
   index: IndexName;
   indexFields: string[];
+  /** `indexFields`, each split on `.` once, for reading keys out of documents. */
+  indexFieldPaths: string[][];
   order: 'asc' | 'desc';
   bounds: IndexBounds;
   indexRange?: (
@@ -751,6 +761,7 @@ export class OrderedStreamQuery<
       table: this.parent.parent.table,
       index: this.parent.index,
       indexFields: this.parent.q.indexFields,
+      indexFieldPaths: this.parent.q.indexFieldPaths,
       order: this.order,
       bounds: {
         lowerBound: this.parent.q.lowerBoundIndexKey ?? [],
@@ -771,7 +782,7 @@ export class OrderedStreamQuery<
   iterWithKeys(): AsyncIterable<
     [DocumentByName<DM<Schema>, T> | null, IndexKey]
   > {
-    const { indexFields } = this.reflect();
+    const { indexFieldPaths } = this.reflect();
     const iterable = this.inner();
     return {
       [Symbol.asyncIterator]() {
@@ -784,7 +795,7 @@ export class OrderedStreamQuery<
             }
             return {
               done: false,
-              value: [result.value, getIndexKey(result.value, indexFields)],
+              value: [result.value, getIndexKey(result.value, indexFieldPaths)],
             };
           },
         };
@@ -893,9 +904,12 @@ class ReflectIndexRange {
   upperBoundInclusive = true;
   equalityIndexFilter: Value[] = [];
   indexFields: string[];
+  /** `indexFields`, each split on `.` once, for `getIndexKey`. */
+  indexFieldPaths: string[][];
 
   constructor(indexFields: string[]) {
     this.indexFields = indexFields;
+    this.indexFieldPaths = indexFields.map((field) => field.split('.'));
   }
   eq(field: string, value: Value) {
     if (!this.#canLowerBound(field) || !this.#canUpperBound(field)) {
