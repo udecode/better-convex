@@ -1752,12 +1752,11 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
   override iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
     const stream = this.#stream;
     const distinctIndexFieldsLength = this.#distinctIndexFieldsLength;
+    const comparisonInversion = stream.getOrder() === 'asc' ? 1 : -1;
     return {
       [Symbol.asyncIterator]() {
-        let currentStream = stream;
-        let currentIterator = currentStream
-          .iterWithKeys()
-          [Symbol.asyncIterator]();
+        let currentIterator = stream.iterWithKeys()[Symbol.asyncIterator]();
+        let previousDistinctIndexKey: IndexKey | undefined;
         return {
           async next() {
             const result = await currentIterator.next();
@@ -1777,22 +1776,44 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
               0,
               distinctIndexFieldsLength
             );
-            if (stream.getOrder() === 'asc') {
-              currentStream = currentStream.narrow({
-                lowerBound: distinctIndexKey,
-                lowerBoundInclusive: false,
-                upperBound: [],
-                upperBoundInclusive: true,
-              });
-            } else {
-              currentStream = currentStream.narrow({
-                lowerBound: [],
-                lowerBoundInclusive: true,
-                upperBound: distinctIndexKey,
-                upperBoundInclusive: false,
-              });
+            // Skipping past the emitted key only terminates if each distinct
+            // key is strictly past the previous one, and that is also what
+            // makes narrowing the original stream equivalent to narrowing the
+            // narrowed one. Check it here rather than trusting the source.
+            if (
+              previousDistinctIndexKey !== undefined &&
+              compareKeys(
+                { value: previousDistinctIndexKey, kind: 'exact' },
+                { value: distinctIndexKey, kind: 'exact' }
+              ) *
+                comparisonInversion >=
+                0
+            ) {
+              throw new Error(
+                `DistinctStream in wrong order: ${JSON.stringify(previousDistinctIndexKey)}, ${JSON.stringify(distinctIndexKey)}`
+              );
             }
-            currentIterator = currentStream
+            previousDistinctIndexKey = distinctIndexKey;
+            // Narrow the original stream, not the one narrowed on the previous
+            // item. `narrow` intersects bounds and these bounds only tighten,
+            // so both describe the same range -- but chaining rebuilds the
+            // whole stream tree on every item, which multiplies the number of
+            // index ranges opened per emitted row.
+            const nextStream =
+              comparisonInversion === 1
+                ? stream.narrow({
+                    lowerBound: distinctIndexKey,
+                    lowerBoundInclusive: false,
+                    upperBound: [],
+                    upperBoundInclusive: true,
+                  })
+                : stream.narrow({
+                    lowerBound: [],
+                    lowerBoundInclusive: true,
+                    upperBound: distinctIndexKey,
+                    upperBoundInclusive: false,
+                  });
+            currentIterator = nextStream
               .iterWithKeys()
               [Symbol.asyncIterator]();
             return result;
