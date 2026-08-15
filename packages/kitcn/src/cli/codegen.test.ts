@@ -260,6 +260,55 @@ describe('cli/codegen', () => {
     }
   });
 
+  test('generateMeta sees edits made between runs in the same process', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'lib', 'crpc.ts'),
+        `
+        import { initCRPC } from '../generated/server';
+
+        const c = initCRPC.meta<{}>().create();
+
+        export const publicQuery = c.query;
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { publicQuery } from './lib/crpc';
+
+        export const list = publicQuery.query(async () => []);
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { publicQuery } from './lib/crpc';
+
+        export const list = publicQuery.query(async () => []);
+        export const brandNew = publicQuery.query(async () => []);
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const { outputFile } = getConvexConfig();
+      const generatedApi = fs.readFileSync(outputFile, 'utf-8');
+
+      expect(generatedApi).toContain('todos:brandNew');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
   test('generateMeta types regular runtime refs from source module exports', async () => {
     const dir = mkTempDir();
     const oldCwd = process.cwd();
