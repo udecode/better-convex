@@ -734,7 +734,7 @@ test('select() pipeline reads an id-only where by key, not by scan', async () =>
   });
 });
 
-test('select() pipeline reads an id `in` where by key, in creation order', async () => {
+test('select() pipeline reads an id `in` where by key, in list order', async () => {
   const t = convexTest(schema);
   const ids: string[] = [];
 
@@ -757,15 +757,14 @@ test('select() pipeline reads an id `in` where by key, in creation order', async
 
     const mapped = await ctx.orm.query.posts
       .select()
-      // Out of order, and with a duplicate, to pin both the de-dupe and the
-      // stream order the scan would have produced.
+      // With a duplicate, to pin both the de-dupe and the emission order.
       .where({ id: { in: [ids[30], ids[5], ids[30]] as string[] } })
       .map((row) => ({ onlyTitle: row.title }))
       .limit(10);
 
     expect(mapped).toEqual([
-      { onlyTitle: 'title-5' },
       { onlyTitle: 'title-30' },
+      { onlyTitle: 'title-5' },
     ]);
     expect(reads.documents).toBe(2);
   });
@@ -806,11 +805,58 @@ test('select() pipeline pages an id-only where without scanning', async () => {
       }
     }
 
-    expect(walked).toEqual(['title-5', 'title-12', 'title-30']);
+    expect(walked).toEqual(['title-30', 'title-5', 'title-12']);
   });
 });
 
-test('select() rejects id-list pagination with maxScan', async () => {
+test('select() pages an id list without re-reading the whole list', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 60; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title: `title-${i}`,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const perPageReads: number[] = [];
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 6; page += 1) {
+      const reads = countDocumentReads(baseCtx);
+      const result = await ctx.orm.query.posts
+        .select()
+        .where({ id: { in: ids } })
+        .map((row) => ({ onlyTitle: row.title }))
+        .paginate({ cursor, limit: 10 });
+      perPageReads.push(reads.documents);
+      walked.push(...result.page.map((row) => row.onlyTitle as string));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(ids.map((_id, i) => `title-${i}`));
+    // One read per row surfaced (plus the lookahead row that sizes the page),
+    // not one read per id in the list on every page.
+    for (const documents of perPageReads) {
+      expect(documents).toBeLessThanOrEqual(11);
+    }
+  });
+});
+
+test('select() honors maxScan on id-list pagination', async () => {
   const t = convexTest(schema);
   const ids: string[] = [];
 
@@ -828,14 +874,17 @@ test('select() rejects id-list pagination with maxScan', async () => {
 
   await t.run(async (baseCtx) => {
     const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
 
-    await expect(
-      ctx.orm.query.posts
-        .select()
-        .where({ id: { in: ids } })
-        .map((row) => row)
-        .paginate({ cursor: null, limit: 1, maxScan: 1 })
-    ).rejects.toThrow(/id.*in.*maxScan/i);
+    const result = await ctx.orm.query.posts
+      .select()
+      .where({ id: { in: ids } })
+      .map((row) => row)
+      .paginate({ cursor: null, limit: 1, maxScan: 1 });
+
+    expect(result.page).toHaveLength(1);
+    expect(result.isDone).toBe(false);
+    expect(reads.documents).toBe(1);
   });
 });
 
