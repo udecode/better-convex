@@ -81,3 +81,5 @@
   projections without scheduling an infinite retry timer.
 - Apply per-shard capacity guards to partial snapshots while retaining uncapped
   reservation headroom when `maxReserved` is omitted.
+- Reject negative, non-finite `maxReserved` values before sharding or retry
+  calculation.

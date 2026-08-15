@@ -12,6 +12,7 @@ const RATELIMIT_PLUGIN_REGEX =
 const TIMER_UNSUPPORTED_REGEX = /not supported in convex queries\/mutations/i;
 const SHARD_BUDGET_REGEX = /must be at least shards/i;
 const POSITIVE_NUMBER_REGEX = /positive number/i;
+const NON_NEGATIVE_NUMBER_REGEX = /non-negative finite number/i;
 
 type TableRow = Record<string, unknown> & {
   _id: string;
@@ -137,6 +138,20 @@ async function withTimersDisabled<T>(run: () => Promise<T>): Promise<T> {
 describe('Ratelimit', () => {
   beforeEach(() => {
     Math.random = () => 0;
+  });
+
+  test('rejects invalid finite reservation headroom', () => {
+    const buildAlgorithms = (maxReserved: number) => [
+      () => Ratelimit.fixedWindow(2, '1 s', { maxReserved }),
+      () => Ratelimit.slidingWindow(2, '1 s', { maxReserved }),
+      () => Ratelimit.tokenBucket(2, '1 s', 2, { maxReserved }),
+    ];
+
+    for (const maxReserved of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const buildAlgorithm of buildAlgorithms(maxReserved)) {
+        expect(buildAlgorithm).toThrow(NON_NEGATIVE_NUMBER_REGEX);
+      }
+    }
   });
 
   test('fixed window limits and returns retry metadata', async () => {

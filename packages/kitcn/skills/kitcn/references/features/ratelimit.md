@@ -14,7 +14,7 @@ Ratelimit.slidingWindow(limit, window, options?);          // weighted across wi
 Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 ```
 
-`options`: `shards`, `maxReserved`, `capacity` (fixedWindow only), `start` (fixedWindow only). Reserved fixed-window and token-bucket requests have uncapped headroom when `maxReserved` is omitted.
+`options`: `shards`, `maxReserved`, `capacity` (fixedWindow only), `start` (fixedWindow only). `maxReserved` must be finite and non-negative when present. Reserved fixed-window and token-bucket requests have uncapped headroom when it is omitted.
 
 `capacity` is the stored ceiling, `limit` is the per-window refill. Set `capacity > limit` for burst headroom.
 

@@ -202,7 +202,7 @@ All three algorithm builders accept an optional `options` object as the last arg
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `shards` | `number` | `1` | Number of shards for write distribution. The configured budget is dealt across the shards and adds back up to the total you wrote, so the enforced limit is unchanged. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
-| `maxReserved` | `number` | `undefined` | Maximum tokens a request can "borrow" from future capacity. Omit it for uncapped reservation headroom. Dealt across shards as whole-token headroom. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
+| `maxReserved` | `number` | `undefined` | Finite, non-negative maximum a request can "borrow" from future capacity. Omit it for uncapped reservation headroom. Dealt across shards as whole-token headroom. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
 | `capacity` | `number` | `limit` | Maximum stored tokens. Only applies to `fixedWindow`. Useful when you want a higher burst capacity than the per-window refill. Dealt across shards like `limit`, so it must also be at least `shards`. |
 | `start` | `number` | `0` | Epoch offset (ms) for window alignment. Only applies to `fixedWindow`. Aligns windows to a custom origin instead of epoch zero. |
 

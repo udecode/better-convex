@@ -17,6 +17,7 @@ export function fixedWindow(
   validatePositive(limit, 'limit');
   const capacity = options?.capacity ?? limit;
   validatePositive(capacity, 'capacity');
+  validateMaxReserved(options?.maxReserved);
 
   return assertShardBudget({
     kind: 'fixedWindow',
@@ -35,6 +36,7 @@ export function slidingWindow(
   options?: AlgorithmOptions
 ): SlidingWindowAlgorithm {
   validatePositive(limit, 'limit');
+  validateMaxReserved(options?.maxReserved);
 
   return assertShardBudget({
     kind: 'slidingWindow',
@@ -53,6 +55,7 @@ export function tokenBucket(
 ): TokenBucketAlgorithm {
   validatePositive(refillRate, 'refillRate');
   validatePositive(maxTokens, 'maxTokens');
+  validateMaxReserved(options?.maxReserved);
 
   return assertShardBudget({
     kind: 'tokenBucket',
@@ -198,6 +201,12 @@ function normalizeShards(shards: number | undefined): number {
 function validatePositive(value: number, field: string): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${field} must be a positive number`);
+  }
+}
+
+function validateMaxReserved(value: number | undefined): void {
+  if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+    throw new Error('maxReserved must be a non-negative finite number');
   }
 }
 
