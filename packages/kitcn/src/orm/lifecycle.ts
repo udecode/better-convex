@@ -19,6 +19,7 @@ import {
   type OrmTriggers,
   TriggerCancelledError,
 } from './triggers';
+import { markLifecycleHookedTables } from './write-fanout';
 
 const ORMLIFECYCLE_WRAPPED_DB = Symbol.for('kitcn:OrmLifecycleWrappedDB');
 const ORMLIFECYCLE_INNER_DB = Symbol.for('kitcn:OrmLifecycleInnerDB');
@@ -789,6 +790,8 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
     return createNoopLifecycle();
   }
 
+  const hookedTableNames: ReadonlySet<string> = new Set(tableHooks.keys());
+
   return {
     enabled: true,
     wrapDB: <Ctx extends AnyCtx>(ctx: Ctx): Ctx => {
@@ -802,6 +805,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
         tableHooks,
         false
       );
+      markLifecycleHookedTables(wrappedDb, hookedTableNames);
 
       return {
         ...ctx,

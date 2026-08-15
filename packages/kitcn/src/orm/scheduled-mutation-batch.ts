@@ -17,6 +17,7 @@ import {
   getMutationCollectionLimits,
   getOrmContext,
   hardDeleteRow,
+  patchReferencingRows,
   type SerializedFilterExpression,
   softDeleteRow,
   takeRowsWithinByteBudget,
@@ -279,22 +280,18 @@ export function scheduledMutationBatchFactory<
           sourceColumns,
           `Foreign key set null on '${args.table}'`
         );
-        for (const row of rows) {
-          const patch: Record<string, unknown> = {};
-          for (const columnName of sourceColumns) {
-            patch[columnName] = null;
-          }
-          await ctx.db.patch(args.table, row._id as any, patch);
+        const nullPatch: Record<string, unknown> = {};
+        for (const columnName of sourceColumns) {
+          nullPatch[columnName] = null;
         }
+        await patchReferencingRows(ctx.db, args.table, rows, nullPatch);
       } else if (action === 'set default') {
         const defaults = ensureDefaultColumns(
           table,
           sourceColumns,
           `Foreign key set default on '${args.table}'`
         );
-        for (const row of rows) {
-          await ctx.db.patch(args.table, row._id as any, defaults);
-        }
+        await patchReferencingRows(ctx.db, args.table, rows, defaults);
       } else if (action === 'cascade') {
         if (!foreignKeyGraph) {
           throw new Error(
@@ -336,22 +333,18 @@ export function scheduledMutationBatchFactory<
           sourceColumns,
           `Foreign key set null on '${args.table}'`
         );
-        for (const row of rows) {
-          const patch: Record<string, unknown> = {};
-          for (const columnName of sourceColumns) {
-            patch[columnName] = null;
-          }
-          await ctx.db.patch(args.table, row._id as any, patch);
+        const nullPatch: Record<string, unknown> = {};
+        for (const columnName of sourceColumns) {
+          nullPatch[columnName] = null;
         }
+        await patchReferencingRows(ctx.db, args.table, rows, nullPatch);
       } else if (action === 'set default') {
         const defaults = ensureDefaultColumns(
           table,
           sourceColumns,
           `Foreign key set default on '${args.table}'`
         );
-        for (const row of rows) {
-          await ctx.db.patch(args.table, row._id as any, defaults);
-        }
+        await patchReferencingRows(ctx.db, args.table, rows, defaults);
       } else if (action === 'cascade') {
         const newValues = decodeUndefinedDeep(args.newValues) as
           | unknown[]
@@ -370,9 +363,7 @@ export function scheduledMutationBatchFactory<
           patchValues,
           `Foreign key cascade update on '${args.table}'`
         );
-        for (const row of rows) {
-          await ctx.db.patch(args.table, row._id as any, patchValues);
-        }
+        await patchReferencingRows(ctx.db, args.table, rows, patchValues);
       }
     }
 

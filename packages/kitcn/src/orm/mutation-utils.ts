@@ -47,6 +47,11 @@ import {
   PUBLIC_CREATED_AT_FIELD,
   usesSystemCreatedAtAlias,
 } from './timestamp-mode';
+import {
+  DEFAULT_WRITE_FANOUT_CONCURRENCY,
+  hasLifecycleHooks,
+  mapWithConcurrency,
+} from './write-fanout';
 
 type UniqueIndexDefinition = {
   name: string;
@@ -1579,6 +1584,35 @@ export async function softDeleteRow(
   return deletionTime;
 }
 
+/**
+ * Applies one loop-invariant payload to every referencing row. The ids come
+ * from a single index scan so they are distinct, and the write set is
+ * order-independent — but a table whose writes run through lifecycle hooks
+ * keeps the sequential loop: those writes are serialized by the lifecycle write
+ * lock anyway, and their hooks would otherwise fire out of write order.
+ */
+export async function patchReferencingRows(
+  db: GenericDatabaseWriter<any>,
+  tableName: string,
+  rows: Record<string, unknown>[],
+  patch: Record<string, unknown>
+): Promise<void> {
+  if (hasLifecycleHooks(db, tableName)) {
+    for (const row of rows) {
+      await db.patch(tableName, row._id as any, patch);
+    }
+    return;
+  }
+
+  await mapWithConcurrency(
+    rows,
+    DEFAULT_WRITE_FANOUT_CONCURRENCY,
+    async (row) => {
+      await db.patch(tableName, row._id as any, patch);
+    }
+  );
+}
+
 export async function hardDeleteRow(
   db: GenericDatabaseWriter<any>,
   tableName: string,
@@ -1726,17 +1760,16 @@ export async function applyIncomingForeignKeyActionsOnDelete(
         foreignKey.sourceColumns,
         `Foreign key set null on '${foreignKey.sourceTableName}'`
       );
-      for (const referencingRow of referencingRows) {
-        const patch: Record<string, unknown> = {};
-        for (const columnName of foreignKey.sourceColumns) {
-          patch[columnName] = null;
-        }
-        await db.patch(
-          foreignKey.sourceTableName,
-          referencingRow._id as any,
-          patch
-        );
+      const nullPatch: Record<string, unknown> = {};
+      for (const columnName of foreignKey.sourceColumns) {
+        nullPatch[columnName] = null;
       }
+      await patchReferencingRows(
+        db,
+        foreignKey.sourceTableName,
+        referencingRows,
+        nullPatch
+      );
       continue;
     }
 
@@ -1746,13 +1779,12 @@ export async function applyIncomingForeignKeyActionsOnDelete(
         foreignKey.sourceColumns,
         `Foreign key set default on '${foreignKey.sourceTableName}'`
       );
-      for (const referencingRow of referencingRows) {
-        await db.patch(
-          foreignKey.sourceTableName,
-          referencingRow._id as any,
-          defaults
-        );
-      }
+      await patchReferencingRows(
+        db,
+        foreignKey.sourceTableName,
+        referencingRows,
+        defaults
+      );
       continue;
     }
 
@@ -1921,17 +1953,16 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
         foreignKey.sourceColumns,
         `Foreign key set null on '${foreignKey.sourceTableName}'`
       );
-      for (const referencingRow of referencingRows) {
-        const patch: Record<string, unknown> = {};
-        for (const columnName of foreignKey.sourceColumns) {
-          patch[columnName] = null;
-        }
-        await db.patch(
-          foreignKey.sourceTableName,
-          referencingRow._id as any,
-          patch
-        );
+      const nullPatch: Record<string, unknown> = {};
+      for (const columnName of foreignKey.sourceColumns) {
+        nullPatch[columnName] = null;
       }
+      await patchReferencingRows(
+        db,
+        foreignKey.sourceTableName,
+        referencingRows,
+        nullPatch
+      );
       continue;
     }
 
@@ -1941,13 +1972,12 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
         foreignKey.sourceColumns,
         `Foreign key set default on '${foreignKey.sourceTableName}'`
       );
-      for (const referencingRow of referencingRows) {
-        await db.patch(
-          foreignKey.sourceTableName,
-          referencingRow._id as any,
-          defaults
-        );
-      }
+      await patchReferencingRows(
+        db,
+        foreignKey.sourceTableName,
+        referencingRows,
+        defaults
+      );
       continue;
     }
 
@@ -1961,13 +1991,12 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
         patchValues,
         `Foreign key cascade update on '${foreignKey.sourceTableName}'`
       );
-      for (const referencingRow of referencingRows) {
-        await db.patch(
-          foreignKey.sourceTableName,
-          referencingRow._id as any,
-          patchValues
-        );
-      }
+      await patchReferencingRows(
+        db,
+        foreignKey.sourceTableName,
+        referencingRows,
+        patchValues
+      );
     }
   }
 }
