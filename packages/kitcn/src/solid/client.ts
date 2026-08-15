@@ -65,9 +65,15 @@ import {
 import type { ConvexQueryMeta } from '../crpc/types';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
+import {
+  canSubscribeQuery,
+  isAuthBoundQuery,
+  isQueryDisabled,
+} from '../internal/subscription-gate';
 import type { AuthStore } from './auth-store';
 
 const isServer = typeof window === 'undefined';
+type TanstackQuery = ReturnType<QueryCache['getAll']>[number];
 
 // ============================================================================
 // Type Guards for Query Key Format
@@ -222,6 +228,33 @@ export class ConvexQueryClient {
     delete this.subscriptions[queryHash];
   }
 
+  /**
+   * Open a Convex subscription for a query, if the shared gate allows it.
+   * Single owner of the subscribe preconditions for every cache-event branch.
+   */
+  private subscribeQuery(query: TanstackQuery) {
+    const allowed = canSubscribeQuery(query, {
+      isSubscribed: !!this.subscriptions[query.queryHash],
+      shouldSkipSubscription: (authType) =>
+        this.shouldSkipSubscription(authType),
+    });
+    if (!allowed) {
+      return;
+    }
+
+    const [, funcName, args] = query.queryKey;
+    this.createSubscription(
+      query.queryHash,
+      funcName as string,
+      args as Record<string, unknown>,
+      query.queryKey as unknown as [
+        'convexQuery',
+        string,
+        Record<string, unknown>,
+      ]
+    );
+  }
+
   /** Update auth store (for HMR where store may reset) */
   updateAuthStore(authStore?: AuthStore) {
     this.authStore = authStore;
@@ -360,6 +393,38 @@ export class ConvexQueryClient {
   }
 
   /**
+   * Drop every auth-bound cache entry and resubscribe.
+   * Call on an identity transition (sign-in, sign-up, sign-out): Convex query
+   * options set `staleTime: Infinity` with every refetch trigger off, so
+   * without this the next account renders the previous account's rows as
+   * authoritative `success` data — permanently for non-subscribed entries
+   * (actions, `subscribe: false`), which have no push to correct them.
+   */
+  async resetAuthQueries() {
+    const authQueries = this.queryClient
+      .getQueryCache()
+      .getAll()
+      .filter((query) => isAuthBoundQuery(query));
+
+    for (const query of authQueries) {
+      this.cancelPendingUnsubscribe(query.queryHash);
+      this.unsubscribeQueryByHash(query.queryHash);
+    }
+
+    // Reset between the loops: a live watch would re-seed the entry it just
+    // cleared through onUpdateQueryKeyHash's hydration guard.
+    await this.queryClient.resetQueries({
+      predicate: (query) => isAuthBoundQuery(query),
+    });
+
+    for (const query of this.queryClient.getQueryCache().getAll()) {
+      if (isAuthBoundQuery(query)) {
+        this.subscribeQuery(query);
+      }
+    }
+  }
+
+  /**
    * Batch update all subscriptions.
    * Called internally when Convex client reconnects.
    */
@@ -484,34 +549,7 @@ export class ConvexQueryClient {
 
         // Query added to cache -> create Convex subscription
         case 'added': {
-          // Skip subscription if meta.subscribe === false (one-off query mode)
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription if query has no observers
-          if (event.query.getObserversCount() === 0) {
-            break;
-          }
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
 
@@ -519,40 +557,7 @@ export class ConvexQueryClient {
         case 'observerAdded': {
           // Cancel any pending unsubscribe
           this.cancelPendingUnsubscribe(event.query.queryHash);
-
-          // Skip if already subscribed
-          if (this.subscriptions[event.query.queryHash]) {
-            break;
-          }
-
-          // Skip subscription if query is disabled
-          if ((event.query.options as any).enabled === false) {
-            break;
-          }
-
-          // Skip subscription if meta.subscribe === false
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
 
@@ -592,7 +597,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false <-> true)
         case 'observerOptionsUpdated': {
-          const isDisabled = (event.query.options as any).enabled === false;
+          const isDisabled = isQueryDisabled(event.query);
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true -> false: unsubscribe
@@ -607,29 +612,7 @@ export class ConvexQueryClient {
             break;
           }
 
-          // Skip subscription if meta.subscribe === false
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
       }

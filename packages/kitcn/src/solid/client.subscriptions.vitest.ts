@@ -108,6 +108,135 @@ describe('ConvexQueryClient (client mode subscriptions)', () => {
     unsubObserver();
   });
 
+  test('keeps a shared subscription when a second observer is disabled', () => {
+    let unsubscribeCalls = 0;
+    const convexClient = {
+      client: { url: 'https://example.convex.cloud' },
+      onUpdate: createMockOnUpdate({
+        onUnsubscribe: () => {
+          unsubscribeCalls++;
+        },
+      }),
+      query: async () => undefined,
+      action: async () => undefined,
+    } as any;
+
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(convexClient, {
+      queryClient,
+      unsubscribeDelay: 0,
+    });
+
+    const queryKey = ['convexQuery', 'todos:list', { status: 'open' }] as const;
+    const queryFn = async () => ({ ok: true });
+
+    const enabledObserver = new QueryObserver(queryClient as any, {
+      meta: { subscribe: true },
+      queryFn,
+      queryKey,
+    });
+    const unsubEnabled = enabledObserver.subscribe(() => {});
+    expect(Object.keys(client.subscriptions).length).toBe(1);
+
+    const disabledObserver = new QueryObserver(queryClient as any, {
+      enabled: false,
+      meta: { subscribe: true },
+      queryFn,
+      queryKey,
+    });
+    const unsubDisabled = disabledObserver.subscribe(() => {});
+
+    // Query#options is last-writer-wins across observers, so the disabled
+    // observer writing last must not tear down the subscription the enabled
+    // one is still using. query-core resolves this across all observers.
+    disabledObserver.setOptions({
+      enabled: false,
+      meta: { subscribe: true },
+      queryFn,
+      queryKey,
+    });
+
+    expect(unsubscribeCalls).toBe(0);
+    expect(Object.keys(client.subscriptions).length).toBe(1);
+
+    unsubDisabled();
+    unsubEnabled();
+  });
+
+  test('unsubscribes when the only observer switches to a false predicate', () => {
+    let unsubscribeCalls = 0;
+    const convexClient = {
+      client: { url: 'https://example.convex.cloud' },
+      onUpdate: createMockOnUpdate({
+        onUnsubscribe: () => {
+          unsubscribeCalls++;
+        },
+      }),
+      query: async () => undefined,
+      action: async () => undefined,
+    } as any;
+
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(convexClient, {
+      queryClient,
+      unsubscribeDelay: 0,
+    });
+
+    const queryKey = ['convexQuery', 'todos:list', { status: 'open' }] as const;
+    const queryFn = async () => ({ ok: true });
+
+    const observer = new QueryObserver(queryClient as any, {
+      meta: { subscribe: true },
+      queryFn,
+      queryKey,
+    });
+    const unsubObserver = observer.subscribe(() => {});
+    expect(Object.keys(client.subscriptions).length).toBe(1);
+
+    // A predicate never equals `false`, so comparing options directly leaves
+    // the Convex watch alive forever.
+    observer.setOptions({
+      enabled: () => false,
+      meta: { subscribe: true },
+      queryFn,
+      queryKey,
+    });
+
+    expect(unsubscribeCalls).toBe(1);
+    expect(Object.keys(client.subscriptions).length).toBe(0);
+
+    unsubObserver();
+  });
+
+  test('does not subscribe when the first observer supplies a false predicate', () => {
+    const convexClient = {
+      client: { url: 'https://example.convex.cloud' },
+      onUpdate: () => {
+        throw new Error('should not subscribe');
+      },
+      query: async () => undefined,
+      action: async () => undefined,
+    } as any;
+
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(convexClient, {
+      queryClient,
+      unsubscribeDelay: 0,
+    });
+
+    const queryKey = ['convexQuery', 'todos:list', { status: 'open' }] as const;
+    const observer = new QueryObserver(queryClient as any, {
+      enabled: () => false,
+      meta: { subscribe: true },
+      queryFn: async () => ({ ok: true }),
+      queryKey,
+    });
+    const unsubObserver = observer.subscribe(() => {});
+
+    expect(Object.keys(client.subscriptions).length).toBe(0);
+    unsubObserver();
+  });
+
   test('unsubscribes immediately when query is removed from cache', () => {
     let unsubscribeCalls = 0;
     const convexClient = {

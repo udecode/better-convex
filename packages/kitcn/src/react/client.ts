@@ -79,6 +79,11 @@ import {
 import type { ConvexQueryMeta } from '../crpc/types';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
+import {
+  canSubscribeQuery,
+  isAuthBoundQuery,
+  isQueryDisabled,
+} from '../internal/subscription-gate';
 import type { AuthStore } from './auth-store';
 
 const isServer = typeof window === 'undefined';
@@ -264,31 +269,13 @@ export class ConvexQueryClient {
     delete this.subscriptions[queryHash];
   }
 
-  private isAuthBoundQuery(query: TanstackQuery) {
-    const meta = query.meta as ConvexQueryMeta | undefined;
-    return meta?.authType === 'required' || meta?.authType === 'optional';
-  }
-
-  private isQueryDisabled(query: TanstackQuery) {
-    return query.isDisabled();
-  }
-
   private subscribeQuery(query: TanstackQuery) {
-    if (this.subscriptions[query.queryHash]) {
-      return;
-    }
-
-    const meta = query.meta as ConvexQueryMeta | undefined;
-    if (meta?.subscribe === false) {
-      return;
-    }
-    if (query.getObserversCount() === 0) {
-      return;
-    }
-    if (this.isQueryDisabled(query)) {
-      return;
-    }
-    if (this.shouldSkipSubscription(meta?.authType)) {
+    const allowed = canSubscribeQuery(query, {
+      isSubscribed: !!this.subscriptions[query.queryHash],
+      shouldSkipSubscription: (authType) =>
+        this.shouldSkipSubscription(authType),
+    });
+    if (!allowed) {
       return;
     }
 
@@ -451,7 +438,7 @@ export class ConvexQueryClient {
     const authQueries = this.queryClient
       .getQueryCache()
       .getAll()
-      .filter((query) => this.isAuthBoundQuery(query));
+      .filter((query) => isAuthBoundQuery(query));
 
     for (const query of authQueries) {
       this.cancelPendingUnsubscribe(query.queryHash);
@@ -459,11 +446,11 @@ export class ConvexQueryClient {
     }
 
     await this.queryClient.resetQueries({
-      predicate: (query) => this.isAuthBoundQuery(query),
+      predicate: (query) => isAuthBoundQuery(query),
     });
 
     for (const query of this.queryClient.getQueryCache().getAll()) {
-      if (this.isAuthBoundQuery(query)) {
+      if (isAuthBoundQuery(query)) {
         this.subscribeQuery(query);
       }
     }
@@ -646,7 +633,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false ↔ true)
         case 'observerOptionsUpdated': {
-          const isDisabled = this.isQueryDisabled(event.query);
+          const isDisabled = isQueryDisabled(event.query);
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true → false: unsubscribe
