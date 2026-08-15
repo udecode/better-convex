@@ -299,45 +299,6 @@ export const normalizeTemporalComparableValue = (
   return normalizeTemporalWriteValue(descriptor, value);
 };
 
-export const normalizePublicSystemFields = <T>(
-  value: T,
-  options?: {
-    useSystemCreatedAtAlias?: boolean;
-  }
-): T => {
-  if (!isPlainObject(value)) {
-    return value;
-  }
-  const hasId = Object.hasOwn(value, INTERNAL_ID_FIELD);
-  const hasCreationTime = Object.hasOwn(value, INTERNAL_CREATION_TIME_FIELD);
-
-  if (!hasId && !hasCreationTime) {
-    return value;
-  }
-
-  const obj = value as Record<string, unknown>;
-  const { [INTERNAL_ID_FIELD]: internalId, ...rest } = obj;
-  const publicRow: Record<string, unknown> = {
-    ...rest,
-  };
-
-  if (hasId) {
-    publicRow[PUBLIC_ID_FIELD] = internalId;
-  }
-
-  if (hasCreationTime) {
-    const raw = obj[INTERNAL_CREATION_TIME_FIELD];
-    if (options?.useSystemCreatedAtAlias && raw !== undefined) {
-      publicRow[PUBLIC_CREATED_AT_FIELD] = raw;
-    }
-    delete publicRow[INTERNAL_CREATION_TIME_FIELD];
-  }
-
-  delete publicRow[INTERNAL_ID_FIELD];
-
-  return publicRow as T;
-};
-
 export const normalizeDateFieldsForWrite = <T extends Record<string, unknown>>(
   table: ConvexTable<any>,
   value: T
@@ -370,41 +331,57 @@ export const normalizeDateFieldsForWrite = <T extends Record<string, unknown>>(
   return result as T;
 };
 
+/**
+ * Reshapes a stored document into its public form in a single pass: renames
+ * `_id` to `id`, aliases `_creationTime` to `createdAt`, and hydrates temporal
+ * columns. Deliberately allocates exactly one object and never calls `delete`
+ * on it — deleting an existing own property drops the object into V8
+ * dictionary mode, which then poisons every downstream spread.
+ */
 export const hydrateDateFieldsForRead = <T>(
   table: ConvexTable<any>,
   value: T
 ): T => {
-  const rawCreationTime =
-    isPlainObject(value) &&
-    typeof (value as Record<string, unknown>)[INTERNAL_CREATION_TIME_FIELD] ===
-      'number'
-      ? (value as Record<string, unknown>)[INTERNAL_CREATION_TIME_FIELD]
-      : undefined;
-  const useSystemCreatedAt = usesSystemCreatedAtAlias(table);
-  const base = normalizePublicSystemFields(value, {
-    useSystemCreatedAtAlias: useSystemCreatedAt,
-  });
-  if (!isPlainObject(base)) {
-    return base;
+  if (!isPlainObject(value)) {
+    return value;
   }
-  const result = { ...(base as Record<string, unknown>) };
+
+  const obj = value as Record<string, unknown>;
+  const hasId = Object.hasOwn(obj, INTERNAL_ID_FIELD);
+  const rawCreationTime = obj[INTERNAL_CREATION_TIME_FIELD];
+  // `createdAt` is reserved for the system alias whenever `_creationTime` is
+  // present, so a user column of the same name never wins.
+  const aliasCreatedAt =
+    usesSystemCreatedAtAlias(table) &&
+    Object.hasOwn(obj, INTERNAL_CREATION_TIME_FIELD) &&
+    rawCreationTime !== undefined;
   const temporalColumns = getTemporalColumnDescriptors(table);
 
-  for (const [name, descriptor] of temporalColumns.entries()) {
-    if (
-      name === PUBLIC_CREATED_AT_FIELD &&
-      result[name] === undefined &&
-      rawCreationTime !== undefined
-    ) {
-      result[name] = hydrateTemporalReadValue(descriptor, rawCreationTime);
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if (key === INTERNAL_ID_FIELD || key === INTERNAL_CREATION_TIME_FIELD) {
       continue;
     }
-
-    if (!Object.hasOwn(result, name)) {
+    if (key === PUBLIC_CREATED_AT_FIELD && aliasCreatedAt) {
+      // Reserve the original key position; the alias value is written below.
+      result[key] = undefined;
       continue;
     }
+    const descriptor = temporalColumns.get(key);
+    result[key] = descriptor
+      ? hydrateTemporalReadValue(descriptor, obj[key])
+      : obj[key];
+  }
 
-    result[name] = hydrateTemporalReadValue(descriptor, result[name]);
+  if (hasId) {
+    result[PUBLIC_ID_FIELD] = obj[INTERNAL_ID_FIELD];
+  }
+
+  if (aliasCreatedAt) {
+    const descriptor = temporalColumns.get(PUBLIC_CREATED_AT_FIELD);
+    result[PUBLIC_CREATED_AT_FIELD] = descriptor
+      ? hydrateTemporalReadValue(descriptor, rawCreationTime)
+      : rawCreationTime;
   }
 
   return result as T;

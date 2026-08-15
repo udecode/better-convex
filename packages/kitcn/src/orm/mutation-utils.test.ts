@@ -463,6 +463,48 @@ describe('mutation-utils', () => {
     expect(hydrated).not.toHaveProperty('_creationTime');
   });
 
+  test('hydrateDateFieldsForRead allocates once and never leaves a deleted slot', () => {
+    const doc = {
+      _id: 'u1',
+      _creationTime: 1_700_000_000_000,
+      name: 'Alice',
+      age: 30,
+    };
+    const hydrated = hydrateDateFieldsForRead(users, doc) as any;
+
+    // Exact key set: no `_id` / `_creationTime` residue, no `undefined` holes.
+    expect(Object.keys(hydrated)).toEqual(['name', 'age', 'id', 'createdAt']);
+    expect(hydrated).not.toBe(doc);
+    expect(doc).toHaveProperty('_id');
+  });
+
+  test('hydrateDateFieldsForRead handles a table with zero temporal columns', () => {
+    const plain = convexTable('plain_rows', {
+      label: text().notNull(),
+    });
+    const hydrated = hydrateDateFieldsForRead(plain, {
+      _id: 'p1',
+      _creationTime: 1_700_000_000_000,
+      label: 'x',
+    }) as any;
+
+    expect(hydrated).toEqual({
+      label: 'x',
+      id: 'p1',
+      createdAt: 1_700_000_000_000,
+    });
+  });
+
+  test('hydrateDateFieldsForRead keeps a user createdAt when _creationTime is absent', () => {
+    const hydrated = hydrateDateFieldsForRead(usersWithCreatedAt, {
+      _id: 'u1',
+      name: 'Alice',
+      createdAt: 123,
+    }) as any;
+
+    expect(hydrated).toEqual({ name: 'Alice', createdAt: 123, id: 'u1' });
+  });
+
   test('selectReturningRowWithHydration hydrates date-like selections', () => {
     const selected = selectReturningRowWithHydration(
       users,

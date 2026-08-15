@@ -8296,11 +8296,20 @@ export class GelRelationalQuery<
     }
 
     for (const row of rows) {
+      // Hydrate at most once per row and mirror each computed extra onto the
+      // public copy, so later extras still observe earlier ones without paying
+      // a fresh reshape per extra.
+      let publicRow: any;
       for (const [key, definition] of entries) {
-        row[key] =
-          typeof definition === 'function'
-            ? definition(this._toPublicRow(row, tableConfig))
-            : definition;
+        if (typeof definition === 'function') {
+          publicRow ??= this._toPublicRow(row, tableConfig);
+          row[key] = definition(publicRow);
+        } else {
+          row[key] = definition;
+        }
+        if (publicRow) {
+          publicRow[key] = row[key];
+        }
       }
     }
 
