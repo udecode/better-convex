@@ -651,6 +651,15 @@ export function TodoList() {
 }
 ```
 
+`queryOptions` ships a 30 second `staleTime`, so an RSC-prefetched entry hydrates without an immediate refetch on mount. `refetchOnMount` stays at TanStack's default, so a route invalidated while unmounted still refetches when it comes back. Override either per call:
+
+```ts
+crpc.http.todos.list.queryOptions(
+  { searchParams: { limit: '10' } },
+  { staleTime: 0 }
+);
+```
+
 ### One-Time Fetch
 
 For one-time fetches like exports or downloads, use `mutationOptions` with `useMutation`. This gives you `isPending` state and `onSuccess`/`onError` callbacks without caching:

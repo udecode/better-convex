@@ -20,6 +20,42 @@ export type HttpRouteInfo = { path: string; method: string };
 /** Route map type - from codegen */
 export type HttpRouteMap = Record<string, HttpRouteInfo>;
 
+// ============================================================================
+// Query Key + Cache Policy (single owner for every `crpc.http.*` consumer)
+// ============================================================================
+
+/** Query key with args (3-element) or prefix key without args (2-element) for invalidation */
+export type HttpQueryKey =
+  | readonly ['httpQuery', string, unknown]
+  | readonly ['httpQuery', string];
+
+/** Mutation key for HTTP endpoints */
+export type HttpMutationKey = readonly ['httpMutation', string];
+
+/**
+ * Build the exact cache key for an HTTP route.
+ *
+ * Missing args normalize to `{}` so the RSC prefetch and the browser observer
+ * hash to the same key and a server-prefetched entry hydrates instead of being
+ * refetched. Every producer of a 3-element `httpQuery` key goes through here.
+ */
+export function buildHttpQueryKey(
+  routeKey: string,
+  args?: unknown
+): readonly ['httpQuery', string, unknown] {
+  return ['httpQuery', routeKey, args ?? {}] as const;
+}
+
+/**
+ * Freshness window for `crpc.http.*` routes, in milliseconds.
+ *
+ * HTTP routes are a pull model with no push channel, so hydrated data needs a
+ * real freshness window or the browser refetches it on mount. The RSC
+ * QueryClient reads the same constant, so the server dedupe window and the
+ * client freshness window cannot drift apart.
+ */
+export const HTTP_DEFAULT_STALE_TIME = 30_000;
+
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 
 // ============================================================================

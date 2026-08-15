@@ -1,6 +1,7 @@
 import { fetchAction, fetchQuery } from 'convex/nextjs';
 import type { FunctionReference } from 'convex/server';
 import { defaultIsUnauthorized } from '../crpc/error';
+import { HTTP_DEFAULT_STALE_TIME } from '../crpc/http-types';
 import {
   type DataTransformerOptions,
   getTransformer,
@@ -42,7 +43,7 @@ export function getServerQueryClientOptions({
   const transformer = getTransformer(transformerOptions);
   return {
     queries: {
-      staleTime: 30_000,
+      staleTime: HTTP_DEFAULT_STALE_TIME,
       queryFn: async ({
         queryKey,
         meta,
