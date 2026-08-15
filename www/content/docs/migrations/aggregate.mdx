@@ -201,6 +201,7 @@ npx kitcn deploy --prod
 `resume` is idempotent:
 - already-`READY` indexes are skipped
 - `BUILDING` indexes continue
+- `CLEARING` indexes (rebuild or prune in progress) finish draining first
 - metric/rank additions are backfilled automatically
 - metric removals are metadata-only updates
 - key shape changes require rebuild:

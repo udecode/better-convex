@@ -54,7 +54,7 @@ Windowed count: `count({ where, orderBy, skip, take, cursor })` counts rows with
 | Error                      | Cause                                        |
 | -------------------------- | -------------------------------------------- |
 | `COUNT_NOT_INDEXED`        | No `aggregateIndex` matches the filter shape |
-| `COUNT_FILTER_UNSUPPORTED` | Uses unsupported operators                   |
+| `COUNT_FILTER_UNSUPPORTED` | Unsupported operators, or a range filter over `aggregateWorkBudget` buckets |
 | `COUNT_INDEX_BUILDING`     | Index still backfilling                      |
 | `COUNT_RLS_UNSUPPORTED`    | Called in RLS-restricted context             |
 
@@ -309,6 +309,9 @@ If rank or aggregate state gets out of sync:
 ```bash
 kitcn aggregate rebuild
 ```
+
+Rebuild clears stored state in scheduled batches. Indexes report `CLEARING`
+while draining and `BUILDING` while recomputing; wait for `READY`.
 
 ## When to Use
 

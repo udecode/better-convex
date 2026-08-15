@@ -314,6 +314,8 @@ If rank or aggregate state gets out of sync after a bad deploy or interrupted wr
 kitcn aggregate rebuild
 ```
 
+Rebuild clears stored state in scheduled batches, so it works on tables of any size. Indexes report `CLEARING` while draining and `BUILDING` while recomputing; wait for `READY` before querying them again.
+
 ## Best Practices
 
 ### Use `partitionBy` for Isolation
@@ -432,7 +434,7 @@ const metrics = await ctx.orm.query.orders.aggregate({
 | Error | Cause |
 |-------|-------|
 | `COUNT_NOT_INDEXED` | No `aggregateIndex` matches the filter shape |
-| `COUNT_FILTER_UNSUPPORTED` | Filter uses unsupported operators (`NOT`, string, relation, or non-finite `OR`) |
+| `COUNT_FILTER_UNSUPPORTED` | Filter uses unsupported operators (`NOT`, string, relation, or non-finite `OR`), or a range filter scans more than `aggregateWorkBudget` buckets |
 | `COUNT_INDEX_BUILDING` | Index is still backfilling |
 | `COUNT_RLS_UNSUPPORTED` | Called in an RLS-restricted context |
 
