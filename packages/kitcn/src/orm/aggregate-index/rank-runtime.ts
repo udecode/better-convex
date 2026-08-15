@@ -553,15 +553,12 @@ const toPublicRankItem = (
   sumValue: item.sumValue,
 });
 
-export const readRankAt = async (
+const readRankAtWithCount = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan,
-  offset: number
+  offset: number,
+  count: number
 ): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
-  const aggregate = rankAggregate(plan.tableName, plan.indexName);
-  const count = await aggregate.count(rankCtx(db), {
-    namespace: plan.namespace as any,
-  });
   if (count <= 0) {
     return null;
   }
@@ -569,11 +566,19 @@ export const readRankAt = async (
   if (normalizedOffset < 0 || normalizedOffset >= count) {
     return null;
   }
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
   const item = await aggregate.at(rankCtx(db), offset, {
     namespace: plan.namespace as any,
   });
   return toPublicRankItem(plan, item as any);
 };
+
+export const readRankAt = async (
+  db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
+  plan: RankQueryPlan,
+  offset: number
+): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
+  await readRankAtWithCount(db, plan, offset, await readRankCount(db, plan));
 
 export const readRankIndexOf = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
@@ -626,14 +631,24 @@ export const readRankPaginate = async (
 export const readRankMin = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan
-): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
-  await readRankAt(db, plan, 0);
+): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
+  const item = await aggregate.min(rankCtx(db), {
+    namespace: plan.namespace as any,
+  });
+  return item ? toPublicRankItem(plan, item as any) : null;
+};
 
 export const readRankMax = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan
-): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
-  await readRankAt(db, plan, -1);
+): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
+  const item = await aggregate.max(rankCtx(db), {
+    namespace: plan.namespace as any,
+  });
+  return item ? toPublicRankItem(plan, item as any) : null;
+};
 
 export const readRankRandom = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
@@ -644,5 +659,5 @@ export const readRankRandom = async (
     return null;
   }
   const offset = Math.floor(Math.random() * count);
-  return await readRankAt(db, plan, offset);
+  return await readRankAtWithCount(db, plan, offset, count);
 };

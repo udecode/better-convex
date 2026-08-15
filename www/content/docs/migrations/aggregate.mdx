@@ -30,8 +30,8 @@ Complete [DB migration](/docs/migrations/db) first. This guide assumes your app 
 | `at(ctx, offset, { namespace })` | `ctx.orm.query.table.rank(index, { where }).at(offset)` | Backed by `rankIndex` |
 | `indexOf(ctx, key, { namespace })` | `ctx.orm.query.table.rank(index, { where }).indexOf({ id })` | Looks up by doc ID |
 | `paginate(ctx, { namespace, cursor, pageSize })` | `ctx.orm.query.table.rank(index, { where }).paginate({ cursor, limit })` | Same cursor model |
-| `min(ctx, { namespace })` | `rank(...).min()` | Shorthand for `at(0)` |
-| `max(ctx, { namespace })` | `rank(...).max()` | Shorthand for `at(-1)` |
+| `min(ctx, { namespace })` | `rank(...).min()` | First row in rank order |
+| `max(ctx, { namespace })` | `rank(...).max()` | Last row in rank order |
 | `random(ctx, { namespace })` | `rank(...).random()` | Uniform sampling |
 | `paginateNamespaces(ctx)` | Not available | Query partition values from your table directly |
 | `clear(ctx)` / `clearAll(ctx)` | Not available | Use `aggregateBackfill --mode rebuild` |
