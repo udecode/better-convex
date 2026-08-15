@@ -1026,12 +1026,25 @@ export function mergedStream<T extends GenericStreamItem>(
   return new MergedStream(streams, orderByIndexFields);
 }
 
+/**
+ * Marks sources that are already `OrderByStream`s, so `narrow` reuses them
+ * instead of adding a redundant delegation layer per call.
+ *
+ * Module-private on purpose: wrapping is also where the ordering invariant is
+ * checked, so no caller outside this file can skip it.
+ */
+const PRE_ORDERED_STREAMS = Symbol('preOrderedStreams');
+
 export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
   #order: 'asc' | 'desc';
   #streams: QueryStream<T>[];
   #equalityIndexFilter: Value[];
   #indexFields: string[];
-  constructor(streams: QueryStream<T>[], orderByIndexFields: string[]) {
+  constructor(
+    streams: QueryStream<T>[],
+    orderByIndexFields: string[],
+    preOrdered?: typeof PRE_ORDERED_STREAMS
+  ) {
     super();
     if (streams.length === 0) {
       throw new Error('Cannot union empty array of streams');
@@ -1040,9 +1053,14 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
       streams.map((stream) => stream.getOrder()),
       'Cannot merge streams with different orders'
     );
-    this.#streams = streams.map(
-      (stream) => new OrderByStream(stream, orderByIndexFields)
-    );
+    this.#streams =
+      preOrdered === PRE_ORDERED_STREAMS
+        ? streams
+        : streams.map(
+            // Each wrapper gets its own copy: the constructor normalizes the
+            // array in place, which would otherwise mutate the caller's.
+            (stream) => new OrderByStream(stream, orderByIndexFields.slice())
+          );
     this.#indexFields = allSame(
       this.#streams.map((stream) => stream.getIndexFields()),
       'Cannot merge streams with different index fields. Consider using .orderBy()'
@@ -1125,9 +1143,13 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
     return this.#indexFields;
   }
   narrow(indexBounds: IndexBounds) {
+    // `OrderByStream.narrow` returns an `OrderByStream`, so the sources are
+    // already ordered -- re-wrapping them would stack an inert layer per call,
+    // and `.distinct()` narrows once per emitted row.
     return new MergedStream(
       this.#streams.map((stream) => stream.narrow(indexBounds)),
-      this.#indexFields
+      this.#indexFields,
+      PRE_ORDERED_STREAMS
     );
   }
 }
