@@ -77,7 +77,7 @@ Closure matrix:
 | agent workflow | no | N/A: no agent surface changes | complete |
 | cleanup/review | yes | slop delta 0; autoreview clean at 0.99 | complete |
 | repository check | yes | `bun check`: pass | complete |
-| GitHub delivery | yes | update/push/read back/merge #324 | pending |
+| GitHub delivery | yes | #324 merged at `0536f17b`; CI `31903574332` and Vercel green | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -85,7 +85,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence: merged head `90d61db6`, all required checks green.
 - [x] Residual blocker/waiver has exact evidence and next owner: none.
 - [x] Agent-native pack: N/A, no agent rule or generated skill mirror changed.
 - [x] Agent-native pack: N/A, no changed agent action.
@@ -110,9 +110,9 @@ Completion Gates:
 | Agent-native reviewer | no | Run for workflow changes or N/A | N/A: no agent workflow change |
 | Final lint | yes | Run `bun lint:fix` | 882 files checked; no fixes |
 | Repository check | yes | Run `bun check` | Pass: CI, verify, and runtime lanes |
-| GitHub delivery | yes | Commit/push/open or update PR and read back | pending push/checks/merge |
+| GitHub delivery | yes | Commit/push/open or update PR and read back | #324 merged 2026-08-15T19:27:28Z at `0536f17b` |
 | Autoreview | yes | Resolve every accepted actionable finding | Codex Sol: clean, 0 actionable findings, 0.99 |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-15-pr-324-autoclosure.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-15-pr-324-autoclosure.md` | pass recorded after final receipt |
 | Agent source / generated sync | no | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent rule change |
 | Installed lock audit | no | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill change |
 | Agent action discoverability | no | Source-audit the skill/rule path an agent will read | N/A: no agent action change |
@@ -125,8 +125,8 @@ Phase / pass table:
 | Inventory | complete | PR body/files/head/checks reconstructed | checkout/rebase |
 | Repair | complete | No repairs required after source audit/feedback triage | review |
 | Review/checks | complete | focused proof, build, fixtures, deslop, lint, autoreview, `bun check` pass | delivery |
-| Delivery | in_progress | local closure ready | push/checks/merge |
-| Closeout | pending | | final |
+| Delivery | complete | pushed `90d61db6`; CI/Vercel green; merged `0536f17b` | final audit |
+| Closeout | complete | remote read-back recorded; checker pass required below | done |
 
 Verification evidence:
 - `get-pr-comments 324`: 0 threads, 0 review bodies, only changeset bot metadata.
@@ -139,6 +139,8 @@ Verification evidence:
 - Autoreview Codex Sol/high: clean, 0 actionable findings, 0.99.
 - `bun lint:fix`: 882 files checked, no fixes.
 - `bun check`: pass through check:ci, test:verify, and test:runtime.
+- GitHub read-back: #324 `MERGED`; head `90d61db6`; merge `0536f17b`;
+  CI run `31903574332` success in 7m50s; Vercel success.
 
 Review fixes:
 - No actionable GitHub or autoreview findings; no code repair required.
@@ -147,16 +149,16 @@ Timeline:
 - 2026-08-15T19:04:01.990Z Autoclosure plan created.
 - 2026-08-15 Source/issue/feedback reconstructed; zero actionable feedback.
 - 2026-08-15 Targeted, generated, fixture, review, lint, and full check gates passed.
+- 2026-08-15T19:27:28Z PR #324 merged at `0536f17b` with remote checks green.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, remote checks, merge, final audit |
+| Where am I? | Complete |
+| Where am I going? | Parent batch continues with PR #326 |
 | What is the goal? | Merge PR #324 with complete codegen proof. |
 | What have I learned? | Source implementation and 15 generated runtimes match the issue invariant. |
-| What have I done? | Closed every local proof/review gate without code repairs. |
+| What have I done? | Closed every local/remote gate and merged #324. |
 
 Open risks:
-- Remote checks must rerun after adding closeout plans; merge receipt will be
-  recorded on the following #326 branch.
+- None.

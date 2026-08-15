@@ -18,7 +18,12 @@
  * Assigning `.stack` satisfies step 3's read without ever running step 1's
  * hook, which silently drops every cRPC payload.
  */
-import { ConvexError, convexToJson, jsonToConvex } from 'convex/values';
+import {
+  ConvexError,
+  convexToJson,
+  jsonToConvex,
+  type Value,
+} from 'convex/values';
 import { afterEach, expect, test } from 'vitest';
 
 import { CRPCError, getCRPCErrorFromUnknown, toCRPCError } from './error';
@@ -65,7 +70,7 @@ function throwThroughConvex(thrown: unknown): ClientError {
   ) {
     serialized.data = JSON.stringify(
       convexToJson(
-        serialized.data === undefined ? null : (serialized.data as any)
+        serialized.data === undefined ? null : (serialized.data as Value)
       )
     );
     serialized.ConvexErrorSymbol = Symbol.for('ConvexError');
@@ -91,7 +96,7 @@ function throwThroughConvex(thrown: unknown): ClientError {
 }
 
 /** `ctx.runQuery`/`runMutation`/`runAction` rebuild a plain `ConvexError`. */
-function acrossConvexSyscall(error: CRPCError): ConvexError<any> {
+function acrossConvexSyscall(error: CRPCError): ConvexError<Value> {
   const rethrown = new ConvexError(error.message);
   rethrown.data = JSON.parse(JSON.stringify(error.data));
   return rethrown;
