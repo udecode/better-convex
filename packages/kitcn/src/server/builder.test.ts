@@ -484,6 +484,42 @@ describe('server/builder', () => {
     ).resolves.toMatchObject({ page: [{ id: '20' }] });
   });
 
+  test('a superseded key relaxes its schema once per procedure, not per request', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const userInput = z.object({ limit: z.number() });
+    let safeExtendCalls = 0;
+    const originalSafeExtend = userInput.safeExtend;
+    (userInput as any).safeExtend = (incoming: any) => {
+      safeExtendCalls += 1;
+      return (originalSafeExtend as any)(incoming);
+    };
+
+    const fn = c.query
+      .input(userInput)
+      .paginated({ limit: 20, item: z.object({ id: z.string() }) })
+      .query(async ({ input }) => ({
+        continueCursor: null,
+        isDone: true,
+        page: [{ id: String(input.limit) }],
+      }));
+
+    // Relaxing `limit` happens while the procedure is being defined.
+    expect(safeExtendCalls).toBe(1);
+
+    await expect((fn as any)._handler({}, { limit: 5 })).resolves.toMatchObject(
+      { page: [{ id: '5' }] }
+    );
+    await expect((fn as any)._handler({}, { limit: 7 })).resolves.toMatchObject(
+      { page: [{ id: '7' }] }
+    );
+
+    expect(safeExtendCalls).toBe(1);
+  });
+
   test('a shadowed key takes the later declaration type, not the earlier one', async () => {
     const c = initCRPC.create({
       query: queryGeneric,

@@ -606,6 +606,63 @@ const relaxSupersededKeys = (
 };
 
 /**
+ * One `.input()` schema plus everything derivable from the schema list.
+ *
+ * `keys`, `superseded`, `owned` and the relaxed `scoped` schema are pure
+ * functions of the (immutable) schema list, so they are resolved once per
+ * procedure instead of once per request. Reusing `scoped` also keeps zod's
+ * per-instance parse memo warm for the isolate's lifetime.
+ */
+type InputPlanEntry = {
+  keys: string[];
+  owned: string[];
+  scoped: z.ZodObject<any>;
+  superseded: Set<string>;
+};
+
+/** Precomputed `parseInput` plan, in original `.input()` declaration order. */
+type InputPlan = {
+  entries: InputPlanEntry[];
+  /** Single-schema procedures parse straight through - the common case. */
+  single?: z.ZodObject<any>;
+};
+
+const buildInputPlan = (inputSchemas: z.ZodObject<any>[]): InputPlan => {
+  if (inputSchemas.length === 1) {
+    return { entries: [], single: inputSchemas[0] };
+  }
+
+  const ownerOf = new Map<string, number>();
+  inputSchemas.forEach((schema, index) => {
+    for (const key of Object.keys(schema.shape)) {
+      ownerOf.set(key, index);
+    }
+  });
+
+  const entries = inputSchemas.map((schema, index) => {
+    const keys = Object.keys(schema.shape);
+    const owned: string[] = [];
+    const superseded = new Set<string>();
+    for (const key of keys) {
+      if (ownerOf.get(key) === index) {
+        owned.push(key);
+      } else {
+        superseded.add(key);
+      }
+    }
+
+    return {
+      keys,
+      owned,
+      scoped: relaxSupersededKeys(schema, [...superseded]),
+      superseded,
+    };
+  });
+
+  return { entries };
+};
+
+/**
  * Parse the wire payload through every `.input()` schema.
  *
  * Each schema parses only the keys it owns - the last `.input()` to declare a
@@ -613,34 +670,20 @@ const relaxSupersededKeys = (
  * so object-level checks run against the shape they were written for without an
  * earlier, superseded declaration vetoing the payload.
  */
-const parseInput = (
-  inputSchemas: z.ZodObject<any>[],
-  value: unknown
-): unknown => {
+const parseInput = (plan: InputPlan, value: unknown): unknown => {
   try {
-    if (inputSchemas.length === 1) {
-      return inputSchemas[0].parse(value);
+    if (plan.single) {
+      return plan.single.parse(value);
     }
 
-    const ownerOf = new Map<string, number>();
-    inputSchemas.forEach((schema, index) => {
-      for (const key of Object.keys(schema.shape)) {
-        ownerOf.set(key, index);
-      }
-    });
-
+    const { entries } = plan;
     const source = isPlainObject(value) ? value : {};
     const parsed: Record<string, unknown> = {};
 
     // Walk owners first, so a schema holding a superseded key can read the
     // value its owner produced.
-    for (let index = inputSchemas.length - 1; index >= 0; index -= 1) {
-      const schema = inputSchemas[index];
-      const keys = Object.keys(schema.shape);
-      const superseded = new Set(
-        keys.filter((key) => ownerOf.get(key) !== index)
-      );
-      const scoped = relaxSupersededKeys(schema, [...superseded]);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const { keys, owned, scoped, superseded } = entries[index];
 
       const narrowed: Record<string, unknown> = {};
       for (const key of keys) {
@@ -653,8 +696,8 @@ const parseInput = (
       }
 
       const result = scoped.parse(narrowed) as Record<string, unknown>;
-      for (const key of keys) {
-        if (ownerOf.get(key) === index && key in result) {
+      for (const key of owned) {
+        if (key in result) {
           parsed[key] = result[key];
         }
       }
@@ -805,6 +848,9 @@ export class ProcedureBuilder<
       | Record<string, z.ZodTypeAny>
       | undefined;
     const convexArgs = resolveConvexArgsShape(mergedInput);
+    // `inputSchemas` is frozen once the builder chain ends, so the whole
+    // ownership/relaxation plan is a definition-time constant.
+    const inputPlan = buildInputPlan(inputSchemas);
 
     // Use customCtx for initial context transformation only
     const customFunction = customFn(
@@ -836,7 +882,7 @@ export class ProcedureBuilder<
           functionConfig.transformer.input.deserialize(rawInput);
         const parsedInput =
           inputSchemas.length > 0
-            ? parseInput(inputSchemas, decodedInput)
+            ? parseInput(inputPlan, decodedInput)
             : decodedInput;
         // Create getRawInput function for middleware
         const getRawInput: GetRawInputFn = async () => parsedInput;
