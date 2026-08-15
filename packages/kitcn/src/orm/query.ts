@@ -102,6 +102,7 @@ import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
 import {
   assertRlsRolesResolvable,
+  createRlsPolicyResolutionCache,
   filterSelectRows,
   isRlsEnabled,
 } from './rls/evaluator';
@@ -424,6 +425,12 @@ export class GelRelationalQuery<
     readonly result: TResult;
   };
   private allowFullScan: boolean;
+  /**
+   * Scoped to this query execution. Every `_applyRlsSelectFilter` call shares
+   * it, including the streaming sites that pass a single row at a time — those
+   * would otherwise re-resolve the whole policy set per row.
+   */
+  private readonly _rlsPolicyResolution = createRlsPolicyResolutionCache();
   private readonly _countIndexReadinessByKey = new Map<string, Promise<void>>();
   private readonly _aggregateIndexReadinessByKey = new Map<
     string,
@@ -605,6 +612,7 @@ export class GelRelationalQuery<
     // Empty result sets still reach `filterSelectRows` so policy configuration
     // is validated independently of what the table currently stores.
     return await filterSelectRows({
+      cache: this._rlsPolicyResolution,
       table: tableConfig.table as any,
       rows,
       rls: this.rls,

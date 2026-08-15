@@ -27,7 +27,11 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { assertRlsRolesResolvable, canDeleteRow } from './rls/evaluator';
+import {
+  assertRlsRolesResolvable,
+  canDeleteRow,
+  createRlsPolicyResolutionCache,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -419,6 +423,9 @@ export class ConvexDeleteBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
+    // Scoped to this statement: policy expressions are row-invariant, but they
+    // can embed state a later write in this same transaction invalidates.
+    const rlsResolution = createRlsPolicyResolutionCache();
 
     let rows: Record<string, unknown>[];
     let continueCursor: string | null = null;
@@ -611,6 +618,7 @@ export class ConvexDeleteBuilder<
     for (const row of rows) {
       if (
         !(await canDeleteRow({
+          cache: rlsResolution,
           table: this.table,
           row: row as Record<string, unknown>,
           rls,

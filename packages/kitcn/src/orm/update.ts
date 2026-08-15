@@ -31,6 +31,7 @@ import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
 import {
   assertRlsRolesResolvable,
+  createRlsPolicyResolutionCache,
   evaluateUpdateDecision,
 } from './rls/evaluator';
 import type { ConvexTable } from './table';
@@ -431,6 +432,9 @@ export class ConvexUpdateBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
+    // Scoped to this statement: policy expressions are row-invariant, but they
+    // can embed state a later write in this same transaction invalidates.
+    const rlsResolution = createRlsPolicyResolutionCache();
 
     const onUpdateSet: Record<string, unknown> = {};
     for (const [columnName, builder] of Object.entries(
@@ -633,6 +637,7 @@ export class ConvexUpdateBuilder<
       rows.map(async (row) => {
         const updatedRow = { ...(row as any), ...(writeSet as any) };
         const decision = await evaluateUpdateDecision({
+          cache: rlsResolution,
           table: this.table,
           existingRow: row as Record<string, unknown>,
           updatedRow,

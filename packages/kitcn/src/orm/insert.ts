@@ -21,7 +21,12 @@ import {
 } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { canInsertRow, evaluateUpdateDecision } from './rls/evaluator';
+import {
+  canInsertRow,
+  createRlsPolicyResolutionCache,
+  evaluateUpdateDecision,
+  type RlsPolicyResolutionCache,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   InsertValue,
@@ -193,6 +198,9 @@ export class ConvexInsertBuilder<
           )
         : undefined;
     const results: Record<string, unknown>[] = [];
+    // Scoped to this statement: policy expressions are row-invariant, but they
+    // can embed state a later write in this same transaction invalidates.
+    const rlsResolution = createRlsPolicyResolutionCache();
     for (const value of this.valuesList) {
       const preparedValue = normalizeDateFieldsForWrite(
         this.table,
@@ -204,6 +212,7 @@ export class ConvexInsertBuilder<
 
       if (
         !(await canInsertRow({
+          cache: rlsResolution,
           table: this.table,
           row: preparedValue as any,
           rls,
@@ -214,7 +223,10 @@ export class ConvexInsertBuilder<
         );
       }
 
-      const conflictResult = await this.handleConflict(preparedValue);
+      const conflictResult = await this.handleConflict(
+        preparedValue,
+        rlsResolution
+      );
 
       if (conflictResult?.status === 'skip') {
         continue;
@@ -290,7 +302,10 @@ export class ConvexInsertBuilder<
     return selected;
   }
 
-  private async handleConflict(value: InsertValue<TTable>): Promise<
+  private async handleConflict(
+    value: InsertValue<TTable>,
+    rlsResolution: RlsPolicyResolutionCache
+  ): Promise<
     | {
         status: 'skip';
       }
@@ -395,6 +410,7 @@ export class ConvexInsertBuilder<
     const writeSet = normalizeDateFieldsForWrite(this.table, effectiveSet);
 
     const updateDecision = await evaluateUpdateDecision({
+      cache: rlsResolution,
       table: this.table,
       existingRow: existing as any,
       updatedRow: { ...(existing as any), ...(writeSet as any) },
