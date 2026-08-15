@@ -2,7 +2,10 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { getLocalResendInstallSpec, mapWithConcurrency } from './scaffold-utils';
+import {
+  getLocalResendInstallSpec,
+  mapWithConcurrency,
+} from './scaffold-utils';
 
 test('mapWithConcurrency dispatches in order and bounds in-flight work', async () => {
   const items = [1, 2, 3, 4, 5, 6, 7, 8];
