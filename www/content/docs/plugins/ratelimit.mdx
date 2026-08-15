@@ -159,7 +159,7 @@ Two consequences to plan for:
 | `getTier` | `(user) => tier` | **Required.** Picks the tier within the bucket. |
 | `getSignals` | `({ ctx, meta, user, bucket, tier }) => LimitRequest \| undefined` | **Required.** Resolved once per request, before `getIdentifier`. |
 | `getIdentifier` | `({ ctx, meta, user, bucket, tier, signals }) => string` | **Required.** The partition key. |
-| `prefix` | `string \| (args) => string` | Namespaces stored state. Defaults to `` `ratelimit:${bucket}:${tier}` ``. |
+| `prefix` | `string \| (args) => string` | Namespaces stored state. Defaults to `ratelimit:<bucket>:<tier>`. |
 | `message` | `string \| (args) => string` | Message on the thrown `TOO_MANY_REQUESTS` error. |
 
 Everything below is forwarded to the limiter and behaves exactly as in [Constructor options](#constructor-options): `failureMode`, `timeout`, `enableProtection`, `denyListThreshold`, `denyList`, `dynamicLimits`, `ephemeralCache`.

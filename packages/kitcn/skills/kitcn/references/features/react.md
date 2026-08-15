@@ -28,7 +28,7 @@ export const { CRPCProvider, useCRPC, useCRPCClient } = createCRPCContext({
 
 ### QueryClient
 
-cRPC auto-sets `staleTime: Infinity`, `refetch*: false` per query (Convex pushes via WebSocket — never stale).
+cRPC auto-sets `staleTime: Infinity`, `refetch*: false` per query (Convex pushes via WebSocket — never stale). `crpc.http.*` routes are pull-model instead: `staleTime: 30_000` with `refetchOnMount` left at TanStack's default, so RSC-prefetched data hydrates but an invalidated route still refetches.
 
 ```ts
 // src/lib/convex/query-client.ts
