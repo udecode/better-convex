@@ -1878,6 +1878,17 @@ describe('cli/codegen', () => {
       expect(generatedServer).toContain('const ormSchema = schema;');
       expect(generatedServer).toContain('schema: ormSchema,');
       expect(generatedServer).toContain('ormFunctions,');
+      // orm.api() owns the backfill and migration handlers, so the generated
+      // module that calls it has to register both optional subsystems.
+      expect(generatedServer).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedServer).toContain(
+        "import { migrationCapability } from 'kitcn/orm/migrations';"
+      );
+      expect(generatedServer).toContain(
+        'capabilities: [aggregateCapability(), migrationCapability()],'
+      );
     } finally {
       process.chdir(oldCwd);
     }

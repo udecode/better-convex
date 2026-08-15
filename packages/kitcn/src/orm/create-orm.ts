@@ -107,7 +107,7 @@ type CreateOrmConfigBase<TSchema extends OrmSchemaInput> = {
    * `count()`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`,
    * `aggregateIndex(...)` / `rankIndex(...)` write maintenance and the
    * `orm.api()` backfill handlers need `aggregateCapability()` from
-   * `kitcn/orm/aggregate`. The `orm.api()` migration handlers need
+   * `kitcn/orm/aggregate-index`. The `orm.api()` migration handlers need
    * `migrationCapability()` from `kitcn/orm/migrations`. Anything not
    * registered here stays out of the Convex bundle for this module.
    */
