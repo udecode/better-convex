@@ -102,10 +102,8 @@ const getSchemaViews = (betterAuthSchema: BetterAuthDBSchema): SchemaViews => {
     }
 
     const unique = new Set<string>();
-    for (const [field, attributes] of Object.entries<any>(
-      model?.fields ?? {}
-    )) {
-      if (attributes?.unique) {
+    for (const [field, attrs] of Object.entries<any>(model?.fields ?? {})) {
+      if (attrs?.unique) {
         unique.add(field);
       }
     }

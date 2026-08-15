@@ -7,9 +7,7 @@ test('convex reuses one oidc provider instance per site url and base path', () =
   process.env.CONVEX_SITE_URL = 'https://oidc-cache.invalid';
 
   const authConfig = {
-    providers: [
-      { applicationID: 'convex', issuer: 'https://issuer.invalid' },
-    ],
+    providers: [{ applicationID: 'convex', issuer: 'https://issuer.invalid' }],
   } as AuthConfig;
 
   try {

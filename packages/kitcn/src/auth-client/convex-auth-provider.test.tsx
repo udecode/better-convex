@@ -680,13 +680,12 @@ describe('ConvexAuthProvider', () => {
       await new Promise((resolve) => setTimeout(resolve, 700));
     });
 
+    const token = window.sessionStorage.getItem('kitcn.auth.session-token');
+    const data = window.sessionStorage.getItem('kitcn.auth.session-data');
+
     // A dropped request must not sign the user out.
-    expect(
-      window.sessionStorage.getItem('kitcn.auth.session-token')
-    ).toBe('persisted-session-token');
-    expect(
-      window.sessionStorage.getItem('kitcn.auth.session-data')
-    ).not.toBeNull();
+    expect(token).toBe('persisted-session-token');
+    expect(data).not.toBeNull();
     expect(authFetch).toHaveBeenCalledTimes(3);
   });
 

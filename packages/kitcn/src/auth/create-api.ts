@@ -976,12 +976,13 @@ export const createApi = <
     triggers,
   } = options ?? {};
   let betterAuthSchema: ReturnType<typeof getAuthTables> | undefined;
-  const getBetterAuthSchema =
-    injectedBetterAuthSchema ??
-    (() => {
-      betterAuthSchema ??= getAuthTables((getAuth({} as Ctx) as any).options);
-      return betterAuthSchema;
-    });
+  const getBetterAuthSchema = () => {
+    if (injectedBetterAuthSchema) {
+      return injectedBetterAuthSchema();
+    }
+    betterAuthSchema ??= getAuthTables((getAuth({} as Ctx) as any).options);
+    return betterAuthSchema;
+  };
   const mutationBuilderBase = internalMutation ?? internalMutationGeneric;
   const mutationBuilder = (
     context

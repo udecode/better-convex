@@ -106,6 +106,8 @@ describe('handlePagination', () => {
   });
 
   test('count-only mode totals pages without retaining documents', async () => {
+    const rows = (count: number) =>
+      Array.from({ length: count }, (_, id) => ({ id }));
     let index = 0;
     const state = await handlePagination(
       async () => {
@@ -113,9 +115,7 @@ describe('handlePagination', () => {
         return {
           continueCursor: `cursor-${index}`,
           isDone: index === 2,
-          page: Array.from({ length: index === 1 ? 200 : 3 }, (_, id) => ({
-            id,
-          })),
+          page: rows(index === 1 ? 200 : 3),
           pageStatus: 'Done' as const,
         };
       },

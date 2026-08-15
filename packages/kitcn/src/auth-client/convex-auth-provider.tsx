@@ -135,12 +135,35 @@ const readAuthResult = (result: unknown) => {
   return { data, errored: Boolean(error) };
 };
 
+// A thrown request is indistinguishable from a resolved one carrying `.error`,
+// so both surface as an errored result rather than as a rejection.
+const fetchPersistedSession = async (
+  authClient: AuthClientFetch,
+  token: string
+) => {
+  const getSession = authClient.getSession as AuthGetSession | undefined;
+
+  try {
+    return await (authClient.$fetch
+      ? authClient.$fetch('/get-session', {
+          credentials: 'omit',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      : getSession?.({
+          fetchOptions: {
+            credentials: 'omit',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        }));
+  } catch {
+    return;
+  }
+};
+
 const getSessionFromPersistedToken = async (
   authClient: AuthClientFetch,
   token: string
 ): Promise<PersistedTokenOutcome> => {
-  const getSession = authClient.getSession as AuthGetSession | undefined;
-
   for (let attempt = 0; attempt < PERSISTED_TOKEN_ATTEMPTS; attempt += 1) {
     // Only retries wait, so a live token costs one immediate request. The
     // backoff still covers the read-after-write window on a fresh sign-in.
@@ -148,28 +171,9 @@ const getSessionFromPersistedToken = async (
       await wait(PERSISTED_TOKEN_RETRY_BASE_MS * 3 ** (attempt - 1));
     }
 
-    let result: unknown;
-    try {
-      result = authClient.$fetch
-        ? await authClient.$fetch('/get-session', {
-            credentials: 'omit',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          })
-        : await getSession?.({
-            fetchOptions: {
-              credentials: 'omit',
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            },
-          });
-    } catch {
-      continue;
-    }
-
-    const { data, errored } = readAuthResult(result);
+    const { data, errored } = readAuthResult(
+      await fetchPersistedSession(authClient, token)
+    );
 
     if (data) {
       return { data, status: 'session' };
