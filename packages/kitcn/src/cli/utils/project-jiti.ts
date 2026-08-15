@@ -259,6 +259,12 @@ export const createProjectJiti = (cwd = process.cwd()) =>
     jsx: {
       runtime: 'automatic',
     },
+    // jiti's runtime module cache is Node's process-global CJS cache. The
+    // `kitcn dev` watcher is long-lived, so leaving it on without per-run
+    // invalidation makes codegen blind to edits: a module imported once keeps
+    // serving its first evaluation for the rest of the session. Turning it on
+    // requires evicting every watchable project file (realpath outside
+    // `node_modules`) at the start of each run.
     moduleCache: false,
     // Bun-native import bypasses Jiti aliasing for transitive project files.
     // Parse-time CLI imports need Jiti in the loop end-to-end.
