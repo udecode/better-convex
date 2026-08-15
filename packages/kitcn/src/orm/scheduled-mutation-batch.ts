@@ -210,12 +210,12 @@ export function scheduledMutationBatchFactory<
       );
     }
     const action = args.foreignAction ?? 'no action';
-    // Every other cascade action stops a processed row from matching this
-    // index: hard delete removes it, `set null` / `set default` / cascade
-    // update rewrite the foreign key columns. Soft cascade only stamps
-    // `deletionTime`, so without this guard the re-query below keeps returning
-    // the same rows and the worker re-queues itself forever.
-    const skipSoftDeletedRows =
+    // Soft cascade only stamps `deletionTime`, which is not part of the index
+    // key (foreign key columns, _creationTime, _id), so a processed row stays
+    // pinned in this range forever. Every other cascade action removes the row
+    // from the range: hard delete deletes it, `set null` / `set default` /
+    // cascade update rewrite the indexed columns.
+    const isSoftCascade =
       workType === 'cascade-delete' &&
       action === 'cascade' &&
       (args.cascadeMode ?? 'hard') === 'soft';
@@ -230,9 +230,12 @@ export function scheduledMutationBatchFactory<
           return builder;
         }
       );
-      if (!skipSoftDeletedRows) {
+      if (!isSoftCascade) {
         return indexed;
       }
+      // Keeps rows soft-deleted before this cascade started out of the work
+      // set. With a forwarded cursor it no longer has to re-reject the whole
+      // processed prefix on every batch.
       return indexed.filter((q: any) =>
         q.or(
           q.eq(q.field(DELETION_TIME_FIELD), undefined),
@@ -240,14 +243,23 @@ export function scheduledMutationBatchFactory<
         )
       );
     };
-    // Cascade workers patch/delete rows that are selected by the same indexed
-    // foreign key columns. Forwarding cursors can skip remaining rows after
-    // those mutations, so cascade continuation always re-queries from null.
-    const usesCursorContinuation = false;
+    // Soft cascade forwards the page cursor: `deletionTime` is not part of the
+    // index key, so the cursor stays valid across the batch and the processed
+    // prefix is never re-scanned. Re-querying from null instead makes batch k
+    // physically scan every row it already processed — `.filter()` is applied
+    // after the read — which is O(N^2/B) and trips Convex's documents-scanned
+    // cap a few dozen batches in.
+    //
+    // The other actions must keep re-querying from null: their processed rows
+    // leave the index range, so a forwarded cursor would skip live rows.
+    const usesCursorContinuation = isSoftCascade;
     const paged = await queryWithIndex().paginate({
       cursor: usesCursorContinuation ? args.cursor : null,
       numItems: args.batchSize,
     });
+    // 'SplitRequired' means `page` may be missing rows that were nonetheless
+    // scanned, so `continueCursor` cannot be forwarded past them.
+    const pageIncomplete = paged.pageStatus === 'SplitRequired';
     const resolvedMaxBytesPerBatch = args.maxBytesPerBatch ?? maxBytesPerBatch;
     const bounded = takeRowsWithinByteBudget(
       paged.page as Record<string, unknown>[],
@@ -364,19 +376,32 @@ export function scheduledMutationBatchFactory<
       }
     }
 
+    // The byte budget and a required split both leave rows of this page
+    // unprocessed. `paged.isDone` already reports whether the range had more
+    // rows at read time, so no second scan of the range is needed.
+    const pageTruncated = hitByteLimit || pageIncomplete;
+
     if (usesCursorContinuation) {
-      if (!paged.isDone && paged.continueCursor !== null) {
-        await ctx.scheduler.runAfter(args.delayMs, scheduledMutationBatch, {
-          ...args,
-          workType,
-          cursor: paged.continueCursor,
-        });
+      if (paged.isDone && !pageTruncated) {
+        return;
       }
+      await ctx.scheduler.runAfter(args.delayMs, scheduledMutationBatch, {
+        ...args,
+        workType,
+        // Never forward past rows this batch did not process. Processed rows
+        // are excluded by the `deletionTime` filter, so re-running the same
+        // cursor still makes progress; a required split also halves the batch
+        // so the retry cannot repeat the same overrun forever.
+        batchSize: pageIncomplete
+          ? Math.max(1, Math.floor(args.batchSize / 2))
+          : args.batchSize,
+        cursor: pageTruncated ? args.cursor : paged.continueCursor,
+        maxBytesPerBatch: resolvedMaxBytesPerBatch,
+      });
       return;
     }
 
-    const hasRemaining = (await queryWithIndex().first()) !== null;
-    if (hasRemaining || hitByteLimit) {
+    if (!paged.isDone || pageTruncated) {
       await ctx.scheduler.runAfter(args.delayMs, scheduledMutationBatch, {
         ...args,
         workType,
