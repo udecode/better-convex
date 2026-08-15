@@ -25,6 +25,16 @@ export default defineConfig({
         import.meta.dirname,
         'packages/kitcn/src/crpc/index.ts'
       ),
+      // More specific subpaths must precede 'kitcn/orm': Vite alias keys match
+      // by prefix in insertion order.
+      'kitcn/orm/aggregate-index': path.resolve(
+        import.meta.dirname,
+        'packages/kitcn/src/orm/aggregate-index/index.ts'
+      ),
+      'kitcn/orm/migrations': path.resolve(
+        import.meta.dirname,
+        'packages/kitcn/src/orm/migrations/index.ts'
+      ),
       'kitcn/orm': path.resolve(
         import.meta.dirname,
         'packages/kitcn/src/orm/index.ts'
@@ -47,6 +57,16 @@ export default defineConfig({
             'kitcn/aggregate': path.resolve(
               import.meta.dirname,
               'packages/kitcn/src/aggregate/index.ts'
+            ),
+            // More specific subpaths must precede 'kitcn/orm': Vite alias keys
+            // match by prefix in insertion order.
+            'kitcn/orm/aggregate-index': path.resolve(
+              import.meta.dirname,
+              'packages/kitcn/src/orm/aggregate-index/index.ts'
+            ),
+            'kitcn/orm/migrations': path.resolve(
+              import.meta.dirname,
+              'packages/kitcn/src/orm/migrations/index.ts'
             ),
             'kitcn/orm': path.resolve(
               import.meta.dirname,
