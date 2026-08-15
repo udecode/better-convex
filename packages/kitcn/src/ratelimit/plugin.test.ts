@@ -109,7 +109,6 @@ function createConfiguredPlugin(options?: {
   denyList?: ProtectionLists;
 }) {
   return RatelimitPlugin.configure({
-    denyList: options?.denyList,
     buckets: {
       default: {
         public: fixed(1),
@@ -143,6 +142,7 @@ function createConfiguredPlugin(options?: {
     failureMode: 'closed',
     enableProtection: true,
     denyListThreshold: 30,
+    denyList: options?.denyList,
     prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   });
 }
