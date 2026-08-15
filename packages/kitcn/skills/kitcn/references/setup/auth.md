@@ -331,11 +331,15 @@ Again: printed payload only. You still need to set the env manually.
 After non-auth baseline is green, replace `convex/lib/crpc.ts` with this auth-aware variant:
 
 ```ts
-import { getHeaders } from "kitcn/auth";
+import { getHeaders, getSession } from "kitcn/auth";
 import { CRPCError } from "kitcn/server";
 
+// `getAuth` pulls your whole Better Auth definition and every plugin into the
+// static import closure of every module that imports this file, and Convex has
+// no dynamic `import()` to escape it. Only `authAction` below needs it, because
+// actions have no `ctx.db`. Delete both if your app has no authed actions.
 import { getAuth } from "../functions/generated/auth";
-import { initCRPC } from "../functions/generated/server";
+import { initCRPC, type QueryCtx } from "../functions/generated/server";
 
 const c = initCRPC
   .meta<{
@@ -366,6 +370,14 @@ function requireAuth<T>(user: T | null): T {
   return user;
 }
 
+async function getSessionUser(ctx: QueryCtx) {
+  const session = await getSession(ctx);
+  if (!session) return null;
+  return await ctx.orm.query.user.findFirst({
+    where: { id: { eq: session.userId } },
+  });
+}
+
 export const publicQuery = c.query.meta({ auth: "optional" });
 export const publicAction = c.action;
 export const publicMutation = c.mutation;
@@ -377,28 +389,17 @@ export const privateAction = c.action.internal();
 export const optionalAuthQuery = c.query
   .meta({ auth: "optional" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
+    const user = await getSessionUser(ctx);
 
     return next({
-      ctx: {
-        ...ctx,
-        user: session?.user ?? null,
-        userId: session?.user?.id ?? null,
-      },
+      ctx: { ...ctx, user, userId: user?.id ?? null },
     });
   });
 
 export const authQuery = c.query
   .meta({ auth: "required" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
-    const user = requireAuth(session?.user ?? null);
+    const user = requireAuth(await getSessionUser(ctx));
     return next({ ctx: { ...ctx, user, userId: user.id } });
   })
   .use(roleMiddleware);
@@ -406,28 +407,17 @@ export const authQuery = c.query
 export const optionalAuthMutation = c.mutation
   .meta({ auth: "optional" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
+    const user = await getSessionUser(ctx);
 
     return next({
-      ctx: {
-        ...ctx,
-        user: session?.user ?? null,
-        userId: session?.user?.id ?? null,
-      },
+      ctx: { ...ctx, user, userId: user?.id ?? null },
     });
   });
 
 export const authMutation = c.mutation
   .meta({ auth: "required" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
-    const user = requireAuth(session?.user ?? null);
+    const user = requireAuth(await getSessionUser(ctx));
     return next({ ctx: { ...ctx, user, userId: user.id } });
   })
   .use(roleMiddleware);

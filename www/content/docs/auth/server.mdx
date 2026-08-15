@@ -276,18 +276,24 @@ Now that you have auth working, let's understand a few important concepts.
 
 ### Context-Aware Adapter Selection
 
-Use `getAuth(ctx)` in every context:
+Queries and mutations read the session row directly. Reach for `getAuth(ctx)` in the modules that
+call `auth.api.*`:
 
-```ts showLineNumbers {2,8}
+```ts showLineNumbers {2,7}
 export const someQuery = publicQuery.query(async ({ ctx }) => {
-  const auth = getAuth(ctx);
-  const session = await auth.api.getSession({ headers: await getHeaders(ctx) });
+  const session = await getSession(ctx);
 });
 
 export const someAction = publicAction.action(async ({ ctx }) => {
   const auth = getAuth(ctx);
 });
 ```
+
+<Callout icon={<InfoIcon />}>
+**Bundle:** Convex has no dynamic `import()`, so every module that names `getAuth` carries your
+whole Better Auth definition and all its plugins in its evaluation closure. Keep it out of
+`convex/lib/crpc.ts`, which every procedure module imports.
+</Callout>
 
 Generated `getAuth(ctx)` uses the same context-aware adapter selection internally:
 
