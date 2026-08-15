@@ -24,12 +24,14 @@ import {
   type CliConfig,
   loadCliConfig,
   type MigrationConfig,
+  resolveConfiguredBackend,
 } from './config.js';
 import {
   normalizeConvexCommandResult,
   writeConvexCommandOutput,
 } from './convex-command.js';
 import { pullEnv, resolveAuthEnvState, syncEnv } from './env.js';
+import { withLocalCodegenEnv } from './local-env.js';
 import {
   detectPackageManager,
   type PackageManager,
@@ -158,6 +160,10 @@ import { logger } from './utils/logger.js';
 import { createProjectJiti } from './utils/project-jiti.js';
 import { createSpinner } from './utils/spinner.js';
 import { createTypeScriptProxy } from './utils/typescript-runtime.js';
+
+// Owned by `config.ts` / `local-env.ts` so the `kitcn dev` watcher child can
+// reach them without loading this module's command graph.
+export { resolveConfiguredBackend, withLocalCodegenEnv };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -914,85 +920,6 @@ function resolveRemoteConvexDeploymentKey(
   }
 
   return 'remote-env';
-}
-
-function getLocalParseEnvVars(
-  sharedDir: string | undefined,
-  backend: CliBackend
-): Record<string, string> {
-  const { functionsDir } = getConvexConfig(sharedDir);
-  const rootEnvPath = join(process.cwd(), '.env');
-  const backendEnvPath = join(functionsDir, '..', '.env');
-  const envPaths =
-    backend === 'concave'
-      ? [backendEnvPath, rootEnvPath]
-      : [rootEnvPath, backendEnvPath];
-
-  const mergedEnv: Record<string, string> = {};
-  for (const envPath of envPaths) {
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    Object.assign(
-      mergedEnv,
-      loadDotenv().parse(fs.readFileSync(envPath, 'utf8'))
-    );
-  }
-
-  return mergedEnv;
-}
-
-function getLocalBackendEnvVars(
-  sharedDir: string | undefined,
-  backend: CliBackend
-): Record<string, string> {
-  const { functionsDir } = getConvexConfig(sharedDir);
-  const rootEnvPath = join(process.cwd(), '.env');
-  const backendEnvPath = join(functionsDir, '..', '.env');
-  const envPaths =
-    backend === 'concave' ? [backendEnvPath, rootEnvPath] : [backendEnvPath];
-
-  const mergedEnv: Record<string, string> = {};
-  for (const envPath of envPaths) {
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    Object.assign(
-      mergedEnv,
-      loadDotenv().parse(fs.readFileSync(envPath, 'utf8'))
-    );
-  }
-
-  return mergedEnv;
-}
-
-export async function withLocalCodegenEnv<T>(
-  sharedDir: string | undefined,
-  backend: CliBackend,
-  fn: () => Promise<T>
-): Promise<T> {
-  const envVars = getLocalParseEnvVars(sharedDir, backend);
-  if (Object.keys(envVars).length === 0) {
-    return fn();
-  }
-
-  const previousValues = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(envVars)) {
-    previousValues.set(key, process.env[key]);
-    process.env[key] = value;
-  }
-
-  try {
-    return await fn();
-  } finally {
-    for (const [key, value] of previousValues.entries()) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
 }
 
 function parseAddCommandArgs(args: string[]): AddCommandArgs {
@@ -4467,13 +4394,6 @@ type BackendAdapter = {
   command: string;
   argsPrefix: string[];
 };
-
-export function resolveConfiguredBackend(params: {
-  backendArg?: CliBackend;
-  config?: Pick<CliConfig, 'backend'>;
-}): CliBackend {
-  return params.backendArg ?? params.config?.backend ?? 'convex';
-}
 
 function findConcavePkgPath() {
   // Module resolution cannot locate the package root across published

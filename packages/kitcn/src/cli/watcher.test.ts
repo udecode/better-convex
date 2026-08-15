@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -71,6 +71,17 @@ describe('cli/watcher', () => {
     ).toBe(false);
   });
 
+  test('watcher entry stays off the backend-core command graph', async () => {
+    // `kitcn dev` keeps this child alive for the whole session. Importing
+    // backend-core pulls execa, the analyzer and the prompt stack in with it.
+    const source = await readFile(
+      new URL('./watcher.ts', import.meta.url),
+      'utf8'
+    );
+
+    expect(source).not.toContain("from './backend-core");
+  });
+
   test('runWatcherCodegen uses full codegen flow for concave backend', async () => {
     const generateMetaStub = mock(async () => {});
     const execaStub = mock(async () => ({
@@ -98,13 +109,9 @@ describe('cli/watcher', () => {
         trimSegments: ['plugins', 'generated'],
       },
       {
-        resolveRunDeps: () =>
-          ({
-            execa: execaStub as never,
-            generateMeta: generateMetaStub as never,
-            loadCliConfig: loadCliConfigStub as never,
-            syncEnv: mock(async () => {}) as never,
-          }) as never,
+        execa: execaStub as never,
+        generateMeta: generateMetaStub as never,
+        loadCliConfig: loadCliConfigStub as never,
         resolveConfiguredBackendFn: (() => 'concave') as never,
       }
     );
@@ -160,13 +167,9 @@ describe('cli/watcher', () => {
         trimSegments: ['plugins', 'generated'],
       },
       {
-        resolveRunDeps: () =>
-          ({
-            execa: execaStub as never,
-            generateMeta: generateMetaStub as never,
-            loadCliConfig: loadCliConfigStub as never,
-            syncEnv: mock(async () => {}) as never,
-          }) as never,
+        execa: execaStub as never,
+        generateMeta: generateMetaStub as never,
+        loadCliConfig: loadCliConfigStub as never,
         resolveConfiguredBackendFn: (() => 'convex') as never,
       }
     );
@@ -225,13 +228,9 @@ describe('cli/watcher', () => {
           scope: 'all',
         },
         {
-          resolveRunDeps: () =>
-            ({
-              execa: execaStub as never,
-              generateMeta: generateMetaStub as never,
-              loadCliConfig: loadCliConfigStub as never,
-              syncEnv: mock(async () => {}) as never,
-            }) as never,
+          execa: execaStub as never,
+          generateMeta: generateMetaStub as never,
+          loadCliConfig: loadCliConfigStub as never,
           resolveConfiguredBackendFn: (() => 'convex') as never,
         }
       );

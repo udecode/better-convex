@@ -1,13 +1,14 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { execa } from 'execa';
 import { PARSE_SNAPSHOT_SUFFIX } from '../shared/meta-utils.js';
-import {
-  resolveConfiguredBackend,
-  resolveRunDeps,
-  withLocalCodegenEnv,
-} from './backend-core.js';
 import { generateMeta, getConvexConfig } from './codegen.js';
-import type { CliBackend } from './config.js';
+import {
+  type CliBackend,
+  loadCliConfig,
+  resolveConfiguredBackend,
+} from './config.js';
+import { withLocalCodegenEnv } from './local-env.js';
 import { logger } from './utils/logger.js';
 
 type WatcherLike = {
@@ -30,8 +31,10 @@ type WatcherCodegenParams = {
 };
 
 type WatcherCodegenDeps = {
+  execa?: typeof execa;
+  generateMeta?: typeof generateMeta;
+  loadCliConfig?: typeof loadCliConfig;
   resolveConfiguredBackendFn?: typeof resolveConfiguredBackend;
-  resolveRunDeps?: typeof resolveRunDeps;
 };
 
 export function getWatchRoots(functionsDir: string): string[] {
@@ -143,14 +146,10 @@ export async function runWatcherCodegen(
   params: WatcherCodegenParams,
   deps: WatcherCodegenDeps = {}
 ) {
-  const resolveRunDepsFn = deps.resolveRunDeps ?? resolveRunDeps;
   const resolveConfiguredBackendFn =
     deps.resolveConfiguredBackendFn ?? resolveConfiguredBackend;
-  const {
-    execa: execaFn,
-    generateMeta: generateMetaFn,
-    loadCliConfig: loadCliConfigFn,
-  } = resolveRunDepsFn();
+  const generateMetaFn = deps.generateMeta ?? generateMeta;
+  const loadCliConfigFn = deps.loadCliConfig ?? loadCliConfig;
   const config = loadCliConfigFn(params.configPath);
   const backend = resolveConfiguredBackendFn({
     backendArg: params.backendArg,
@@ -188,6 +187,9 @@ export async function runWatcherCodegen(
     args.push('--debug');
   }
 
+  // Only the concave path shells out, so execa stays off the watcher's
+  // startup graph.
+  const execaFn = deps.execa ?? (await import('execa')).execa;
   const result = await execaFn(runtime, args, {
     cwd: process.cwd(),
     reject: false,
