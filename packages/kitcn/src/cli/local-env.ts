@@ -5,24 +5,24 @@ import type { CliBackend } from './config.js';
 import { loadDotenv } from './utils/lazy-deps.js';
 
 /**
- * Parse-time env for local codegen.
+ * Local `.env` resolution for codegen and backend spawns.
  *
  * Lives outside `backend-core.ts` so the long-lived `kitcn dev` watcher child
- * can load it without pulling the CLI's full command graph (execa, the prompt
+ * can reach it without pulling the CLI's full command graph (execa, the prompt
  * stack, the analyzer) into a process that only runs codegen.
  */
-function getLocalParseEnvVars(
-  sharedDir: string | undefined,
-  backend: CliBackend
-): Record<string, string> {
+const resolveEnvPaths = (sharedDir: string | undefined) => {
   const { functionsDir } = getConvexConfig(sharedDir);
-  const rootEnvPath = join(process.cwd(), '.env');
-  const backendEnvPath = join(functionsDir, '..', '.env');
-  const envPaths =
-    backend === 'concave'
-      ? [backendEnvPath, rootEnvPath]
-      : [rootEnvPath, backendEnvPath];
+  return {
+    backendEnvPath: join(functionsDir, '..', '.env'),
+    rootEnvPath: join(process.cwd(), '.env'),
+  };
+};
 
+// Later files win, so path order is the precedence rule.
+const mergeEnvFiles = (
+  envPaths: readonly string[]
+): Record<string, string> => {
   const mergedEnv: Record<string, string> = {};
   for (const envPath of envPaths) {
     if (!fs.existsSync(envPath)) {
@@ -35,6 +35,28 @@ function getLocalParseEnvVars(
   }
 
   return mergedEnv;
+};
+
+function getLocalParseEnvVars(
+  sharedDir: string | undefined,
+  backend: CliBackend
+): Record<string, string> {
+  const { backendEnvPath, rootEnvPath } = resolveEnvPaths(sharedDir);
+  return mergeEnvFiles(
+    backend === 'concave'
+      ? [backendEnvPath, rootEnvPath]
+      : [rootEnvPath, backendEnvPath]
+  );
+}
+
+export function getLocalBackendEnvVars(
+  sharedDir: string | undefined,
+  backend: CliBackend
+): Record<string, string> {
+  const { backendEnvPath, rootEnvPath } = resolveEnvPaths(sharedDir);
+  return mergeEnvFiles(
+    backend === 'concave' ? [backendEnvPath, rootEnvPath] : [backendEnvPath]
+  );
 }
 
 export async function withLocalCodegenEnv<T>(

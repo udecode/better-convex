@@ -31,7 +31,10 @@ import {
   writeConvexCommandOutput,
 } from './convex-command.js';
 import { pullEnv, resolveAuthEnvState, syncEnv } from './env.js';
-import { withLocalCodegenEnv } from './local-env.js';
+import {
+  getLocalBackendEnvVars,
+  withLocalCodegenEnv,
+} from './local-env.js';
 import {
   detectPackageManager,
   type PackageManager,
