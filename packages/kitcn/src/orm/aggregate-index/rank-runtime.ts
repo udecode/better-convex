@@ -5,12 +5,17 @@ import type {
 import type { GenericId } from 'convex/values';
 import { DirectAggregate } from '../../aggregate-core/runtime';
 import type { TableRelationalConfig } from '../types';
+import type { RankIndexDefinition } from './definitions';
+import { getRankIndexDefinitions } from './definitions';
 import {
   AGGREGATE_STATE_KIND_RANK,
   COUNT_STATUS_READY,
   getCountState,
 } from './runtime';
 import { AGGREGATE_MEMBER_TABLE } from './schema';
+
+export type { RankIndexDefinition, RankOrderField } from './definitions';
+export { getRankIndexDefinitions } from './definitions';
 
 type RankWhere = Record<string, unknown>;
 
@@ -19,18 +24,6 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 const stableEquals = (left: unknown, right: unknown): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
-
-type RankOrderField = {
-  field: string;
-  direction: 'asc' | 'desc';
-};
-
-export type RankIndexDefinition = {
-  name: string;
-  partitionFields: string[];
-  orderFields: RankOrderField[];
-  sumField?: string;
-};
 
 export type RankQueryPlan = {
   tableName: string;
@@ -243,21 +236,6 @@ const buildNamespace = (
   }
   const parts = definition.partitionFields.map((field) => values.get(field));
   return parts.length === 1 ? parts[0] : parts;
-};
-
-export const getRankIndexDefinitions = (
-  tableConfig: TableRelationalConfig
-): RankIndexDefinition[] => {
-  const rankIndexes = (tableConfig.table as any).getRankIndexes?.();
-  if (!Array.isArray(rankIndexes)) {
-    return [];
-  }
-  return rankIndexes.map((entry) => ({
-    name: entry.name,
-    partitionFields: entry.partitionFields ?? [],
-    orderFields: entry.orderFields ?? [],
-    sumField: entry.sumField,
-  }));
 };
 
 export const ensureRankAllowedForRls = (

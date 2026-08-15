@@ -11,12 +11,36 @@ import {
   usesSystemCreatedAtAlias,
 } from '../timestamp-mode';
 import type { TableRelationalConfig, TablesRelationalConfig } from '../types';
+import type {
+  AggregateIndexDefinition,
+  CountIndexDefinition,
+} from './definitions';
+import { getAggregateIndexDefinitions } from './definitions';
+import { AGGREGATE_ERROR, COUNT_ERROR, createError } from './errors';
 import {
   AGGREGATE_BUCKET_TABLE,
   AGGREGATE_EXTREMA_TABLE,
   AGGREGATE_MEMBER_TABLE,
   AGGREGATE_STATE_TABLE,
 } from './schema';
+
+export type {
+  AggregateIndexDefinition,
+  CountIndexDefinition,
+} from './definitions';
+export {
+  getAggregateIndexDefinitions,
+  getCountIndexDefinitions,
+} from './definitions';
+export type { AggregateErrorCode, CountErrorCode } from './errors';
+export {
+  AGGREGATE_ERROR,
+  COUNT_ERROR,
+  createAggregateError,
+  createCountError,
+  ensureAggregateAllowedForRls,
+  ensureCountAllowedForRls,
+} from './errors';
 
 const UNDEFINED_SENTINEL = '__kitcnUndefined';
 const FLOAT64_SIGN_BIT = 1n << 63n;
@@ -31,25 +55,6 @@ export const AGGREGATE_STATE_KIND_RANK = 'rank';
 
 export const COUNT_STATUS_BUILDING = 'BUILDING';
 export const COUNT_STATUS_READY = 'READY';
-
-export const COUNT_ERROR = {
-  FILTER_UNSUPPORTED: 'COUNT_FILTER_UNSUPPORTED',
-  NOT_INDEXED: 'COUNT_NOT_INDEXED',
-  INDEX_BUILDING: 'COUNT_INDEX_BUILDING',
-  RLS_UNSUPPORTED: 'COUNT_RLS_UNSUPPORTED',
-} as const;
-
-export const AGGREGATE_ERROR = {
-  ARGS_UNSUPPORTED: 'AGGREGATE_ARGS_UNSUPPORTED',
-  FILTER_UNSUPPORTED: 'AGGREGATE_FILTER_UNSUPPORTED',
-  NOT_INDEXED: 'AGGREGATE_NOT_INDEXED',
-  INDEX_BUILDING: 'AGGREGATE_INDEX_BUILDING',
-  RLS_UNSUPPORTED: 'AGGREGATE_RLS_UNSUPPORTED',
-} as const;
-
-type CountErrorCode = (typeof COUNT_ERROR)[keyof typeof COUNT_ERROR];
-type AggregateErrorCode =
-  (typeof AGGREGATE_ERROR)[keyof typeof AGGREGATE_ERROR];
 
 type ErrorCodes = {
   FILTER_UNSUPPORTED: string;
@@ -158,21 +163,6 @@ type CountExtremaRow = {
   count: number;
 };
 
-export type CountIndexDefinition = {
-  name: string;
-  fields: string[];
-};
-
-export type AggregateIndexDefinition = {
-  name: string;
-  fields: string[];
-  countFields: string[];
-  sumFields: string[];
-  avgFields: string[];
-  minFields: string[];
-  maxFields: string[];
-};
-
 export type CountQueryPlan = {
   tableName: string;
   indexName: string;
@@ -278,9 +268,6 @@ const normalizeFilterFieldName = (
   }
   return fieldName;
 };
-
-const createError = (code: string, message: string): Error =>
-  new Error(`${code}: ${message}`);
 
 const createFilterError = (
   codes: ErrorCodes,
@@ -933,32 +920,6 @@ const constraintsToValueRecord = (
   }
   return record;
 };
-
-export const getAggregateIndexDefinitions = (
-  tableConfig: TableRelationalConfig
-): AggregateIndexDefinition[] => {
-  const aggregateIndexes = (tableConfig.table as any).getAggregateIndexes?.();
-  if (!Array.isArray(aggregateIndexes)) {
-    return [];
-  }
-  return aggregateIndexes.map((entry) => ({
-    name: entry.name,
-    fields: entry.fields ?? [],
-    countFields: entry.countFields ?? [],
-    sumFields: entry.sumFields ?? [],
-    avgFields: entry.avgFields ?? [],
-    minFields: entry.minFields ?? [],
-    maxFields: entry.maxFields ?? [],
-  }));
-};
-
-export const getCountIndexDefinitions = (
-  tableConfig: TableRelationalConfig
-): CountIndexDefinition[] =>
-  getAggregateIndexDefinitions(tableConfig).map((entry) => ({
-    name: entry.name,
-    fields: entry.fields,
-  }));
 
 const supportsMetric = (
   index: AggregateIndexDefinition,
@@ -2905,60 +2866,6 @@ export const listCountStates = async (
         tableName: tableKey,
       };
     });
-};
-
-export const createCountError = (
-  code: CountErrorCode,
-  message: string
-): Error => createError(code, message);
-
-export const createAggregateError = (
-  code: AggregateErrorCode,
-  message: string
-): Error => createError(code, message);
-
-const assertAggregateAllowedForRls = (
-  tableConfig: TableRelationalConfig,
-  rlsMode: 'skip' | 'default' | undefined,
-  code: string,
-  methodName: string
-): void => {
-  const enabled =
-    typeof (tableConfig.table as any).isRlsEnabled === 'function'
-      ? (tableConfig.table as any).isRlsEnabled()
-      : false;
-
-  if (enabled && rlsMode !== 'skip') {
-    throw createError(
-      code,
-      `${methodName} is not available for table '${tableConfig.name}' in RLS-restricted contexts in v1.`
-    );
-  }
-};
-
-export const ensureCountAllowedForRls = (
-  tableConfig: TableRelationalConfig,
-  rlsMode: 'skip' | 'default' | undefined
-): void => {
-  assertAggregateAllowedForRls(
-    tableConfig,
-    rlsMode,
-    COUNT_ERROR.RLS_UNSUPPORTED,
-    'count()'
-  );
-};
-
-export const ensureAggregateAllowedForRls = (
-  tableConfig: TableRelationalConfig,
-  rlsMode: 'skip' | 'default' | undefined,
-  methodName: string
-): void => {
-  assertAggregateAllowedForRls(
-    tableConfig,
-    rlsMode,
-    AGGREGATE_ERROR.RLS_UNSUPPORTED,
-    methodName
-  );
 };
 
 const ensureIndexReady = async (
