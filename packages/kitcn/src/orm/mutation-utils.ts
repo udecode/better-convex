@@ -1584,13 +1584,15 @@ async function collectAsyncCascadeRowsBounded(
   buildQuery: () => any,
   batchSize: number,
   maxBytesPerBatch: number,
-  budget: MutationRowBudget | undefined,
-  context: { operation: 'update' | 'delete'; tableName: string }
+  budget: MutationRowBudget | undefined
 ): Promise<{ rows: Record<string, unknown>[]; needsContinuation: boolean }> {
-  // The async branch still collects and writes in-transaction before handing
-  // the remainder to the scheduler, so it draws on the same budget.
+  // The async branch collects and writes in-transaction before handing the
+  // remainder to the scheduler, so it draws on the same budget. Unlike sync
+  // mode it does not throw when the budget runs out: the next scheduled batch
+  // is a new transaction with a fresh budget, so deferring is the correct
+  // answer and keeps the async contract intact.
   if (budget && budget.remainingRows < 1) {
-    throw mutationRowBudgetError(context.operation, budget, context.tableName);
+    return { needsContinuation: true, rows: [] };
   }
   const limit = budget ? Math.min(budget.remainingRows, batchSize) : batchSize;
   const rows = (await buildQuery().take(limit + 1)) as Record<
@@ -1767,8 +1769,7 @@ export async function applyIncomingForeignKeyActionsOnDelete(
             ),
         asyncBatchSize,
         options.maxBytesPerBatch,
-        options.rowBudget,
-        { operation: 'delete', tableName: foreignKey.sourceTableName }
+        options.rowBudget
       );
       referencingRows = rows;
       if (needsContinuation) {
@@ -1964,8 +1965,7 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
             ),
         asyncBatchSize,
         options.maxBytesPerBatch,
-        options.rowBudget,
-        { operation: 'update', tableName: foreignKey.sourceTableName }
+        options.rowBudget
       );
       referencingRows = rows;
       if (needsContinuation) {

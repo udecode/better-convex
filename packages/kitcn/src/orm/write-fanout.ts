@@ -46,6 +46,11 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/** Anything answering `has(tableName)`: a `Set` or the hook `Map` itself. */
+export type LifecycleHookedTables = {
+  has(tableName: string): boolean;
+};
+
 /**
  * Records which tables the lifecycle writer intercepts, so write fan-out can
  * see it without importing `lifecycle` (which would close an import cycle
@@ -53,7 +58,7 @@ export async function mapWithConcurrency<T, R>(
  */
 export const markLifecycleHookedTables = <TDb extends object>(
   db: TDb,
-  tableNames: ReadonlySet<string>
+  tableNames: LifecycleHookedTables
 ): TDb => {
   Object.defineProperty(db, ORMLIFECYCLE_HOOKED_TABLES, {
     configurable: false,
@@ -73,6 +78,6 @@ export const markLifecycleHookedTables = <TDb extends object>(
 export const hasLifecycleHooks = (db: unknown, tableName: string): boolean => {
   const tables = (db as Record<PropertyKey, unknown> | null | undefined)?.[
     ORMLIFECYCLE_HOOKED_TABLES
-  ] as ReadonlySet<string> | undefined;
+  ] as LifecycleHookedTables | undefined;
   return tables?.has(tableName) ?? false;
 };
