@@ -202,7 +202,7 @@ All three algorithm builders accept an optional `options` object as the last arg
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `shards` | `number` | `1` | Number of shards for write distribution. The configured budget is dealt across the shards and adds back up to the total you wrote, so the enforced limit is unchanged. Higher values reduce contention at the cost of less precise counts (see [Sharding](#sharding)). |
-| `maxReserved` | `number` | `undefined` | Maximum tokens a request can "borrow" from future capacity. Dealt across shards as whole-token headroom. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
+| `maxReserved` | `number` | `undefined` | Maximum tokens a request can "borrow" from future capacity. Omit it for uncapped reservation headroom. Dealt across shards as whole-token headroom. Only applies to `fixedWindow` and `tokenBucket`. Not supported by `slidingWindow`. |
 | `capacity` | `number` | `limit` | Maximum stored tokens. Only applies to `fixedWindow`. Useful when you want a higher burst capacity than the per-window refill. Dealt across shards like `limit`, so it must also be at least `shards`. |
 | `start` | `number` | `0` | Epoch offset (ms) for window alignment. Only applies to `fixedWindow`. Aligns windows to a custom origin instead of epoch zero. |
 
@@ -294,7 +294,7 @@ The `HookCheckValue` returned by `check()` has this shape:
 | `ts` | `number` | Timestamp of the projection (client time) |
 | `config` | `ResolvedAlgorithm` | The algorithm config for further calculations |
 | `shard` | `number` | Which shard was sampled |
-| `ok` | `boolean` | `true` when `value >= 0` |
+| `ok` | `boolean` | `true` when the projected request can be served by a shard. Permanent oversized denials can have a non-negative aggregate `value`. |
 | `retryAt` | `number \| undefined` | Client timestamp when tokens become available. `Infinity` means no shard can serve the requested count. |
 
 If you need precise projected values (for custom gauges), call `check(ts, count)`.
@@ -541,7 +541,7 @@ Pass these options to `limit()` to customize behavior per-call.
 | --- | --- | --- | --- |
 | `rate` | `number` | `1` | Alias for `count`. Tokens to consume. |
 | `count` | `number` | `1` | Tokens to consume. Takes precedence if both `rate` and `count` are set. |
-| `reserve` | `boolean` | `false` | Allow borrowing from future capacity (up to `maxReserved`). Not supported by `slidingWindow`. |
+| `reserve` | `boolean` | `false` | Allow borrowing from future capacity. `maxReserved` caps the debt when configured; otherwise headroom is uncapped. Not supported by `slidingWindow`. |
 | `ip` | `string` | — | IP address for deny-list matching |
 | `userAgent` | `string` | — | User-agent for deny-list matching |
 | `country` | `string` | — | Country code for deny-list matching |

@@ -340,6 +340,26 @@ describe('Ratelimit', () => {
     }
   });
 
+  test('reservations without maxReserved retain uncapped headroom', async () => {
+    const algorithms = [
+      Ratelimit.tokenBucket(2, '1 s', 2),
+      Ratelimit.fixedWindow(2, '1 s'),
+    ];
+
+    for (const algorithm of algorithms) {
+      const { db, counters } = createMockDb();
+      const limiter = new Ratelimit({ db, limiter: algorithm });
+      const reserved = await limiter.limit('uncapped-reserved-user', {
+        count: 4,
+        reserve: true,
+      });
+
+      expect(reserved.success).toBe(true);
+      expect(reserved.reason).toBeUndefined();
+      expect(counters.uniqueReads).toBe(1);
+    }
+  });
+
   test('permanently undersized shards do not shorten reservation retries', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const { db } = createMockDb();

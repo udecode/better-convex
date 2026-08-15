@@ -169,4 +169,35 @@ describe('useRatelimit', () => {
       Number.POSITIVE_INFINITY
     );
   });
+
+  test('partial snapshots deny counts that no shard can serve', () => {
+    const start = Math.floor(Date.now() / 1000) * 1000;
+    const snapshot: RatelimitSnapshot = {
+      value: 10,
+      ts: start,
+      shard: 0,
+      state: {
+        value: 10,
+        ts: start,
+        shards: [{ shard: 0, state: { value: 5, ts: start } }],
+      },
+      config: {
+        kind: 'fixedWindow',
+        limit: 10,
+        window: 1000,
+        capacity: 10,
+        shards: 2,
+      },
+    };
+    useQuerySpy.mockReturnValue(snapshot as any);
+
+    const { result } = renderHook(() =>
+      useRatelimit('ratelimit/getRatelimit', { count: 6 })
+    );
+
+    expect(result.current.status?.ok).toBe(false);
+    expect(result.current.check(start, 6)?.retryAt).toBe(
+      Number.POSITIVE_INFINITY
+    );
+  });
 });

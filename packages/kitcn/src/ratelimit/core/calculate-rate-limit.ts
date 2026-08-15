@@ -6,7 +6,11 @@ import type {
   SlidingWindowAlgorithm,
   TokenBucketAlgorithm,
 } from '../types';
-import { algorithmBudget, shardAlgorithm } from './algorithms';
+import {
+  algorithmBudget,
+  algorithmCapacity,
+  shardAlgorithm,
+} from './algorithms';
 
 export type EvaluationResult = {
   state: RatelimitState;
@@ -26,10 +30,28 @@ export function calculateRatelimit(
   count: number
 ): EvaluationResult {
   const shardStates = state?.shards;
-  if (algorithm.shards > 1 && shardStates?.length === algorithm.shards) {
-    return calculateShardedRatelimit(shardStates, algorithm, now, count);
+  if (algorithm.shards > 1 && shardStates) {
+    if (count > maximumShardCapacity(algorithm)) {
+      return {
+        ...calculateSingleRatelimit(state, algorithm, now, count),
+        retryAfter: Number.POSITIVE_INFINITY,
+        reset: Number.POSITIVE_INFINITY,
+      };
+    }
+    if (shardStates.length === algorithm.shards) {
+      return calculateShardedRatelimit(shardStates, algorithm, now, count);
+    }
   }
 
+  return calculateSingleRatelimit(state, algorithm, now, count);
+}
+
+function calculateSingleRatelimit(
+  state: RatelimitState | null,
+  algorithm: ResolvedAlgorithm,
+  now: number,
+  count: number
+): EvaluationResult {
   if (algorithm.kind === 'fixedWindow') {
     return calculateFixedWindow(state, algorithm, now, count);
   }
@@ -37,6 +59,17 @@ export function calculateRatelimit(
     return calculateTokenBucket(state, algorithm, now, count);
   }
   return calculateSlidingWindow(state, algorithm, now, count);
+}
+
+function maximumShardCapacity(algorithm: ResolvedAlgorithm): number {
+  let maximum = 0;
+  for (let shard = 0; shard < algorithm.shards; shard += 1) {
+    maximum = Math.max(
+      maximum,
+      algorithmCapacity(shardAlgorithm(algorithm, shard))
+    );
+  }
+  return maximum;
 }
 
 function calculateShardedRatelimit(

@@ -79,3 +79,5 @@
   local snapshot and block-decision caches when dynamic limits change.
 - Preserve permanent oversized denials through all-shard snapshots and React
   projections without scheduling an infinite retry timer.
+- Apply per-shard capacity guards to partial snapshots while retaining uncapped
+  reservation headroom when `maxReserved` is omitted.

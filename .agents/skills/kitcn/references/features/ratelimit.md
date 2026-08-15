@@ -14,7 +14,7 @@ Ratelimit.slidingWindow(limit, window, options?);          // weighted across wi
 Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 ```
 
-`options`: `shards`, `maxReserved`, `capacity` (fixedWindow only), `start` (fixedWindow only).
+`options`: `shards`, `maxReserved`, `capacity` (fixedWindow only), `start` (fixedWindow only). Reserved fixed-window and token-bucket requests have uncapped headroom when `maxReserved` is omitted.
 
 `capacity` is the stored ceiling, `limit` is the per-window refill. Set `capacity > limit` for burst headroom.
 
@@ -79,7 +79,7 @@ const result = calculateRatelimit(
 
 For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 
-A request larger than every shard's capacity plus usable reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
+A request larger than every shard's capacity plus finite reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Full and partial snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
 
 ## Convex constraints
 

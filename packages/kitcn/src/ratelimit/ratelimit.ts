@@ -659,13 +659,23 @@ function maximumRequestSize(
   let maximum = 0;
   for (let shard = 0; shard < algorithm.shards; shard += 1) {
     const perShard = shardAlgorithm(algorithm, shard);
-    const reservation =
-      reserveRequested && perShard.kind !== 'slidingWindow'
-        ? (perShard.maxReserved ?? 0)
-        : 0;
-    maximum = Math.max(maximum, algorithmCapacity(perShard) + reservation);
+    maximum = Math.max(
+      maximum,
+      algorithmCapacity(perShard) +
+        reservationHeadroom(perShard, reserveRequested)
+    );
   }
   return maximum;
+}
+
+function reservationHeadroom(
+  algorithm: ResolvedAlgorithm,
+  reserveRequested: boolean
+): number {
+  if (!reserveRequested || algorithm.kind === 'slidingWindow') {
+    return 0;
+  }
+  return algorithm.maxReserved ?? Number.POSITIVE_INFINITY;
 }
 
 function getRequestRetryAfter(
@@ -675,10 +685,7 @@ function getRequestRetryAfter(
   count: number,
   reserveRequested: boolean
 ): number | undefined {
-  const reservation =
-    reserveRequested && algorithm.kind !== 'slidingWindow'
-      ? (algorithm.maxReserved ?? 0)
-      : 0;
+  const reservation = reservationHeadroom(algorithm, reserveRequested);
   if (count > algorithmCapacity(algorithm) + reservation) {
     return Number.POSITIVE_INFINITY;
   }

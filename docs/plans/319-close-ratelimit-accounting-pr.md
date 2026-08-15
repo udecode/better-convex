@@ -68,7 +68,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 56 focused ratelimit tests | complete |
+| source behavior | yes | 58 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
@@ -119,12 +119,15 @@ Error attempts:
 | Permanently undersized shards shortened global reservation retries | 1 | Exclude impossible shard candidates from retry selection | Red uneven-shard retry test became green |
 | Dynamic limit changes retained stale snapshots and block decisions | 1 | Clear instance caches after persisting an override | Red snapshot/block invalidation test became green |
 | All-shard snapshots erased permanent oversized denials | 1 | Preserve the infinite retry sentinel through core and React projection | Red core and hook projection tests became green |
+| Partial snapshots approved counts no shard could serve | 1 | Guard snapshot projections with maximum per-shard capacity | Red partial-snapshot hook test became green |
+| Omitted `maxReserved` was treated as zero headroom | 1 | Centralize the existing uncapped reservation default | Red fixed/token reservation test became green |
+| Hook docs tied `ok` to aggregate value sign | 1 | Document serviceability and permanent denial directly | Public hook contract matches retry-based evaluation |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 56 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 58 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -132,7 +135,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 22 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 25 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -152,7 +155,7 @@ Phase / pass table:
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 46 Vitest tests and 10 Bun tests across all four ratelimit
+- Focused proof passes 47 Vitest tests and 11 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -192,6 +195,8 @@ Timeline:
   findings with two red-to-green regressions and 54 focused tests.
 - 2026-08-15T02:47:00+02:00 Closed all-shard permanent-denial projection with
   core and React regressions, bringing focused proof to 56 tests.
+- 2026-08-15T02:55:00+02:00 Closed partial-snapshot, uncapped-reservation, and
+  hook-contract findings with 58 focused tests and synchronized guidance.
 
 Reboot status:
 | Question | Answer |
@@ -253,5 +258,7 @@ Review fixes:
   limit changes invalidate local snapshots and block decisions.
 - All-shard snapshots and the React hook preserve permanent oversized denial
   without scheduling an infinite retry timer.
+- Partial snapshots enforce per-shard serviceability, omitted `maxReserved`
+  remains uncapped, and hook docs describe retry-based `ok` semantics.
 - Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
   requires the state-bearing shape across server, hook, types, and docs.
