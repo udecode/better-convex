@@ -374,30 +374,31 @@ function ConvexAuthProviderInner({
     void getSessionFromPersistedToken(
       authClient as AuthClientFetch,
       persistedToken
-    ).then((outcome) => {
-      if (cancelled) {
-        return;
-      }
+    )
+      .then((outcome) => {
+        if (cancelled) {
+          return;
+        }
 
-      if (outcome.status === 'session') {
-        syncSessionAtom(authClient, outcome.data);
-        writeAuthSessionFallbackData(outcome.data);
-        return;
-      }
+        if (outcome.status === 'session') {
+          syncSessionAtom(authClient, outcome.data);
+          writeAuthSessionFallbackData(outcome.data);
+          return;
+        }
 
-      // Transport never answered. Signing out here would log a user out over a
-      // dropped request, so the fallback token and grace window survive for the
-      // next mount to retry.
-      if (outcome.status === 'unknown') {
-        return;
-      }
+        // Transport never answered. Signing out here would log a user out over a
+        // dropped request, so the fallback token and grace window survive for the
+        // next mount to retry.
+        if (outcome.status === 'unknown') {
+          return;
+        }
 
-      clearAuthSessionFallback();
-      clearSessionAtom(authClient);
-      authStore.set('token', null);
-      authStore.set('expiresAt', null);
-      authStore.set('sessionSyncGraceUntil', null);
-    })
+        clearAuthSessionFallback();
+        clearSessionAtom(authClient);
+        authStore.set('token', null);
+        authStore.set('expiresAt', null);
+        authStore.set('sessionSyncGraceUntil', null);
+      })
       // An unexpected failure is not evidence that the session is gone either.
       .catch(() => {});
 
