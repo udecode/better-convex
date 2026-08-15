@@ -357,7 +357,10 @@ export class Ratelimit {
     return new Ratelimit({
       ...this.config,
       db,
-      ephemeralCache: this.blockCacheSource,
+      // `blockCacheSource` is set only while the cache is enabled, so falling
+      // back to `false` keeps `ephemeralCache: false` disabled in the derived
+      // instance instead of silently handing it a fresh Map.
+      ephemeralCache: this.blockCacheSource ?? false,
     });
   }
 
