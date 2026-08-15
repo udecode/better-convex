@@ -1581,10 +1581,12 @@ export async function softDeleteRow(
 
 export async function hardDeleteRow(
   db: GenericDatabaseWriter<any>,
-  _tableName: string,
+  tableName: string,
   row: Record<string, unknown>
 ) {
-  await db.delete(row._id as any);
+  // The 2-arg overload is required: the 1-arg form makes the lifecycle writer
+  // brute-force the table name with one `normalizeId` syscall per hooked table.
+  await db.delete(tableName as any, row._id as any);
 }
 
 export async function applyIncomingForeignKeyActionsOnDelete(

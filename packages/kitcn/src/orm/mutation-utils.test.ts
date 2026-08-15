@@ -574,9 +574,11 @@ describe('mutation-utils', () => {
 
     const runAfterCalls: unknown[] = [];
     const deleted: string[] = [];
+    const deletedTables: string[] = [];
 
     const db = {
-      delete: async (id: string) => {
+      delete: async (table: string, id: string) => {
+        deletedTables.push(table);
         deleted.push(id);
       },
       patch: async () => {
@@ -656,6 +658,12 @@ describe('mutation-utils', () => {
     );
 
     expect(deleted.sort()).toEqual(['a1', 'a2', 'b1']);
+    // Hard delete must name the table so the lifecycle writer never has to
+    // recover it with per-hooked-table `normalizeId` probes.
+    expect([...new Set(deletedTables)].sort()).toEqual([
+      'cascade_child_a',
+      'cascade_child_b',
+    ]);
     expect(runAfterCalls).toHaveLength(1);
     expect(runAfterCalls[0]).toMatchObject({
       workType: 'cascade-delete',
