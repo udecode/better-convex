@@ -9,6 +9,23 @@ Canonical runtime rules:
 - Use `rankIndex` + `rank()` for rankings, random access, sorted pagination
 - `aggregateIndex` and `rankIndex` backfill automatically via `kitcn dev` — no manual trigger wiring needed
 
+## Setup
+
+Aggregate and rank indexes are an optional ORM subsystem. Register it where the ORM is created:
+
+```ts
+import { createOrm } from "kitcn/orm";
+import { aggregateCapability } from "kitcn/orm/aggregate-index";
+
+export const orm = createOrm({ schema, capabilities: [aggregateCapability()] });
+```
+
+`kitcn codegen` writes this into `<functionsDir>/generated/server.ts`. Convex bundles everything a
+module statically imports and has no dynamic `import()`, so `kitcn/orm` never reaches the aggregate
+runtime on its own. Without the capability, `aggregateIndex`/`rankIndex` schemas and filtered
+`count()` / `aggregate()` / `groupBy()` / `rank()` / relation `_count` throw a setup error.
+Unfiltered `count()` needs nothing.
+
 ## ORM Scalar Metrics
 
 ### `aggregateIndex` Schema Declaration

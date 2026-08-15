@@ -9,6 +9,24 @@ import { InfoIcon } from "lucide-react"
 
 ## Scalar Metrics
 
+<Callout icon={<InfoIcon />}>
+**Setup:** Aggregate and rank indexes are an optional ORM subsystem. Register it once where you
+create the ORM:
+
+```ts title="convex/functions/generated/server.ts"
+import { createOrm } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
+
+export const orm = createOrm({ schema, capabilities: [aggregateCapability()] });
+```
+
+`kitcn codegen` writes this for you. Convex bundles everything a module statically imports and has
+no dynamic `import()`, so `kitcn/orm` never reaches the aggregate runtime on its own — without the
+capability, `aggregateIndex`/`rankIndex` schemas and filtered `count()` / `aggregate()` / `groupBy()`
+/ `rank()` / relation `_count` throw a setup error. Unfiltered `count()` needs nothing.
+</Callout>
+
+
 The easiest way to aggregate. Declare an `aggregateIndex` on your table, and the ORM handles everything — no triggers, no manual maintenance.
 
 <Callout icon={<InfoIcon />}>

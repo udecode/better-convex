@@ -292,8 +292,32 @@ export default defineSchema({ users, posts }).relations((r) => ({
 Creates a unified ORM setup object. The CLI auto-generates this in `convex/functions/generated/server.ts` — you don't need to call it manually.
 
 <Callout icon={<InfoIcon />}>
-The generated module wires `schema`, `triggers`, `ormFunctions`, and `internalMutation`, then exports `scheduledMutationBatch` and `scheduledDelete`. See the generated file for the full setup.
+The generated module wires `schema`, `triggers`, `ormFunctions`, `capabilities`, and `internalMutation`, then exports `scheduledMutationBatch` and `scheduledDelete`. See the generated file for the full setup.
 </Callout>
+
+**`capabilities`**
+
+Optional ORM subsystems. Convex bundles everything a module statically imports and has no dynamic
+`import()`, so `kitcn/orm` does not reach them on its own — register the ones you use:
+
+```ts showLineNumbers
+import { createOrm } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
+import { migrationCapability } from 'kitcn/orm/migrations';
+
+export const orm = createOrm({
+  schema,
+  ormFunctions,
+  capabilities: [aggregateCapability(), migrationCapability()],
+})
+```
+
+| Capability | Required by |
+|---|---|
+| `aggregateCapability()` | `aggregateIndex`/`rankIndex` schemas, filtered `count()`, `count({ select })`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`, and `orm.api()` backfill handlers |
+| `migrationCapability()` | `orm.api()` migration handlers |
+
+Unfiltered `count()` is served by the native Convex count syscall and needs no capability.
 
 `createdAt` is always public in ORM rows. Its type is:
 - `number` for the system alias
