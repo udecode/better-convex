@@ -80,7 +80,20 @@ export interface IndexLike {
   indexName: string;
 }
 
+/**
+ * Enough to clear the 25-point gap between an exact match and a prefix match,
+ * so an index that supplies the order outranks a narrower one that does not.
+ */
+const INDEX_ORDER_BONUS = 30;
+
 export class WhereClauseCompiler {
+  /**
+   * Requested sort fields for the compile in flight. Index choice has to see
+   * them: an index whose next key after the pinned prefix is the sort field
+   * lets Convex serve the order from the scan, which no narrower index can do.
+   */
+  private orderFields: readonly string[] = [];
+
   constructor(
     _tableName: string,
     private availableIndexes: IndexLike[]
@@ -90,11 +103,15 @@ export class WhereClauseCompiler {
    * Compile a filter expression to Convex query structure
    *
    * @param expression - Filter expression tree
+   * @param options.orderFields - Resolved orderBy fields, most significant first
    * @returns Compilation result with index and filters
    */
   compile(
-    expression: FilterExpression<boolean> | undefined
+    expression: FilterExpression<boolean> | undefined,
+    options?: { orderFields?: readonly string[] }
   ): WhereClauseResult {
+    this.orderFields = options?.orderFields ?? [];
+
     // No filter - return empty result
     if (!expression) {
       return {
@@ -535,6 +552,18 @@ export class WhereClauseCompiler {
     const candidates = this.availableIndexes
       .filter((index) => index.indexFields[0] === fieldName)
       .sort((a, b) => a.indexFields.length - b.indexFields.length);
+    // Each probe pins the leading field, so an index whose second key is the
+    // sort field serves the order from the scan. Otherwise the narrowest index
+    // wins, since extra keys only widen the range without pinning anything.
+    const orderField = this.orderFields[0];
+    if (orderField !== undefined) {
+      const serving = candidates.find(
+        (index) => index.indexFields[1] === orderField
+      );
+      if (serving) {
+        return serving;
+      }
+    }
     return candidates[0] ?? null;
   }
 
@@ -801,7 +830,12 @@ export class WhereClauseCompiler {
     if (prefixCount > 0) {
       return {
         index,
-        score: 75 + prefixCount,
+        // A compound index whose next key is the sort field serves the order
+        // from the scan itself, which is worth more than the narrower index's
+        // exact-match premium. Only sound for prefix matches: `matchedFields`
+        // is a real prefix there, so position `prefixCount` is the first
+        // unpinned key.
+        score: 75 + prefixCount + this.indexOrderBonus(indexFields, prefixCount),
         matchType: 'prefix',
         matchedFields: indexFields.slice(0, prefixCount),
       };
@@ -823,6 +857,19 @@ export class WhereClauseCompiler {
     }
 
     return null;
+  }
+
+  /**
+   * Reward an index that also supplies the requested order. Large enough to
+   * clear the 25-point exact-over-prefix premium, so `(orgId, createdAt)` beats
+   * `(orgId)` for `where { orgId } orderBy { createdAt }`.
+   */
+  private indexOrderBonus(indexFields: string[], pinnedLength: number): number {
+    const orderField = this.orderFields[0];
+    if (orderField === undefined) {
+      return 0;
+    }
+    return indexFields[pinnedLength] === orderField ? INDEX_ORDER_BONUS : 0;
   }
 
   /**

@@ -249,6 +249,57 @@ describe('WhereClauseCompiler advanced index planning', () => {
     expect(result.postFilters).toHaveLength(0);
   });
 
+  test('prefers a compound index that also supplies the order', () => {
+    const compiler = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_org_created', indexFields: ['orgId', 'publishedAt'] },
+    ]);
+
+    const withOrder = compiler.compile(
+      eq(fieldRef<string>('orgId') as any, 'o1'),
+      { orderFields: ['publishedAt'] }
+    ) as any;
+    expect(withOrder.selectedIndex?.indexName).toBe('by_org_created');
+
+    const withoutOrder = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_org_created', indexFields: ['orgId', 'publishedAt'] },
+    ]).compile(eq(fieldRef<string>('orgId') as any, 'o1')) as any;
+    expect(withoutOrder.selectedIndex?.indexName).toBe('by_org');
+  });
+
+  test('keeps the narrow index when no candidate supplies the order', () => {
+    const compiler = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      {
+        indexName: 'by_tenant_created',
+        indexFields: ['tenantId', 'publishedAt'],
+      },
+    ]);
+
+    const result = compiler.compile(
+      eq(fieldRef<string>('orgId') as any, 'o1'),
+      { orderFields: ['publishedAt'] }
+    ) as any;
+
+    expect(result.selectedIndex?.indexName).toBe('by_org');
+  });
+
+  test('probe plans prefer an index whose second key is the order field', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+      { indexName: 'by_status_age', indexFields: ['status', 'age'] },
+    ]);
+
+    const result = compiler.compile(
+      inArray(fieldRef<string>('status') as any, ['active', 'pending']),
+      { orderFields: ['age'] }
+    ) as any;
+
+    expect(result.strategy).toBe('multiProbe');
+    expect(result.selectedIndex?.indexName).toBe('by_status_age');
+  });
+
   test('lands every unconsumed binary in postFilters exactly once', () => {
     const compiler = new WhereClauseCompiler('users', [
       { indexName: 'by_city', indexFields: ['city'] },

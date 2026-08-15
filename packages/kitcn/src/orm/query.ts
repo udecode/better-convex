@@ -6720,6 +6720,18 @@ export class GelRelationalQuery<
       tableIndexes
     );
 
+    // Resolved before index selection: which index is cheapest depends on
+    // whether it can also supply the requested order.
+    let orderSpecs: { direction: 'asc' | 'desc'; field: string }[] = [];
+    if (config.orderBy) {
+      const orderByValue =
+        typeof config.orderBy === 'function'
+          ? config.orderBy(this.tableConfig.table as any, { asc, desc })
+          : config.orderBy;
+
+      orderSpecs = this._orderBySpecs(orderByValue);
+    }
+
     // Compile where clause to FilterExpression (if present)
     let whereExpression: FilterExpression<boolean> | undefined =
       whereExpressionOverride;
@@ -6735,7 +6747,9 @@ export class GelRelationalQuery<
     }
 
     // Use compiler to split filters and select index
-    const planned = compiler.compile(whereExpression);
+    const planned = compiler.compile(whereExpression, {
+      orderFields: orderSpecs.map((spec) => spec.field),
+    });
     const plannedUsesIndex =
       !!planned.selectedIndex &&
       (planned.indexFilters.length > 0 || planned.probeFilters.length > 0);
@@ -6795,17 +6809,8 @@ export class GelRelationalQuery<
       };
     }
 
-    // Compile orderBy (M5 implementation)
-    if (config.orderBy) {
-      const orderByValue =
-        typeof config.orderBy === 'function'
-          ? config.orderBy(this.tableConfig.table as any, { asc, desc })
-          : config.orderBy;
-
-      const orderSpecs = this._orderBySpecs(orderByValue);
-      if (orderSpecs.length > 0) {
-        result.order = orderSpecs;
-      }
+    if (orderSpecs.length > 0) {
+      result.order = orderSpecs;
     }
 
     return result;
