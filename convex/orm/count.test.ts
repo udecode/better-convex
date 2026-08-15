@@ -299,7 +299,10 @@ describe('ORM count()', () => {
     const t = convexTest(localSchema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: localRelations, capabilities: [aggregateCapability()] });
+      const orm = createOrm({
+        schema: localRelations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       const ids = [] as string[];
@@ -341,7 +344,10 @@ describe('ORM count() with aggregateIndex', () => {
     const t = convexTest(schema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: relations, capabilities: [aggregateCapability()] });
+      const orm = createOrm({
+        schema: relations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       await ctx.db.insert('countUsers', {
@@ -743,7 +749,10 @@ describe('ORM count() with aggregateIndex', () => {
     const t = convexTest(schema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: relations, capabilities: [aggregateCapability()] });
+      const orm = createOrm({
+        schema: relations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       await expect(

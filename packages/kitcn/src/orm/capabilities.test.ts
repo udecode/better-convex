@@ -28,9 +28,7 @@ const indexedTable = convexTable(
 );
 
 const plainSchema = defineRelations(defineSchema({ plain: plainTable }));
-const indexedSchema = defineRelations(
-  defineSchema({ indexed: indexedTable })
-);
+const indexedSchema = defineRelations(defineSchema({ indexed: indexedTable }));
 
 describe('ORM capabilities', () => {
   test('a schema without aggregate indexes needs no capability', () => {
