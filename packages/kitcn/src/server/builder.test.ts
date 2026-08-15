@@ -794,6 +794,52 @@ describe('server/builder', () => {
     await expect((bad as any)._handler({}, {})).rejects.toBeTruthy();
   });
 
+  test('query.output() strips undeclared keys', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .output(z.object({ id: z.string() }))
+      .query(async () => ({ id: 'a', secret: 'hidden' }) as any);
+
+    await expect((fn as any)._handler({}, {})).resolves.toEqual({ id: 'a' });
+  });
+
+  test('query.output() enforces refinements the Convex validator loses', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    // zodOutputToConvex flattens this to v.float64(), so only the Zod parse
+    // can reject it.
+    const fn = c.query
+      .output(z.object({ n: z.number().min(3) }))
+      .query(async () => ({ n: 1 }));
+
+    await expect((fn as any)._handler({}, {})).rejects.toBeTruthy();
+  });
+
+  test('query.output() runs before wire encoding', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const iso = '2023-11-14T22:13:20.000Z';
+    const fn = c.query
+      .output(z.object({ at: z.string().transform((s) => new Date(s)) }))
+      .query(async () => ({ at: iso }));
+
+    // The transform produces a Date, so the transformer must still get a
+    // chance to encode it.
+    await expect((fn as any)._handler({}, {})).resolves.toEqual(
+      encodeWire({ at: new Date(iso) })
+    );
+  });
+
   test('paginated() clamps limit and defaults cursor', async () => {
     const c = initCRPC.create({
       query: queryGeneric,

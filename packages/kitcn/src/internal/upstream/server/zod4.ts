@@ -792,7 +792,10 @@ export type CustomBuilder<
           ...args: ArgsForHandlerType<ArgsOutput<ArgsValidator>, CustomMadeArgs>
         ) => ReturnValue;
         /**
-         * Validates the value returned by the function.
+         * Declares the Convex `returns` validator from a Zod schema, and types
+         * the function's return value. Enforcement happens in the Convex
+         * backend against the serialized response - the Zod schema is not
+         * re-run in JS.
          * Note: you can't pass an object directly without wrapping it
          * in `z.object()`.
          */
@@ -923,12 +926,11 @@ function customFnBuilder(
           const args = parsed.data;
           const finalCtx = { ...ctx, ...added.ctx };
           const finalArgs = { ...args, ...added.args };
-          const ret = await handler(finalCtx, finalArgs);
-          // We don't catch the error here. It's a developer error and we
-          // don't want to risk exposing the unexpected value to the client.
-          const result = returns
-            ? await returns.parseAsync(ret === undefined ? null : ret)
-            : ret;
+          // `returns` builds the Convex returns validator only; the Convex
+          // backend enforces it. Re-walking the response in JS would validate
+          // the wire encoding against a schema written for the pre-encoding
+          // value, and callers that want a Zod parse own it themselves.
+          const result = await handler(finalCtx, finalArgs);
           if (added.onSuccess) {
             await added.onSuccess({ ctx, args, result });
           }
@@ -948,12 +950,8 @@ function customFnBuilder(
         const added = await customInput(ctx, args, extra);
         const finalCtx = { ...ctx, ...added.ctx };
         const finalArgs = { ...args, ...added.args };
-        const ret = await handler(finalCtx, finalArgs);
-        // We don't catch the error here. It's a developer error and we
-        // don't want to risk exposing the unexpected value to the client.
-        const result = returns
-          ? await returns.parseAsync(ret === undefined ? null : ret)
-          : ret;
+        // See the args branch: `returns` is validator generation only.
+        const result = await handler(finalCtx, finalArgs);
         if (added.onSuccess) {
           await added.onSuccess({ ctx, args, result });
         }

@@ -861,8 +861,6 @@ export class ProcedureBuilder<
     >
       ? TShape
       : Record<string, never>;
-    const shouldValidateOutputWithZod =
-      !!outputSchema && returnsSchema !== outputSchema;
     const resolvedProcedureName =
       procedureName ?? inferProcedureNameFromCallsite();
 
@@ -909,8 +907,14 @@ export class ProcedureBuilder<
             }
           );
 
-          const validatedOutput = shouldValidateOutputWithZod
-            ? outputSchema.parse(result.output)
+          // The single output validation, on the value the handler returned
+          // rather than its wire encoding. `returnsSchema` only exists to
+          // generate the Convex `returns` validator, which the backend
+          // enforces against the serialized payload.
+          const validatedOutput = outputSchema
+            ? await outputSchema.parseAsync(
+                result.output === undefined ? null : result.output
+              )
             : result.output;
           return functionConfig.transformer.output.serialize(validatedOutput);
         } catch (cause) {
