@@ -618,10 +618,11 @@ export class WhereClauseCompiler {
     // Each probe pins the leading field, so an index whose second key is the
     // sort field serves the order from the scan. Otherwise the narrowest index
     // wins, since extra keys only widen the range without pinning anything.
-    const orderField = this.orderFields[0];
-    if (orderField !== undefined) {
+    if (this.orderFields.length > 0) {
+      const orderField = this.orderFields[0];
       const serving = candidates.find(
-        (index) => index.indexFields[1] === orderField
+        (index) =>
+          index.indexFields.length > 1 && index.indexFields[1] === orderField
       );
       if (serving) {
         return serving;
@@ -928,11 +929,12 @@ export class WhereClauseCompiler {
    * `(orgId)` for `where { orgId } orderBy { createdAt }`.
    */
   private indexOrderBonus(indexFields: string[], pinnedLength: number): number {
-    const orderField = this.orderFields[0];
-    if (orderField === undefined) {
+    if (this.orderFields.length === 0 || pinnedLength >= indexFields.length) {
       return 0;
     }
-    return indexFields[pinnedLength] === orderField ? INDEX_ORDER_BONUS : 0;
+    return indexFields[pinnedLength] === this.orderFields[0]
+      ? INDEX_ORDER_BONUS
+      : 0;
   }
 
   /**

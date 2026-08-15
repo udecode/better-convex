@@ -172,9 +172,9 @@ function likePatternCodePoints(
   }
   const source = Array.from(caseInsensitive ? pattern.toLowerCase() : pattern);
   if (likePatternCache.size >= LIKE_PATTERN_CACHE_MAX) {
-    const oldest = likePatternCache.keys().next();
-    if (!oldest.done) {
-      likePatternCache.delete(oldest.value);
+    for (const oldest of likePatternCache.keys()) {
+      likePatternCache.delete(oldest);
+      break;
     }
   }
   likePatternCache.set(key, source);
