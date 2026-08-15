@@ -432,7 +432,12 @@ export class GelRelationalQuery<
    * would otherwise re-resolve the whole policy set per row.
    */
   private readonly _rlsPolicyResolution = createRlsPolicyResolutionCache();
-  private readonly _countIndexReadinessByKey = new Map<string, Promise<void>>();
+  /**
+   * Assigned in the constructor so callers that run many short-lived query
+   * instances against the same tables (mutation `returning({ _count })`) can
+   * share one readiness memo instead of re-probing per instance.
+   */
+  private readonly _countIndexReadinessByKey: Map<string, Promise<void>>;
   private readonly _aggregateIndexReadinessByKey = new Map<
     string,
     Promise<void>
@@ -460,10 +465,12 @@ export class GelRelationalQuery<
     private rls?: RlsContext,
     private relationLoading?: { concurrency?: number },
     private vectorSearchProvider?: VectorSearchProvider,
-    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
+    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>,
+    countIndexReadiness?: Map<string, Promise<void>>
   ) {
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
+    this._countIndexReadinessByKey = countIndexReadiness ?? new Map();
   }
 
   private _usesSystemCreatedAtAlias(
