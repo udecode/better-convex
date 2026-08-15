@@ -151,7 +151,12 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
 
 function listFilesRecursive(cwd: string, relDir = ''): string[] {
   const absDir = path.join(cwd, relDir);
-  const entries = fs.readdirSync(absDir, { withFileTypes: true });
+  // Sorted by name: emitted api and procedure-lookup ordering derives from
+  // this walk, and readdir order differs between filesystems. Names within a
+  // directory are unique, so the comparison never ties.
+  const entries = fs
+    .readdirSync(absDir, { withFileTypes: true })
+    .sort((a, b) => (a.name > b.name ? 1 : -1));
 
   const files: string[] = [];
   for (const entry of entries) {
