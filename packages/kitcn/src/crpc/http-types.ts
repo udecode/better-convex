@@ -7,6 +7,7 @@
 import type { z } from 'zod';
 
 import type { Simplify } from '../internal/types';
+import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import type { HttpProcedure } from '../server/http-types';
 import type { UnsetMarker } from '../server/types';
 
@@ -55,8 +56,6 @@ export function buildHttpQueryKey(
  * client freshness window cannot drift apart.
  */
 export const HTTP_DEFAULT_STALE_TIME = 30_000;
-
-import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 
 // ============================================================================
 // Type Inference Utilities
