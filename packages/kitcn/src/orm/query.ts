@@ -195,6 +195,18 @@ const tableConfigByDbNameCache = new WeakMap<
   Map<string, TableRelationalConfig>
 >();
 
+/**
+ * Read memos shared by every row of one `with._count` relation. Both are keyed
+ * on data that is constant for that relation, so a hit is always the answer the
+ * row would have computed for itself.
+ */
+type RelationCountCaches = {
+  /** Aggregate bucket documents, deduped across rows resolving to one bucket. */
+  buckets: PlanBucketReadCache;
+  /** Target key -> does that target satisfy the count's `where`. */
+  throughTargetMatches: Map<string, Promise<boolean>>;
+};
+
 /** A `where` that filters on nothing but the primary key. */
 type IdOnlyWhere = { kind: 'eq'; id: unknown } | { kind: 'in'; ids: unknown[] };
 
@@ -7408,9 +7420,10 @@ export class GelRelationalQuery<
     edge: EdgeMetadata,
     where: unknown,
     tableConfig: TableRelationalConfig,
-    bucketCache?: PlanBucketReadCache
+    caches?: RelationCountCaches
   ): Promise<number> {
     const relationPath = `${tableConfig.name}.${relationName}`;
+    const bucketCache = caches?.buckets;
 
     if (edge.through) {
       const throughTableConfig = this._getTableConfigByDbName(
@@ -7533,32 +7546,54 @@ export class GelRelationalQuery<
             this.allowFullScan
           );
 
-      const targetEntries = Array.from(targetKeyCounts.values());
+      const resolveTargetMatch = async (
+        values: unknown[]
+      ): Promise<boolean> => {
+        let target: any | null = null;
+        if (useGetById) {
+          target = await this._getById(edge.targetTable, values[0]);
+        } else {
+          const query = this._queryByFields(
+            this.db.query(edge.targetTable),
+            targetFields,
+            values,
+            targetIndexName
+          );
+          target = await query.first();
+        }
+        if (!target) {
+          return false;
+        }
+        return this._evaluateTableFilter(
+          target,
+          targetTableConfig,
+          whereRecord
+        );
+      };
+
+      // Parents routinely share targets — every member of a team resolves the
+      // same team document. The predicate is a pure function of the target and
+      // the relation's `where`, both fixed for this cache's lifetime, so each
+      // distinct target is read and evaluated once for the whole page.
+      const targetMatchCache = caches?.throughTargetMatches;
+      const targetEntries = Array.from(targetKeyCounts.entries());
       const matchedCounts = await this._mapWithConcurrency(
         targetEntries,
-        async ({ values, occurrences }) => {
-          let target: any | null = null;
-          if (useGetById) {
-            target = await this._getById(edge.targetTable, values[0]);
-          } else {
-            const query = this._queryByFields(
-              this.db.query(edge.targetTable),
-              targetFields,
-              values,
-              targetIndexName
-            );
-            target = await query.first();
+        async ([targetKey, { values, occurrences }]) => {
+          if (!targetMatchCache) {
+            return (await resolveTargetMatch(values)) ? occurrences : 0;
           }
-          if (!target) {
-            return 0;
+          let pending = targetMatchCache.get(targetKey);
+          if (!pending) {
+            pending = resolveTargetMatch(values);
+            targetMatchCache.set(targetKey, pending);
           }
-          return this._evaluateTableFilter(
-            target,
-            targetTableConfig,
-            whereRecord
-          )
-            ? occurrences
-            : 0;
+          try {
+            return (await pending) ? occurrences : 0;
+          } catch (error) {
+            targetMatchCache.delete(targetKey);
+            throw error;
+          }
         }
       );
 
@@ -7659,9 +7694,12 @@ export class GelRelationalQuery<
         // `relationName` and `where` are fixed for this map's whole lifetime,
         // so the parent key alone identifies an entry.
         const relationCountExecutionCache = new Map<string, Promise<number>>();
-        // Rows that resolve to the same aggregate bucket read it once instead
-        // of once per row, mirroring the top-level aggregate path.
-        const bucketReadCache: PlanBucketReadCache = new Map();
+        // Scoped to one relation of one read, where the relation's `where` and
+        // target table are constant, which is what makes both entries sound.
+        const caches: RelationCountCaches = {
+          buckets: new Map(),
+          throughTargetMatches: new Map(),
+        };
 
         const counts = await this._mapWithConcurrency(rows, async (row) => {
           const parentKey = this._getRelationCountParentKey(row, edge);
@@ -7680,7 +7718,7 @@ export class GelRelationalQuery<
             edge,
             where,
             tableConfig,
-            bucketReadCache
+            caches
           );
           relationCountExecutionCache.set(parentKey, pending);
           try {
