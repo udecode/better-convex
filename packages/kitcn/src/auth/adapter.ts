@@ -29,7 +29,11 @@ export const handlePagination = async (
   }) => Promise<
     SetOptional<PaginationResult<any>, 'page'> & { count?: number }
   >,
-  { limit, numItems }: { limit?: number; numItems?: number } = {}
+  {
+    countOnly,
+    limit,
+    numItems,
+  }: { countOnly?: boolean; limit?: number; numItems?: number } = {}
 ) => {
   const state: {
     count: number;
@@ -51,6 +55,15 @@ export const handlePagination = async (
     state.cursor = result.continueCursor;
 
     if (result.page) {
+      // Callers that only need a total must not retain every document body for
+      // the whole loop.
+      if (countOnly) {
+        state.count += result.page.length;
+        state.isDone = (limit && state.count >= limit) || result.isDone;
+
+        return;
+      }
+
       state.docs.push(...result.page);
       state.isDone = (limit && state.docs.length >= limit) || result.isDone;
 
@@ -69,14 +82,13 @@ export const handlePagination = async (
 
   do {
     const cursorBeforePage = state.cursor;
+    const consumed = countOnly ? state.count : state.docs.length;
     const result = await next({
       paginationOpts: {
         cursor: state.cursor,
         numItems: Math.min(
           numItems ?? 200,
-          limit === undefined
-            ? Number.POSITIVE_INFINITY
-            : limit - state.docs.length,
+          limit === undefined ? Number.POSITIVE_INFINITY : limit - consumed,
           200
         ),
       },
@@ -330,10 +342,11 @@ export const httpAdapter = <
                 ...data,
                 paginationOpts,
                 where: parseWhere(data.where),
-              })
+              }),
+            { countOnly: true }
           );
 
-          return result.docs.length;
+          return result.count;
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {
@@ -639,10 +652,11 @@ export const dbAdapter = <
                 },
                 schema,
                 betterAuthSchema
-              )
+              ),
+            { countOnly: true }
           );
 
-          return result.docs.length;
+          return result.count;
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {

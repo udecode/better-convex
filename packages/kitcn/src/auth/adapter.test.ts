@@ -105,6 +105,47 @@ describe('handlePagination', () => {
     expect(state.docs).toHaveLength(201);
   });
 
+  test('count-only mode totals pages without retaining documents', async () => {
+    let index = 0;
+    const state = await handlePagination(
+      async () => {
+        index++;
+        return {
+          continueCursor: `cursor-${index}`,
+          isDone: index === 2,
+          page: Array.from({ length: index === 1 ? 200 : 3 }, (_, id) => ({
+            id,
+          })),
+          pageStatus: 'Done' as const,
+        };
+      },
+      { countOnly: true }
+    );
+
+    expect(state.count).toBe(203);
+    expect(state.docs).toEqual([]);
+    expect(state.isDone).toBe(true);
+  });
+
+  test('count-only mode still honors limit', async () => {
+    const requested: number[] = [];
+    const state = await handlePagination(
+      async ({ paginationOpts }) => {
+        requested.push(paginationOpts.numItems);
+        return {
+          continueCursor: `cursor-${requested.length}`,
+          isDone: false,
+          page: [{ id: requested.length }],
+          pageStatus: 'Done' as const,
+        };
+      },
+      { countOnly: true, limit: 2 }
+    );
+
+    expect(state.count).toBe(2);
+    expect(requested).toEqual([2, 1]);
+  });
+
   test('aborts a page that cannot make forward progress', async () => {
     let calls = 0;
 
@@ -647,6 +688,29 @@ describe('httpAdapter', () => {
     );
     expect(runQuery).not.toHaveBeenCalled();
     expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  test('count totals every page without materializing the table', async () => {
+    let index = 0;
+    const runQuery = mock(async () => {
+      index++;
+      return {
+        continueCursor: `cursor-${index}`,
+        isDone: index === 2,
+        page: Array.from({ length: index === 1 ? 200 : 5 }, (_, id) => ({
+          _id: `user-${index}-${id}`,
+          email: `user-${index}-${id}@b.com`,
+        })),
+        pageStatus: 'Done' as const,
+      };
+    });
+    const adapterFactory = httpAdapter({ runQuery } as any, {
+      authFunctions: { findMany: 'findMany' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+
+    await expect(adapter.count({ model: 'user' })).resolves.toBe(205);
+    expect(runQuery).toHaveBeenCalledTimes(2);
   });
 
   test('update dispatches one mutation and no pre-check query', async () => {
