@@ -1085,17 +1085,28 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
             value: undefined,
           })
         );
+        // Exactly one slot is emptied per item, so after the initial fill only
+        // that slot needs refilling. Rebuilding a K-element `Promise.all` per
+        // item would allocate K closures and promises to advance one iterator.
+        let started = false;
+        let refillIndex: number | undefined;
         return {
           async next() {
-            // Fill results from iterators with no value yet.
-            await Promise.all(
-              iterators.map(async (iterator, i) => {
-                if (!results[i]!.done && !results[i]!.value) {
-                  const result = await iterator.next();
-                  results[i] = result;
-                }
-              })
-            );
+            if (started) {
+              if (refillIndex !== undefined) {
+                results[refillIndex] = await iterators[refillIndex]!.next();
+                refillIndex = undefined;
+              }
+            } else {
+              started = true;
+              // One `Promise.all` on the initial fill, so the sub-queries are
+              // still issued concurrently.
+              await Promise.all(
+                iterators.map(async (iterator, i) => {
+                  results[i] = await iterator.next();
+                })
+              );
+            }
             // Find index for the value with the lowest index key.
             let minIndexKeyAndIndex: [IndexKey, number] | undefined;
             for (let i = 0; i < results.length; i++) {
@@ -1127,6 +1138,7 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
             const result = results[minIndex]!.value;
             // indicate that we've used this result
             results[minIndex]!.value = undefined;
+            refillIndex = minIndex;
             return { done: false, value: result };
           },
         };
