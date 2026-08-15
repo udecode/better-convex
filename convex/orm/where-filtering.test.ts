@@ -1334,7 +1334,7 @@ describe('M4: Read bounds', () => {
 
     const reads = countDocumentReads(ctx);
     const rows = await ctx.orm.query.users.findMany({
-      where: { status: { in: ['zmatch'] }, name: { contains: 'u' } },
+      where: { status: { in: ['zmatch'] }, name: { startsWith: 'u' } },
       limit: 2,
     });
 
