@@ -6090,9 +6090,12 @@ export class GelRelationalQuery<
       const probeHasResidualFilter =
         convexProbeFilters.length !== queryConfig.postFilters.length;
       // RLS and relation `where` run after the union is assembled and can drop
-      // rows, so a per-probe bound would under-fill the page.
+      // rows, so a per-probe bound would under-fill the page. `mode: 'skip'`
+      // drops nothing and must not cost the bound.
       const probeHasPostFetchMembership =
-        Boolean(whereFilter) || isRlsEnabled(this.tableConfig.table as any);
+        Boolean(whereFilter) ||
+        (this.rls?.mode !== 'skip' &&
+          isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
       // when that order is the requested order, so the global top-k is
       // guaranteed to live inside the union of the per-probe top-k.
