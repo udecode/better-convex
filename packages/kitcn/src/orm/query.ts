@@ -186,6 +186,15 @@ const RELATION_COUNT_ERROR = {
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
 
+/**
+ * Physical-table-name lookup, keyed on schema identity. The schema is a
+ * module-level immutable, so the index outlives any single request.
+ */
+const tableConfigByDbNameCache = new WeakMap<
+  object,
+  Map<string, TableRelationalConfig>
+>();
+
 /** A `where` that filters on nothing but the primary key. */
 type IdOnlyWhere = { kind: 'eq'; id: unknown } | { kind: 'in'; ids: unknown[] };
 
@@ -750,11 +759,27 @@ export class GelRelationalQuery<
     return 0;
   }
 
+  /**
+   * Physical table name to relational config. Called once per row on the
+   * relation-count path, so the linear schema scan is indexed once per schema
+   * object rather than repeated. The schema is fixed for the process lifetime.
+   */
   private _getTableConfigByDbName(
     dbName: string
   ): TableRelationalConfig | undefined {
-    const tables = Object.values(this.schema) as TableRelationalConfig[];
-    return tables.find((table) => table.name === dbName);
+    let byDbName = tableConfigByDbNameCache.get(this.schema as object);
+    if (!byDbName) {
+      byDbName = new Map<string, TableRelationalConfig>();
+      for (const table of Object.values(
+        this.schema
+      ) as TableRelationalConfig[]) {
+        if (table?.name && !byDbName.has(table.name)) {
+          byDbName.set(table.name, table);
+        }
+      }
+      tableConfigByDbNameCache.set(this.schema as object, byDbName);
+    }
+    return byDbName.get(dbName);
   }
 
   private _matchLike(
@@ -7340,25 +7365,6 @@ export class GelRelationalQuery<
     return record.where;
   }
 
-  private _normalizeRelationCountCacheValue(value: unknown): unknown {
-    if (Array.isArray(value)) {
-      return value.map((entry) =>
-        this._normalizeRelationCountCacheValue(entry)
-      );
-    }
-    if (value && typeof value === 'object') {
-      const normalized: Record<string, unknown> = {};
-      const entries = Object.entries(value as Record<string, unknown>).sort(
-        ([left], [right]) => left.localeCompare(right)
-      );
-      for (const [key, entry] of entries) {
-        normalized[key] = this._normalizeRelationCountCacheValue(entry);
-      }
-      return normalized;
-    }
-    return value;
-  }
-
   private _getRelationCountParentKey(
     row: any,
     edge: EdgeMetadata
@@ -7377,22 +7383,11 @@ export class GelRelationalQuery<
     return JSON.stringify(values);
   }
 
-  private _buildRelationCountExecutionKey(
-    relationName: string,
-    where: unknown,
-    parentKey: string
-  ): string {
-    return JSON.stringify({
-      relationName,
-      where: this._normalizeRelationCountCacheValue(where ?? null),
-      parentKey,
-    });
-  }
-
   private async _readIndexedRelationCount(
     tableConfig: TableRelationalConfig,
     where: Record<string, unknown>,
-    relationPath: string
+    relationPath: string,
+    bucketCache?: PlanBucketReadCache
   ): Promise<number> {
     ensureCountAllowedForRls(tableConfig, this.rls?.mode as any);
     try {
@@ -7401,7 +7396,7 @@ export class GelRelationalQuery<
         return 0;
       }
       await this._ensureCountIndexReadyOnce(plan.tableName, plan.indexName);
-      return await readCountFromBuckets(this.db as any, plan);
+      return await readCountFromBuckets(this.db as any, plan, bucketCache);
     } catch (error) {
       throw this._remapRelationCountError(error, relationPath);
     }
@@ -7412,7 +7407,8 @@ export class GelRelationalQuery<
     relationName: string,
     edge: EdgeMetadata,
     where: unknown,
-    tableConfig: TableRelationalConfig
+    tableConfig: TableRelationalConfig,
+    bucketCache?: PlanBucketReadCache
   ): Promise<number> {
     const relationPath = `${tableConfig.name}.${relationName}`;
 
@@ -7449,7 +7445,8 @@ export class GelRelationalQuery<
         return await this._readIndexedRelationCount(
           throughTableConfig,
           throughWhere,
-          relationPath
+          relationPath,
+          bucketCache
         );
       }
 
@@ -7602,7 +7599,8 @@ export class GelRelationalQuery<
     return await this._readIndexedRelationCount(
       targetTableConfig,
       mergedWhere,
-      relationPath
+      relationPath,
+      bucketCache
     );
   }
 
@@ -7658,7 +7656,12 @@ export class GelRelationalQuery<
           relationName,
           relationSelection
         );
+        // `relationName` and `where` are fixed for this map's whole lifetime,
+        // so the parent key alone identifies an entry.
         const relationCountExecutionCache = new Map<string, Promise<number>>();
+        // Rows that resolve to the same aggregate bucket read it once instead
+        // of once per row, mirroring the top-level aggregate path.
+        const bucketReadCache: PlanBucketReadCache = new Map();
 
         const counts = await this._mapWithConcurrency(rows, async (row) => {
           const parentKey = this._getRelationCountParentKey(row, edge);
@@ -7666,12 +7669,7 @@ export class GelRelationalQuery<
             return 0;
           }
 
-          const executionKey = this._buildRelationCountExecutionKey(
-            relationName,
-            where,
-            parentKey
-          );
-          const existing = relationCountExecutionCache.get(executionKey);
+          const existing = relationCountExecutionCache.get(parentKey);
           if (existing) {
             return await existing;
           }
@@ -7681,13 +7679,14 @@ export class GelRelationalQuery<
             relationName,
             edge,
             where,
-            tableConfig
+            tableConfig,
+            bucketReadCache
           );
-          relationCountExecutionCache.set(executionKey, pending);
+          relationCountExecutionCache.set(parentKey, pending);
           try {
             return await pending;
           } catch (error) {
-            relationCountExecutionCache.delete(executionKey);
+            relationCountExecutionCache.delete(parentKey);
             throw error;
           }
         });

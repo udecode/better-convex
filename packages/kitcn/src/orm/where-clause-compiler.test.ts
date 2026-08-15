@@ -248,6 +248,41 @@ describe('WhereClauseCompiler advanced index planning', () => {
     ).toEqual(['city', 'status']);
     expect(result.postFilters).toHaveLength(0);
   });
+
+  test('lands every unconsumed binary in postFilters exactly once', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_city', indexFields: ['city'] },
+    ]);
+
+    const terms = [eq(fieldRef<string>('city') as any, 'nyc')];
+    for (let i = 0; i < 20; i += 1) {
+      terms.push(eq(fieldRef<string>(`f${i}`) as any, `v${i}`));
+    }
+
+    const result = compiler.compile(and(...terms)!) as any;
+
+    expect(result.strategy).toBe('singleIndex');
+    expect(result.indexFilters).toHaveLength(1);
+    expect(result.postFilters).toHaveLength(20);
+    expect(new Set(result.postFilters).size).toBe(20);
+  });
+
+  test('keeps a second operator on an index field out of the index scan', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_age', indexFields: ['age'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        eq(fieldRef<number>('age') as any, 30),
+        ne(fieldRef<number>('age') as any, 31)
+      )!
+    ) as any;
+
+    expect(result.indexFilters).toHaveLength(1);
+    expect(result.postFilters).toHaveLength(1);
+    expect((result.postFilters[0] as any).operator).toBe('ne');
+  });
 });
 
 describe('timestamp mode key normalization', () => {

@@ -483,7 +483,7 @@ describe('ORM relation with._count', () => {
     });
   });
 
-  it('dedupes relation _count reads by normalized relation+where+parentKey across rows', async () => {
+  it('dedupes relation _count reads by parent key across rows', async () => {
     const { schema, relations } = buildRelationCountFixtures();
     const t = convexTest(schema);
 

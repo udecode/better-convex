@@ -979,9 +979,14 @@ export class WhereClauseCompiler {
       break;
     }
 
-    for (const binary of binaryFilters) {
-      if (!consumed.has(binary) && !postFilters.includes(binary)) {
-        postFilters.push(binary);
+    // `binariesByField` holds exactly the binaries the loop above did not
+    // already push, so walking it needs no membership test against the array
+    // it is appending to.
+    for (const filters of binariesByField.values()) {
+      for (const binary of filters) {
+        if (!consumed.has(binary)) {
+          postFilters.push(binary);
+        }
       }
     }
 
