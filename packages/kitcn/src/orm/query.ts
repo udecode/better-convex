@@ -90,6 +90,7 @@ import {
   findSearchIndexByName,
   findVectorIndexByName,
   getIndexes,
+  resolveIndexOrderPushdown,
 } from './index-utils';
 import {
   getOrmContext,
@@ -168,6 +169,13 @@ const POST_FETCH_ONLY_OPERATORS = new Set([
 ]);
 
 const DEFAULT_RELATION_FAN_OUT_MAX_KEYS = 1000;
+/**
+ * How many child rows the bounded relation stream filters at a time. Batching
+ * lets the sub-relation loader de-duplicate foreign keys and run its reads
+ * concurrently; the cost is reading at most `chunk - 1` rows past the one that
+ * satisfies the limit.
+ */
+const RELATION_FILTER_STREAM_CHUNK = 32;
 const DEFAULT_AGGREGATE_CARTESIAN_MAX_KEYS = 4096;
 const DEFAULT_AGGREGATE_WORK_BUDGET = 16_384;
 const PUBLIC_ID_FIELD = 'id';
@@ -5806,17 +5814,13 @@ export class GelRelationalQuery<
 
       // Check if orderBy field matches WHERE index
       if (primaryOrder) {
-        const orderField = primaryOrder.field;
-        const indexFields = queryConfig.index.filters.map(
-          (f: any) => (f as any).operands[0].fieldName
-        );
-        // _creationTime is always available as index ordering suffix in Convex.
-        // If ordering by same field as index (or _creationTime), apply .order().
-        if (
-          indexFields.includes(orderField) ||
-          orderField === '_creationTime'
-        ) {
-          query = query.order(primaryOrder.direction);
+        const pushdownDirection = resolveIndexOrderPushdown({
+          indexFields: indexConfig.fields,
+          pinnedEqCount: this._indexEqPrefixCount(queryConfig),
+          orderSpecs: [primaryOrder],
+        });
+        if (pushdownDirection) {
+          query = query.order(pushdownDirection);
         } else {
           // Different field - need post-fetch sort
           needsPostFetchSortForPrimary = true;
@@ -5829,7 +5833,24 @@ export class GelRelationalQuery<
       );
 
       if (primaryOrder) {
-        if (primaryOrder.field === '_creationTime') {
+        // A pinned range is an opaque callback, so how much of the key it fixes
+        // is unknowable and only the historical `_creationTime` accept applies.
+        // With the range left open nothing is pinned, so the scan is in leading
+        // index-field order and can serve a sort on it natively.
+        const pinnedIndexFields = configuredIndex.range
+          ? null
+          : (getIndexes(this.tableConfig.table).find(
+              (idx) => idx.name === configuredIndex.name
+            )?.fields ?? null);
+        const pushdownDirection = resolveIndexOrderPushdown({
+          indexFields: pinnedIndexFields,
+          pinnedEqCount: 0,
+          orderSpecs: [primaryOrder],
+        });
+        if (
+          pushdownDirection ||
+          primaryOrder.field === INTERNAL_CREATION_TIME_FIELD
+        ) {
           query = query.order(primaryOrder.direction);
         } else {
           needsPostFetchSortForPrimary = true;
@@ -6015,6 +6036,40 @@ export class GelRelationalQuery<
       queryConfig.index &&
       !isCursorPaginated
     ) {
+      const probeOffset = config.offset ?? 0;
+      if (typeof probeOffset !== 'number') {
+        throw new Error('Only numeric offset is supported in kitcn ORM.');
+      }
+      const probeLimit = this._resolveNonPaginatedLimit(config);
+      // Convex counts `.filter()` matches towards `take`, but only for the
+      // filters it can actually carry; a residual one runs in JavaScript later
+      // and would make the bound size unfiltered rows.
+      const probeHasResidualFilter = queryConfig.postFilters.some(
+        (filter) => !this._isConvexEnforceableFilter(filter)
+      );
+      // RLS and relation `where` run after the union is assembled and can drop
+      // rows, so a per-probe bound would under-fill the page.
+      const probeHasPostFetchMembership =
+        Boolean(whereFilter) || isRlsEnabled(this.tableConfig.table as any);
+      // Each probe is read in its own index order. Truncating one is only sound
+      // when that order is the requested order, so the global top-k is
+      // guaranteed to live inside the union of the per-probe top-k.
+      const probeOrderDirection = primaryOrder
+        ? resolveIndexOrderPushdown({
+            indexFields: queryConfig.index.fields,
+            pinnedEqCount: this._indexEqPrefixCount(queryConfig),
+            orderSpecs: [primaryOrder],
+          })
+        : null;
+      const probeBound =
+        probeLimit !== undefined &&
+        !probeHasResidualFilter &&
+        !probeHasPostFetchMembership &&
+        (postFetchOrders.length === 0 ||
+          (probeOrderDirection !== null && !hasSecondaryOrders))
+          ? probeOffset + probeLimit
+          : undefined;
+
       const probeRows = await Promise.all(
         queryConfig.probeFilters.map(async (probeFilters) => {
           let probeQuery: any = this.db
@@ -6026,6 +6081,10 @@ export class GelRelationalQuery<
               }
               return indexQuery;
             });
+
+          if (probeBound !== undefined && probeOrderDirection) {
+            probeQuery = probeQuery.order(probeOrderDirection);
+          }
 
           if (queryConfig.postFilters.length > 0) {
             probeQuery = probeQuery.filter((q: any) => {
@@ -6039,7 +6098,9 @@ export class GelRelationalQuery<
             });
           }
 
-          return await probeQuery.collect();
+          return probeBound === undefined
+            ? await probeQuery.collect()
+            : await probeQuery.take(probeBound);
         })
       );
 
@@ -6072,25 +6133,19 @@ export class GelRelationalQuery<
       }
 
       // Each probe is read in its own index order and the results are then
-      // concatenated, so the union has no meaningful global order: `.order()`
-      // on the discarded single query never applied. Always sort here, or
-      // `limit` slices an arbitrary window out of probe #1.
+      // concatenated, so the union has no meaningful global order. Always sort
+      // here, or `limit` slices an arbitrary window out of probe #1.
       if (postFetchOrders.length > 0) {
         rows = rows.sort((a: any, b: any) =>
           this._compareByOrderSpecs(a, b, postFetchOrders)
         );
       }
 
-      const offset = config.offset ?? 0;
-      if (typeof offset !== 'number') {
-        throw new Error('Only numeric offset is supported in kitcn ORM.');
+      if (probeOffset > 0) {
+        rows = rows.slice(probeOffset);
       }
-      const limit = this._resolveNonPaginatedLimit(config);
-      if (offset > 0) {
-        rows = rows.slice(offset);
-      }
-      if (limit !== undefined) {
-        rows = rows.slice(0, limit);
+      if (probeLimit !== undefined) {
+        rows = rows.slice(0, probeLimit);
       }
 
       const selectedRows = await this._finalizeRows(rows);
@@ -6606,7 +6661,11 @@ export class GelRelationalQuery<
   ): {
     table: string;
     strategy: IndexStrategy;
-    index?: { name: string; filters: FilterExpression<boolean>[] };
+    index?: {
+      name: string;
+      fields: string[];
+      filters: FilterExpression<boolean>[];
+    };
     probeFilters: FilterExpression<boolean>[][];
     postFilters: FilterExpression<boolean>[];
     order?: { direction: 'asc' | 'desc'; field: string }[];
@@ -6668,7 +6727,11 @@ export class GelRelationalQuery<
     const result: {
       table: string;
       strategy: IndexStrategy;
-      index?: { name: string; filters: FilterExpression<boolean>[] };
+      index?: {
+        name: string;
+        fields: string[];
+        filters: FilterExpression<boolean>[];
+      };
       probeFilters: FilterExpression<boolean>[][];
       postFilters: FilterExpression<boolean>[];
       order?: { direction: 'asc' | 'desc'; field: string }[];
@@ -6686,6 +6749,11 @@ export class GelRelationalQuery<
     ) {
       result.index = {
         name: compiled.selectedIndex.indexName,
+        // The index *shape* decides whether the scan is already in the
+        // requested order. Deriving it from the filters instead only ever sees
+        // the pinned prefix, which hides the suffix field Convex sorts by for
+        // free.
+        fields: compiled.selectedIndex.indexFields,
         filters: compiled.indexFilters,
       };
     }
@@ -6713,6 +6781,43 @@ export class GelRelationalQuery<
       return null;
     }
     return JSON.stringify(values);
+  }
+
+  /**
+   * How many leading fields of the scanned index are pinned to a single value.
+   *
+   * `splitFilters` emits index filters in index-key order — a run of `eq`, then
+   * at most one range on the first unpinned field — so the leading `eq` run is
+   * the prefix Convex holds constant. A multi-probe plan carries no index
+   * filters; each probe supplies its own bound instead, and the union is only
+   * as pinned as its least pinned probe.
+   */
+  private _indexEqPrefixCount(queryConfig: {
+    index?: { filters: FilterExpression<boolean>[] };
+    probeFilters: FilterExpression<boolean>[][];
+  }): number {
+    const countEqPrefix = (filters: FilterExpression<boolean>[]): number => {
+      let count = 0;
+      for (const filter of filters) {
+        if (filter.type !== 'binary' || filter.operator !== 'eq') {
+          break;
+        }
+        count += 1;
+      }
+      return count;
+    };
+
+    if (queryConfig.index && queryConfig.index.filters.length > 0) {
+      return countEqPrefix(queryConfig.index.filters);
+    }
+    if (queryConfig.probeFilters.length === 0) {
+      return 0;
+    }
+    let pinned = Number.POSITIVE_INFINITY;
+    for (const probe of queryConfig.probeFilters) {
+      pinned = Math.min(pinned, countEqPrefix(probe));
+    }
+    return Number.isFinite(pinned) ? pinned : 0;
   }
 
   private _buildIndexPredicate(
@@ -7999,6 +8104,14 @@ export class GelRelationalQuery<
       );
 
       const entries = Array.from(sourceKeyMap.entries());
+      // `orderBy` on a through relation sorts by *target* columns, which the
+      // junction index knows nothing about, so that case still needs the whole
+      // partition. Every other shape can stop at the page the caller asked for
+      // instead of reading every link of every parent.
+      const boundJunctionRead =
+        orderSpecs.length === 0 && effectivePerParentLimit !== undefined;
+      const throughFetchLimit =
+        Math.max(perParentOffset ?? 0, 0) + (effectivePerParentLimit ?? 0);
       const throughRowsPerSource = await this._mapWithConcurrency(
         entries,
         async ([key, values]) => {
@@ -8008,11 +8121,45 @@ export class GelRelationalQuery<
             values,
             throughIndexName
           );
-          const throughRows = await this._applyRlsSelectFilter(
-            await query.collect(),
-            throughTableConfig
-          );
-          return { key, rows: throughRows };
+          if (!boundJunctionRead) {
+            const throughRows = await this._applyRlsSelectFilter(
+              await query.collect(),
+              throughTableConfig
+            );
+            return { key, rows: throughRows };
+          }
+
+          // Junction-table RLS drops rows after the read, so the bound counts
+          // survivors rather than scanned rows — a flat `take` under-fills.
+          const rows: any[] = [];
+          let batch: any[] = [];
+          const drain = async () => {
+            const visible = await this._applyRlsSelectFilter(
+              batch,
+              throughTableConfig
+            );
+            batch = [];
+            for (const row of visible) {
+              if (rows.length >= throughFetchLimit) return;
+              rows.push(row);
+            }
+          };
+          for await (const throughRow of query) {
+            batch.push(throughRow);
+            const chunk = Math.min(
+              RELATION_FILTER_STREAM_CHUNK,
+              throughFetchLimit - rows.length
+            );
+            if (batch.length < chunk) continue;
+            await drain();
+            if (rows.length >= throughFetchLimit) break;
+          }
+          if (rows.length < throughFetchLimit) {
+            // Also the path that validates policy configuration when the
+            // partition is empty, matching the unbounded read above.
+            await drain();
+          }
+          return { key, rows };
         }
       );
 
@@ -8087,8 +8234,25 @@ export class GelRelationalQuery<
       );
 
       const entries = Array.from(sourceKeyMap.entries());
+      // The FK is pinned by `eq`, so the rest of the index key is the child
+      // order Convex already walks. Resolved once for the whole relation, not
+      // per group: a per-group answer would make the global sort below unsound.
+      const orderPushdownDirection = resolveIndexOrderPushdown({
+        indexFields: indexName
+          ? (getIndexes(targetTableConfig.table as any).find(
+              (idx) => idx.name === indexName
+            )?.fields ?? null)
+          : null,
+        pinnedEqCount: targetFields.length,
+        orderSpecs,
+      });
+      const orderServedByIndex =
+        orderSpecs.length === 0 || orderPushdownDirection !== null;
+      const applyPushdownOrder = (query: any) =>
+        orderPushdownDirection ? query.order(orderPushdownDirection) : query;
+
       const streamPostFetchTargetFilters =
-        orderSpecs.length === 0 &&
+        orderServedByIndex &&
         hasPostFetchTargetFilter &&
         effectivePerParentLimit !== undefined;
       targetFiltersApplied = streamPostFetchTargetFilters;
@@ -8103,13 +8267,13 @@ export class GelRelationalQuery<
           );
 
           if (
-            orderSpecs.length === 0 &&
+            orderServedByIndex &&
             !hasPostFetchTargetFilter &&
             effectivePerParentLimit !== undefined
           ) {
             const fetchLimit =
               (perParentOffset ?? 0) + (effectivePerParentLimit ?? 0);
-            return await query.take(fetchLimit);
+            return await applyPushdownOrder(query).take(fetchLimit);
           }
 
           if (streamPostFetchTargetFilters) {
@@ -8117,12 +8281,33 @@ export class GelRelationalQuery<
             const fetchLimit =
               Math.max(perParentOffset ?? 0, 0) +
               (effectivePerParentLimit ?? 0);
-            for await (const target of query) {
-              const filtered = await applyPostFetchTargetFilters([target]);
-              if (filtered.length > 0) {
-                visibleTargets.push(filtered[0]);
-                if (visibleTargets.length >= fetchLimit) break;
+            let batch: any[] = [];
+            // Filtering one row at a time defeats the batching and foreign-key
+            // de-duplication `_applyRelationsFilterToRows` does, so drain the
+            // cursor in chunks. The chunk is never larger than the number of
+            // rows still needed, which keeps the read bound as tight as the
+            // one-at-a-time version while still letting the sub-reads batch.
+            const drain = async () => {
+              if (batch.length === 0) return;
+              const filtered = await applyPostFetchTargetFilters(batch);
+              batch = [];
+              for (const row of filtered) {
+                if (visibleTargets.length >= fetchLimit) return;
+                visibleTargets.push(row);
               }
+            };
+            for await (const target of applyPushdownOrder(query)) {
+              batch.push(target);
+              const chunk = Math.min(
+                RELATION_FILTER_STREAM_CHUNK,
+                fetchLimit - visibleTargets.length
+              );
+              if (batch.length < chunk) continue;
+              await drain();
+              if (visibleTargets.length >= fetchLimit) break;
+            }
+            if (visibleTargets.length < fetchLimit) {
+              await drain();
             }
             return visibleTargets;
           }
@@ -8140,6 +8325,40 @@ export class GelRelationalQuery<
 
     if (orderSpecs.length > 0) {
       targets.sort((a, b) => this._compareByOrderSpecs(a, b, orderSpecs));
+    }
+
+    // Trim to the per-parent page before the nested `with`, extras and column
+    // selection run. A child that is about to be sliced away should not pay for
+    // its own grandchild queries, and — because the surviving children are the
+    // next level's source keys — should not consume the fan-out budget either.
+    // Filtering and sorting must both have happened first, so this is the only
+    // sound insertion point.
+    //
+    // Through relations build their per-parent lists from junction rows further
+    // down instead, so grouping their globally deduped targets here would trim
+    // the wrong thing.
+    if (
+      !edge.through &&
+      (perParentOffset !== undefined || effectivePerParentLimit !== undefined)
+    ) {
+      const groupedTargets = new Map<string, any[]>();
+      for (const target of targets) {
+        const parentKey = this._buildRelationKey(target, targetFields);
+        if (!parentKey) continue;
+        const group = groupedTargets.get(parentKey);
+        if (group) {
+          group.push(target);
+        } else {
+          groupedTargets.set(parentKey, [target]);
+        }
+      }
+      const trimmed: any[] = [];
+      for (const children of groupedTargets.values()) {
+        for (const child of applyOffsetAndLimit(children)) {
+          trimmed.push(child);
+        }
+      }
+      targets = trimmed;
     }
 
     if (
@@ -8238,15 +8457,7 @@ export class GelRelationalQuery<
         byParentKey.get(parentKey)!.push(mappedTarget);
       }
 
-      // M6.5 Phase 3: Apply per-parent offset/limit
-      if (
-        perParentOffset !== undefined ||
-        effectivePerParentLimit !== undefined
-      ) {
-        for (const [parentKey, children] of byParentKey.entries()) {
-          byParentKey.set(parentKey, applyOffsetAndLimit(children));
-        }
-      }
+      // Offset/limit already applied above, before the nested loads.
 
       // Map relations back to parent rows
       for (const row of rows) {

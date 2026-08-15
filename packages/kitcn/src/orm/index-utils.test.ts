@@ -8,6 +8,7 @@ import {
   getIndexes,
   getSearchIndexes,
   getVectorIndexes,
+  resolveIndexOrderPushdown,
 } from './index-utils';
 
 describe('index-utils', () => {
@@ -198,5 +199,103 @@ describe('index-utils', () => {
         false
       )
     ).toThrow(/requires index/i);
+  });
+});
+
+describe('resolveIndexOrderPushdown', () => {
+  const asc = (field: string) => [{ field, direction: 'asc' as const }];
+  const desc = (field: string) => [{ field, direction: 'desc' as const }];
+
+  test('serves the first index field left unpinned by eq', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['type', 'numLikes'],
+        pinnedEqCount: 1,
+        orderSpecs: desc('numLikes'),
+      })
+    ).toBe('desc');
+  });
+
+  test('serves _creationTime only once every index field is pinned', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['authorId'],
+        pinnedEqCount: 1,
+        orderSpecs: desc('_creationTime'),
+      })
+    ).toBe('desc');
+
+    // (type, numLikes) with only `type` pinned walks numLikes order, not
+    // creation order, so `.order()` would silently sort by the wrong column.
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['type', 'numLikes'],
+        pinnedEqCount: 1,
+        orderSpecs: desc('_creationTime'),
+      })
+    ).toBeNull();
+  });
+
+  test('serves a pinned field because it is constant across the scan', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['type', 'numLikes'],
+        pinnedEqCount: 1,
+        orderSpecs: asc('type'),
+      })
+    ).toBe('asc');
+  });
+
+  test('serves the leading field when nothing is pinned', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['publishedAt'],
+        pinnedEqCount: 0,
+        orderSpecs: desc('publishedAt'),
+      })
+    ).toBe('desc');
+  });
+
+  test('declines a field the index does not sort by next', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['authorId', 'published'],
+        pinnedEqCount: 1,
+        orderSpecs: asc('numLikes'),
+      })
+    ).toBeNull();
+  });
+
+  test('declines without an index', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: null,
+        pinnedEqCount: 0,
+        orderSpecs: desc('_creationTime'),
+      })
+    ).toBeNull();
+  });
+
+  test('declines multi-field sorts because .order() reverses the whole key', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['authorId', 'numLikes'],
+        pinnedEqCount: 1,
+        orderSpecs: [
+          { field: 'numLikes', direction: 'desc' },
+          { field: 'title', direction: 'asc' },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  test('declines when there is no sort at all', () => {
+    expect(
+      resolveIndexOrderPushdown({
+        indexFields: ['authorId'],
+        pinnedEqCount: 1,
+        orderSpecs: [],
+      })
+    ).toBeNull();
   });
 });

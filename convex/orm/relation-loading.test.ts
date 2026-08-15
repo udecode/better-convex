@@ -1376,6 +1376,135 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       expect((users[0] as any).posts[1].numLikes).toBe(40);
       expect((users[0] as any).posts[2].numLikes).toBe(30);
     });
+
+    test('orderBy the index already serves reads only the requested page', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'ordered-relation@example.com',
+      });
+
+      for (let i = 0; i < 40; i += 1) {
+        await ctx.db.insert('posts', {
+          text: `post-${i}`,
+          numLikes: 0,
+          type: 'text',
+          authorId: userId,
+        });
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { posts: { limit: 3, orderBy: { createdAt: 'desc' } } },
+      });
+
+      expect((users[0] as any).posts.map((post: any) => post.text)).toEqual([
+        'post-39',
+        'post-38',
+        'post-37',
+      ]);
+      // `by_author` pins authorId, so the rest of the index key is creation
+      // order: the page comes straight off the index instead of collecting all
+      // 40 children and sorting them.
+      expect(reads.documents).toBeLessThanOrEqual(5);
+    });
+
+    test('orderBy the index cannot serve still returns the right page', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'unindexed-relation-order@example.com',
+      });
+
+      for (const numLikes of [50, 10, 30, 20, 40]) {
+        await ctx.db.insert('posts', {
+          text: `likes-${numLikes}`,
+          numLikes,
+          type: 'text',
+          authorId: userId,
+        });
+      }
+
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { posts: { limit: 2, orderBy: { numLikes: 'desc' } } },
+      });
+
+      expect((users[0] as any).posts.map((post: any) => post.numLikes)).toEqual(
+        [50, 40]
+      );
+    });
+
+    test('nested with only loads the children that survive the limit', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Alice',
+        email: 'nested-trim@example.com',
+      });
+
+      for (let i = 0; i < 10; i += 1) {
+        const postId = await ctx.db.insert('posts', {
+          text: `post-${i}`,
+          numLikes: i,
+          type: 'text',
+          authorId: userId,
+        });
+        for (let j = 0; j < 4; j += 1) {
+          await ctx.db.insert('comments', {
+            text: `comment-${i}-${j}`,
+            postId,
+          });
+        }
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: {
+          posts: {
+            limit: 2,
+            orderBy: { numLikes: 'desc' },
+            with: { comments: { limit: 1 } },
+          },
+        },
+      });
+
+      const posts = (users[0] as any).posts;
+      expect(posts.map((post: any) => post.numLikes)).toEqual([9, 8]);
+      expect(posts[0].comments).toHaveLength(1);
+      // numLikes is not on `by_author`, so all 10 posts are read — but the 8
+      // that the limit discards must not each fetch their own comments.
+      expect(reads.documents).toBeLessThanOrEqual(15);
+    });
+
+    test('through relation limit bounds the junction read', async ({ ctx }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Charlie',
+        email: 'through-bound@example.com',
+      });
+
+      for (let i = 0; i < 30; i += 1) {
+        const groupId = await (ctx.db as any).insert('groups', {
+          name: `group-${i}`,
+        });
+        await (ctx.db as any).insert('usersToGroups', { userId, groupId });
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { groups: { limit: 3 } },
+      });
+
+      expect((users[0] as any).groups).toHaveLength(3);
+      // 1 user + 3 junction rows + 3 groups. Without the bound this reads all
+      // 30 links and all 30 groups.
+      expect(reads.documents).toBeLessThanOrEqual(10);
+    });
   });
 
   describe('Index Requirements', () => {

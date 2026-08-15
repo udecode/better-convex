@@ -11,7 +11,12 @@
 
 import { test as baseTest, describe, expect } from 'vitest';
 import schema from '../schema';
-import { convexTest, runCtx, type TestCtx } from '../setup.testing';
+import {
+  convexTest,
+  countDocumentReads,
+  runCtx,
+  type TestCtx,
+} from '../setup.testing';
 
 // ============================================================================
 // Test Setup
@@ -627,5 +632,74 @@ describe('M5: OrderBy - Index Selection', () => {
     });
 
     expect(users.map((user) => user.name)).toEqual(['u5', 'u4', 'u3']);
+  });
+
+  test('in + orderBy + limit reads only the requested window', async ({
+    ctx,
+  }) => {
+    for (let i = 0; i < 60; i += 1) {
+      await ctx.db.insert('users', {
+        name: `u${i}`,
+        email: `u${i}@example.com`,
+        status: i % 2 === 0 ? 'a' : 'b',
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const users = await ctx.orm.query.users.findMany({
+      where: { status: { in: ['a', 'b'] } },
+      orderBy: { createdAt: 'desc' },
+      limit: 2,
+    });
+
+    expect(users.map((user) => user.name)).toEqual(['u59', 'u58']);
+    // One bounded read per probe, not the whole matching set.
+    expect(reads.documents).toBeLessThanOrEqual(8);
+  });
+
+  test('orderBy an index suffix field reads only the requested window', async ({
+    ctx,
+  }) => {
+    // numLikesAndType is (type, numLikes): pinning `type` leaves the scan
+    // already sorted by numLikes.
+    for (let i = 0; i < 60; i += 1) {
+      await ctx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: i,
+        type: 'a',
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { type: 'a' },
+      orderBy: { numLikes: 'desc' },
+      limit: 2,
+    });
+
+    expect(posts.map((post) => post.numLikes)).toEqual([59, 58]);
+    expect(reads.documents).toBeLessThanOrEqual(4);
+  });
+
+  test('orderBy createdAt under an unpinned index suffix sorts by createdAt', async ({
+    ctx,
+  }) => {
+    // Insertion order is not numLikes order, so ordering by the index suffix
+    // instead of creation time would return a different pair.
+    for (const numLikes of [50, 10, 90, 20, 70]) {
+      await ctx.db.insert('posts', {
+        text: `p${numLikes}`,
+        numLikes,
+        type: 'a',
+      });
+    }
+
+    const posts = await ctx.orm.query.posts.findMany({
+      where: { type: 'a' },
+      orderBy: { createdAt: 'desc' },
+      limit: 2,
+    });
+
+    expect(posts.map((post) => post.numLikes)).toEqual([70, 20]);
   });
 });
