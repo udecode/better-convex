@@ -7,6 +7,8 @@ import {
   type GenericOrmCtx,
   type OrmFunctions,
 } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
+import { migrationCapability } from 'kitcn/orm/migrations';
 import {
   createGeneratedFunctionReference,
   initCRPC as baseInitCRPC,
@@ -39,6 +41,7 @@ registerProcedureNameLookup(
 export const orm = createOrm({
   schema: ormSchema,
   ormFunctions,
+  capabilities: [aggregateCapability(), migrationCapability()],
   internalMutation,
 });
 
