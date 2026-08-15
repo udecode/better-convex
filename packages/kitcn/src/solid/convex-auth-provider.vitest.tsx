@@ -202,6 +202,57 @@ describe('ConvexAuthProvider', () => {
     expect(convexToken).toHaveBeenCalledTimes(1);
   });
 
+  test('authenticates Convex once per auth transition, not per token write', async () => {
+    const jwt = makeJwt(7200);
+    const convexToken = vi.fn(async () => ({ data: { token: jwt } }));
+
+    const setAuthCalls: string[] = [];
+    const client = {
+      setAuth: (
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
+      ) => {
+        setAuthCalls.push('setAuth');
+        // Convex's AuthenticationManager.setConfig invokes fetchToken
+        // synchronously; the reads it performs must not become effect deps.
+        void fetchToken({ forceRefreshToken: false });
+      },
+      clearAuth: () => {},
+    };
+
+    const authClient = {
+      useSession: () =>
+        makeSessionAccessor({ session: { id: 'session-1' } }, false),
+      convex: { token: convexToken },
+      getSession: async () => null,
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {props.children}
+      </ConvexAuthProvider>
+    );
+
+    const { result } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.get('token')).toBe(jwt);
+    });
+
+    // The fetch wrote token and expiresAt. Neither flips isLoading or
+    // isAuthenticated, so Convex must not be re-authenticated: every extra
+    // setAuth pauses the socket and bumps the identity version, re-running
+    // every live subscription server-side.
+    expect(setAuthCalls).toHaveLength(1);
+    expect(convexToken).toHaveBeenCalledTimes(1);
+
+    result.set('token', makeJwt(9000));
+    result.set('expiresAt', Date.now() + 9_000_000);
+
+    expect(setAuthCalls).toHaveLength(1);
+  });
+
   test('treats empty session payload as unauthenticated', async () => {
     const initialToken = makeJwt(3600);
     const client = {
