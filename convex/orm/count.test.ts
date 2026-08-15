@@ -149,7 +149,11 @@ const buildCountIndexedFixtures = (options?: {
     { countUsers, countPosts },
     options?.defaults ? { defaults: options.defaults } : undefined
   );
-  const relations = defineRelations({ countUsers, countPosts }, (r) => ({
+  // Build relations from `schema`, not the bare tables object: schema-level
+  // `defaults` ride on the defineSchema result, and dropping them here means
+  // every table config reports the built-in budget instead of the configured
+  // one.
+  const relations = defineRelations(schema, (r) => ({
     countUsers: {
       posts: r.many.countPosts({
         from: r.countUsers.orgId,
