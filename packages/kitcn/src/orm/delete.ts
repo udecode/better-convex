@@ -8,8 +8,6 @@ import {
   canUsePrimaryIdLookupCursor,
   collectMutationRowsBounded,
   collectPrimaryIdLookupRows,
-  consumeMutationRowBudget,
-  createMutationRowBudget,
   type DeleteMode,
   evaluateFilter,
   extractPrimaryIdLookup,
@@ -505,6 +503,7 @@ export class ConvexDeleteBuilder<
             {
               operation: 'delete',
               tableName,
+              batchSize,
               maxRows,
             }
           );
@@ -538,6 +537,7 @@ export class ConvexDeleteBuilder<
           {
             operation: 'delete',
             tableName,
+            batchSize,
             maxRows,
           }
         );
@@ -558,6 +558,7 @@ export class ConvexDeleteBuilder<
       rows = await collectMutationRowsBounded(() => this.db.query(tableName), {
         operation: 'delete',
         tableName,
+        batchSize,
         maxRows,
       });
     }
@@ -587,12 +588,6 @@ export class ConvexDeleteBuilder<
       remainingCalls: scheduleCallCap,
       callCap: scheduleCallCap,
     };
-    // `mutationMaxRows` bounds the whole transaction, not each query. The root
-    // rows are already read, so they draw on the budget before any cascade hop
-    // does; without this, every foreign key edge, root row and recursion level
-    // got a fresh full allowance.
-    const rowBudget = createMutationRowBudget(maxRows);
-    consumeMutationRowBudget(rowBudget, rows.length);
     const fkBatchSize = isPaginated ? pagination.limit : batchSize;
 
     for (const row of rows) {
@@ -642,7 +637,6 @@ export class ConvexDeleteBuilder<
           batchSize: fkBatchSize,
           leafBatchSize,
           maxRows,
-          rowBudget,
           maxBytesPerBatch,
           allowFullScan,
           strict,

@@ -936,6 +936,7 @@ export const collectMutationRowsBounded = async (
   options: {
     operation: 'update' | 'delete';
     tableName: string;
+    batchSize: number;
     maxRows: number;
   }
 ): Promise<Record<string, unknown>[]> => {
@@ -953,45 +954,6 @@ export const collectMutationRowsBounded = async (
 
   return rows;
 };
-
-/**
- * `mutationMaxRows` is a budget for the whole mutation, not for one query.
- * Without a shared counter, every cascade hop — per foreign key, per root row,
- * per recursion level — gets a fresh full allowance, so the real read and write
- * counts are bounded only by table sizes while each individual guard passes.
- * The user then sees an opaque Convex transaction-limit error instead of this
- * one.
- */
-export type MutationRowBudget = {
-  remainingRows: number;
-  limit: number;
-};
-
-export const createMutationRowBudget = (limit: number): MutationRowBudget => ({
-  limit,
-  remainingRows: limit,
-});
-
-export const consumeMutationRowBudget = (
-  budget: MutationRowBudget | undefined,
-  rowCount: number
-): void => {
-  if (!budget) {
-    return;
-  }
-  budget.remainingRows = Math.max(0, budget.remainingRows - rowCount);
-};
-
-const mutationRowBudgetError = (
-  operation: 'update' | 'delete',
-  budget: MutationRowBudget,
-  tableName: string
-): Error =>
-  new Error(
-    `${operation} exceeded the mutationMaxRows budget (${budget.limit}) for this transaction ` +
-      `while cascading into "${tableName}". ` +
-      'Narrow the filter, split the mutation, or increase defineSchema(..., { defaults: { mutationMaxRows } }).'
-  );
 
 type ForeignKeyDefinition = {
   name?: string;
@@ -1546,63 +1508,38 @@ async function collectReferencingRows(
   indexName: string,
   options: {
     operation: 'update' | 'delete';
+    batchSize: number;
     maxRows: number;
-    budget?: MutationRowBudget;
   }
 ): Promise<Record<string, unknown>[]> {
-  // Take only what the transaction can still afford, so an over-budget cascade
-  // is rejected before it reads a full fresh `maxRows` allowance.
-  const limit = options.budget
-    ? Math.min(options.budget.remainingRows, options.maxRows)
-    : options.maxRows;
-  const rows = (await db
-    .query(foreignKey.sourceTableName)
-    .withIndex(indexName, (q: any) =>
-      buildIndexPredicate(q, foreignKey.sourceColumns, targetValues)
-    )
-    .take(limit + 1)) as Record<string, unknown>[];
-
-  if (rows.length > limit) {
-    if (options.budget) {
-      throw mutationRowBudgetError(
-        options.operation,
-        options.budget,
-        foreignKey.sourceTableName
-      );
+  return collectMutationRowsBounded(
+    () =>
+      db
+        .query(foreignKey.sourceTableName)
+        .withIndex(indexName, (q: any) =>
+          buildIndexPredicate(q, foreignKey.sourceColumns, targetValues)
+        ),
+    {
+      operation: options.operation,
+      tableName: foreignKey.sourceTableName,
+      batchSize: options.batchSize,
+      maxRows: options.maxRows,
     }
-    throw new Error(
-      `${options.operation} matched more than ${options.maxRows} rows on "${foreignKey.sourceTableName}". ` +
-        'Narrow the filter or increase defineSchema(..., { defaults: { mutationMaxRows } }).'
-    );
-  }
-
-  consumeMutationRowBudget(options.budget, rows.length);
-  return rows;
+  );
 }
 
 async function collectAsyncCascadeRowsBounded(
   buildQuery: () => any,
   batchSize: number,
-  maxBytesPerBatch: number,
-  budget: MutationRowBudget | undefined
+  maxBytesPerBatch: number
 ): Promise<{ rows: Record<string, unknown>[]; needsContinuation: boolean }> {
-  // The async branch collects and writes in-transaction before handing the
-  // remainder to the scheduler, so it draws on the same budget. Unlike sync
-  // mode it does not throw when the budget runs out: the next scheduled batch
-  // is a new transaction with a fresh budget, so deferring is the correct
-  // answer and keeps the async contract intact.
-  if (budget && budget.remainingRows < 1) {
-    return { needsContinuation: true, rows: [] };
-  }
-  const limit = budget ? Math.min(budget.remainingRows, batchSize) : batchSize;
-  const rows = (await buildQuery().take(limit + 1)) as Record<
+  const rows = (await buildQuery().take(batchSize + 1)) as Record<
     string,
     unknown
   >[];
-  const hasMoreRows = rows.length > limit;
-  const batchRows = hasMoreRows ? rows.slice(0, limit) : rows;
+  const hasMoreRows = rows.length > batchSize;
+  const batchRows = hasMoreRows ? rows.slice(0, batchSize) : rows;
   const bounded = takeRowsWithinByteBudget(batchRows, maxBytesPerBatch);
-  consumeMutationRowBudget(budget, bounded.rows.length);
   return {
     rows: bounded.rows,
     needsContinuation: hasMoreRows || bounded.hitLimit,
@@ -1698,7 +1635,6 @@ export async function applyIncomingForeignKeyActionsOnDelete(
     batchSize: number;
     leafBatchSize: number;
     maxRows: number;
-    rowBudget?: MutationRowBudget;
     maxBytesPerBatch: number;
     allowFullScan?: boolean;
     strict?: boolean;
@@ -1768,8 +1704,7 @@ export async function applyIncomingForeignKeyActionsOnDelete(
               buildIndexPredicate(q, foreignKey.sourceColumns, targetValues)
             ),
         asyncBatchSize,
-        options.maxBytesPerBatch,
-        options.rowBudget
+        options.maxBytesPerBatch
       );
       referencingRows = rows;
       if (needsContinuation) {
@@ -1808,7 +1743,7 @@ export async function applyIncomingForeignKeyActionsOnDelete(
         indexName,
         {
           operation: 'delete',
-          budget: options.rowBudget,
+          batchSize: options.batchSize,
           maxRows: options.maxRows,
         }
       );
@@ -1886,7 +1821,6 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
     batchSize: number;
     leafBatchSize: number;
     maxRows: number;
-    rowBudget?: MutationRowBudget;
     maxBytesPerBatch: number;
     allowFullScan?: boolean;
     strict?: boolean;
@@ -1964,8 +1898,7 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
               buildIndexPredicate(q, foreignKey.sourceColumns, oldValues)
             ),
         asyncBatchSize,
-        options.maxBytesPerBatch,
-        options.rowBudget
+        options.maxBytesPerBatch
       );
       referencingRows = rows;
       if (needsContinuation) {
@@ -2003,7 +1936,7 @@ export async function applyIncomingForeignKeyActionsOnUpdate(
         indexName,
         {
           operation: 'update',
-          budget: options.rowBudget,
+          batchSize: options.batchSize,
           maxRows: options.maxRows,
         }
       );

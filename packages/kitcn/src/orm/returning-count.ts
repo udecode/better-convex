@@ -1,6 +1,5 @@
 import type { GenericDatabaseWriter } from 'convex/server';
-import type { OrmContextValue } from './mutation-utils';
-import { getTableName } from './mutation-utils';
+import { type getOrmContext, getTableName } from './mutation-utils';
 import { GelRelationalQuery } from './query';
 import type { ConvexTable } from './table';
 
@@ -23,7 +22,7 @@ export type ReturningCountLoader = {
 export function createReturningCountLoader(
   db: GenericDatabaseWriter<any>,
   table: ConvexTable<any>,
-  ormContext: OrmContextValue | undefined
+  ormContext: ReturnType<typeof getOrmContext>
 ): ReturningCountLoader {
   const schema = ormContext?.schema;
   const edgeMetadata = ormContext?.edgeMetadata;

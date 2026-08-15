@@ -662,10 +662,6 @@ function writerWithHooks(
     normalizeId: innerDb.normalizeId.bind(innerDb),
   };
 
-  // Also applied to the hook-facing writer from `createHookCtx`, so fan-out
-  // started inside a trigger sees the same hooked-table set.
-  markLifecycleHookedTables(wrappedDb, hooksByTable);
-
   Object.defineProperty(wrappedDb, ORMLIFECYCLE_INNER_DB, {
     configurable: false,
     enumerable: false,
@@ -797,6 +793,8 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
     return createNoopLifecycle();
   }
 
+  const hookedTableNames: ReadonlySet<string> = new Set(tableHooks.keys());
+
   return {
     enabled: true,
     wrapDB: <Ctx extends AnyCtx>(ctx: Ctx): Ctx => {
@@ -810,6 +808,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
         tableHooks,
         false
       );
+      markLifecycleHookedTables(wrappedDb, hookedTableNames);
 
       return {
         ...ctx,

@@ -141,7 +141,7 @@ To force all rows to be processed in a single transaction (no scheduling), opt i
 - **Per call:** `.execute({ mode: 'sync' })`
 - **Global default:** `defineSchema(..., { defaults: { mutationExecutionMode: 'sync' } })`
 
-Sync mode throws if the transaction exceeds `mutationMaxRows`. That budget covers the matched rows plus every row read by foreign-key cascade fan-out in the same transaction.
+Sync mode throws if matched rows exceed `mutationMaxRows`.
 
 ## API Reference
 
@@ -150,7 +150,7 @@ Sync mode throws if the transaction exceeds `mutationMaxRows`. That budget cover
 The ORM enforces runtime limits on how many rows a single mutation can touch. The key defaults are:
 
 - `mutationBatchSize`: `400` (page size for collecting matched rows)
-- `mutationMaxRows`: `10000` (row budget for one transaction, shared by matched rows and cascade fan-out)
+- `mutationMaxRows`: `10000` (sync-mode hard cap)
 - `mutationLeafBatchSize`: `1600` (async FK fan-out batch size)
 
 You can customize these in your schema definition. For the full list of configurable defaults, see [Schema Definition -- Runtime Defaults](/docs/orm/schema#runtime-defaults).
