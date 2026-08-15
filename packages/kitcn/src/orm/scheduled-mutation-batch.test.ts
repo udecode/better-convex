@@ -6,7 +6,7 @@ import {
   type ScheduledMutationBatchArgs,
   scheduledMutationBatchFactory,
 } from './scheduled-mutation-batch';
-import { defineSchema, requireSchemaRelations } from './schema';
+import { defineSchema } from './schema';
 
 const cascadeChild = convexTable(
   'cascade_child_rows',
@@ -20,8 +20,11 @@ const cascadeChild = convexTable(
 // Schema key must match the physical table name: relational config keys tables
 // by their schema key, and the worker looks tables up by the name carried on
 // the cascade args.
-const relations = requireSchemaRelations(
-  defineRelations(defineSchema({ cascade_child_rows: cascadeChild }))
+// `defineRelations` already returns the TablesRelationalConfig the worker
+// takes; `requireSchemaRelations` expects a schema carrying relations
+// metadata, which this config is not.
+const relations = defineRelations(
+  defineSchema({ cascade_child_rows: cascadeChild })
 );
 
 type FakeRow = Record<string, unknown>;
