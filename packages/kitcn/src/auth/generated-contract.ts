@@ -1,3 +1,4 @@
+import { type BetterAuthDBSchema, getAuthTables } from 'better-auth/db';
 import { type BetterAuthOptions, betterAuth } from 'better-auth/minimal';
 import type { Auth } from 'better-auth/types';
 import type {
@@ -315,18 +316,30 @@ export const createAuthRuntime = <
       | GenericAuthTriggers<DataModel, Schema, TriggerCtx>
       | undefined;
 
+  // The Better Auth table schema derives only from the ctx-free half of the
+  // definition, so it is constant for the isolate. Owning one memo here is what
+  // keeps `getAuth(ctx)` to a single evaluation of the user's callback per
+  // request: the adapter and the generated api both read this instead of
+  // re-deriving the schema from their own extra evaluation.
+  let betterAuthSchema: BetterAuthDBSchema | undefined;
+  const getBetterAuthSchema = () => {
+    betterAuthSchema ??= getAuthTables(
+      withoutTriggers<DataModel, Schema, AuthOptions>(
+        authDefinition({} as GenericCtx)
+      ) as BetterAuthOptions
+    );
+    return betterAuthSchema;
+  };
+
   const authClient = createClient<DataModel, Schema, TriggerCtx>({
     authFunctions,
+    getBetterAuthSchema,
     schema: config.schema,
     ...(config.context ? { context: config.context } : {}),
     triggers: resolveRuntimeTriggers,
   });
 
   type AdapterCtx = Parameters<typeof authClient.adapter>[0];
-  const adapterGetAuthOptions = ((ctx: GenericCtx) =>
-    withoutTriggers<DataModel, Schema, AuthOptions>(
-      authDefinition(ctx)
-    )) as Parameters<typeof authClient.adapter>[1];
 
   const resolveAuthOptions = (ctx: GenericCtx) =>
     withDatabase(
@@ -334,12 +347,13 @@ export const createAuthRuntime = <
         withoutTriggers<DataModel, Schema, AuthOptions>(authDefinition(ctx))
       ),
       ctx,
-      (_ctx) => authClient.adapter(_ctx as AdapterCtx, adapterGetAuthOptions)
+      (_ctx) => authClient.adapter(_ctx as AdapterCtx)
     );
   const getAuth = (ctx: GenericCtx) => betterAuth(resolveAuthOptions(ctx));
   type GeneratedAuth = BetterAuthRuntime<ReturnType<typeof resolveAuthOptions>>;
   const authApi = createApi(config.schema, getAuth, {
     ...(config.context ? { context: config.context } : {}),
+    getBetterAuthSchema,
     triggers: resolveRuntimeTriggers,
   });
   const decoratedAuthApi = decorateAuthRuntimeProcedures(authApi);

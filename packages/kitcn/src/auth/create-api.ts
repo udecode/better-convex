@@ -942,6 +942,12 @@ export const createApi = <
   options?: {
     internalMutation?: typeof internalMutationGeneric;
     context?: (ctx: any) => TriggerCtx | Promise<TriggerCtx>;
+    /**
+     * Ctx-free Better Auth table schema, memoized by the caller. Supplying it
+     * lets the runtime share one derivation with the db adapter instead of
+     * building a throwaway auth instance just to read `.options`.
+     */
+    getBetterAuthSchema?: () => ReturnType<typeof getAuthTables>;
     triggers?:
       | GenericAuthTriggers<DataModel, Schema, TriggerCtx>
       | ((
@@ -955,13 +961,16 @@ export const createApi = <
     internalMutation,
     validateInput = false,
     context,
+    getBetterAuthSchema: injectedBetterAuthSchema,
     triggers,
   } = options ?? {};
   let betterAuthSchema: ReturnType<typeof getAuthTables> | undefined;
-  const getBetterAuthSchema = () => {
-    betterAuthSchema ??= getAuthTables((getAuth({} as Ctx) as any).options);
-    return betterAuthSchema;
-  };
+  const getBetterAuthSchema =
+    injectedBetterAuthSchema ??
+    (() => {
+      betterAuthSchema ??= getAuthTables((getAuth({} as Ctx) as any).options);
+      return betterAuthSchema;
+    });
   const mutationBuilderBase = internalMutation ?? internalMutationGeneric;
   const mutationBuilder = (
     context

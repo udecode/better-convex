@@ -3,8 +3,7 @@ import {
   createAdapterFactory,
   type DBAdapterDebugLogOption,
 } from 'better-auth/adapters';
-import { type BetterAuthDBSchema, getAuthTables } from 'better-auth/db';
-import type { BetterAuthOptions } from 'better-auth/minimal';
+import type { BetterAuthDBSchema } from 'better-auth/db';
 import type { Where } from 'better-auth/types';
 import type {
   GenericDataModel,
@@ -557,18 +556,20 @@ export const dbAdapter = <
   Schema extends SchemaDefinition<any, any>,
 >(
   ctx: GenericCtx<DataModel>,
-  getAuthOptions: (ctx: any) => BetterAuthOptions,
   {
     authFunctions,
     debugLogs,
+    getBetterAuthSchema,
     schema,
   }: {
     authFunctions: AuthFunctions;
+    /** Ctx-free Better Auth table schema, memoized by the caller. */
+    getBetterAuthSchema: () => BetterAuthDBSchema;
     schema: Schema;
     debugLogs?: DBAdapterDebugLogOption;
   }
 ) => {
-  const betterAuthSchema = getAuthTables(getAuthOptions({} as any));
+  const betterAuthSchema = getBetterAuthSchema();
 
   return createAdapterFactory({
     config: {

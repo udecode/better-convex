@@ -1,3 +1,4 @@
+import { getAuthTables } from 'better-auth/db';
 import { convexToJson } from 'convex/values';
 import {
   adapterConfig,
@@ -676,6 +677,7 @@ describe('httpAdapter', () => {
 
 describe('dbAdapter', () => {
   const schema = { tables: { user: {} } } as any;
+  const getBetterAuthSchema = () => getAuthTables({} as any);
 
   const createMemoryCtx = (docsById: Record<string, any>) => {
     const store = new Map<string, any>(Object.entries(docsById));
@@ -709,11 +711,12 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'b', tenantId: 'tenant-1' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {
         deleteOne: 'deleteOne',
         updateMany: 'updateMany',
       } as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -749,8 +752,9 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'z@z.com', name: 'admin' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -773,8 +777,9 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'b@b.com' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -795,8 +800,9 @@ describe('dbAdapter', () => {
       'user-1': { _id: 'user-1', email: 'a@b.com', name: 'Alice' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: { updateOne: 'updateOne' } as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -859,8 +865,9 @@ describe('dbAdapter', () => {
       return undefined;
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -889,8 +896,9 @@ describe('dbAdapter', () => {
 
   test('createSchema keeps Convex output when schema is non-ORM', async () => {
     const { ctx } = createMemoryCtx({});
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema: { tables: { user: {} } } as any,
     });
     const adapter = adapterFactory({} as any);
@@ -911,8 +919,9 @@ describe('dbAdapter', () => {
     Object.defineProperty(ormSchema, Symbol.for('kitcn:OrmSchemaOptions'), {
       value: {},
     });
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema: ormSchema,
     });
     const adapter = adapterFactory({} as any);
