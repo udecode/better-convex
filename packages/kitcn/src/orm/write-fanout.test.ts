@@ -31,13 +31,17 @@ describe('write fan-out', () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
-    const out = await mapWithConcurrency([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await Promise.resolve();
-      inFlight -= 1;
-      return n * 2;
-    });
+    const out = await mapWithConcurrency(
+      [1, 2, 3, 4, 5, 6, 7],
+      3,
+      async (n) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight -= 1;
+        return n * 2;
+      }
+    );
 
     expect(out).toEqual([2, 4, 6, 8, 10, 12, 14]);
     expect(maxInFlight).toBe(3);
@@ -55,9 +59,14 @@ describe('write fan-out', () => {
 
   test('foreign key fan-out is pooled on a table without lifecycle hooks', async () => {
     const spy = createPatchSpy();
-    await patchReferencingRows({ patch: spy.patch } as any, 'plain_table', rows(30), {
-      parentId: null,
-    });
+    await patchReferencingRows(
+      { patch: spy.patch } as any,
+      'plain_table',
+      rows(30),
+      {
+        parentId: null,
+      }
+    );
 
     expect(spy.patched).toHaveLength(30);
     expect(spy.maxInFlight()).toBeGreaterThan(1);

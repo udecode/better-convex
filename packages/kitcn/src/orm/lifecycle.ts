@@ -230,7 +230,10 @@ const stripUndefinedDeep = (value: unknown): unknown => {
  * determined by the document we already read plus the payload we are about to
  * write, so re-reading it after the patch buys nothing.
  */
-const applyPatchLocally = (oldDoc: AnyRecord, payload: AnyRecord): AnyRecord => {
+const applyPatchLocally = (
+  oldDoc: AnyRecord,
+  payload: AnyRecord
+): AnyRecord => {
   const payloadKeys = Object.keys(payload);
   const removed = new Set<string>();
   for (const key of payloadKeys) {

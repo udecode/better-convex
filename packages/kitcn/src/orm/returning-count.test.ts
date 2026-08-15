@@ -13,11 +13,10 @@ describe('returning count loader', () => {
     ).toThrow(/requires orm\.db\(ctx\)/i);
 
     expect(() =>
-      createReturningCountLoader(
-        {} as any,
-        posts,
-        { edgeMetadata: [], schema: {} } as any
-      )
+      createReturningCountLoader({} as any, posts, {
+        edgeMetadata: [],
+        schema: {},
+      } as any)
     ).toThrow(/is not registered/i);
   });
 
@@ -33,11 +32,10 @@ describe('returning count loader', () => {
       },
     });
 
-    const loader = createReturningCountLoader(
-      {} as any,
-      posts,
-      { edgeMetadata: [], schema: countingSchema } as any
-    );
+    const loader = createReturningCountLoader({} as any, posts, {
+      edgeMetadata: [],
+      schema: countingSchema,
+    } as any);
     const afterBuild = lookups;
 
     expect(typeof loader.load).toBe('function');

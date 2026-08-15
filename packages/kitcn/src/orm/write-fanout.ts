@@ -5,9 +5,7 @@
  * import it, and Convex bundles every static import of a function entry.
  */
 
-const ORMLIFECYCLE_HOOKED_TABLES = Symbol.for(
-  'kitcn:OrmLifecycleHookedTables'
-);
+const ORMLIFECYCLE_HOOKED_TABLES = Symbol.for('kitcn:OrmLifecycleHookedTables');
 
 /** Matches the ORM's relation-loading default. */
 export const DEFAULT_WRITE_FANOUT_CONCURRENCY = 25;

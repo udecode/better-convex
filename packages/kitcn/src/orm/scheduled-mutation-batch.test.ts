@@ -2,11 +2,11 @@ import type { SchedulableFunctionReference } from 'convex/server';
 import { describe, expect, test } from 'vitest';
 import { convexTable, index, integer, text } from './index';
 import { defineRelations } from './relations';
-import { defineSchema, requireSchemaRelations } from './schema';
 import {
   type ScheduledMutationBatchArgs,
   scheduledMutationBatchFactory,
 } from './scheduled-mutation-batch';
+import { defineSchema, requireSchemaRelations } from './schema';
 
 const cascadeChild = convexTable(
   'cascade_child_rows',
@@ -72,7 +72,9 @@ const createFakeDb = (rows: FakeRow[]) => {
       }
       return {
         continueCursor:
-          cursorIndex > start ? String(all[cursorIndex - 1]._id) : (cursor ?? ''),
+          cursorIndex > start
+            ? String(all[cursorIndex - 1]._id)
+            : (cursor ?? ''),
         isDone: cursorIndex >= all.length,
         page,
       };
