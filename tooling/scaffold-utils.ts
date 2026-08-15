@@ -1,7 +1,9 @@
 import {
+  closeSync,
   cpSync,
   existsSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -107,38 +109,151 @@ export const log = (message: string) => {
   process.stdout.write(`${message}\n`);
 };
 
-export const run = async (
+export class CommandFailedError extends Error {
+  readonly command: readonly string[];
+  readonly cwd: string;
+  readonly exitCode: number;
+
+  constructor(params: {
+    command: readonly string[];
+    cwd: string;
+    exitCode: number;
+  }) {
+    super(
+      `Command failed with exit code ${params.exitCode}: ${params.command.join(' ')}`
+    );
+    this.name = 'CommandFailedError';
+    this.command = params.command;
+    this.cwd = params.cwd;
+    this.exitCode = params.exitCode;
+  }
+}
+
+export type RunOptions = {
+  allowNonZeroExit?: boolean;
+  env?: Record<string, string | undefined>;
+  /**
+   * Append stdout and stderr to this file instead of inheriting the parent
+   * streams. Required to keep output attributable when templates run
+   * concurrently.
+   */
+  logFile?: string;
+};
+
+const spawnInherited = (
   cmd: string[],
   cwd: string,
-  options: {
-    allowNonZeroExit?: boolean;
-    env?: Record<string, string | undefined>;
-  } = {}
-): Promise<number> => {
+  env: Record<string, string | undefined>
+) => {
   const child = Bun.spawn({
     cmd,
     cwd,
-    env: {
-      ...process.env,
-      ...options.env,
-    },
+    env,
     stdio: ['ignore', 'inherit', 'inherit'],
   });
-  const exitCode = await child.exited;
 
-  if (options.allowNonZeroExit) {
-    return exitCode;
+  return child.exited;
+};
+
+const spawnToLogFile = async (
+  cmd: string[],
+  cwd: string,
+  env: Record<string, string | undefined>,
+  logFile: string
+) => {
+  // O_APPEND keeps stdout and stderr writes ordered behind one shared offset.
+  const fd = openSync(logFile, 'a');
+
+  try {
+    const child = Bun.spawn({
+      cmd,
+      cwd,
+      env,
+      stdio: ['ignore', fd, fd],
+    });
+
+    return await child.exited;
+  } finally {
+    closeSync(fd);
   }
+};
 
-  if (exitCode !== 0) {
-    process.exit(exitCode);
+export const run = async (
+  cmd: string[],
+  cwd: string,
+  options: RunOptions = {}
+): Promise<number> => {
+  const env = {
+    ...process.env,
+    ...options.env,
+  };
+  const exitCode = options.logFile
+    ? await spawnToLogFile(cmd, cwd, env, options.logFile)
+    : await spawnInherited(cmd, cwd, env);
+
+  if (!options.allowNonZeroExit && exitCode !== 0) {
+    throw new CommandFailedError({ command: cmd, cwd, exitCode });
   }
 
   return exitCode;
 };
 
+export const createLoggedRun = (logFile: string): typeof run => {
+  return (cmd, cwd, options = {}) => run(cmd, cwd, { ...options, logFile });
+};
+
+/**
+ * Dispatch `items` in order through a bounded worker pool. Stops handing out new
+ * work after the first rejection, waits for in-flight work to settle, then
+ * rethrows so callers never leak half-finished temp trees.
+ */
+export const mapWithConcurrency = async <Item, Result>(
+  items: readonly Item[],
+  concurrency: number,
+  task: (item: Item, index: number) => Promise<Result>
+): Promise<Result[]> => {
+  const results: Result[] = [];
+  let cursor = 0;
+  let failure: { error: unknown } | undefined;
+
+  const worker = async () => {
+    while (cursor < items.length && !failure) {
+      const index = cursor;
+      cursor += 1;
+
+      try {
+        results[index] = await task(items[index], index);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  };
+
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  if (failure) {
+    throw failure.error;
+  }
+
+  return results;
+};
+
+const SKIP_LOCAL_BUILD_ENV = 'KITCN_SKIP_LOCAL_BUILD';
+
 const ensureLocalPackageBuild = (packageDir = LOCAL_PACKAGE_DIR) => {
   if (BUILT_LOCAL_PACKAGE_DIRS.has(packageDir)) {
+    return;
+  }
+
+  if (process.env[SKIP_LOCAL_BUILD_ENV]) {
+    if (!existsSync(path.join(packageDir, 'dist'))) {
+      throw new Error(
+        `${SKIP_LOCAL_BUILD_ENV} is set but ${path.relative(PROJECT_ROOT, packageDir)}/dist is missing. Run \`bun build:pkg\` first.`
+      );
+    }
+
+    BUILT_LOCAL_PACKAGE_DIRS.add(packageDir);
     return;
   }
 
@@ -177,15 +292,33 @@ export const buildLocalCliCommand = (
   ];
 };
 
+const INSTALL_SPEC_DIRS = new Set<string>();
+let installSpecCleanupRegistered = false;
+
+const createInstallSpecDir = (prefix: string) => {
+  const outputDir = mkdtempSync(path.join(tmpdir(), prefix));
+  INSTALL_SPEC_DIRS.add(outputDir);
+
+  if (!installSpecCleanupRegistered) {
+    installSpecCleanupRegistered = true;
+    process.on('exit', () => {
+      for (const directory of INSTALL_SPEC_DIRS) {
+        rmSync(directory, { force: true, recursive: true });
+      }
+    });
+  }
+
+  return outputDir;
+};
+
 export const getLocalInstallSpec = () => {
   if (localInstallSpec) {
     return localInstallSpec;
   }
 
-  const outputDir = mkdtempSync(
-    path.join(tmpdir(), 'kitcn-local-install-spec-')
+  localInstallSpec = packLocalPackage(
+    createInstallSpecDir('kitcn-local-install-spec-')
   );
-  localInstallSpec = packLocalPackage(outputDir);
   return localInstallSpec;
 };
 
@@ -225,9 +358,7 @@ export const getLocalResendInstallSpec = () => {
     return localResendInstallSpec;
   }
 
-  const outputDir = mkdtempSync(
-    path.join(tmpdir(), 'kitcn-local-resend-install-spec-')
-  );
+  const outputDir = createInstallSpecDir('kitcn-local-resend-install-spec-');
   const packageDir = createPackableLocalResendPackageDir();
   localResendInstallSpec = packLocalPackage(outputDir, packageDir, {
     skipBuild: true,
@@ -403,6 +534,16 @@ export const stripVolatileArtifacts = (directory: string) => {
   }
 };
 
+/**
+ * Removes `._*` AppleDouble sidecars from a scaffolded app before lint and
+ * typecheck see them.
+ *
+ * Directories in `VOLATILE_ENTRY_NAMES` are skipped: `stripVolatileArtifacts`
+ * deletes them wholesale before any snapshot or diff, so descending into them
+ * (notably the fully hoisted `node_modules`, ~10k directories) is dead work.
+ * `VOLATILE_ENTRY_PATTERNS` is deliberately not consulted here — it contains
+ * `/^\._/`, and treating that as a skip rule would no-op this function.
+ */
 export const stripAppleDoubleSidecars = (directory: string) => {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) {
     return;
@@ -416,7 +557,7 @@ export const stripAppleDoubleSidecars = (directory: string) => {
       continue;
     }
 
-    if (entry.isDirectory()) {
+    if (entry.isDirectory() && !VOLATILE_ENTRY_NAMES.has(entry.name)) {
       stripAppleDoubleSidecars(entryPath);
     }
   }
