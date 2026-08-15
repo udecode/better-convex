@@ -104,6 +104,21 @@ describe('crpc transformer', () => {
     expect(decoded.item.value).toBe('ok');
   });
 
+  test('codecs claiming primitives still encode them', () => {
+    const custom = createTaggedTransformer([
+      {
+        tag: '$bigint',
+        isType: (value) => typeof value === 'bigint',
+        encode: (value) => (value as bigint).toString(),
+        decode: (value) => BigInt(String(value)),
+      },
+    ]);
+
+    const encoded = custom.serialize({ n: 10n }) as any;
+    expect(encoded).toEqual({ n: { __crpc: 1, t: '$bigint', v: '10' } });
+    expect((custom.deserialize(encoded) as any).n).toBe(10n);
+  });
+
   test('unknown tags pass through unchanged', () => {
     const input = {
       value: { $unknown: 'x' },
@@ -139,6 +154,30 @@ describe('crpc transformer', () => {
 
     expect(getTransformer()).toBe(getTransformer());
     expect(getTransformer(custom)).toBe(getTransformer(custom));
+  });
+
+  test('resolving an already-resolved transformer is the identity', () => {
+    const resolved = getTransformer();
+    expect(getTransformer(resolved)).toBe(resolved);
+
+    let decodeCalls = 0;
+    const custom = getTransformer({
+      input: {
+        serialize: (value: unknown) => value,
+        deserialize: (value: unknown) => value,
+      },
+      output: {
+        serialize: (value: unknown) => value,
+        deserialize: (value: unknown) => {
+          decodeCalls += 1;
+          return value;
+        },
+      },
+    });
+
+    expect(getTransformer(custom)).toBe(custom);
+    decodeWire({ ok: true }, custom);
+    expect(decodeCalls).toBe(1);
   });
 
   test('wire payload never uses keys starting with $', () => {

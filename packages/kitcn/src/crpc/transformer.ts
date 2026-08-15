@@ -84,6 +84,38 @@ export const dateWireCodec: WireCodec = {
 };
 
 /**
+ * One value per primitive `typeof` result, plus the values the object fast path
+ * would otherwise skip. A codec that claims any of them disables the fast path.
+ */
+const PRIMITIVE_PROBES: readonly unknown[] = [
+  undefined,
+  null,
+  '',
+  0,
+  Number.NaN,
+  false,
+  0n,
+  Symbol('kitcn.codec.probe'),
+  () => undefined,
+];
+
+/**
+ * Decide once, at construction, whether `serialize` may skip non-object values.
+ *
+ * Conservative by design: a codec that throws on a probe is assumed to claim it.
+ */
+const codecsMatchNonObjects = (codecs: readonly WireCodec[]): boolean =>
+  codecs.some((codec) =>
+    PRIMITIVE_PROBES.some((probe) => {
+      try {
+        return codec.isType(probe);
+      } catch {
+        return true;
+      }
+    })
+  );
+
+/**
  * Build a recursive tagged transformer from codecs.
  */
 export const createTaggedTransformer = (
@@ -102,7 +134,15 @@ export const createTaggedTransformer = (
     codecByTag.set(codec.tag, codec);
   }
 
+  const skipNonObjects = !codecsMatchNonObjects(codecs);
+
   const serialize = (value: unknown): unknown => {
+    // Primitives are the overwhelming majority of visited nodes and no
+    // object-shaped codec can claim them, so skip the codec loop entirely.
+    if (skipNonObjects && (value === null || typeof value !== 'object')) {
+      return value;
+    }
+
     for (const codec of codecs) {
       if (codec.isType(value)) {
         return {
@@ -151,6 +191,12 @@ export const createTaggedTransformer = (
   };
 
   const deserialize = (value: unknown): unknown => {
+    // Only arrays and plain objects can carry a tagged payload, so anything
+    // else short-circuits without paying the two container checks.
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+
     if (Array.isArray(value)) {
       let result: unknown[] | undefined;
       for (let index = 0; index < value.length; index += 1) {
@@ -259,7 +305,7 @@ const normalizeCustomTransformer = (
  * - deserialize: default(Date) -> user
  */
 const composeWithDefault = (transformer?: DataTransformer): DataTransformer => {
-  if (!transformer) {
+  if (!transformer || transformer === defaultCRPCTransformer) {
     return defaultCRPCTransformer;
   }
 
@@ -273,9 +319,20 @@ const composeWithDefault = (transformer?: DataTransformer): DataTransformer => {
 
 const transformerCache = new WeakMap<object, CombinedDataTransformer>();
 
+// Resolving an already-resolved transformer is the identity. Without this the
+// default walkers get composed onto themselves and every payload is walked
+// twice per direction.
+transformerCache.set(
+  DEFAULT_COMBINED_TRANSFORMER,
+  DEFAULT_COMBINED_TRANSFORMER
+);
+
 /**
  * Normalize transformer config to split input/output shape.
  * User transformers are additive and always composed with default Date handling.
+ *
+ * Idempotent: passing a transformer this function already resolved returns it
+ * unchanged.
  */
 export const getTransformer = (
   transformer?: DataTransformerOptions
@@ -297,6 +354,7 @@ export const getTransformer = (
   };
 
   transformerCache.set(cacheKey, resolved);
+  transformerCache.set(resolved, resolved);
   return resolved;
 };
 
