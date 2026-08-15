@@ -75,7 +75,7 @@ Closure matrix:
 | docs/package skill | no | N/A: no docs/skill delta | N/A |
 | changeset | yes | `.changeset/react-rsc-auth-cache.md` audit | complete |
 | agent workflow | no | N/A: no agent action | N/A |
-| cleanup/review | yes | Deslop complete; committed-head autoreview pending | in_progress |
+| cleanup/review | yes | Deslop and committed-head autoreview clean at 0.86 confidence | complete |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 321 merge plus Version Packages/publish read-back | pending |
 
@@ -84,7 +84,7 @@ Work Checklist:
 - [x] Each pre-review lane is proven or N/A with a concrete reason.
 - [x] Generated output is N/A: no generated owner is touched.
 - [x] Package and changeset contracts are synchronized; docs/skill/fixture/scenario are N/A.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule/generated mirror changed.
@@ -111,7 +111,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 882 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Merge last and verify release/publish | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | passed: zero accepted/actionable findings at 0.86 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/321-close-react-auth-pr.md` | pending |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
@@ -124,7 +124,7 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, changeset, checks, and two threads read | repair |
 | Repair | complete | Transformer ownership and explicit enabled gating fixed with TDD | review |
-| Review/checks | in_progress | 102 focused tests, package build, typecheck, lint, and deslop pass | autoreview and check |
+| Review/checks | in_progress | 102 focused tests, build, typecheck, lint, deslop, and autoreview pass | repository check |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
@@ -139,12 +139,16 @@ Verification evidence:
 - Explicit `enabled: false` remains false, predicates remain predicates, and
   prefetched infinite data hydrates without network work while auth is loading.
 - `bun --cwd packages/kitcn build`, root typecheck, lint, and deslop pass.
+- Committed-head autoreview reports zero accepted/actionable findings at 0.86
+  confidence after the two local review repairs.
 
 Timeline:
 - 2026-08-14T18:17:55.196Z Autoclosure plan created.
 - 2026-08-15T03:41:00+02:00 Rebased onto the six merged predecessors, closed
   transformer recomposition and explicit enabled gating with red-to-green tests,
   and completed focused package proof.
+- 2026-08-15T03:45:00+02:00 Committed-head autoreview passed with zero
+  accepted/actionable findings at 0.86 confidence.
 
 Reboot status:
 | Question | Answer |
