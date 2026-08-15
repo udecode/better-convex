@@ -3,6 +3,7 @@ import type {
   GenericDatabaseWriter,
 } from 'convex/server';
 import type { GenericId, Value } from 'convex/values';
+import { mapWithConcurrency } from '../concurrency';
 import { normalizeTemporalComparableValue } from '../mutation-utils';
 import { Columns } from '../symbols';
 import {
@@ -24,6 +25,9 @@ const FLOAT64_MASK = (1n << 64n) - 1n;
 const DEFAULT_AGGREGATE_CARTESIAN_MAX_KEYS = 4096;
 const DEFAULT_AGGREGATE_WORK_BUDGET = 16_384;
 const RANGE_PREFIX_WORK_UNIT_BASE = 2;
+// Independent aggregate storage reads are issued through a bounded pool rather
+// than serially; the cap keeps in-flight buffers small at the 4096-key ceiling.
+const AGGREGATE_BUCKET_READ_CONCURRENCY = 25;
 const PUBLIC_ID_FIELD = 'id';
 const INTERNAL_ID_FIELD = '_id';
 export const AGGREGATE_STATE_KIND_METRIC = 'metric';
@@ -173,17 +177,23 @@ export type AggregateIndexDefinition = {
   maxFields: string[];
 };
 
+export type AggregateRangeConstraint = {
+  fieldName: string;
+  comparisons: RangeComparison[];
+  prefixFields: string[];
+  /** Max aggregate buckets the prefix scan may read before it throws. */
+  workBudget?: number;
+  filterErrorCode?: string;
+  methodName?: string;
+};
+
 export type CountQueryPlan = {
   tableName: string;
   indexName: string;
   indexFields: string[];
   fieldValues: Record<string, unknown[]>;
   keyCandidates?: unknown[][];
-  rangeConstraint: {
-    fieldName: string;
-    comparisons: RangeComparison[];
-    prefixFields: string[];
-  } | null;
+  rangeConstraint: AggregateRangeConstraint | null;
   postFieldValues: Record<string, unknown[]>;
 };
 
@@ -193,11 +203,7 @@ export type AggregateQueryPlan = {
   indexFields: string[];
   fieldValues: Record<string, unknown[]>;
   keyCandidates?: unknown[][];
-  rangeConstraint: {
-    fieldName: string;
-    comparisons: RangeComparison[];
-    prefixFields: string[];
-  } | null;
+  rangeConstraint: AggregateRangeConstraint | null;
   postFieldValues: Record<string, unknown[]>;
   metric: AggregateMetricRequest;
 };
@@ -1723,6 +1729,9 @@ const compileAggregatePlan = (
       fieldName: rangeFieldName,
       comparisons: rangeComparisons,
       prefixFields: rangeIndex.prefixFields,
+      workBudget: getAggregateWorkBudget(tableConfig),
+      filterErrorCode: codes.FILTER_UNSUPPORTED,
+      methodName,
     },
     postFieldValues,
     metric,
@@ -1902,18 +1911,20 @@ const listBucketsByHashPrefix = async (
   tableName: string,
   indexName: string,
   prefixStart: string,
-  prefixEnd: string
+  prefixEnd: string,
+  limit: number
 ): Promise<CountBucketRow[]> =>
-  (await db
-    .query(AGGREGATE_BUCKET_TABLE)
-    .withIndex('by_table_index_hash', (q: any) =>
-      q
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-        .gte('keyHash', prefixStart)
-        .lt('keyHash', prefixEnd)
-    )
-    .collect()) as CountBucketRow[];
+  (await (
+    db
+      .query(AGGREGATE_BUCKET_TABLE)
+      .withIndex('by_table_index_hash', (q: any) =>
+        q
+          .eq('tableKey', tableName)
+          .eq('indexName', indexName)
+          .gte('keyHash', prefixStart)
+          .lt('keyHash', prefixEnd)
+      ) as any
+  ).take(limit)) as CountBucketRow[];
 
 const getExtremaByValue = async (
   db: GenericDatabaseWriter<any>,
@@ -2167,22 +2178,19 @@ export const readPlanBuckets = async (
     const keyCandidates =
       plan.keyCandidates ??
       buildCandidateKeys(plan.indexFields, plan.fieldValues);
-    const matched: CountBucketRow[] = [];
 
-    for (const keyParts of keyCandidates) {
-      const bucket = await getBucketByKey(
-        db,
-        plan.tableName,
-        plan.indexName,
-        keyParts
-      );
-      if (!bucket) {
-        continue;
-      }
-      matched.push(bucket);
-    }
+    // Independent point lookups: bounded fan-out, gathered by index so the
+    // result order (and therefore the read set) is unchanged.
+    const candidateBuckets = await mapWithConcurrency(
+      keyCandidates,
+      AGGREGATE_BUCKET_READ_CONCURRENCY,
+      (keyParts) =>
+        getBucketByKey(db, plan.tableName, plan.indexName, keyParts)
+    );
 
-    return matched;
+    return candidateBuckets.filter(
+      (bucket): bucket is CountBucketRow => bucket !== null
+    );
   }
 
   const prefixCandidates = buildCandidateKeys(
@@ -2203,16 +2211,41 @@ export const readPlanBuckets = async (
     ])
   ) as Record<string, Map<string, unknown>>;
 
+  // The range predicate cannot be pushed into `keyHash` (JSON ordering is
+  // lexicographic), so the equality prefix is scanned and filtered in JS. Bound
+  // that scan by the configured work budget instead of collecting the whole
+  // prefix and hitting Convex's read limit.
+  const workBudget =
+    plan.rangeConstraint.workBudget ?? DEFAULT_AGGREGATE_WORK_BUDGET;
+
+  const prefixResults = await mapWithConcurrency(
+    prefixCandidates,
+    AGGREGATE_BUCKET_READ_CONCURRENCY,
+    (prefixParts) => {
+      const { start, end } = buildKeyHashPrefixBounds(prefixParts);
+      return listBucketsByHashPrefix(
+        db,
+        plan.tableName,
+        plan.indexName,
+        start,
+        end,
+        workBudget + 1
+      );
+    }
+  );
+
   const matchedById = new Map<string, CountBucketRow>();
-  for (const prefixParts of prefixCandidates) {
-    const { start, end } = buildKeyHashPrefixBounds(prefixParts);
-    const buckets = await listBucketsByHashPrefix(
-      db,
-      plan.tableName,
-      plan.indexName,
-      start,
-      end
-    );
+  for (let index = 0; index < prefixCandidates.length; index += 1) {
+    const prefixParts = prefixCandidates[index] as unknown[];
+    const buckets = prefixResults[index] as CountBucketRow[];
+
+    if (buckets.length > workBudget) {
+      throw createError(
+        plan.rangeConstraint.filterErrorCode ??
+          AGGREGATE_ERROR.FILTER_UNSUPPORTED,
+        `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' scans more than ${workBudget} aggregate buckets on aggregateIndex '${plan.indexName}'. Narrow the equality prefix, reduce the range field's cardinality, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+      );
+    }
 
     for (const bucket of buckets) {
       if (!matchesKeyPrefix(bucket.keyParts, prefixParts)) {
@@ -2430,14 +2463,23 @@ export const readExtremaFromBuckets = async (
   let selected: unknown | null = null;
 
   const buckets = await readPlanBucketsWithCache(db, plan, bucketCache);
-  for (const bucket of buckets) {
-    const value = await readKeyExtrema(db, {
-      tableName: plan.tableName,
-      indexName: plan.indexName,
-      keyHash: bucket.keyHash,
-      fieldName: plan.metric.field,
-      kind: plan.metric.kind,
-    });
+  const metric = plan.metric;
+  // One indexed read per matched bucket, issued through a bounded pool. The
+  // fold below is order-independent, so results stay deterministic.
+  const values = await mapWithConcurrency(
+    buckets,
+    AGGREGATE_BUCKET_READ_CONCURRENCY,
+    (bucket) =>
+      readKeyExtrema(db, {
+        tableName: plan.tableName,
+        indexName: plan.indexName,
+        keyHash: bucket.keyHash,
+        fieldName: metric.field,
+        kind: metric.kind as 'min' | 'max',
+      })
+  );
+
+  for (const value of values) {
     if (value === null || value === undefined) {
       continue;
     }

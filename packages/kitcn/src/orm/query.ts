@@ -44,6 +44,7 @@ import {
   readSumFromBuckets,
 } from './aggregate-index/runtime';
 import { type ColumnBuilder, entityKind } from './builders/column-builder';
+import { mapWithConcurrency } from './concurrency';
 import { OrmNotFoundError } from './errors';
 import type { EdgeMetadata } from './extractRelationsConfig';
 import type {
@@ -7046,27 +7047,11 @@ export class GelRelationalQuery<
     items: T[],
     worker: (item: T, index: number) => Promise<R>
   ): Promise<R[]> {
-    if (items.length === 0) {
-      return [];
-    }
-    const limit = Math.min(this._getRelationConcurrency(), items.length);
-    const results = new Array<R>(items.length);
-    let nextIndex = 0;
-
-    const runWorker = async () => {
-      while (true) {
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= items.length) {
-          return;
-        }
-        results[index] = await worker(items[index], index);
-      }
-    };
-
-    await Promise.all(Array.from({ length: limit }, () => runWorker()));
-
-    return results;
+    return await mapWithConcurrency(
+      items,
+      this._getRelationConcurrency(),
+      worker
+    );
   }
 
   /**

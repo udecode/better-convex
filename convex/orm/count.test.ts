@@ -1877,28 +1877,28 @@ const idsIn = async (db: any, table: string): Promise<Set<string>> =>
     (await db.query(table).collect()).map((row: any) => String(row._id))
   );
 
-describe('aggregateIndex write amplification', () => {
-  const backfillToReady = async (api: any, db: any) => {
-    await (api as any).aggregateBackfill.handler(
+const backfillToReady = async (api: any, db: any) => {
+  await (api as any).aggregateBackfill.handler(
+    { db, scheduler: schedulerStub },
+    {}
+  );
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const states = await (api as any).aggregateBackfillStatus.handler(
       { db, scheduler: schedulerStub },
       {}
     );
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const states = await (api as any).aggregateBackfillStatus.handler(
-        { db, scheduler: schedulerStub },
-        {}
-      );
-      if (states.every((entry: any) => entry.status === 'READY')) {
-        return;
-      }
-      await (api as any).aggregateBackfillChunk.handler(
-        { db, scheduler: schedulerStub },
-        {}
-      );
+    if (states.every((entry: any) => entry.status === 'READY')) {
+      return;
     }
-    throw new Error('backfill did not reach READY');
-  };
+    await (api as any).aggregateBackfillChunk.handler(
+      { db, scheduler: schedulerStub },
+      {}
+    );
+  }
+  throw new Error('backfill did not reach READY');
+};
 
+describe('aggregateIndex write amplification', () => {
   it('writes nothing when an update touches no aggregated field', async () => {
     const { schema, relations } = buildCountIndexedFixtures();
     const t = convexTest(schema);
@@ -2000,6 +2000,92 @@ describe('aggregateIndex write amplification', () => {
       });
       expect(
         await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(10);
+    });
+  });
+});
+
+describe('aggregateIndex range scan budget', () => {
+  const seedScoredOrg = async (db: any, rowCount: number) => {
+    for (let i = 0; i < rowCount; i += 1) {
+      await db.insert('countUsers', {
+        orgId: 'org-1',
+        status: 'active',
+        tier: 'pro',
+        score: i,
+      });
+    }
+  };
+
+  it('throws a named error instead of collecting an unbounded bucket prefix', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 5 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await seedScoredOrg(baseCtx.db, 10);
+      await backfillToReady(api, baseCtx.db);
+
+      // 10 distinct `score` buckets sit under the `orgId` prefix, over budget.
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/COUNT_FILTER_UNSUPPORTED/);
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/aggregateWorkBudget/);
+    });
+  });
+
+  it('returns ranged counts when the prefix fits the budget', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await seedScoredOrg(baseCtx.db, 10);
+      await backfillToReady(api, baseCtx.db);
+
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 5 } },
+        })
+      ).toBe(5);
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
       ).toBe(10);
     });
   });

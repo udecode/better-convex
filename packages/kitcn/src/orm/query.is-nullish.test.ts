@@ -72,6 +72,19 @@ describe('GelRelationalQuery nullish filter compilation', () => {
             operator: 'eq' | 'gte' | 'lt';
             value: unknown;
           }> = [];
+          const matching = (): Array<Record<string, unknown>> =>
+            rows.filter((row) =>
+              filters.every((filter) => {
+                const rowValue = row[filter.field];
+                if (filter.operator === 'eq') {
+                  return rowValue === filter.value;
+                }
+                if (filter.operator === 'gte') {
+                  return (rowValue as any) >= (filter.value as any);
+                }
+                return (rowValue as any) < (filter.value as any);
+              })
+            );
           const query = {
             eq(field: string, value: unknown) {
               filters.push({ field, operator: 'eq', value });
@@ -85,19 +98,8 @@ describe('GelRelationalQuery nullish filter compilation', () => {
               filters.push({ field, operator: 'lt', value });
               return query;
             },
-            collect: async () =>
-              rows.filter((row) =>
-                filters.every((filter) => {
-                  const rowValue = row[filter.field];
-                  if (filter.operator === 'eq') {
-                    return rowValue === filter.value;
-                  }
-                  if (filter.operator === 'gte') {
-                    return rowValue >= filter.value;
-                  }
-                  return rowValue < filter.value;
-                })
-              ),
+            collect: async () => matching(),
+            take: async (limit: number) => matching().slice(0, limit),
           };
           return apply(query);
         },
