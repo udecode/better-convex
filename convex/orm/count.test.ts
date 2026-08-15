@@ -1873,9 +1873,7 @@ const trackWrites = (db: any) => {
 };
 
 const idsIn = async (db: any, table: string): Promise<Set<string>> =>
-  new Set(
-    (await db.query(table).collect()).map((row: any) => String(row._id))
-  );
+  new Set((await db.query(table).collect()).map((row: any) => String(row._id)));
 
 const backfillToReady = async (api: any, db: any) => {
   await (api as any).aggregateBackfill.handler(
@@ -2165,12 +2163,14 @@ describe('aggregateIndex clearing is resumable', () => {
       );
       expect(parked[0]?.status).toBe('CLEARING');
       expect(
-        (await membersFor(
-          baseCtx.db,
-          METRIC_STATE_KIND,
-          'countPosts',
-          'by_org'
-        )).length
+        (
+          await membersFor(
+            baseCtx.db,
+            METRIC_STATE_KIND,
+            'countPosts',
+            'by_org'
+          )
+        ).length
       ).toBeGreaterThan(0);
 
       let reachedReady = false;

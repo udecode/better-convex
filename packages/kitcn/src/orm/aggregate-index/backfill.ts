@@ -939,12 +939,7 @@ export function createCountBackfillHandlers(
           stateKind
         );
 
-        await scheduleChunk(
-          ctx,
-          target.tableName,
-          target.indexName,
-          batchSize
-        );
+        await scheduleChunk(ctx, target.tableName, target.indexName, batchSize);
       } catch (error) {
         await setCountStateError(
           ctx.db,

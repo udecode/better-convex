@@ -22,8 +22,8 @@ import {
   validateTree,
 } from './btree.js';
 import { compareValues } from './compare.js';
-import { AGGREGATE_TREE_TABLE } from './schema.js';
 import schema, { type Item } from './schema.fixture.js';
+import { AGGREGATE_TREE_TABLE } from './schema.js';
 
 describe('btree', () => {
   test('insert', async () => {

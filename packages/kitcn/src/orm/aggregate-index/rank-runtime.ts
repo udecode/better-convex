@@ -364,12 +364,14 @@ const takeRankMembers = async (
   limit: number
 ): Promise<RankMemberRow[]> =>
   (await (
-    db.query(AGGREGATE_MEMBER_TABLE).withIndex('by_kind_table_index', (q: any) =>
-      q
-        .eq('kind', RANK_MEMBER_KIND)
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-    ) as any
+    db
+      .query(AGGREGATE_MEMBER_TABLE)
+      .withIndex('by_kind_table_index', (q: any) =>
+        q
+          .eq('kind', RANK_MEMBER_KIND)
+          .eq('tableKey', tableName)
+          .eq('indexName', indexName)
+      ) as any
   ).take(limit)) as RankMemberRow[];
 
 const rankCtx = (db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>) =>

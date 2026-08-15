@@ -1958,12 +1958,14 @@ const takeMembersForIndex = async (
   limit: number
 ): Promise<CountMemberRow[]> =>
   (await (
-    db.query(AGGREGATE_MEMBER_TABLE).withIndex('by_kind_table_index', (q: any) =>
-      q
-        .eq('kind', AGGREGATE_STATE_KIND_METRIC)
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-    ) as any
+    db
+      .query(AGGREGATE_MEMBER_TABLE)
+      .withIndex('by_kind_table_index', (q: any) =>
+        q
+          .eq('kind', AGGREGATE_STATE_KIND_METRIC)
+          .eq('tableKey', tableName)
+          .eq('indexName', indexName)
+      ) as any
   ).take(limit)) as CountMemberRow[];
 
 const takeBucketsForIndex = async (
@@ -2190,8 +2192,7 @@ export const readPlanBuckets = async (
     const candidateBuckets = await mapWithConcurrency(
       keyCandidates,
       AGGREGATE_BUCKET_READ_CONCURRENCY,
-      (keyParts) =>
-        getBucketByKey(db, plan.tableName, plan.indexName, keyParts)
+      (keyParts) => getBucketByKey(db, plan.tableName, plan.indexName, keyParts)
     );
 
     return candidateBuckets.filter(
@@ -3124,7 +3125,12 @@ export const clearCountIndexChunk = async (
     return { done: false, processed: members.length };
   }
 
-  const buckets = await takeBucketsForIndex(db, tableName, indexName, batchSize);
+  const buckets = await takeBucketsForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
   if (buckets.length > 0) {
     for (const bucket of buckets) {
       await db.delete(AGGREGATE_BUCKET_TABLE, bucket._id as any);
@@ -3132,7 +3138,12 @@ export const clearCountIndexChunk = async (
     return { done: false, processed: buckets.length };
   }
 
-  const extrema = await takeExtremaForIndex(db, tableName, indexName, batchSize);
+  const extrema = await takeExtremaForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
   if (extrema.length > 0) {
     for (const entry of extrema) {
       await db.delete(AGGREGATE_EXTREMA_TABLE, entry._id as any);
