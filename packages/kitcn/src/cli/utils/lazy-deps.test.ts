@@ -4,7 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadDotenv } from './lazy-deps';
 
-const CLI_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..'
+);
 
 /**
  * Loading any of these at module scope puts them on the CLI's startup path, so

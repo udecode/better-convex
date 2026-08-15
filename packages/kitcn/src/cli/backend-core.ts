@@ -31,10 +31,7 @@ import {
   writeConvexCommandOutput,
 } from './convex-command.js';
 import { pullEnv, resolveAuthEnvState, syncEnv } from './env.js';
-import {
-  getLocalBackendEnvVars,
-  withLocalCodegenEnv,
-} from './local-env.js';
+import { getLocalBackendEnvVars, withLocalCodegenEnv } from './local-env.js';
 import {
   detectPackageManager,
   type PackageManager,
@@ -166,7 +163,8 @@ import { createTypeScriptProxy } from './utils/typescript-runtime.js';
 
 // Owned by `config.ts` / `local-env.ts` so the `kitcn dev` watcher child can
 // reach them without loading this module's command graph.
-export { resolveConfiguredBackend, withLocalCodegenEnv };
+export { resolveConfiguredBackend } from './config.js';
+export { withLocalCodegenEnv } from './local-env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

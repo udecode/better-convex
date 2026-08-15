@@ -25,9 +25,8 @@ export const loadBabelParser = (): typeof import('@babel/parser') =>
   (babelParser ??= require('@babel/parser') as typeof import('@babel/parser'));
 
 export const loadClackPrompts = (): typeof import('@clack/prompts') =>
-  (clackPrompts ??= require(
-    '@clack/prompts'
-  ) as typeof import('@clack/prompts'));
+  (clackPrompts ??=
+    require('@clack/prompts') as typeof import('@clack/prompts'));
 
 export const loadDotenv = (): typeof import('dotenv') =>
   (dotenv ??= require('dotenv') as typeof import('dotenv'));

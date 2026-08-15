@@ -20,9 +20,7 @@ const resolveEnvPaths = (sharedDir: string | undefined) => {
 };
 
 // Later files win, so path order is the precedence rule.
-const mergeEnvFiles = (
-  envPaths: readonly string[]
-): Record<string, string> => {
+const mergeEnvFiles = (envPaths: readonly string[]): Record<string, string> => {
   const mergedEnv: Record<string, string> = {};
   for (const envPath of envPaths) {
     if (!fs.existsSync(envPath)) {
