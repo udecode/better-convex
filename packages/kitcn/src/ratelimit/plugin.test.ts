@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { definePlugin } from '../plugins';
 import { CRPCError, initCRPC } from '../server';
+import { resetProtectionState } from './core/deny-list';
 import { MINUTE, Ratelimit, RatelimitPlugin } from './index';
 import type { ConvexRatelimitDbWriter, LimitRequest } from './types';
 
@@ -135,6 +136,11 @@ function createConfiguredPlugin(options?: {
 }
 
 describe('RatelimitPlugin', () => {
+  // Deny-list state is module-scope, so every test in this file shares it.
+  beforeEach(() => {
+    resetProtectionState();
+  });
+
   test('middleware() injects ctx.api.ratelimit and uses default bucket when unset', async () => {
     const db = createMockDb();
     const plugin = createConfiguredPlugin();

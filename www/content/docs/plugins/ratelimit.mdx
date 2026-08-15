@@ -301,7 +301,9 @@ If you need precise projected values (for custom gauges), call `check(ts, count)
 
 ## Protection and deny lists
 
-When `enableProtection` is on, the limiter tracks repeated failures per identifier, IP, user-agent, and country. Once a value reaches `denyListThreshold`, it gets blocked for 24 hours — without even checking the database.
+When `enableProtection` is on, the limiter tracks repeated failures per identifier, IP, user-agent, and country. Once a value reaches `denyListThreshold` **within a rolling 10 minute window**, it gets blocked for 24 hours — without even checking the database. Failures paced wider than that window decay instead of accumulating, so a shared NAT or carrier IP is not blocked by unrelated users' failures spread over days.
+
+A successful request clears the counter for the *identifier* only. IP and user-agent counters survive, because they are attacker-supplied: clearing them on success would let a caller loop `denyListThreshold - 1` failures plus one success forever, and would let anyone reset another client's counter by forging their user-agent.
 
 You can also provide static deny lists to block known bad actors immediately.
 
@@ -346,6 +348,8 @@ const result = await limiter.limit(userId, {
 <Callout icon={<InfoIcon />}>
   **Important:** Deny-list state is in-memory and non-durable. It can survive across warm runtime requests, but is lost on cold starts/deploys. For persistent blocking, use an external deny list or database-backed blocklist.
 </Callout>
+
+Tracked values are capped at 4096 per prefix with least-recently-hit eviction, and values longer than 128 characters are stored truncated, so forged `User-Agent` headers cannot grow the map without bound. Counter increments happen in module memory and are not rolled back when Convex retries a mutation after a write conflict, so a value can count slightly more failures than it was actually served.
 
 ## Dynamic limits
 
