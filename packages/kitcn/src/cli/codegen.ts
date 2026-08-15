@@ -1215,6 +1215,31 @@ export function defineMigration(
 `;
 }
 
+function renderRuntimeApiTypesImport(
+  entries: ProcedureRegistryEntry[],
+  importPath: string
+): string {
+  const specifiers: string[] = [];
+
+  if (entries.some((entry) => !entry.internal)) {
+    specifiers.push('api as generatedApi');
+  }
+  if (entries.some((entry) => entry.internal)) {
+    specifiers.push('internal as generatedInternal');
+  }
+
+  if (specifiers.length === 0) {
+    return '';
+  }
+  if (specifiers.length === 1) {
+    return `import type { ${specifiers[0]} } from '${importPath}';\n`;
+  }
+
+  return `import type {\n${specifiers
+    .map((specifier) => `  ${specifier},\n`)
+    .join('')}} from '${importPath}';\n`;
+}
+
 function emitGeneratedModuleRuntimeFile(
   outputFile: string,
   functionsDir: string,
@@ -1244,6 +1269,11 @@ function emitGeneratedModuleRuntimeFile(
   );
   const { callerEntries, handlerEntries } =
     partitionRuntimeEntriesForEmission(procedureEntries);
+  // Handler entries are a subset of caller entries, so caller entries alone
+  // decide which generated api roots the emitted registries reference.
+  const runtimeApiTypesImport = runtimeApiTypesImportPath
+    ? renderRuntimeApiTypesImport(callerEntries, runtimeApiTypesImportPath)
+    : '';
   const callerRegistryLines = emitProcedureRegistryEntries(
     callerEntries,
     outputFile,
@@ -1326,15 +1356,7 @@ import {
     hasHandlerRegistry ? '\n  type GeneratedRegistryHandlerForContext,' : ''
   }
 } from 'kitcn/server';
-${
-  runtimeApiTypesImportPath
-    ? `import type {
-  api as generatedApi,
-  internal as generatedInternal,
-} from '${runtimeApiTypesImportPath}';
-`
-    : ''
-}import type { ActionCtx, MutationCtx, QueryCtx } from '${generatedServerImportPath}';
+${runtimeApiTypesImport}import type { ActionCtx, MutationCtx, QueryCtx } from '${generatedServerImportPath}';
 import type { OrmTriggerContext } from 'kitcn/orm';
 
 const procedureRegistry = {${callerRegistryBody}} as const;
