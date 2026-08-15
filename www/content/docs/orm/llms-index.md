@@ -217,7 +217,7 @@ isNotNull(field);
 - `'include' does not exist` → Use `with` instead of `include`
 - `findMany() requires explicit sizing` → Add `limit`, use cursor pagination (`cursor` + `limit`), set schema `defaultLimit`, or opt in with `allowFullScan`
 - `.withIndex(...) required` → `predicate` `where` and typed post-fetch operators need explicit index selection
-- `matched more than mutationMaxRows` → Narrow update/delete filter or raise `defaults.mutationMaxRows`
+- `matched more than mutationMaxRows` / `exceeded the mutationMaxRows budget` → Narrow the update/delete filter, split the mutation, or raise `defaults.mutationMaxRows`
 - `update/delete pagination does not support multi-probe filters yet` → Rewrite to a single-range index filter, or run non-paginated mode with row cap
 
 **Index-compiled operators (when indexed):**

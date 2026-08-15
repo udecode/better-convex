@@ -16,6 +16,8 @@ import {
   applyIncomingForeignKeyActionsOnDelete,
   applyIncomingForeignKeyActionsOnUpdate,
   collectMutationRowsBounded,
+  consumeMutationRowBudget,
+  createMutationRowBudget,
   decodeUndefinedDeep,
   deserializeFilterExpression,
   encodeUndefinedDeep,
@@ -545,7 +547,6 @@ describe('mutation-utils', () => {
     const okRows = await collectMutationRowsBounded(() => query, {
       operation: 'delete',
       tableName: 'test_table',
-      batchSize: 2,
       maxRows: 4,
     });
 
@@ -556,7 +557,6 @@ describe('mutation-utils', () => {
       collectMutationRowsBounded(() => query, {
         operation: 'delete',
         tableName: 'test_table',
-        batchSize: 2,
         maxRows: 3,
       })
     ).rejects.toThrow(/matched more than 3 rows/i);
@@ -783,5 +783,91 @@ describe('mutation-utils', () => {
       table: 'cascade_child_a',
       cursor: null,
     });
+  });
+
+  test('sync cascade shares one row budget across foreign key edges', async () => {
+    const rowsByTable = {
+      cascade_child_a: [
+        { _id: 'a1', parentSlug: 'p1' },
+        { _id: 'a2', parentSlug: 'p1' },
+        { _id: 'a3', parentSlug: 'p1' },
+        { _id: 'a4', parentSlug: 'p1' },
+      ],
+      cascade_child_b: [
+        { _id: 'b1', parentSlug: 'p1' },
+        { _id: 'b2', parentSlug: 'p1' },
+      ],
+    } as const;
+    const takeArgs: Array<{ table: string; limit: number }> = [];
+
+    const db = {
+      delete: async () => undefined,
+      patch: async () => undefined,
+      query: (tableName: keyof typeof rowsByTable) => ({
+        withIndex: (_indexName: string, build: (q: any) => any) => {
+          const eqChain = {
+            eq: (_fieldName: string, _value: unknown) => eqChain,
+          };
+          build(eqChain);
+          return {
+            take: async (limit: number) => {
+              takeArgs.push({ limit, table: tableName });
+              return rowsByTable[tableName].slice(0, limit);
+            },
+          };
+        },
+      }),
+    };
+
+    const edge = (sourceTable: any, sourceTableName: string) => ({
+      sourceTable,
+      sourceTableName,
+      sourceColumns: ['parentSlug'],
+      targetTableName: 'cascade_parent',
+      targetColumns: ['slug'],
+      onDelete: 'cascade',
+    });
+    const graph = {
+      incomingByTable: new Map([
+        [
+          'cascade_parent',
+          [
+            edge(cascadeChildA, 'cascade_child_a'),
+            edge(cascadeChildB, 'cascade_child_b'),
+          ],
+        ],
+      ]),
+    };
+
+    // One root row already consumed, so 5 of the 6-row budget remain.
+    const rowBudget = createMutationRowBudget(6);
+    consumeMutationRowBudget(rowBudget, 1);
+
+    await expect(
+      applyIncomingForeignKeyActionsOnDelete(
+        db as any,
+        cascadeParent,
+        { _id: 'p1', slug: 'p1' },
+        {
+          graph: graph as any,
+          deleteMode: 'hard',
+          cascadeMode: 'hard',
+          visited: new Set<string>(['cascade_parent:p1']),
+          batchSize: 100,
+          leafBatchSize: 100,
+          maxRows: 6,
+          rowBudget,
+          maxBytesPerBatch: 1024 * 1024,
+          executionMode: 'sync',
+        }
+      )
+    ).rejects.toThrow(/mutationMaxRows budget \(6\)/i);
+
+    // The second edge must not get a fresh full allowance: it may only read
+    // what the transaction has left.
+    expect(takeArgs).toEqual([
+      { limit: 6, table: 'cascade_child_a' },
+      { limit: 2, table: 'cascade_child_b' },
+    ]);
   });
 });

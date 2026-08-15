@@ -353,7 +353,7 @@ const posts = convexTable(
 - Search mode supports base-table object `where`, but not predicate `where` or relation-based `where`
 - Vector mode (`findMany({ vectorSearch })`) does not support `cursor`, `limit`, `maxScan`, `where`, `orderBy`, `.withIndex(...)`, or `offset`
 - Update/delete without `where()` throws unless `allowFullScan`
-- Update/delete matched rows are capped by `mutationMaxRows` (default `10000`) and collected in `mutationBatchSize` pages (default `400`)
+- Update/delete transactions get a `mutationMaxRows` row budget (default `10000`) shared by matched rows and cascade fan-out, collected in `mutationBatchSize` pages (default `400`)
 - Async FK fan-out uses `mutationLeafBatchSize` for non-recursive actions (default `1600`)
 - Async FK fan-out enforces measured-byte budget `mutationMaxBytesPerBatch` (default `2_097_152`)
 - Async FK fan-out enforces schedule-call cap `mutationScheduleCallCap` (default `800`)
@@ -426,7 +426,7 @@ For Drizzle parity, `date()` and `timestamp()` exist in the ORM, but storage fol
 | `like` or `ilike` is slow | Post-fetch filtering | Use search indexes |
 | `vectorSearch` throws provider error | ORM context missing vector search | Pass `vectorSearch: ctx.vectorSearch` in ORM options |
 | Relations not loading | Incomplete relation metadata | Define both relation sides or explicit `from`/`to` |
-| `update()`/`delete()` exceeds row cap | Matched rows > `mutationMaxRows` | Narrow filters, increase `defaults.mutationMaxRows`, or switch to paged mutation execution |
+| `update()`/`delete()` exceeds row budget | Matched rows plus cascade fan-out > `mutationMaxRows` | Narrow filters, increase `defaults.mutationMaxRows`, or switch to paged mutation execution |
 | Paged update/delete throws multi-probe error | Filter compiles to multiple index probes | Rewrite filter to a single index range (or use non-paged mode with row cap) |
 | Missing defaults | Direct `ctx.db` bypasses ORM defaults | Use ORM inserts or set defaults in code |
 

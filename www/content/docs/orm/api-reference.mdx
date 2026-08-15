@@ -569,13 +569,13 @@ await db
 **Full-scan guardrail**
 - `update()` without `where()` throws unless you call `.allowFullScan()`.
 - Non‑`id` filters require `.allowFullScan()` only when no index is available.
-- Matched rows are capped by `mutationMaxRows` (default `10000`), collected in `mutationBatchSize` pages (default `400`).
+- `mutationMaxRows` (default `10000`) is the row budget for the whole transaction: matched rows and foreign-key cascade fan-out draw on the same budget. Rows are collected in `mutationBatchSize` pages (default `400`).
 - Async fan-out uses `mutationLeafBatchSize` (default `1600`) for non-recursive FK actions.
 - Async fan-out enforces `mutationMaxBytesPerBatch` (default `2_097_152` measured bytes) and `mutationScheduleCallCap` (default `800`).
 - Override defaults via `defineSchema(..., { defaults: { mutationMaxRows, mutationBatchSize, mutationLeafBatchSize, mutationMaxBytesPerBatch, mutationScheduleCallCap, mutationExecutionMode, mutationAsyncDelayMs } })`.
 - For large workloads, use `.paginate({ cursor, limit })` to execute one batch per mutation call.
 - Async mode is the default — first batch runs inline, remaining batches are scheduled automatically. Customize with `execute({ batchSize?, delayMs? })`.
-- Use `execute({ mode: 'sync' })` to force all rows in a single transaction (throws if exceeding `mutationMaxRows`).
+- Use `execute({ mode: 'sync' })` to force all rows in a single transaction (throws when the transaction exceeds `mutationMaxRows`).
 - Async mode cannot be combined with `.paginate()`.
 - Paged mode returns `{ continueCursor, isDone, numAffected }` (+ `page` when using `.returning()`).
 - Async `execute()` returns the same shape as sync `execute()` (`void` or first-batch `returning()` rows).
@@ -599,7 +599,7 @@ await db.delete(users).where(eq(users.id, userId));
 **Full-scan guardrail**
 - `delete()` without `where()` throws unless you call `.allowFullScan()`.
 - Non‑`id` filters require `.allowFullScan()` only when no index is available.
-- Matched rows are capped by `mutationMaxRows` (default `10000`), collected in `mutationBatchSize` pages (default `400`).
+- `mutationMaxRows` (default `10000`) is the row budget for the whole transaction: matched rows and foreign-key cascade fan-out draw on the same budget. Rows are collected in `mutationBatchSize` pages (default `400`).
 - Async fan-out uses `mutationLeafBatchSize` (default `1600`) for non-recursive FK actions.
 - Async fan-out enforces `mutationMaxBytesPerBatch` (default `2_097_152` measured bytes) and `mutationScheduleCallCap` (default `800`).
 - Override defaults via `defineSchema(..., { defaults: { mutationMaxRows, mutationBatchSize, mutationLeafBatchSize, mutationMaxBytesPerBatch, mutationScheduleCallCap, mutationExecutionMode, mutationAsyncDelayMs } })`.

@@ -8,6 +8,8 @@ import type { EdgeMetadata } from './extractRelationsConfig';
 import {
   applyIncomingForeignKeyActionsOnDelete,
   type CascadeMode,
+  consumeMutationRowBudget,
+  createMutationRowBudget,
   type DeleteMode,
   decodeUndefinedDeep,
   deserializeFilterExpression,
@@ -272,6 +274,10 @@ export function scheduledMutationBatchFactory<
       remainingCalls: scheduleCallCap,
       callCap: scheduleCallCap,
     };
+    // Each scheduled batch is its own Convex transaction, so it gets its own
+    // `mutationMaxRows` budget shared across every cascade hop it triggers.
+    const rowBudget = createMutationRowBudget(maxRows);
+    consumeMutationRowBudget(rowBudget, rows.length);
 
     if (workType === 'cascade-delete') {
       if (action === 'set null') {
@@ -310,6 +316,7 @@ export function scheduledMutationBatchFactory<
             batchSize: args.batchSize,
             leafBatchSize,
             maxRows,
+            rowBudget,
             maxBytesPerBatch: resolvedMaxBytesPerBatch,
             allowFullScan: args.allowFullScan,
             strict,

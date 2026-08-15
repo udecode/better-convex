@@ -7,6 +7,8 @@ import {
   canUsePrimaryIdLookupCursor,
   collectMutationRowsBounded,
   collectPrimaryIdLookupRows,
+  consumeMutationRowBudget,
+  createMutationRowBudget,
   encodeUndefinedDeep,
   enforceCheckConstraints,
   enforceForeignKeys,
@@ -560,7 +562,6 @@ export class ConvexUpdateBuilder<
             {
               operation: 'update',
               tableName,
-              batchSize,
               maxRows,
             }
           );
@@ -594,7 +595,6 @@ export class ConvexUpdateBuilder<
           {
             operation: 'update',
             tableName,
-            batchSize,
             maxRows,
           }
         );
@@ -615,7 +615,6 @@ export class ConvexUpdateBuilder<
       rows = await collectMutationRowsBounded(() => this.db.query(tableName), {
         operation: 'update',
         tableName,
-        batchSize,
         maxRows,
       });
     }
@@ -662,6 +661,12 @@ export class ConvexUpdateBuilder<
       remainingCalls: scheduleCallCap,
       callCap: scheduleCallCap,
     };
+    // `mutationMaxRows` bounds the whole transaction, not each query. The root
+    // rows are already read, so they draw on the budget before any cascade hop
+    // does; without this, every foreign key edge and root row got a fresh full
+    // allowance.
+    const rowBudget = createMutationRowBudget(maxRows);
+    consumeMutationRowBudget(rowBudget, rows.length);
     const fkBatchSize = isPaginated ? pagination.limit : batchSize;
 
     for (const { row, updatedRow, decision } of updates) {
@@ -686,6 +691,7 @@ export class ConvexUpdateBuilder<
           batchSize: fkBatchSize,
           leafBatchSize,
           maxRows,
+          rowBudget,
           maxBytesPerBatch,
           allowFullScan,
           strict,

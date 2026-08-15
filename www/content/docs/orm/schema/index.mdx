@@ -228,7 +228,7 @@ export default defineSchema({ users, posts }, {
     relationFanOutMaxKeys: 1000,   // max unique relation lookup keys per relation load
     mutationBatchSize: 400,        // update/delete batch size
     mutationLeafBatchSize: 1600,   // async non-recursive FK fan-out batch size
-    mutationMaxRows: 10000,        // sync-mode hard cap
+    mutationMaxRows: 10000,        // row budget per transaction
     mutationMaxBytesPerBatch: 2_097_152, // async measured-byte budget
     mutationScheduleCallCap: 800,  // async schedule calls allowed per mutation
     mutationExecutionMode: 'async', // or 'sync'
@@ -241,7 +241,7 @@ export default defineSchema({ users, posts }, {
 - `defaults.relationFanOutMaxKeys` -- maximum unique relation lookup keys allowed per relation-load step before fail-fast. Built-in fallback: `1000`.
 - `defaults.mutationBatchSize` -- page size used to collect rows for `update()`/`delete()`. Built-in fallback: `400`.
 - `defaults.mutationLeafBatchSize` -- async batch size for non-recursive FK fan-out actions (`set null`, `set default`, non-recursive update fan-out). Built-in fallback: `1600`.
-- `defaults.mutationMaxRows` -- sync-mode hard cap for matched rows in `update()`/`delete()`. Built-in fallback: `10000`.
+- `defaults.mutationMaxRows` -- row budget for a single `update()`/`delete()` transaction, shared by the matched rows and every row read by foreign-key cascade fan-out. Built-in fallback: `10000`.
 - `defaults.mutationMaxBytesPerBatch` -- async measured-byte budget per continuation batch. Built-in fallback: `2_097_152` bytes.
 - `defaults.mutationScheduleCallCap` -- async schedule calls allowed from one mutation invocation before throwing. Built-in fallback: `800`.
 - `defaults.mutationExecutionMode` -- default execution mode for non-paginated `execute()` calls (`'sync'` or `'async'`). `'async'` requires scheduling wiring (`scheduler` + `scheduledMutationBatch`); without wiring, default-mode execution falls back to `'sync'`. Built-in fallback is `'async'` when scheduling is wired, otherwise `'sync'`.
@@ -265,7 +265,7 @@ Strict guardrails cover relation indexes, relation fan-out cardinality, predicat
 | `many()` relation without per-parent limit | throws unless relation `limit`/`defaultLimit`/`allowFullScan` | same | same |
 | Relation lookup fan-out keys exceed cap | throws unless `allowFullScan` (`defaults.relationFanOutMaxKeys`, default `1000`) | throws unless `allowFullScan`; warns when scanning | throws unless `allowFullScan`; no strict warning |
 | Update/delete without `where()` | throws unless `allowFullScan` | throws unless `allowFullScan`; warns when scanning | throws unless `allowFullScan`; no strict warning |
-| Update/delete row count exceeds `mutationMaxRows` | sync mode throws; async mode schedules continuation | sync mode throws; async mode schedules continuation | sync mode throws; async mode schedules continuation |
+| Update/delete transaction row budget exceeds `mutationMaxRows` | sync mode throws; async mode schedules continuation | sync mode throws; async mode schedules continuation | sync mode throws; async mode schedules continuation |
 
 ## Next Steps
 
