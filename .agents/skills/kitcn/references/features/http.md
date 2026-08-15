@@ -495,7 +495,17 @@ crpc.http.todos.list.queryOptions({
   searchParams: { limit: "10" },
   headers: { "X-Custom": "value" },
 });
+
+// Override the default 30s staleTime
+crpc.http.todos.list.queryOptions(
+  { searchParams: { limit: "10" } },
+  { staleTime: 0 }
+);
 ```
+
+`queryOptions` defaults to a 30 second `staleTime` so RSC-prefetched entries hydrate
+without an immediate refetch. `refetchOnMount` keeps TanStack's default, so a route
+invalidated while unmounted still refetches.
 
 ### One-Time Fetch
 

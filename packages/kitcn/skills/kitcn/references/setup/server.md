@@ -370,7 +370,12 @@ Create `convex/lib/plugins/ratelimit/plugin.ts` and call `ratelimit.middleware()
 Use `RatelimitPlugin` from `kitcn/ratelimit`:
 
 ```ts
-import { MINUTE, Ratelimit, RatelimitPlugin } from "kitcn/ratelimit";
+import {
+  type LimitRequest,
+  MINUTE,
+  Ratelimit,
+  RatelimitPlugin,
+} from "kitcn/ratelimit";
 import type { MutationCtx } from "../../../functions/generated/server";
 
 const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
@@ -415,14 +420,27 @@ async function getRequestSignals(ctx: RatelimitCtx) {
   };
 }
 
+function getRequestIdentifier(
+  user: RatelimitUser | null,
+  signals: LimitRequest | undefined
+) {
+  if (user) return user.id;
+  return signals?.ip ? `ip:${signals.ip}` : "ip:unknown";
+}
+
 export const ratelimit = RatelimitPlugin.configure({
   buckets: ratelimitBuckets,
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? "default",
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
-  getIdentifier: ({ user }: { user: RatelimitUser | null }) =>
-    user?.id ?? "anonymous",
   getTier: getUserTier,
   getSignals: ({ ctx }: { ctx: RatelimitCtx }) => getRequestSignals(ctx),
+  getIdentifier: ({
+    user,
+    signals,
+  }: {
+    user: RatelimitUser | null;
+    signals: LimitRequest | undefined;
+  }) => getRequestIdentifier(user, signals),
   prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   failureMode: "closed",
   enableProtection: true,
@@ -431,6 +449,12 @@ export const ratelimit = RatelimitPlugin.configure({
 ```
 
 Use `ctx.meta.getRequestMetadata()` on Convex 1.38.0+ for IP/user-agent signals in mutation rate limits. Convex also exposes this metadata in actions; route action-side enforcement through a mutation when database-backed ratelimit state is required.
+
+The identifier is the partition key: every request resolving to the same string shares one budget and one `ratelimitState` document. Never key unauthenticated traffic to a constant — `fixedWindow(30, MINUTE)` under a constant identifier is 30 req/min for the whole deployment, and 30 consecutive denials arm a 24 h deny-list block against that constant. `getSignals` runs once per request, before `getIdentifier`, so keying on `signals.ip` costs no extra syscall.
+
+Plan for the two consequences: shared NAT/CGNAT addresses share a budget, and requests with no client IP (scheduled functions, crons) all land on `ip:unknown`. One `ratelimitState` row exists per identifier per `bucket:tier` and nothing deletes them, so schedule a cron reaping rows older than your longest window.
+
+`RatelimitPlugin.configure` also forwards `failureMode`, `timeout`, `enableProtection`, `denyListThreshold`, `denyList`, `dynamicLimits`, and `ephemeralCache` to the limiter.
 
 ### 9.5 Scheduling gate
 

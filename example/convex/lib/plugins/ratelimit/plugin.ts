@@ -1,5 +1,11 @@
 import { getSessionNetworkSignals } from 'kitcn/auth';
-import { MINUTE, Ratelimit, RatelimitPlugin, SECOND } from 'kitcn/ratelimit';
+import {
+  type LimitRequest,
+  MINUTE,
+  Ratelimit,
+  RatelimitPlugin,
+  SECOND,
+} from 'kitcn/ratelimit';
 import type { MutationCtx } from '../../../functions/generated/server';
 import type { Select } from '../../../shared/api';
 
@@ -47,12 +53,29 @@ function getUserTier(user: RatelimitUser | null): RatelimitTier {
   return 'free';
 }
 
+/**
+ * The identifier is the rate-limit partition key: everything that resolves to
+ * the same string shares one budget and one `ratelimitState` document.
+ *
+ * Unauthenticated traffic is keyed by request IP so one visitor cannot spend
+ * every other visitor's budget. Requests with no client IP (scheduled
+ * functions, crons) all fall back to one key.
+ */
+function getRequestIdentifier(
+  user: RatelimitUser | null,
+  signals: LimitRequest | undefined
+) {
+  if (user) {
+    return user.id;
+  }
+
+  return signals?.ip ? `ip:${signals.ip}` : 'ip:unknown';
+}
+
 export const ratelimit = RatelimitPlugin.configure({
   buckets: ratelimitBuckets,
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? 'default',
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
-  getIdentifier: ({ user }: { user: RatelimitUser | null }) =>
-    user?.id ?? 'anonymous',
   getTier: getUserTier,
   getSignals: ({
     ctx,
@@ -61,6 +84,13 @@ export const ratelimit = RatelimitPlugin.configure({
     ctx: RatelimitCtx;
     user: RatelimitUser | null;
   }) => getSessionNetworkSignals(ctx, user?.session ?? null),
+  getIdentifier: ({
+    user,
+    signals,
+  }: {
+    user: RatelimitUser | null;
+    signals: LimitRequest | undefined;
+  }) => getRequestIdentifier(user, signals),
   prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   failureMode: 'closed',
   enableProtection: true,

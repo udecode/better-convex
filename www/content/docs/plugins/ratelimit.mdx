@@ -53,8 +53,13 @@ export default defineSchema(tables).extend(ratelimitExtension());
 
 Scaffold a local plugin and keep one default bucket for every mutation. Add named buckets only when a procedure genuinely needs stricter behavior.
 
-```ts title="convex/lib/plugins/ratelimit/plugin.ts" showLineNumbers {1-4,7-12,38-56}
-import { MINUTE, Ratelimit, RatelimitPlugin } from 'kitcn/ratelimit';
+```ts title="convex/lib/plugins/ratelimit/plugin.ts" showLineNumbers
+import {
+  type LimitRequest,
+  MINUTE,
+  Ratelimit,
+  RatelimitPlugin,
+} from 'kitcn/ratelimit';
 import type { MutationCtx } from '../../../functions/generated/server';
 
 const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
@@ -99,14 +104,27 @@ async function getRequestSignals(ctx: RatelimitCtx) {
   };
 }
 
+function getRequestIdentifier(
+  user: RatelimitUser | null,
+  signals: LimitRequest | undefined
+) {
+  if (user) return user.id;
+  return signals?.ip ? `ip:${signals.ip}` : 'ip:unknown';
+}
+
 export const ratelimit = RatelimitPlugin.configure({
   buckets: ratelimitBuckets,
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? 'default',
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
-  getIdentifier: ({ user }: { user: RatelimitUser | null }) =>
-    user?.id ?? 'anonymous',
   getTier: getUserTier,
   getSignals: ({ ctx }: { ctx: RatelimitCtx }) => getRequestSignals(ctx),
+  getIdentifier: ({
+    user,
+    signals,
+  }: {
+    user: RatelimitUser | null;
+    signals: LimitRequest | undefined;
+  }) => getRequestIdentifier(user, signals),
   prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   failureMode: 'closed',
   enableProtection: true,
@@ -115,6 +133,36 @@ export const ratelimit = RatelimitPlugin.configure({
 ```
 
 Convex exposes request metadata in mutation and action functions: request ID, client IP, and client user-agent. For `RatelimitPlugin`, read it from mutation middleware. Use it for anonymous flows too — session-based helpers return `{}` when no session exists, which is exactly when IP-aware protection matters most.
+
+### Pick an identifier that partitions
+
+The identifier is the rate-limit partition key. Everything that resolves to the same string shares one budget and one `ratelimitState` document, so a constant like `'anonymous'` makes `fixedWindow(30, MINUTE)` a deployment-wide 30 requests per minute for all unauthenticated traffic — one crawler denies every visitor.
+
+`getSignals` runs once per request, before `getIdentifier`, and its result is passed straight through, so keying on the request IP costs no extra `getRequestMetadata()` syscall.
+
+Two consequences to plan for:
+
+- **Shared IPs share a budget.** NAT, corporate proxies, and mobile CGNAT put many people behind one address. Raise the public-tier budget accordingly, or add a captcha-gated tier.
+- **Requests with no client IP collapse to one key.** Scheduled functions and crons have no client IP and land on `ip:unknown`. Keep them off `publicMutation`, or give them their own bucket.
+
+<Callout icon={<InfoIcon />}>
+  **Retention:** one `ratelimitState` row exists per identifier per `bucket:tier`, and nothing deletes them. Per-IP keys make that row count grow with distinct visitors. Schedule a cron that deletes rows whose `ts` is older than your longest window.
+</Callout>
+
+### Plugin options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `buckets` | `Record<bucket, Record<tier, ResolvedAlgorithm>>` | **Required.** Named buckets, each mapping a tier to an algorithm. |
+| `getBucket` | `({ ctx, meta }) => bucket` | **Required.** Picks the bucket, usually from `meta.ratelimit`. |
+| `getUser` | `({ ctx, meta }) => user` | **Required.** Resolves the caller. |
+| `getTier` | `(user) => tier` | **Required.** Picks the tier within the bucket. |
+| `getSignals` | `({ ctx, meta, user, bucket, tier }) => LimitRequest \| undefined` | **Required.** Resolved once per request, before `getIdentifier`. |
+| `getIdentifier` | `({ ctx, meta, user, bucket, tier, signals }) => string` | **Required.** The partition key. |
+| `prefix` | `string \| (args) => string` | Namespaces stored state. Defaults to `` `ratelimit:${bucket}:${tier}` ``. |
+| `message` | `string \| (args) => string` | Message on the thrown `TOO_MANY_REQUESTS` error. |
+
+Everything below is forwarded to the limiter and behaves exactly as in [Constructor options](#constructor-options): `failureMode`, `timeout`, `enableProtection`, `denyListThreshold`, `denyList`, `dynamicLimits`, `ephemeralCache`.
 
 <Callout icon={<InfoIcon />}>
   **Note:** `ctx.meta.getRequestMetadata()` requires Convex 1.38.0 or newer.
