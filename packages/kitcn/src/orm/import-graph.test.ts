@@ -22,11 +22,19 @@ const resolveModule = (fromFile: string, specifier: string): string | null => {
     return null;
   }
   const base = path.resolve(path.dirname(fromFile), specifier);
+  // NodeNext specifiers carry the emitted extension (`./btree.js`), so the
+  // source file is `./btree.ts`. Without stripping it the walker silently
+  // resolves nothing and every assertion about that subtree passes vacuously.
+  const stripped = base.replace(/\.(js|jsx|mjs|cjs)$/, '');
   const candidates = [
     `${base}.ts`,
     `${base}.tsx`,
+    `${stripped}.ts`,
+    `${stripped}.tsx`,
     path.join(base, 'index.ts'),
     path.join(base, 'index.tsx'),
+    path.join(stripped, 'index.ts'),
+    path.join(stripped, 'index.tsx'),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 };

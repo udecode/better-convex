@@ -39,9 +39,18 @@ describe('ORM capabilities', () => {
     const orm = createOrm({ schema: plainSchema });
     const db = orm.db(createReader()) as any;
 
-    await expect(
-      db.query.plain.count({ where: { name: 'a' } })
-    ).rejects.toThrow(/requires the aggregate capability/);
+    // `count()` returns the ORM's lazy thenable, which bun's `.rejects` does
+    // not accept as a promise, so assert on the thrown value directly.
+    let thrown: unknown;
+    try {
+      await db.query.plain.count({ where: { name: 'a' } });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toMatch(
+      /requires the aggregate capability/
+    );
   });
 
   test('a schema declaring aggregateIndex requires the capability up front', () => {
