@@ -76,7 +76,7 @@ Closure matrix:
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
 | cleanup/review | yes | 29 findings fixed; final autoreview clean at 0.91 confidence | complete |
-| repository check | yes | `bun check` | pending |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
 Work Checklist:
@@ -137,7 +137,7 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
 | Agent-native reviewer | yes | Review published ratelimit guidance | pass: complete route/owner/mirror/proof chain |
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | passed: lint, types, tests, CLI, Concave, fixtures, and runtime scenarios |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: 29 fixed; compatibility fallback rejected by hard-cut doctrine; final review clean at 0.91 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
@@ -152,8 +152,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
-| Review/checks | in_progress | 62 focused tests and final autoreview clean at 0.91 confidence | exact repository check |
-| Delivery | pending | | final audit |
+| Review/checks | complete | 62 focused tests, final autoreview clean at 0.91 confidence, and exact `bun check` passed | delivery |
+| Delivery | in_progress | local head ready for lease-protected push | remote gates and merge |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -207,18 +207,20 @@ Timeline:
   shared-cache growth findings with 62 focused tests.
 - 2026-08-15T03:20:00+02:00 Final committed-head autoreview passed with zero
   accepted/actionable findings at 0.91 confidence.
+- 2026-08-15T03:27:00+02:00 Exact `bun check` passed through lint, types,
+  tests, CLI, Concave, fixture reproduction, and runtime scenarios.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Exact repository gate, delivery, final audit |
+| Where am I? | Delivery |
+| Where am I going? | Remote gates, squash merge, final audit |
 | What is the goal? | Merge correct limiter accounting with synchronized guidance |
 | What have I learned? | Exact global quotas need fallback and capacity-aware scaling, not only per-shard division |
 | What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- Exact `bun check`, refreshed remote gates, and merge receipt remain.
+- Refreshed remote gates and merge receipt remain.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
