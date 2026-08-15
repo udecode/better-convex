@@ -110,6 +110,132 @@ describe('use-query-options (solid)', () => {
     });
   });
 
+  test('useConvexQueryOptions forwards skipUnauth to query meta', () => {
+    const fn = makeFunctionReference<'query'>('user:getCurrentUser');
+    useAuthSkipSpy.mockImplementation(
+      () => ({ authType: 'required', shouldSkip: false }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, {} as any, { skipUnauth: true })
+    );
+
+    // The client resolves skipUnauth queries to null instead of surfacing an
+    // auth error; without this key that whole path is unreachable.
+    expect(result.meta).toEqual({
+      authType: 'required',
+      skipUnauth: true,
+      subscribe: true,
+    });
+  });
+
+  test('useConvexQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'query'>('user:get');
+    const predicate = vi.fn(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, { id: 'u1' } as any, {
+        enabled: predicate as any,
+      })
+    );
+
+    const enabled = result.enabled;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+    expect(predicate).toHaveBeenCalledTimes(1);
+  });
+
+  test('useConvexQueryOptions overrides a function-form enabled when auth skips', () => {
+    const fn = makeFunctionReference<'query'>('user:get');
+    useAuthSkipSpy.mockImplementation(
+      () => ({ authType: 'required', shouldSkip: true }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexQueryOptions(fn, { id: 'u1' } as any, {
+        enabled: (() => true) as any,
+      })
+    );
+
+    expect(result.enabled).toBe(false);
+  });
+
+  test('useConvexActionQueryOptions forwards authType and skipUnauth to query meta', () => {
+    const fn = makeFunctionReference<'action'>('ai:analyze');
+    useAuthSkipSpy.mockImplementation(
+      () => ({ authType: 'required', shouldSkip: false }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexActionQueryOptions(fn, { docId: 'd1' } as any, {
+        skipUnauth: true,
+      })
+    );
+
+    expect(result.meta).toEqual({
+      authType: 'required',
+      skipUnauth: true,
+      subscribe: false,
+    });
+  });
+
+  test('useConvexActionQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'action'>('ai:analyze');
+    const predicate = vi.fn(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexActionQueryOptions(fn, { docId: 'd1' } as any, {
+        enabled: predicate as any,
+      })
+    );
+
+    const enabled = result.enabled;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+  });
+
+  test('useConvexInfiniteQueryOptions keeps a function-form enabled predicate', () => {
+    const fn = makeFunctionReference<'query'>('posts:list');
+    const predicate = vi.fn(() => false);
+
+    const { result } = renderHook(() =>
+      useConvexInfiniteQueryOptions(fn, {} as any, {
+        enabled: predicate as any,
+        limit: 20,
+      })
+    );
+
+    const enabled = result.enabled;
+    expect(typeof enabled).toBe('function');
+    expect((enabled as (query: any) => boolean)({} as any)).toBe(false);
+  });
+
+  test('useConvexInfiniteQueryOptions re-reads auth on every enabled access', () => {
+    const fn = makeFunctionReference<'query'>('posts:list');
+    let shouldSkip = true;
+    useAuthSkipSpy.mockImplementation(
+      () =>
+        ({
+          authType: 'required',
+          get shouldSkip() {
+            return shouldSkip;
+          },
+        }) as any
+    );
+
+    const { result } = renderHook(() =>
+      useConvexInfiniteQueryOptions(fn, {} as any, { limit: 20 })
+    );
+
+    expect(result.enabled).toBe(false);
+
+    shouldSkip = false;
+
+    // useInfiniteQuery takes a plain object, so `enabled` has to be a getter
+    // or it stays pinned to the auth state the component mounted with.
+    expect(result.enabled).toBe(true);
+  });
+
   test('useConvexActionQueryOptions uses convexAction key prefix and respects shouldSkip', () => {
     const fn = makeFunctionReference<'action'>('ai:generate');
     useAuthSkipSpy.mockImplementation(
