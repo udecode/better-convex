@@ -86,6 +86,13 @@ export interface IndexLike {
  */
 const INDEX_ORDER_BONUS = 30;
 
+/**
+ * Widest `in` list still worth turning into an index union when it is the only
+ * indexable term. Each value becomes its own index range, so past this width
+ * the fan-out costs more than the single scan it would replace.
+ */
+const MAX_PROMOTED_PROBES = 64;
+
 export class WhereClauseCompiler {
   /**
    * Requested sort fields for the compile in flight. Index choice has to see
@@ -134,6 +141,16 @@ export class WhereClauseCompiler {
     // Score and select best index
     const selectedIndex = this.selectIndex(referencedFields);
 
+    if (!selectedIndex) {
+      // Nothing else in the clause is indexable, so the alternative is a full
+      // table scan. An `in` that would have been index-compiled on its own can
+      // still open its own point ranges here.
+      const promoted = this.tryCompileAndInArray(expression);
+      if (promoted) {
+        return promoted;
+      }
+    }
+
     // Split filters based on selected index
     const { indexFilters, postFilters } = this.splitFilters(
       expression,
@@ -172,6 +189,52 @@ export class WhereClauseCompiler {
 
     if (expression.type === 'logical') {
       return this.tryCompileOrSpecialCase(expression as LogicalExpression);
+    }
+
+    return null;
+  }
+
+  /**
+   * `where: { status: { in: [...] }, name: { contains: 'x' } }` compiles to an
+   * AND, and `extractFieldReferences` treats `inArray` as unindexable, so index
+   * selection sees nothing and the plan degrades to a full table scan — even
+   * though the very same `in` compiles to an index union on its own.
+   *
+   * Only fires when no index was selected at all, so a working `eq`-anchored
+   * plan is never traded for a probe fan-out. Every other term of the AND stays
+   * in `postFilters`, which the executor enforces per probe and again in
+   * JavaScript.
+   */
+  private tryCompileAndInArray(
+    expression: FilterExpression<boolean>
+  ): WhereClauseResult | null {
+    if (expression.type !== 'logical' || expression.operator !== 'and') {
+      return null;
+    }
+
+    const terms: FilterExpression<boolean>[] = [];
+    const flatten = (expr: FilterExpression<boolean>) => {
+      if (expr.type === 'logical' && expr.operator === 'and') {
+        for (const operand of (expr as LogicalExpression).operands) {
+          flatten(operand);
+        }
+        return;
+      }
+      terms.push(expr);
+    };
+    flatten(expression);
+
+    for (const term of terms) {
+      if (term.type !== 'binary' || term.operator !== 'inArray') {
+        continue;
+      }
+      const probePlan = this.tryCompileInArray(term as BinaryExpression);
+      // A wide `in` opens one index range per value, which past some width
+      // costs more than the single scan it replaces. Leave those alone.
+      if (!probePlan || probePlan.probeFilters.length > MAX_PROMOTED_PROBES) {
+        continue;
+      }
+      return { ...probePlan, postFilters: [expression] };
     }
 
     return null;

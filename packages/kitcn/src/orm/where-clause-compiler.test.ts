@@ -249,6 +249,61 @@ describe('WhereClauseCompiler advanced index planning', () => {
     expect(result.postFilters).toHaveLength(0);
   });
 
+  test('plans an AND-nested inArray as an index union when nothing else is indexable', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        inArray(fieldRef<string>('status') as any, ['zmatch']),
+        like(fieldRef<string>('name') as any, '%u%')
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('multiProbe');
+    expect(result.selectedIndex?.indexName).toBe('by_status');
+    expect(result.probeFilters).toHaveLength(1);
+    // The whole AND still has to be enforced after the probes.
+    expect(result.postFilters).toHaveLength(1);
+    expect((result.postFilters[0] as any).operator).toBe('and');
+  });
+
+  test('leaves an AND-nested inArray alone when an index was already selected', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        eq(fieldRef<string>('orgId') as any, 'o1'),
+        inArray(fieldRef<string>('status') as any, ['a', 'b'])
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('singleIndex');
+    expect(result.selectedIndex?.indexName).toBe('by_org');
+    expect(result.probeFilters).toHaveLength(0);
+  });
+
+  test('declines to promote a very wide AND-nested inArray', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const wide = Array.from({ length: 200 }, (_, i) => `s${i}`);
+    const result = compiler.compile(
+      and(
+        inArray(fieldRef<string>('status') as any, wide),
+        like(fieldRef<string>('name') as any, '%u%')
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('none');
+    expect(result.selectedIndex).toBeNull();
+  });
+
   test('prefers a compound index that also supplies the order', () => {
     const compiler = new WhereClauseCompiler('posts', [
       { indexName: 'by_org', indexFields: ['orgId'] },

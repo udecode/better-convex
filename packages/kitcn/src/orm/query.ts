@@ -6080,10 +6080,15 @@ export class GelRelationalQuery<
       const probeLimit = this._resolveNonPaginatedLimit(config);
       // Convex counts `.filter()` matches towards `take`, but only for the
       // filters it can actually carry; a residual one runs in JavaScript later
-      // and would make the bound size unfiltered rows.
-      const probeHasResidualFilter = queryConfig.postFilters.some(
-        (filter) => !this._isConvexEnforceableFilter(filter)
+      // and would make the bound size unfiltered rows. A residual expression
+      // also compiles to a `true` placeholder, which a surrounding `NOT` would
+      // turn into a predicate matching nothing, so it must not reach Convex at
+      // all — the JavaScript pass below applies the real thing.
+      const convexProbeFilters = queryConfig.postFilters.filter((filter) =>
+        this._isConvexEnforceableFilter(filter)
       );
+      const probeHasResidualFilter =
+        convexProbeFilters.length !== queryConfig.postFilters.length;
       // RLS and relation `where` run after the union is assembled and can drop
       // rows, so a per-probe bound would under-fill the page.
       const probeHasPostFetchMembership =
@@ -6123,10 +6128,10 @@ export class GelRelationalQuery<
             probeQuery = probeQuery.order(probeOrderDirection);
           }
 
-          if (queryConfig.postFilters.length > 0) {
+          if (convexProbeFilters.length > 0) {
             probeQuery = probeQuery.filter((q: any) => {
               let result: any | null = null;
-              for (const filter of queryConfig.postFilters) {
+              for (const filter of convexProbeFilters) {
                 const filterFn = this._toConvexExpression(filter);
                 const expr = filterFn(q);
                 result = result ? q.and(result, expr) : expr;

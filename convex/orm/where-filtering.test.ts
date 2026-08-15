@@ -14,7 +14,12 @@
 import { and, eq, inArray, notInArray, or } from 'kitcn/orm';
 import { test as baseTest, describe, expect } from 'vitest';
 import schema from '../schema';
-import { convexTest, runCtx, type TestCtx } from '../setup.testing';
+import {
+  convexTest,
+  countDocumentReads,
+  runCtx,
+  type TestCtx,
+} from '../setup.testing';
 
 // ============================================================================
 // Test Setup
@@ -1293,5 +1298,48 @@ describe('M4 Where Filtering - Type Safety', () => {
     //   allowFullScan: true,
     //   where: { invalidColumn: 'value' },
     // });
+  });
+});
+
+describe('M4: Read bounds', () => {
+  test('in + limit reads a bounded window per probe', async ({ ctx }) => {
+    for (let i = 0; i < 60; i += 1) {
+      await ctx.db.insert('users', {
+        name: `u${i}`,
+        email: `u${i}@example.com`,
+        status: i % 2 === 0 ? 'a' : 'b',
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.query.users.findMany({
+      where: { status: { in: ['a', 'b'] } },
+      limit: 2,
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(reads.documents).toBeLessThanOrEqual(8);
+  });
+
+  test('in under AND uses the index instead of scanning the table', async ({
+    ctx,
+  }) => {
+    for (let i = 0; i < 60; i += 1) {
+      await ctx.db.insert('users', {
+        name: `u${i}`,
+        email: `u${i}@example.com`,
+        status: i >= 57 ? 'zmatch' : 'other',
+      });
+    }
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.query.users.findMany({
+      where: { status: { in: ['zmatch'] }, name: { contains: 'u' } },
+      limit: 2,
+    });
+
+    expect(rows).toHaveLength(2);
+    // The `zmatch` bucket is three rows; scanning the table would be sixty.
+    expect(reads.documents).toBeLessThanOrEqual(6);
   });
 });
