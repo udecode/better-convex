@@ -319,7 +319,8 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   // Don't skip if we have prefetched data - use it for instant hydration.
   // `enabled` is read through the accessor so both reads stay tracked.
   const skip = createMemo(
-    () => !prefetchedFirstPage() && (safeAuth.isLoading || enabled?.() === false)
+    () =>
+      !prefetchedFirstPage() && (safeAuth.isLoading || enabled?.() === false)
   );
 
   // Helper to get/set pagination state from queryClient with gcTime: Infinity
@@ -835,7 +836,9 @@ export function useInfiniteQuery<
       return isSkippedUnauth() ? ([] as TItem[]) : (result.data as TItem[]);
     },
     get pages() {
-      return isSkippedUnauth() ? ([] as TItem[][]) : (result.pages as TItem[][]);
+      return isSkippedUnauth()
+        ? ([] as TItem[][])
+        : (result.pages as TItem[][]);
     },
     get error() {
       const ae = authError();

@@ -29,12 +29,12 @@ const allow = () => false;
 
 describe('internal/subscription-gate', () => {
   test('isAuthBoundQuery matches required and optional auth', () => {
-    expect(isAuthBoundQuery(makeQuery({ meta: { authType: 'required' } }))).toBe(
-      true
-    );
-    expect(isAuthBoundQuery(makeQuery({ meta: { authType: 'optional' } }))).toBe(
-      true
-    );
+    expect(
+      isAuthBoundQuery(makeQuery({ meta: { authType: 'required' } }))
+    ).toBe(true);
+    expect(
+      isAuthBoundQuery(makeQuery({ meta: { authType: 'optional' } }))
+    ).toBe(true);
     expect(isAuthBoundQuery(makeQuery({ meta: {} }))).toBe(false);
     expect(isAuthBoundQuery(makeQuery({ meta: undefined }))).toBe(false);
   });
