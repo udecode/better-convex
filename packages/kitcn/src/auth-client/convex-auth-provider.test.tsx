@@ -539,7 +539,7 @@ describe('ConvexAuthProvider', () => {
     );
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     expect(authFetch).toHaveBeenCalledWith('/get-session', {
@@ -548,6 +548,8 @@ describe('ConvexAuthProvider', () => {
         Authorization: 'Bearer persisted-session-token',
       },
     });
+    // A live token costs exactly one immediate request, with no pre-delay.
+    expect(authFetch).toHaveBeenCalledTimes(1);
   });
 
   test('clears seeded session atom when persisted token recheck fails', async () => {
@@ -586,10 +588,11 @@ describe('ConvexAuthProvider', () => {
       }),
     };
 
+    const authFetch = mock(async () => ({ data: null }));
     const authClient = {
       $store: { atoms: { session: sessionAtom } },
       useSession: () => ({ data: null, isPending: false }),
-      $fetch: mock(async () => ({ data: null })),
+      $fetch: authFetch,
       convex: { token: mock(async () => ({ data: { token: makeJwt(7200) } })) },
       updateSession: () => {},
       crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
@@ -604,7 +607,7 @@ describe('ConvexAuthProvider', () => {
     renderHook(() => useAuth(), { wrapper });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1300));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     expect(sessionAtomState.data).toBeNull();
@@ -612,6 +615,79 @@ describe('ConvexAuthProvider', () => {
       window.sessionStorage.getItem('kitcn.auth.session-token')
     ).toBeNull();
     expect(window.sessionStorage.getItem('kitcn.auth.session-data')).toBeNull();
+    // 200 with a null body is definitive: no retry storm.
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps the persisted token when every session recheck fails in transport', async () => {
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-token',
+      'persisted-session-token'
+    );
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-data',
+      JSON.stringify({
+        session: { id: 'session-1' },
+        user: { email: 'persisted@example.com' },
+      })
+    );
+
+    const client = {
+      setAuth: () => {},
+      clearAuth: () => {},
+    };
+
+    const sessionAtomState = {
+      data: null as unknown,
+      error: null as unknown,
+      isPending: false,
+      isRefetching: false,
+      refetch: async () => {},
+    };
+    const sessionAtom = {
+      get: () => sessionAtomState,
+      set: mock((value: typeof sessionAtomState) => {
+        sessionAtomState.data = value.data;
+        sessionAtomState.error = value.error;
+        sessionAtomState.isPending = value.isPending;
+        sessionAtomState.isRefetching = value.isRefetching;
+        sessionAtomState.refetch = value.refetch;
+      }),
+    };
+
+    const authFetch = mock(async () => ({
+      data: null,
+      error: { status: 0, statusText: 'Failed to fetch' },
+    }));
+    const authClient = {
+      $store: { atoms: { session: sessionAtom } },
+      useSession: () => ({ data: null, isPending: false }),
+      $fetch: authFetch,
+      convex: { token: mock(async () => ({ data: { token: makeJwt(7200) } })) },
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {children}
+      </ConvexAuthProvider>
+    );
+
+    renderHook(() => useAuth(), { wrapper });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+
+    // A dropped request must not sign the user out.
+    expect(
+      window.sessionStorage.getItem('kitcn.auth.session-token')
+    ).toBe('persisted-session-token');
+    expect(
+      window.sessionStorage.getItem('kitcn.auth.session-data')
+    ).not.toBeNull();
+    expect(authFetch).toHaveBeenCalledTimes(3);
   });
 
   test('keeps a cached JWT when a later token refresh returns null', async () => {

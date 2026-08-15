@@ -108,49 +108,78 @@ const wait = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-const readAuthResultData = (result: unknown) => {
+const PERSISTED_TOKEN_ATTEMPTS = 3;
+const PERSISTED_TOKEN_RETRY_BASE_MS = 100;
+
+/**
+ * `session` — the server returned one.
+ * `none` — the server answered and there is no session. Definitive.
+ * `unknown` — every attempt failed in transport. Says nothing about the token.
+ */
+type PersistedTokenOutcome =
+  | { data: unknown; status: 'session' }
+  | { status: 'none' }
+  | { status: 'unknown' };
+
+// `/get-session` answers an unknown or expired token with 200 and a null body,
+// and the client resolves transport failures to `{ data: null, error }` instead
+// of throwing. `.error` is the only thing separating "no session" from "the
+// request never landed", so it has to be read.
+const readAuthResult = (result: unknown) => {
   if (!result || typeof result !== 'object') {
-    return;
+    return { data: undefined, errored: true };
   }
 
-  return (result as { data?: unknown }).data;
+  const { data, error } = result as { data?: unknown; error?: unknown };
+
+  return { data, errored: Boolean(error) };
 };
 
 const getSessionFromPersistedToken = async (
   authClient: AuthClientFetch,
   token: string
-) => {
-  await wait(250);
+): Promise<PersistedTokenOutcome> => {
   const getSession = authClient.getSession as AuthGetSession | undefined;
 
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const result = authClient.$fetch
-      ? await authClient.$fetch('/get-session', {
-          credentials: 'omit',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
-      : await getSession?.({
-          fetchOptions: {
+  for (let attempt = 0; attempt < PERSISTED_TOKEN_ATTEMPTS; attempt += 1) {
+    // Only retries wait, so a live token costs one immediate request. The
+    // backoff still covers the read-after-write window on a fresh sign-in.
+    if (attempt > 0) {
+      await wait(PERSISTED_TOKEN_RETRY_BASE_MS * 3 ** (attempt - 1));
+    }
+
+    let result: unknown;
+    try {
+      result = authClient.$fetch
+        ? await authClient.$fetch('/get-session', {
             credentials: 'omit',
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          },
-        });
-
-    const data = readAuthResultData(result);
-    if (data) {
-      return data;
+          })
+        : await getSession?.({
+            fetchOptions: {
+              credentials: 'omit',
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            },
+          });
+    } catch {
+      continue;
     }
 
-    if (attempt < 9) {
-      await wait(100);
+    const { data, errored } = readAuthResult(result);
+
+    if (data) {
+      return { data, status: 'session' };
+    }
+    if (!errored) {
+      return { status: 'none' };
     }
   }
 
-  return null;
+  return { status: 'unknown' };
 };
 
 const syncSessionAtom = (
@@ -341,35 +370,32 @@ function ConvexAuthProviderInner({
     void getSessionFromPersistedToken(
       authClient as AuthClientFetch,
       persistedToken
-    )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
+    ).then((outcome) => {
+      if (cancelled) {
+        return;
+      }
 
-        if (result) {
-          syncSessionAtom(authClient, result);
-          writeAuthSessionFallbackData(result);
-          return;
-        }
+      if (outcome.status === 'session') {
+        syncSessionAtom(authClient, outcome.data);
+        writeAuthSessionFallbackData(outcome.data);
+        return;
+      }
 
-        clearAuthSessionFallback();
-        clearSessionAtom(authClient);
-        authStore.set('token', null);
-        authStore.set('expiresAt', null);
-        authStore.set('sessionSyncGraceUntil', null);
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
+      // Transport never answered. Signing out here would log a user out over a
+      // dropped request, so the fallback token and grace window survive for the
+      // next mount to retry.
+      if (outcome.status === 'unknown') {
+        return;
+      }
 
-        clearAuthSessionFallback();
-        clearSessionAtom(authClient);
-        authStore.set('token', null);
-        authStore.set('expiresAt', null);
-        authStore.set('sessionSyncGraceUntil', null);
-      });
+      clearAuthSessionFallback();
+      clearSessionAtom(authClient);
+      authStore.set('token', null);
+      authStore.set('expiresAt', null);
+      authStore.set('sessionSyncGraceUntil', null);
+    })
+      // An unexpected failure is not evidence that the session is gone either.
+      .catch(() => {});
 
     return () => {
       cancelled = true;
