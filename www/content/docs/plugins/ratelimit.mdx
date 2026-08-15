@@ -588,7 +588,7 @@ Returned by `getValue()`. Used for custom projections and the React hook.
 | `ts` | `number` | Timestamp of last state update |
 | `shard` | `number` | The sampled shard holding the most tokens |
 | `config` | `ResolvedAlgorithm` | Full algorithm config for `calculateRatelimit()` |
-| `state` | `RatelimitState` | Projected aggregate state. Sliding windows retain current and previous counts with both timestamps so later projections preserve boundary decay. |
+| `state` | `RatelimitState` | Projected aggregate plus every sampled shard state. Sliding windows retain current and previous counts with both timestamps. All-shard snapshots preserve independent saturation and decay in later projections; partial samples remain estimates. |
 
 Pass a snapshot through `snapshotToState()` before handing it to `calculateRatelimit()`, which expects stored state rather than remaining tokens.
 
@@ -665,7 +665,7 @@ const result = calculateRatelimit(
 
 #### `snapshotToState`
 
-`getValue()` reports tokens left, while `calculateRatelimit()` takes stored state — the two differ for sliding windows, which store current and previous used counts. The snapshot retains that projected aggregate state, and `snapshotToState` returns it for later calculations:
+`getValue()` reports tokens left, while `calculateRatelimit()` takes stored state — the two differ for sliding windows, which store current and previous used counts. The snapshot retains the projected aggregate and sampled shard states, and `snapshotToState` returns them for later calculations. Sampling every shard preserves independent capacity saturation and sliding-window decay; partial samples remain estimates.
 
 ```ts showLineNumbers
 import { calculateRatelimit, snapshotToState } from 'kitcn/ratelimit';
@@ -687,9 +687,9 @@ The shares add back up to the budget you configured, so `fixedWindow(20, '1 m', 
 
 Two trade-offs come with it:
 
-- `getValue()` samples a subset of shards and scales the result up, so its count is an estimate. `getRemaining()` reads every shard and is exact.
+- `getValue()` samples a subset of shards and scales the result up, so partial samples are estimates. Sampling every shard preserves independent state for exact later projections. `getRemaining()` reads every shard and is exact.
 - A single call spends from one shard, so `count` can never exceed that shard's share. Keep the per-shard share comfortably above your largest `count` — ten or more is a good target. The algorithm builders throw when `limit / shards` (or `capacity / shards`, or `maxTokens / shards` for `tokenBucket`) drops below `1`, since a shard holding less than one token cannot serve a request.
-- The limiter tries its preferred shard candidates first, then retries untouched shards before denying a request. Extra reads happen only when the preferred candidates cannot serve it.
+- The limiter tries its preferred shard candidates first, then reads untouched candidates concurrently before denying a request. Extra reads happen only when the preferred candidates cannot serve it.
 
 For most use cases, `shards: 1` (the default) is fine. Increase shards only when you see write contention on hot identifiers.
 

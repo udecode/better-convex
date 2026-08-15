@@ -97,7 +97,7 @@ export function useRatelimit(
         ts: evaluation.ts - timeOffset,
         config: ratelimitData.config,
         shard: ratelimitData.shard,
-        ok: evaluation.value >= 0,
+        ok: evaluation.retryAfter === undefined,
         retryAt: evaluation.retryAfter
           ? serverTs + evaluation.retryAfter - timeOffset
           : undefined,
@@ -112,7 +112,7 @@ export function useRatelimit(
       return { status: undefined, check };
     }
 
-    if (current.value < 0) {
+    if (!current.ok) {
       return {
         status: { ok: false as const, retryAt: current.retryAt! },
         check,

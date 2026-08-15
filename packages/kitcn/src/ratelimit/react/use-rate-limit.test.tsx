@@ -102,4 +102,37 @@ describe('useRatelimit', () => {
 
     expect(projected?.value).toBe(10);
   });
+
+  test('all-shard snapshots preserve independent capacity saturation', () => {
+    const start = Math.floor(Date.now() / 60_000) * 60_000;
+    const snapshot: RatelimitSnapshot = {
+      value: 5,
+      ts: start,
+      shard: 0,
+      state: {
+        value: 5,
+        ts: start,
+        shards: [
+          { shard: 0, state: { value: 5, ts: start } },
+          { shard: 1, state: { value: 0, ts: start } },
+        ],
+      },
+      config: {
+        kind: 'fixedWindow',
+        limit: 2,
+        window: 60_000,
+        capacity: 10,
+        shards: 2,
+      },
+    };
+    useQuerySpy.mockReturnValue(snapshot as any);
+
+    const { result } = renderHook(() =>
+      useRatelimit('ratelimit/getRatelimit', { count: 0 })
+    );
+
+    const projected = result.current.check(start + 60_000, 0);
+
+    expect(projected?.value).toBe(6);
+  });
 });

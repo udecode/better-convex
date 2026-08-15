@@ -70,3 +70,6 @@
 - Evaluate sampled shard states at one common read timestamp, avoid refilling
   their aggregate again, and sum each shard's independently usable whole tokens
   in `getRemaining()` without netting debt or fractions across isolated shards.
+- Preserve sampled per-shard state in snapshots so all-shard projections retain
+  independent capacity saturation and sliding-window decay.
+- Read each candidate shard set concurrently, including exhaustion fallbacks.

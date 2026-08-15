@@ -558,6 +558,51 @@ describe('Ratelimit', () => {
     }
   });
 
+  test('all-shard snapshots preserve independent fixed-window saturation', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
+
+    try {
+      const { db } = createMockDb();
+      await db.insert('ratelimitState', {
+        name: 'kitcn/ratelimit',
+        key: 'saturated-snapshot-user',
+        shard: 0,
+        value: 5,
+        ts: 0,
+      });
+      await db.insert('ratelimitState', {
+        name: 'kitcn/ratelimit',
+        key: 'saturated-snapshot-user',
+        shard: 1,
+        value: 0,
+        ts: 0,
+      });
+      const limiter = new Ratelimit({
+        db,
+        ephemeralCache: false,
+        limiter: Ratelimit.fixedWindow(2, '1 m', {
+          capacity: 10,
+          shards: 2,
+        }),
+      });
+
+      const snapshot = await limiter.getValue('saturated-snapshot-user', {
+        sampleShards: 2,
+      });
+      const projected = calculateRatelimit(
+        snapshotToState(snapshot),
+        snapshot.config,
+        60_000,
+        0
+      );
+
+      expect(snapshot.state.shards).toHaveLength(2);
+      expect(projected.remainingRaw).toBe(6);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test('getRemaining sums every shard instead of extrapolating one', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({
@@ -773,6 +818,22 @@ describe('Ratelimit', () => {
     }
 
     expect((await limiter.getDynamicLimit()).dynamicLimit).toBeNull();
+  });
+
+  test('fallback shard reads run within the configured timeout', async () => {
+    const { db } = createMockDb({ delayMs: 20 });
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      failureMode: 'open',
+      timeout: 100,
+      limiter: Ratelimit.fixedWindow(10, '1 m', { shards: 10 }),
+    });
+
+    const denied = await limiter.limit('parallel-fallback-user', { count: 2 });
+
+    expect(denied.success).toBe(false);
+    expect(denied.reason).toBeUndefined();
   });
 
   test('deny list rejects matching values with reason', async () => {

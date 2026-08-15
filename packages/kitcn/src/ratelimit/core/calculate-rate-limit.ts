@@ -6,6 +6,7 @@ import type {
   SlidingWindowAlgorithm,
   TokenBucketAlgorithm,
 } from '../types';
+import { algorithmBudget, shardAlgorithm } from './algorithms';
 
 export type EvaluationResult = {
   state: RatelimitState;
@@ -24,6 +25,11 @@ export function calculateRatelimit(
   now: number,
   count: number
 ): EvaluationResult {
+  const shardStates = state?.shards;
+  if (algorithm.shards > 1 && shardStates?.length === algorithm.shards) {
+    return calculateShardedRatelimit(shardStates, algorithm, now, count);
+  }
+
   if (algorithm.kind === 'fixedWindow') {
     return calculateFixedWindow(state, algorithm, now, count);
   }
@@ -31,6 +37,105 @@ export function calculateRatelimit(
     return calculateTokenBucket(state, algorithm, now, count);
   }
   return calculateSlidingWindow(state, algorithm, now, count);
+}
+
+function calculateShardedRatelimit(
+  shardStates: NonNullable<RatelimitState['shards']>,
+  algorithm: ResolvedAlgorithm,
+  now: number,
+  count: number
+): EvaluationResult {
+  const candidates = shardStates.map(({ shard, state: shardState }) => {
+    const perShard = shardAlgorithm(algorithm, shard);
+    return {
+      baseline: calculateRatelimit(shardState, perShard, now, 0),
+      requested: calculateRatelimit(shardState, perShard, now, count),
+      shard,
+    };
+  });
+  const successful =
+    count === 0
+      ? candidates
+      : candidates.filter(
+          (candidate) => candidate.requested.retryAfter === undefined
+        );
+  const selected = [...successful].sort(
+    (a, b) => b.requested.remainingRaw - a.requested.remainingRaw
+  )[0];
+  const projected = candidates.map((candidate) => ({
+    evaluated:
+      count !== 0 && candidate.shard === selected?.shard
+        ? candidate.requested
+        : candidate.baseline,
+    shard: candidate.shard,
+  }));
+  const retryValues = candidates.flatMap((candidate) =>
+    candidate.requested.retryAfter === undefined
+      ? []
+      : [candidate.requested.retryAfter]
+  );
+  const retryAfter = selected ? undefined : Math.min(...retryValues);
+  const remaining = selected
+    ? projected.reduce(
+        (total, candidate) => total + candidate.evaluated.remaining,
+        0
+      )
+    : 0;
+  const remainingRaw = selected
+    ? projected.reduce(
+        (total, candidate) =>
+          total + Math.max(0, candidate.evaluated.remainingRaw),
+        0
+      )
+    : Math.max(
+        ...candidates.map((candidate) => candidate.requested.remainingRaw)
+      );
+  const auxTimestamps = projected.flatMap((candidate) =>
+    candidate.evaluated.state.auxTs === undefined
+      ? []
+      : [candidate.evaluated.state.auxTs]
+  );
+
+  return {
+    state: {
+      value:
+        selected || count === 0
+          ? projected.reduce(
+              (total, candidate) => total + candidate.evaluated.state.value,
+              0
+            )
+          : remainingRaw,
+      ts: Math.max(
+        ...projected.map((candidate) => candidate.evaluated.state.ts)
+      ),
+      ...(auxTimestamps.length > 0
+        ? {
+            auxValue: projected.reduce(
+              (total, candidate) =>
+                total + (candidate.evaluated.state.auxValue ?? 0),
+              0
+            ),
+            auxTs: Math.max(...auxTimestamps),
+          }
+        : {}),
+      shards: projected.map(({ evaluated, shard }) => ({
+        shard,
+        state: {
+          value: evaluated.state.value,
+          ts: evaluated.state.ts,
+          auxValue: evaluated.state.auxValue,
+          auxTs: evaluated.state.auxTs,
+        },
+      })),
+    },
+    retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    remaining,
+    remainingRaw,
+    reset: Math.min(
+      ...candidates.map((candidate) => candidate.requested.reset)
+    ),
+    limit: algorithmBudget(algorithm),
+  };
 }
 
 function calculateTokenBucket(

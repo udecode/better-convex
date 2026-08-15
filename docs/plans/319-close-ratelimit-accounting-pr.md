@@ -68,14 +68,14 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 48 focused ratelimit tests | complete |
+| source behavior | yes | 51 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
 | docs/package skill | yes | www/package skill/mirror agreement | complete |
 | changeset | yes | `.changeset/ratelimit-accounting.md` audit | complete |
 | agent workflow | yes | Published behavior/guard discoverability | complete |
-| cleanup/review | yes | Final autoreview clean at 0.94 confidence | complete |
+| cleanup/review | yes | Late snapshot and fallback findings fixed; final autoreview pending | in_progress |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | PR 319 update/merge/read-back | pending |
 
@@ -113,12 +113,14 @@ Error attempts:
 | Changeset combined unrelated outcomes and internals | 1 | Split concise user-facing outcomes | Breaking section is atomic |
 | Published skill still described even token refill splits | 1 | Update source guidance and regenerate mirror | Skill, mirror, and public docs describe capacity-proportional refill |
 | Token-bucket dynamic overrides persisted invalid refill rates | 1 | Validate every numeric override before writing | Red zero/negative/non-finite test became green |
+| Aggregate snapshots transferred clipped refill across full shards | 1 | Carry and project sampled per-shard state | Server and React saturation tests became green |
+| Exhaustion fallback awaited every shard read serially | 1 | Read each candidate set concurrently | Ten-shard timeout regression became green |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 48 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 51 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -126,7 +128,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 16 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun clean at 0.94 confidence |
+| Autoreview | yes | Resolve every accepted actionable finding | 18 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -139,14 +141,14 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
-| Review/checks | in_progress | All focused, cleanup, agent-native, and autoreview gates pass | exact check |
+| Review/checks | in_progress | Late GitHub findings fixed with server, React, and timeout proof | final cleanup and review |
 | Delivery | pending | | final audit |
 | Closeout | pending | | final |
 
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 40 Vitest tests and 8 Bun tests across all four ratelimit
+- Focused proof passes 42 Vitest tests and 9 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -178,6 +180,8 @@ Timeline:
   closed refill clipping, expired cache growth, and changeset clarity findings.
 - 2026-08-15T01:53:00+02:00 Closed stale refill guidance and invalid dynamic
   override findings; final autoreview is clean at 0.94 confidence.
+- 2026-08-15T02:15:00+02:00 A final post-CI audit found and closed per-shard
+  snapshot saturation and serial fallback latency findings with TDD.
 
 Reboot status:
 | Question | Answer |
@@ -189,7 +193,8 @@ Reboot status:
 | What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
 
 Open risks:
-- Exact `bun check`, refreshed remote gates, and merge receipt remain.
+- Final cleanup/autoreview, exact `bun check`, refreshed remote gates, and merge
+  receipt remain.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
@@ -227,5 +232,10 @@ Review fixes:
 - The changeset breaking section is split into concise user-facing outcomes.
 - Dynamic overrides are validated as positive finite budgets before persistence;
   zero, negative, `NaN`, and infinite token-bucket refill overrides are rejected.
+- Snapshot state carries sampled shard states; all-shard server and React
+  projections preserve independent saturation instead of transferring clipped
+  refill across shards.
+- Preferred and fallback candidate sets read concurrently, so exhaustion cost is
+  bounded by candidate-set read latency instead of multiplying by shard count.
 - Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
   requires the state-bearing shape across server, hook, types, and docs.

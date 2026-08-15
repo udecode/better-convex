@@ -217,6 +217,7 @@ export class Ratelimit {
                   ? 0
                   : algorithmCapacity(algorithm),
               ts: Date.now(),
+              shards: [],
             },
           }
         : {
@@ -247,6 +248,15 @@ export class Ratelimit {
                       (latestTs ?? Date.now()) - algorithm.window,
                   }
                 : {}),
+              shards: samples.map(({ evaluated, shard }) => ({
+                shard,
+                state: {
+                  value: evaluated.state.value,
+                  ts: evaluated.state.ts,
+                  auxValue: evaluated.state.auxValue,
+                  auxTs: evaluated.state.auxTs,
+                },
+              })),
             },
           };
 
@@ -298,6 +308,19 @@ export class Ratelimit {
             ts: v.number(),
             auxValue: v.optional(v.number()),
             auxTs: v.optional(v.number()),
+            shards: v.optional(
+              v.array(
+                v.object({
+                  shard: v.number(),
+                  state: v.object({
+                    value: v.number(),
+                    ts: v.number(),
+                    auxValue: v.optional(v.number()),
+                    auxTs: v.optional(v.number()),
+                  }),
+                })
+              )
+            ),
           }),
         }),
         handler: async (ctx, args): Promise<RatelimitSnapshot> => {
@@ -519,21 +542,15 @@ export class Ratelimit {
     algorithm: ResolvedAlgorithm,
     shards: number[]
   ): Promise<EvaluatedShard[]> {
-    const samples: Array<{
-      perShard: ResolvedAlgorithm;
-      shard: number;
-      state: RatelimitState | null;
-    }> = [];
-
-    for (const shard of shards) {
-      samples.push({
+    const samples = await Promise.all(
+      shards.map(async (shard) => ({
         perShard: shardAlgorithm(algorithm, shard),
         shard,
         state: normalizeState(
           await this.store.getState(this.prefix, identifier, shard)
         ),
-      });
-    }
+      }))
+    );
 
     const now = Date.now();
     return samples.map(({ perShard, shard, state }) => ({
@@ -551,31 +568,29 @@ export class Ratelimit {
     count: number,
     reserveRequested: boolean
   ): Promise<EvaluationCandidate[]> {
-    const result: EvaluationCandidate[] = [];
+    return Promise.all(
+      shards.map(async (shard) => {
+        const perShard = shardAlgorithm(algorithm, shard);
+        const state = normalizeState(
+          await this.store.getState(this.prefix, identifier, shard)
+        );
+        const evaluated = calculateRatelimit(state, perShard, now, count);
+        const retryAfter = getRequestRetryAfter(
+          evaluated,
+          perShard,
+          now,
+          reserveRequested
+        );
 
-    for (const shard of shards) {
-      const perShard = shardAlgorithm(algorithm, shard);
-      const state = normalizeState(
-        await this.store.getState(this.prefix, identifier, shard)
-      );
-      const evaluated = calculateRatelimit(state, perShard, now, count);
-      const retryAfter = getRequestRetryAfter(
-        evaluated,
-        perShard,
-        now,
-        reserveRequested
-      );
-
-      result.push({
-        shard,
-        state,
-        evaluated,
-        retryAfter,
-        success: retryAfter === undefined,
-      });
-    }
-
-    return result;
+        return {
+          shard,
+          state,
+          evaluated,
+          retryAfter,
+          success: retryAfter === undefined,
+        };
+      })
+    );
   }
 
   private async resolveAlgorithm(): Promise<ResolvedAlgorithm> {

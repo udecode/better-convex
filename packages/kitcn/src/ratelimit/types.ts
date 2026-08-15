@@ -23,11 +23,20 @@ export type DynamicLimitResponse = {
   dynamicLimit: number | null;
 };
 
-export type RatelimitState = {
+export type RatelimitStoredState = {
   value: number;
   ts: number;
   auxValue?: number;
   auxTs?: number;
+};
+
+export type RatelimitShardState = {
+  shard: number;
+  state: RatelimitStoredState;
+};
+
+export type RatelimitState = RatelimitStoredState & {
+  shards?: RatelimitShardState[];
 };
 
 export type RatelimitSnapshot = {

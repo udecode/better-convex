@@ -29,7 +29,7 @@ Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 - One call spends from one shard, so `count` can never exceed that shard's share. Aim for a share of ten or more times your largest `count`.
 - Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` rejects non-positive, non-finite, or unservable overrides before writing them.
 - The ephemeral block cache is keyed per shard, requested count, and reservation mode, so an exhausted shard never blocks peers and a failed large or ordinary request never blocks a smaller or reserved one. Cache writes prune expired variants.
-- Preferred shards are tried first; if none can serve the request, the limiter retries the remaining shards before denying it.
+- Preferred shards are tried first; if none can serve the request, the limiter reads each remaining candidate concurrently before denying it.
 - Failure `reset` is the earliest retry across both cached and freshly evaluated shards.
 
 Default to `shards: 1`. Raise it only after observing write contention on hot identifiers.
@@ -75,7 +75,7 @@ const result = calculateRatelimit(
 `result.remaining` is floored to `0`. `result.remainingRaw` is exact and goes negative when the request overdraws — use it to rank shards or size a backoff.
 
 `RatelimitSnapshot.shard` is the sampled shard holding the most tokens, not "the" shard.
-`RatelimitSnapshot.state` is the projected aggregate state. It retains sliding-window `value`, `auxValue`, `ts`, and `auxTs`, so `snapshotToState()` preserves decay across later window boundaries.
+`RatelimitSnapshot.state` retains the projected aggregate plus every sampled shard state. Sliding windows preserve `value`, `auxValue`, `ts`, and `auxTs`. When every shard is sampled, `snapshotToState()` preserves independent saturation and decay across later projections; partial samples remain estimates.
 
 For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 
