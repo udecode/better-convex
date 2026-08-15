@@ -29,6 +29,7 @@ import type { DistributiveOmit } from '../internal/types';
 import { useAuthValue, useSafeConvexAuth } from './auth-store';
 import { useMeta } from './context';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
+import { useStableIdentity } from './use-stable-identity';
 
 /** Reserved options controlled by infinite query hooks */
 type ReservedInfiniteOptions =
@@ -277,7 +278,13 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   options: InfiniteQueryOptions<PaginatedQueryItem<Query>>
 ): UseInfiniteQueryResult<PaginatedQueryItem<Query>> => {
   // Extract our custom options, the rest are TanStack Query options for page queries
-  const { limit, enabled, placeholderData, ...queryOptions } = options;
+  const { limit, enabled, placeholderData, ...forwardedOptions } = options;
+
+  // The public hook rebuilds `options` as a fresh literal every render, so the
+  // rest object churns even when the caller passed nothing. Latch it: without a
+  // stable identity the `tanstackQueries` memo below can never hit, and each
+  // miss re-hashes one Convex arg object per loaded page.
+  const queryOptions = useStableIdentity(forwardedOptions);
 
   const { isLoading: isAuthLoading } = useSafeConvexAuth();
   const meta = useMeta();
@@ -497,10 +504,12 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     ]
   );
 
-  // Use combine to aggregate all page states in one place
-  const combined = useQueries({
-    queries: tanstackQueries as any,
-    combine: (results) => {
+  // Aggregate all page states in one place.
+  // `combine` must be stable: QueriesObserver re-runs it whenever its identity
+  // changes, and the body is O(total loaded items). Its only render-scope
+  // capture is `placeholderData`.
+  const combine = useCallback(
+    (results: any[]) => {
       // Aggregate pages with deduplication
       const allItems: PaginatedQueryItem<Query>[] = [];
       const pages: PaginatedQueryItem<Query>[][] = [];
@@ -564,6 +573,12 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
         _rawResults: results,
       };
     },
+    [placeholderData]
+  );
+
+  const combined = useQueries({
+    queries: tanstackQueries as any,
+    combine,
   });
 
   // Auto-recovery from stale cursors after WebSocket reconnection
@@ -674,6 +689,23 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     [combined.status, combined.lastPage, setState, argsObject]
   );
 
+  // `fetchNextPage` is documented as safe to key an effect on (infinite-scroll
+  // sentinels), so it needs permanent identity. `loadMore` itself is rebuilt on
+  // every Convex push because page queries opt out of structural sharing, so
+  // latch it behind a ref instead of forwarding its identity.
+  const loadMoreRef = useRef(loadMore);
+  const limitRef = useRef(limit);
+
+  useEffect(() => {
+    loadMoreRef.current = loadMore;
+    limitRef.current = limit;
+  }, [loadMore, limit]);
+
+  const fetchNextPage = useCallback(
+    (n?: number) => loadMoreRef.current(n ?? limitRef.current),
+    []
+  );
+
   // Omit internal fields from combined
   const { _rawResults, lastPage, ...result } = combined;
 
@@ -685,7 +717,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     failureReason: combined.failureReason as Error | null,
     // Override/add custom fields
     error: combined.error instanceof Error ? combined.error : null,
-    fetchNextPage: (n?: number) => loadMore(n ?? limit),
+    fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
   };
@@ -762,12 +794,19 @@ export function useInfiniteQuery<
     }
   }, [isUnauthorized, skipUnauthFinal, queryName, onQueryUnauthorized]);
 
+  // Internal hook handles prefetch detection and will bypass skip if data exists.
+  // Forward a predicate untouched so the internal hook can resolve it per page.
+  // Memoized because `resolveEnabled` allocates a fresh closure for predicates,
+  // which would otherwise churn the page-queries memo on every render.
+  const enabled = useMemo(
+    () => resolveEnabled(!shouldSkip, factoryEnabled),
+    [shouldSkip, factoryEnabled]
+  );
+
   const result = useInfiniteQueryInternal(query as any, args as any, {
     limit,
     ...(queryOptions as any),
-    // Internal hook handles prefetch detection and will bypass skip if data exists.
-    // Forward a predicate untouched so the internal hook can resolve it per page.
-    enabled: resolveEnabled(!shouldSkip, factoryEnabled),
+    enabled,
   });
 
   // Include auth loading in loading state for optional and required types
