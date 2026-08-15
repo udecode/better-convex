@@ -1260,9 +1260,8 @@ class ConcatStreams<T extends GenericStreamItem> extends QueryStream<T> {
         return {
           async next() {
             while (index < streams.length) {
-              iterator ??= streams[index]!
-                .iterWithKeys()
-                [Symbol.asyncIterator]();
+              iterator ??=
+                streams[index]!.iterWithKeys()[Symbol.asyncIterator]();
               const result = await iterator.next();
               if (result.done) {
                 index++;
