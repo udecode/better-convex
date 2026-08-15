@@ -1,5 +1,376 @@
 # kitcn
 
+## 0.17.0
+
+### Minor Changes
+
+- [#322](https://github.com/udecode/kitcn/pull/322) [`b80d734`](https://github.com/udecode/kitcn/commit/b80d73402165543c91c7f83bba3eae59a6a82184) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - `kitcn add` no longer replaces scaffold files you have edited. Files that still
+    match the scaffold are upgraded as before; edited files are kept, listed under
+    `Refused files`, and the command exits `1` because the plugin is only partially
+    installed. Pass `--overwrite` for the previous behavior.
+
+  ```bash
+  # Before — edits to crpc.ts were replaced, exit 0
+  kitcn add auth --yes
+
+  # After — edits are kept and the run fails until you choose
+  kitcn add auth --yes --overwrite
+  ```
+
+  - `kitcn add --json` splits the old `skipped` list in two. `skipped` now means
+    "already up to date", refused files move to `refused`, and `complete` reports
+    whether everything was applied.
+
+  ```jsonc
+  // Before
+  { "skipped": ["convex/lib/crpc.ts"] }
+
+  // After
+  { "skipped": [], "refused": ["convex/lib/crpc.ts"], "complete": false }
+  ```
+
+  ## Patches
+
+  - Fix `kitcn codegen` leaving a hidden parse snapshot behind when a Convex module
+    fails to load, which kept reporting the old error after the real file was
+    fixed. Codegen evaluates modules in memory instead of mirroring them to a
+    sibling file, so it no longer writes to — or deletes from — your Convex
+    directory, and import-time stack traces now point at the real module rather
+    than a temporary path. A file of your own ending in `.kitcn-parse.ts` is left
+    untouched.
+  - Fix plugin registration landing inside a comment or string that happens to
+    mention `defineSchema(`, which recorded the plugin as installed while its
+    tables and relations never reached the schema.
+  - Fix `kitcn add auth` deleting a table's index callback when it was written as a
+    block-bodied arrow or a named function. The callback is now preserved while
+    managed fields are merged.
+  - Fix schema patching merging value imports into a type-only `kitcn/orm` import,
+    which produced duplicate identifiers, and skipping the import entirely when
+    only `import * as orm from 'kitcn/orm'` was present.
+
+- [#320](https://github.com/udecode/kitcn/pull/320) [`799dc4f`](https://github.com/udecode/kitcn/commit/799dc4f80ab998646fd1960fbf82d6f536e5317a) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Improve Convex and HTTP middleware to wrap the whole procedure: `next()`
+    resolves after the handler runs, so timing, error reporting, and cleanup
+    around it observe the handler, and handler errors propagate through every
+    wrapping `catch`. A `ctx` changed on the return path no longer reaches the
+    handler — pass it to `next()` instead.
+
+    ```ts
+    // Before — logged 0ms, never saw handler errors, and this ctx was ignored
+    .use(async ({ ctx, next }) => {
+      const start = Date.now();
+      const result = await next({ ctx });
+      console.log(`${Date.now() - start}ms`);
+      return { ...result, ctx: { ...ctx, tenant } };
+    })
+
+    // After — times the handler, sees its errors, and passes ctx forward
+    .use(async ({ ctx, next }) => {
+      const start = Date.now();
+      try {
+        return await next({ ctx: { ...ctx, tenant } });
+      } finally {
+        console.log(`${Date.now() - start}ms`);
+      }
+    })
+    ```
+
+  - Improve chained `.input()` to apply each schema on its own instead of
+    flattening them into one shape, so object-level rules run. A key declared by
+    more than one schema is validated only by the last schema to declare it, even
+    when an earlier schema carries object-level rules.
+
+    ```ts
+    // Before — the object-level rule was dropped and both fields reached the handler
+    .input(z.object({ password: z.string(), confirm: z.string() }))
+
+    // After — mismatched values are rejected before the handler runs
+    .input(
+      z
+        .object({ password: z.string(), confirm: z.string() })
+        .refine((v) => v.password === v.confirm)
+    )
+    ```
+
+  ## Patches
+
+  - Fix `.input()` schemas running twice per request, which made field transforms
+    apply to their own output — `z.string().transform(s => s.length)` threw on
+    valid input and `z.number().transform(n => n * 2)` doubled twice. Transforms
+    and refinements now run exactly once.
+  - Fix `next({ input })` being dropped for every middleware after the first, so
+    input enrichment placed after an auth middleware no longer silently no-ops.
+  - Fix HTTP routes returning a retryable `500` for errors raised by a procedure
+    they called through a caller. `NOT_FOUND`, `FORBIDDEN`, and other codes now
+    keep their status and message.
+  - Fix HTTP routes returning `500` for the twelve error codes missing from the
+    route status map, including `PAYLOAD_TOO_LARGE` (`413`),
+    `UNSUPPORTED_MEDIA_TYPE` (`415`), and `PRECONDITION_FAILED` (`412`).
+  - Fix a malformed or empty JSON body returning `500` instead of `400`,
+    including when HTTP middleware reads it through `getRawInput()`.
+
+- [#317](https://github.com/udecode/kitcn/pull/317) [`b765f01`](https://github.com/udecode/kitcn/commit/b765f016cc82aabaad9d5f4d218955163f1a73a5) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - `orderBy` on a field that no index _leads_ now sorts after reading, and under
+    cursor pagination it raises instead of returning a page ordered by the wrong
+    column. An index merely containing the field no longer counts: Convex walks an
+    index in full key order, so `on(type, numLikes)` orders by `type` first. Add an
+    index led by the sort field, or read without a cursor.
+
+  ```ts
+  // Before: paged, silently ordered by `type`
+  index("numLikesAndType").on(t.type, t.numLikes);
+
+  await db.query.posts.findMany({
+    orderBy: { numLikes: "desc" },
+    cursor: null,
+    limit: 20,
+  });
+
+  // After: add an index the sort field leads
+  index("numLikesAndType").on(t.type, t.numLikes);
+  index("by_num_likes").on(t.numLikes);
+
+  await db.query.posts.findMany({
+    orderBy: { numLikes: "desc" },
+    cursor: null,
+    limit: 20,
+  });
+  ```
+
+  - `.withIndex(name, range)` now wins over the index a `where` object would have
+    selected, so a `where` the pinned index cannot serve becomes a scan the caller
+    has to bound. Under cursor pagination that combination now asks for `maxScan`
+    instead of quietly reading through a different index.
+
+  ```ts
+  // Before: scanned `by_status` and returned rows from every city
+  await db.query.users
+    .withIndex("by_city", (q) => q.eq("cityId", cityId))
+    .findMany({ where: { status: "active" }, cursor: null, limit: 20 });
+
+  // After: bound the scan
+  await db.query.users
+    .withIndex("by_city", (q) => q.eq("cityId", cityId))
+    .findMany({
+      where: { status: "active" },
+      cursor: null,
+      limit: 20,
+      maxScan: 500,
+    });
+  ```
+
+  ## Patches
+
+  - Fix `.withIndex(name, range)` being ignored whenever the `where` object also
+    matched another index. The index and its bounds you asked for are now the ones
+    scanned — including under cursor pagination — so a range used to scope a query,
+    a tenant id for instance, can no longer be dropped and return rows outside it.
+  - Fix `where: { field: { in: [...] } }` combined with `orderBy` and `limit`
+    returning an arbitrary slice — usually the oldest rows — instead of the
+    requested window.
+  - Fix `like`, `ilike`, `notLike`, and `notIlike` matching nothing when the
+    pattern has a wildcard anywhere but the ends. `%` now matches any run of
+    characters and `_` matches exactly one Unicode character, at any position.
+  - Fix `eq`, `ne`, `in`, and `notIn` never matching array or object columns.
+    Values are compared by content, in queries and in `update`/`delete` filters.
+  - Fix `select()` returning raw rows for a `where: { id }` lookup, which silently
+    skipped `map`, `filter`, `flatMap`, and `distinct`. `pageByKey` with the same
+    `where` also returns its page shape instead of a bare array. A `where` on `id`
+    or `id: { in: [...] }` reads those rows by key rather than scanning the table
+    for them, so `select()` costs one read per id however large the table is.
+    Cursor pagination rejects `id: { in: [...] }` with `maxScan`, because sorting
+    arbitrary IDs by creation time requires reading the complete list first.
+  - Apply RLS to source rows before any `select()` pipeline callback runs, so a
+    mapper or flat-map stage cannot inspect or project a forbidden document.
+  - Fix `flatMap`'s `limit` counting rows excluded by its `where`, which returned
+    fewer children than asked for and often none. The limit now counts matching
+    children, stays stable across pages instead of yielding a fresh batch per page,
+    and reads each child once within the `maxScan` budget. It also stops on the
+    last child it can return instead of reading one past it, so a small `limit`
+    across many parents no longer spends reads no page can show. Exhausted and
+    missing optional relations advance cursors without duplicates or loops.
+  - Fix a relation `limit` combined with a relation `where` returning too few
+    children — none when enough non-matching children sorted first. The limit now
+    counts matching children. Without an explicit relation `orderBy`, the scan
+    also stops after the requested visible rows, including rows filtered by RLS.
+
+- [#316](https://github.com/udecode/kitcn/pull/316) [`59b80d0`](https://github.com/udecode/kitcn/commit/59b80d0f7c8c9aea78a15b427449907ef8976750) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Require `rls.roleResolver` for policies scoped with `to`. A role-scoped policy
+    previously applied to every caller when no resolver was configured; it now
+    throws `RLS_ROLE_RESOLVER_REQUIRED`. Queries and mutations check this for
+    every table they touch before reading rows, so the error depends only on
+    configuration and not on whether the table holds rows. SQL pseudo-roles
+    (`public`, `current_user`, `current_role`, `session_user`) apply to everyone
+    and still need no resolver.
+
+  ```ts
+  // Before
+  const ormDb = orm.db(ctx, { rls: { ctx } });
+
+  // After
+  const ormDb = orm.db(ctx, {
+    rls: { ctx, roleResolver: (ctx) => ctx.roles ?? [] },
+  });
+  ```
+
+  - Deny RLS policy comparisons against a missing value, following SQL null
+    semantics. A policy written as `eq(column, null)` now denies instead of
+    matching explicitly-null columns, and an unauthenticated caller no longer
+    matches rows whose owner column was never set. Use `isNull` to match absent
+    or null columns.
+
+  ```ts
+  // Before
+  rlsPolicy("read_unassigned", {
+    for: "select",
+    using: (ctx, t) => eq(t.ownerId, null),
+  });
+
+  // After
+  rlsPolicy("read_unassigned", {
+    for: "select",
+    using: (ctx, t) => isNull(t.ownerId),
+  });
+  ```
+
+  ## Patches
+
+  - Fix many-to-many relations ignoring the junction table's RLS policies, which
+    revealed which rows other users were linked to. Loading a relation with `with`
+    now enforces the junction table's policies alongside the related table's.
+
+- [#319](https://github.com/udecode/kitcn/pull/319) [`2aee478`](https://github.com/udecode/kitcn/commit/2aee478fcc750d06bd914bf5cd701045d1c79736) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Enforce the configured total budget across all `shards`.
+
+    ```ts
+    // 20 per minute in total, spread over 4 shards
+    Ratelimit.fixedWindow(20, "1 m", { shards: 4 });
+    ```
+
+  - Preserve configured `maxReserved` headroom across sharded limiters.
+  - Reject limiter budgets that leave any shard with less than one usable token.
+  - Reject non-positive, non-finite, or unservable dynamic limit overrides.
+
+  - Evaluate the requested `count` / `rate` in `check()` against the tokens already
+    spent. It previously evaluated nothing and returned `success: true` for every
+    caller, so a pre-flight gate now reports `success: false` where it always said
+    "allowed".
+
+    ```ts
+    // Before: always true, even for an exhausted identifier
+    const gate = await limiter.check(userId, { count: 5 });
+
+    // After: matches what limit() would decide, without consuming tokens
+    const gate = await limiter.check(userId, { count: 5 });
+    if (!gate.success) return { retryAt: gate.reset };
+    ```
+
+  ## Features
+
+  - Add `snapshotToState` to convert a `getValue()` snapshot into the state shape
+    `calculateRatelimit()` expects. Snapshots retain the full projected state,
+    including sliding-window current and previous counts, so later projections
+    preserve boundary decay.
+  - Add `remainingRaw` to `calculateRatelimit()` results for the exact token
+    balance, including the negative value when a request overdraws.
+
+  ## Patches
+
+  - Fix `getRemaining()` inverting sliding-window quotas. An identifier with no
+    traffic reported `remaining: 0`, and quota banners or `X-RateLimit-Remaining`
+    headers showed the opposite of the truth.
+  - Fix `resetUsedTokens()` leaving an identifier blocked by the ephemeral cache,
+    so an admin quota reset silently failed for the rest of the window.
+  - Key the ephemeral block cache per shard. One exhausted shard used to block the
+    identifier outright, stranding every other shard's tokens until the window
+    reset and enforcing well under the configured limit.
+  - Sum every shard in `getRemaining()` rather than extrapolating the fullest one.
+    A half-drained sharded limiter reported its full budget as still available.
+  - Improve shard selection to compare exact token balances, so sharded limiters
+    spread load onto the emptier shard instead of tying on rounded counts.
+  - Retry the remaining shards when the preferred candidates are exhausted, so
+    routing cannot deny a request while another shard can still serve it.
+  - Preserve whole-request capacity for fractional budgets by dealing the whole
+    portion and keeping the fractional remainder on one shard.
+  - Scale fixed-window snapshots and response balances by `capacity` rather than
+    the refill `limit`, so burst configurations report valid remaining tokens.
+  - Scope ephemeral blocks by shard, requested count, and reservation mode, so a
+    failed large or ordinary request does not hide tokens from a smaller or
+    reserved request, and include cached shards when reporting the earliest
+    global retry time.
+  - Prune expired ephemeral block variants when recording a new block.
+  - Allocate token-bucket refill rates in proportion to shard capacity, preserving
+    the full configured refill when capacity shares are uneven.
+  - Compute reserved-request retry times against `maxReserved` headroom rather
+    than the non-reserved zero-debt threshold.
+  - Evaluate sampled shard states at one common read timestamp, avoid refilling
+    their aggregate again, and sum each shard's independently usable whole tokens
+    in `getRemaining()` without netting debt or fractions across isolated shards.
+  - Preserve sampled per-shard state in snapshots so all-shard projections retain
+    independent capacity saturation and sliding-window decay.
+  - Read each candidate shard set concurrently, including exhaustion fallbacks.
+  - Reject requests that exceed every shard's capacity and reservation headroom
+    with `reason: "requestTooLarge"` and no retry deadline or shard reads.
+  - Exclude permanently undersized shards from retry deadlines and invalidate
+    local snapshot and block-decision caches when dynamic limits change.
+  - Preserve permanent oversized denials through all-shard snapshots and React
+    projections without scheduling an infinite retry timer.
+  - Apply per-shard capacity guards to partial snapshots while retaining uncapped
+    reservation headroom when `maxReserved` is omitted.
+  - Reject negative, non-finite `maxReserved` values before sharding or retry
+    calculation.
+  - Normalize shard-local algorithms, enforce per-shard capacity for fresh
+    projections, and generation-guard cache writes across dynamic updates.
+  - Skip infinite block-cache entries and retain at most 32 finite variants per
+    identifier.
+
+### Patch Changes
+
+- [#318](https://github.com/udecode/kitcn/pull/318) [`eddfc08`](https://github.com/udecode/kitcn/commit/eddfc083de4e1656237f1b871919c9c382eeb67e) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix auth queries that filter by `id` resolving records from the wrong model,
+    which let a lookup, update, or delete for one model read, patch, or destroy a
+    record belonging to another. IDs are now checked against the model being
+    queried, and IDs that belong elsewhere or are malformed resolve to "not
+    found" instead of a foreign record or an error.
+  - Fix `findMany` and `count` returning duplicated records past the first page,
+    which also inflated counts used for membership, role, and API key limits.
+  - Fix mixed `AND`/`OR` filters in `findMany` and `count` returning records the
+    filter excluded, such as rows outside the requested organization. Mixed
+    filters are now rejected, matching `updateMany` and `deleteMany`.
+  - Fix `not_in` filters returning no match when the matching record was not
+    among the first records scanned, which made those updates fail and those
+    deletes silently do nothing.
+  - Fix `auth.jwtCache: false` in the Next.js integration disabling
+    authentication instead of just the JWT cookie cache, which made every server
+    request anonymous.
+
+- [#321](https://github.com/udecode/kitcn/pull/321) [`9a7feab`](https://github.com/udecode/kitcn/commit/9a7feab2f99ee383a02225c293137416a0438fbd) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix signed-in users being signed out when their name or email contains
+    non-ASCII characters.
+  - Fix server callers re-running a failed mutation or action after a
+    non-authorization error, which could charge a card or write a row twice.
+  - Fix results of auth-scoped actions surviving sign-out and being served to the
+    next user in the same tab.
+  - Fix `skipUnauth` being ignored on queries and action queries, so backend
+    authorization errors resolve to `null` as documented instead of surfacing as
+    query errors.
+  - Fix `Date` values in query args crashing the render.
+  - Fix a function-form `enabled` being ignored on queries, action queries, and
+    infinite queries, which ran queries the caller had disabled.
+  - Fix mutating a query args object in place returning another component's args
+    for a previously used key, which subscribed to the wrong Convex query.
+  - Fix RSC prefetch of `crpc.http.*` building a different URL than the browser
+    client for `params` and `searchParams`, so prefetched data now hydrates
+    instead of being refetched.
+
 ## 0.16.1
 
 ### Patch Changes
