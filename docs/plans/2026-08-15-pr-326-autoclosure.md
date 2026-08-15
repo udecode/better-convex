@@ -69,33 +69,32 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | V8 regression tests and error unit tests | pending |
-| package/API/build | yes | `bun --cwd packages/kitcn build` | pending |
+| source behavior | yes | V8: 7 pass; Bun error unit: 16 pass | complete |
+| package/API/build | yes | `bun --cwd packages/kitcn build`: pass | complete |
 | generated output | no | N/A: no generated output | complete |
 | fixtures/scenarios | no | N/A: no fixture/scenario change | complete |
 | docs/package skill | no | N/A: no docs or published skill change | complete |
-| changeset | yes | `.changeset/crpc-error-payload-to-client.md` | pending |
+| changeset | yes | Patch changeset matches client payload/stack behavior | complete |
 | agent workflow | no | N/A: no agent surface changes | complete |
-| cleanup/review | yes | deslop + autoreview | pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop bounded; autoreview clean at 0.99 | complete |
+| repository check | yes | `bun check`: pass | complete |
 | GitHub delivery | yes | update/push/read back/merge/release #326 | pending |
 
 Work Checklist:
-- [ ] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Intended behavior and exclusions are reconstructed from real sources.
+- [x] Each lane is classified with concrete owner or N/A reason.
+- [x] Generated output: N/A, no generated file changed.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized for current local state.
+- [x] Accepted cleanup and review findings are closed: type cleanup applied; autoreview clean.
 - [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
+- [x] Residual blocker/waiver has exact evidence and next owner: none.
+- [x] Agent-native pack: N/A, no agent rule or generated skill mirror changed.
+- [x] Agent-native pack: N/A, no changed agent action.
+- [x] Agent-native pack: N/A, no `.agents/rules/**` change.
+- [x] Agent-native pack: N/A, no installed skill changed; installed skills are changed only through
       `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
-      completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: N/A, no agent workflow behavior to evaluate.
+- [x] Agent-native pack: N/A, no agent-native review findings.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -105,45 +104,60 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | Run smallest missing owning proof | pending |
-| Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
-| Package/docs/scenario closure | pending | Run every applicable local contract | pending |
-| Deslop | pending | Run bounded cleanup or N/A | pending |
-| Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
-| Repository check | yes | Run `bun check` | pending |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Targeted behavior proof | yes | Run smallest missing owning proof | V8 7/7 and Bun error 16/16 pass |
+| Source/generated audit | no | Prove correct source and regenerated mirrors | N/A: no generated output; four stack assignments removed in owner |
+| Package/docs/scenario closure | yes | Run every applicable local contract | Package build pass; changeset audited; scenarios owned by final `bun check` |
+| Deslop | yes | Run bounded cleanup or N/A | 0 added occurrences; fan-out heuristic ignored because V8 requires its own `.vitest.ts` lane |
+| Agent-native reviewer | no | Run for workflow changes or N/A | N/A: no agent workflow change |
+| Final lint | yes | Run `bun lint:fix` | 883 files checked; no fixes |
+| Repository check | yes | Run `bun check` | Pass: check:ci, test:verify, and test:runtime |
+| GitHub delivery | yes | Commit/push/open or update PR and read back | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | Codex Sol/high: clean, 0 actionable findings, 0.99 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-15-pr-326-autoclosure.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Agent source / generated sync | no | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent rule change |
+| Installed lock audit | no | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill change |
+| Agent action discoverability | no | Source-audit the skill/rule path an agent will read | N/A: no agent action change |
+| Helper and template smoke | no | Syntax-check helpers and prove incomplete failure/completed representation when applicable | N/A: no helper/template change |
+| Agent-native review | no | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | N/A: no agent-native delta |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | PR body/files/head/checks reconstructed | checkout/rebase |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
+| Repair | complete | Replaced two new `any` casts with `Value`; V8 test remains 7/7 | review |
+| Review/checks | complete | focused tests, build, deslop, lint, autoreview, `bun check` pass | delivery |
+| Delivery | in_progress | local closure ready | force-with-lease push, remote checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
-- Pending.
+- `get-pr-comments 326`: 0 threads, 0 review bodies, only changeset bot metadata.
+- `bunx vitest run packages/kitcn/src/server/error.vitest.ts`: 7 pass, 0 fail, no type errors.
+- `bun test packages/kitcn/src/server/error.test.ts`: 16 pass, 0 fail.
+- `bun --cwd packages/kitcn build`: pass.
+- `bun run lint:slop:delta`: 0 added occurrences; one directory fan-out
+  heuristic ignored because the separate V8 test lane is required.
+- `bun lint:fix`: 883 files checked; no fixes.
+- Autoreview Codex Sol/high: clean, 0 actionable findings, 0.99.
+- `bun check`: pass through check:ci, test:verify, and test:runtime.
+
+Review fixes:
+- Local standards audit found two new `any` uses in `error.vitest.ts`; accepted
+  and replaced with Convex `Value`; focused V8 proof stayed 7/7.
 
 Timeline:
 - 2026-08-15T19:04:02.015Z Autoclosure plan created.
+- 2026-08-15 Rebased onto #324 merge; source/issue/feedback reconstructed.
+- 2026-08-15 Focused tests/build/lint passed; two test-only `any` uses removed.
+- 2026-08-15 Autoreview clean and full repository gate passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Delivery |
+| Where am I going? | Push, remote checks, merge, release verification |
 | What is the goal? | Merge PR #326 and verify one release. |
-| What have I learned? | See closure matrix |
-| What have I done? | See timeline |
+| What have I learned? | V8 lazy stack materialization is the payload-loss trigger; no GitHub feedback exists. |
+| What have I done? | Rebased, tightened types, and passed every local review/check gate. |
 
 Open risks:
-- V8-only regression proof must remain in the Vitest lane after rebase.
+- Remote release automation must publish exactly once after the final merge.

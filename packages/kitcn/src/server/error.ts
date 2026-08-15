@@ -235,6 +235,16 @@ function getApiErrorMessage(cause: APIErrorLike): string {
  * Convert known framework/library errors into CRPCError.
  *
  * Intended for cRPC internals so callers don't need per-endpoint try/catch.
+ *
+ * Never assign `.stack` on a converted error. The Convex backend only forwards
+ * `data` for a thrown error after it reads `__frameData` off it, and
+ * `__frameData` is written as a side effect of the runtime's
+ * `Error.prepareStackTrace` hook, which V8 runs lazily on the *first* read of
+ * `.stack`. Assigning `.stack` satisfies later reads without ever running the
+ * hook, so the backend bails out of source mapping and the client receives a
+ * bare `Error` with the message redacted to `Server Error` and no `.data` —
+ * losing the cRPC `code`, `message`, and custom payload. The original stack
+ * stays reachable at `err.cause.stack`. See `error.vitest.ts`.
  */
 export function toCRPCError(cause: unknown): CRPCError | null {
   if (cause instanceof CRPCError) return cause;
@@ -244,24 +254,20 @@ export function toCRPCError(cause: unknown): CRPCError | null {
 
   if (isConvexErrorLike(cause) && isCRPCErrorData(cause.data)) {
     const { code, message, ...data } = cause.data;
-    const err = new CRPCError({
+    return new CRPCError({
       code,
       message,
       cause,
       data: data as Record<string, Value | undefined>,
     }) as CRPCError;
-    if (cause.stack) err.stack = cause.stack;
-    return err;
   }
 
   if (isOrmNotFoundErrorLike(cause)) {
-    const err = new CRPCError({
+    return new CRPCError({
       code: 'NOT_FOUND',
       message: cause.message,
       cause,
     });
-    if (cause.stack) err.stack = cause.stack;
-    return err;
   }
 
   if (isApiErrorLike(cause)) {
@@ -275,13 +281,11 @@ export function toCRPCError(cause: unknown): CRPCError | null {
           ? mapHttpStatusCodeToCRPCCode(statusCode)
           : 'INTERNAL_SERVER_ERROR';
 
-    const err = new CRPCError({
+    return new CRPCError({
       code,
       message: getApiErrorMessage(cause),
       cause,
     });
-    if (cause.stack) err.stack = cause.stack;
-    return err;
   }
 
   return null;
@@ -289,6 +293,9 @@ export function toCRPCError(cause: unknown): CRPCError | null {
 
 /**
  * Wrap unknown error in CRPCError (from tRPC)
+ *
+ * The original stack stays reachable at `err.cause.stack`. See the note on
+ * `toCRPCError` for why it must not be copied onto the returned error.
  *
  * @example
  * ```typescript
@@ -303,16 +310,10 @@ export function getCRPCErrorFromUnknown(cause: unknown): CRPCError {
   const handled = toCRPCError(cause);
   if (handled) return handled;
 
-  const error = new CRPCError({
+  return new CRPCError({
     code: 'INTERNAL_SERVER_ERROR',
     cause,
   });
-
-  if (cause instanceof Error && cause.stack) {
-    error.stack = cause.stack;
-  }
-
-  return error;
 }
 
 /**
