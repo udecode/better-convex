@@ -13,6 +13,7 @@ import {
   ConvexAuthBridge,
   ConvexProviderWithAuth,
   decodeJwtExp,
+  decodeJwtIdentity,
   MaybeAuthenticated,
   MaybeUnauthenticated,
   Unauthenticated,
@@ -127,6 +128,62 @@ describe('decodeJwtExp', () => {
 
   test('returns null for malformed tokens', () => {
     expect(decodeJwtExp('not-a-jwt')).toBeNull();
+  });
+});
+
+describe('decodeJwtIdentity', () => {
+  test('ignores claims that change on every mint', () => {
+    const claims = { activeOrganizationId: 'org_1', sub: 'user_1' };
+    const minted = makeJwt({
+      ...claims,
+      exp: 1_700_000_900,
+      iat: 1_700_000_000,
+    });
+    const rotated = makeJwt({
+      ...claims,
+      exp: 1_700_001_800,
+      iat: 1_700_000_890,
+      jti: 'jwt_2',
+      nbf: 1_700_000_890,
+    });
+
+    expect(minted).not.toBe(rotated);
+    expect(decodeJwtIdentity(minted)).toBe(decodeJwtIdentity(rotated));
+  });
+
+  test('is insensitive to claim ordering', () => {
+    const a = makeJwt({ email: 'zoe@example.com', sessionId: 's1', sub: 'u1' });
+    const b = makeJwt({ sub: 'u1', sessionId: 's1', email: 'zoe@example.com' });
+
+    expect(decodeJwtIdentity(a)).toBe(decodeJwtIdentity(b));
+  });
+
+  test('separates every non-volatile claim, not just sub', () => {
+    const base = { role: 'member', sessionId: 's1', sub: 'u1' };
+    const identity = decodeJwtIdentity(makeJwt(base));
+
+    expect(decodeJwtIdentity(makeJwt({ ...base, role: 'admin' }))).not.toBe(
+      identity
+    );
+    expect(decodeJwtIdentity(makeJwt({ ...base, sessionId: 's2' }))).not.toBe(
+      identity
+    );
+    expect(
+      decodeJwtIdentity(makeJwt({ ...base, org: { id: 'o1', tier: 'pro' } }))
+    ).not.toBe(identity);
+  });
+
+  test('sorts nested claim objects so serialization order cannot matter', () => {
+    const a = makeJwt({ org: { id: 'o1', tier: 'pro' }, sub: 'u1' });
+    const b = makeJwt({ sub: 'u1', org: { tier: 'pro', id: 'o1' } });
+
+    expect(decodeJwtIdentity(a)).toBe(decodeJwtIdentity(b));
+  });
+
+  test('returns null for opaque session tokens and malformed input', () => {
+    expect(decodeJwtIdentity('opaque-session-token')).toBeNull();
+    expect(decodeJwtIdentity('not-a-jwt')).toBeNull();
+    expect(decodeJwtIdentity('')).toBeNull();
   });
 });
 
