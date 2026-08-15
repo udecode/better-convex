@@ -17,8 +17,11 @@ const cascadeChild = convexTable(
   (t) => [index('by_parentSlug').on(t.parentSlug)]
 );
 
+// Schema key must match the physical table name: relational config keys tables
+// by their schema key, and the worker looks tables up by the name carried on
+// the cascade args.
 const relations = requireSchemaRelations(
-  defineRelations(defineSchema({ cascadeChild }))
+  defineRelations(defineSchema({ cascade_child_rows: cascadeChild }))
 );
 
 type FakeRow = Record<string, unknown>;
