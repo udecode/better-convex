@@ -65,30 +65,69 @@ export const adapterArgsValidator = v.object({
   where: v.optional(v.array(adapterWhereValidator)),
 });
 
+type SchemaViews = {
+  /** Convex table name (e.g. "users") -> Better Auth model key (e.g. "user"). */
+  modelNameToKey: Map<string, string>;
+  /** Better Auth model key -> its unique field names. */
+  uniqueFields: Map<string, Set<string>>;
+};
+
+// The Better Auth schema is a per-isolate constant, so both derived views are
+// computed once per schema object instead of on every read and write.
+const schemaViewsCache = new WeakMap<object, SchemaViews>();
+
+const EMPTY_SCHEMA_VIEWS: SchemaViews = {
+  modelNameToKey: new Map(),
+  uniqueFields: new Map(),
+};
+
+const getSchemaViews = (betterAuthSchema: BetterAuthDBSchema): SchemaViews => {
+  if (!betterAuthSchema || typeof betterAuthSchema !== 'object') {
+    return EMPTY_SCHEMA_VIEWS;
+  }
+
+  const cached = schemaViewsCache.get(betterAuthSchema as object);
+
+  if (cached) {
+    return cached;
+  }
+
+  const modelNameToKey = new Map<string, string>();
+  const uniqueFields = new Map<string, Set<string>>();
+
+  for (const [key, model] of Object.entries<any>(betterAuthSchema)) {
+    // First match wins, matching the previous Object.keys(...).find(...).
+    if (model?.modelName && !modelNameToKey.has(model.modelName)) {
+      modelNameToKey.set(model.modelName, key);
+    }
+
+    const unique = new Set<string>();
+    for (const [field, attributes] of Object.entries<any>(
+      model?.fields ?? {}
+    )) {
+      if (attributes?.unique) {
+        unique.add(field);
+      }
+    }
+    uniqueFields.set(key, unique);
+  }
+
+  const views: SchemaViews = { modelNameToKey, uniqueFields };
+  schemaViewsCache.set(betterAuthSchema as object, views);
+
+  return views;
+};
+
 const isUniqueField = (
   betterAuthSchema: BetterAuthDBSchema,
   model: string,
   field: string
 ) => {
-  // Map Convex table name (e.g., "users") to Better Auth model key (e.g., "user")
-  // by finding the key where betterAuthSchema[key].modelName === model
-  const betterAuthModel =
-    Object.keys(betterAuthSchema).find(
-      (key) =>
-        betterAuthSchema[key as keyof typeof betterAuthSchema].modelName ===
-        model
-    ) || model;
-  const modelSchema =
-    betterAuthSchema[betterAuthModel as keyof typeof betterAuthSchema];
+  const { modelNameToKey, uniqueFields } = getSchemaViews(betterAuthSchema);
+  // Unmatched modelName falls back to treating `model` as the schema key.
+  const betterAuthModel = modelNameToKey.get(model) ?? model;
 
-  if (!modelSchema?.fields) {
-    return false;
-  }
-
-  return Object.entries(modelSchema.fields)
-    .filter(([, value]) => value.unique)
-    .map(([key]) => key)
-    .includes(field);
+  return uniqueFields.get(betterAuthModel)?.has(field) ?? false;
 };
 
 export const hasUniqueFields = (

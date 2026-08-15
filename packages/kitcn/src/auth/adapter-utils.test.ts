@@ -24,6 +24,44 @@ describe('hasUniqueFields', () => {
       false
     );
   });
+
+  test('resolves duplicate modelName entries to the first matching key', () => {
+    const duplicated = {
+      user: { fields: { email: { unique: true } }, modelName: 'users' },
+      userAlias: { fields: { email: { unique: false } }, modelName: 'users' },
+    } as any;
+
+    expect(hasUniqueFields(duplicated, 'users', { email: 'a@b.com' })).toBe(
+      true
+    );
+  });
+
+  test('falls back to the raw schema key when no modelName matches', () => {
+    expect(
+      hasUniqueFields(betterAuthSchema, 'user', { email: 'a@b.com' })
+    ).toBe(true);
+  });
+
+  test('scans a schema object once, not once per lookup', () => {
+    let scans = 0;
+    const schema = new Proxy(
+      {
+        session: { fields: { token: { unique: true } }, modelName: 'session' },
+      },
+      {
+        ownKeys(target) {
+          scans += 1;
+          return Reflect.ownKeys(target);
+        },
+      }
+    ) as any;
+
+    expect(hasUniqueFields(schema, 'session', { token: 't' })).toBe(true);
+    expect(hasUniqueFields(schema, 'session', { token: 't' })).toBe(true);
+    expect(hasUniqueFields(schema, 'session', { other: 'x' })).toBe(false);
+
+    expect(scans).toBe(1);
+  });
 });
 
 describe('selectFields', () => {
