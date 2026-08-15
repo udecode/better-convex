@@ -76,7 +76,7 @@ Closure matrix:
 | changeset | yes | `.changeset/react-rsc-auth-cache.md` audit | complete |
 | agent workflow | no | N/A: no agent action | N/A |
 | cleanup/review | yes | Deslop and committed-head autoreview clean at 0.86 confidence | complete |
-| repository check | yes | `bun check` | pending |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | PR 321 merge plus Version Packages/publish read-back | pending |
 
 Work Checklist:
@@ -85,6 +85,7 @@ Work Checklist:
 - [x] Generated output is N/A: no generated owner is touched.
 - [x] Package and changeset contracts are synchronized; docs/skill/fixture/scenario are N/A.
 - [x] Accepted cleanup and review findings are closed.
+- [x] Exact repository check passed on committed code head.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: no rule/generated mirror changed.
@@ -109,7 +110,7 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | passed: no added or worsened findings; score improved 3.09 |
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 882 files; no fixes |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | passed on `23d05d9f1b76` |
 | GitHub delivery | yes | Merge last and verify release/publish | pending |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: zero accepted/actionable findings at 0.86 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/321-close-react-auth-pr.md` | pending |
@@ -124,8 +125,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR, source, tests, changeset, checks, and two threads read | repair |
 | Repair | complete | Transformer ownership and explicit enabled gating fixed with TDD | review |
-| Review/checks | in_progress | 102 focused tests, build, typecheck, lint, deslop, and autoreview pass | repository check |
-| Delivery | pending | | final audit |
+| Review/checks | complete | 102 focused tests, build, typecheck, lint, deslop, autoreview, and exact check pass | delivery |
+| Delivery | in_progress | local rebased head ready for lease-protected push | remote gates and merge |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -141,6 +142,8 @@ Verification evidence:
 - `bun --cwd packages/kitcn build`, root typecheck, lint, and deslop pass.
 - Committed-head autoreview reports zero accepted/actionable findings at 0.86
   confidence after the two local review repairs.
+- Exact `bun check` passed on code head `23d05d9f1b76`, covering lint, types,
+  unit and CLI tests, Concave smoke, fixture reproduction, and runtime scenarios.
 
 Timeline:
 - 2026-08-14T18:17:55.196Z Autoclosure plan created.
@@ -149,18 +152,20 @@ Timeline:
   and completed focused package proof.
 - 2026-08-15T03:45:00+02:00 Committed-head autoreview passed with zero
   accepted/actionable findings at 0.86 confidence.
+- 2026-08-15T03:52:00+02:00 Exact `bun check` passed on `23d05d9f1b76`
+  through all fixture and live runtime lanes.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Autoreview, repository check, delivery, release audit |
+| Where am I? | Delivery |
+| Where am I going? | Push, remote gates, merge, release audit |
 | What is the goal? | Merge final client/auth fix and publish the complete batch once |
 | What have I learned? | See closure matrix |
 | What have I done? | Rebased, repaired two findings, and completed focused proof |
 
 Open risks:
-- Committed-head review, repository check, remote gates, and release proof remain.
+- Remote gates, merge, and release proof remain.
 
 Findings:
 - PR 321 is intentionally last solely because it owns the single release trigger.
