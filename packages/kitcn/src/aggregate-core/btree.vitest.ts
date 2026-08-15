@@ -22,6 +22,7 @@ import {
   validateTree,
 } from './btree.js';
 import { compareValues } from './compare.js';
+import { AGGREGATE_TREE_TABLE } from './schema.js';
 import schema, { type Item } from './schema.fixture.js';
 
 describe('btree', () => {
@@ -834,6 +835,129 @@ describe('namespace pagination regression', () => {
       page: [],
       cursor: 'endcursor',
       isDone: true,
+    });
+  });
+});
+
+describe('btree read amplification', () => {
+  // Wraps the test db so a single handler call can be measured. Read counts,
+  // not correctness, are the regression gate for the descent refactors.
+  const instrumentDb = (db: any) => {
+    const queries: string[] = [];
+    const gets: string[] = [];
+    const inserts: string[] = [];
+    const proxy = new Proxy(db, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (typeof value !== 'function') {
+          return value;
+        }
+        if (prop === 'query') {
+          return (table: string) => {
+            queries.push(table);
+            return value.call(target, table);
+          };
+        }
+        if (prop === 'get') {
+          return (...args: unknown[]) => {
+            gets.push(String(args[args.length - 1]));
+            return value.apply(target, args);
+          };
+        }
+        if (prop === 'insert') {
+          return (table: string, ...rest: unknown[]) => {
+            inserts.push(table);
+            return value.call(target, table, ...rest);
+          };
+        }
+        return value.bind(target);
+      },
+    });
+    return {
+      ctx: { db: proxy } as any,
+      queries,
+      gets,
+      inserts,
+      treeQueryCount: () =>
+        queries.filter((table) => table === AGGREGATE_TREE_TABLE).length,
+      reset: () => {
+        queries.length = 0;
+        gets.length = 0;
+        inserts.length = 0;
+      },
+    };
+  };
+
+  const seed = async (ctx: any, count: number) => {
+    await getOrCreateTree(ctx.db, undefined, 4, false);
+    for (let key = 0; key < count; key++) {
+      await insertHandler(ctx, { key, value: `v${key}` });
+    }
+  };
+
+  test('insert reads the tree document once and each node once', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await seed(ctx, 60);
+      const probe = instrumentDb(ctx.db);
+      let nonSplitSamples = 0;
+
+      for (let key = 1000; key < 1012; key++) {
+        probe.reset();
+        await insertHandler(probe.ctx, { key, value: 'probe' });
+        expect(probe.treeQueryCount()).toBe(1);
+        if (probe.inserts.length === 0) {
+          // No split happened, so every node on the descent is read once.
+          expect(new Set(probe.gets).size).toBe(probe.gets.length);
+          expect(probe.gets.length).toBeGreaterThan(1);
+          nonSplitSamples += 1;
+        }
+      }
+
+      expect(nonSplitSamples).toBeGreaterThan(0);
+      await validateTree(ctx, {});
+    });
+  });
+
+  test('delete reads the tree document once', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await seed(ctx, 60);
+      const probe = instrumentDb(ctx.db);
+
+      for (const key of [30, 31, 32]) {
+        probe.reset();
+        await deleteHandler(probe.ctx, { key });
+        expect(probe.treeQueryCount()).toBe(1);
+      }
+
+      await validateTree(ctx, {});
+    });
+  });
+
+  test('atOffset does not re-read the node it descends into', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await seed(ctx, 60);
+      const probe = instrumentDb(ctx.db);
+
+      probe.reset();
+      expect(await atOffsetHandler(probe.ctx, { offset: 0 })).toEqual({
+        k: 0,
+        v: 'v0',
+        s: 0,
+      });
+      expect(probe.gets.length).toBeGreaterThan(1);
+      expect(new Set(probe.gets).size).toBe(probe.gets.length);
+
+      probe.reset();
+      expect(await atNegativeOffsetHandler(probe.ctx, { offset: 0 })).toEqual({
+        k: 59,
+        v: 'v59',
+        s: 0,
+      });
+      expect(probe.gets.length).toBeGreaterThan(1);
+      expect(new Set(probe.gets).size).toBe(probe.gets.length);
     });
   });
 });
