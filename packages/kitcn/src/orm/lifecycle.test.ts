@@ -771,4 +771,147 @@ describe('orm lifecycle hooks', () => {
       'change:update',
     ]);
   });
+
+  test('writes read the document at most once, and only when a hook consumes it', async () => {
+    const { schema } = createUsersSchema(
+      'users_lifecycle_read_budget_test',
+      { name: text().notNull() },
+      {
+        delete: {
+          before: async () => undefined,
+        },
+      }
+    );
+
+    const orm = createOrm({ schema });
+    const { writer } = createWriter();
+    const counts = { delete: 0, get: 0, insert: 0, patch: 0 };
+    const countingWriter = {
+      ...writer,
+      delete: async (table: string, id: string) => {
+        counts.delete += 1;
+        return writer.delete(table, id);
+      },
+      get: async (table: string, id: string) => {
+        counts.get += 1;
+        return writer.get(table, id);
+      },
+      insert: async (table: string, value: Record<string, unknown>) => {
+        counts.insert += 1;
+        return writer.insert(table, value);
+      },
+      patch: async (
+        table: string,
+        id: string,
+        value: Record<string, unknown>
+      ) => {
+        counts.patch += 1;
+        return writer.patch(table, id, value);
+      },
+    };
+    const ctx = orm.with({ db: countingWriter } as any);
+
+    const id = await ctx.db.insert('users_lifecycle_read_budget_test', {
+      name: 'Ada',
+    } as any);
+    expect(counts).toMatchObject({ get: 0, insert: 1 });
+
+    await ctx.db.patch(
+      'users_lifecycle_read_budget_test',
+      id as any,
+      { name: 'Grace' } as any
+    );
+    // No `update.after` and no `change`: the patch needs no document at all.
+    expect(counts).toMatchObject({ get: 0, patch: 1 });
+
+    await ctx.db.delete('users_lifecycle_read_budget_test', id as any);
+    // `delete.before` consumes the pre-image, so exactly one read.
+    expect(counts).toMatchObject({ delete: 1, get: 1 });
+  });
+
+  test('change hook sees the post-patch document without a second read', async () => {
+    const changes: Array<{ oldDoc: any; newDoc: any }> = [];
+    const { schema } = createUsersSchema(
+      'users_lifecycle_derived_change_test',
+      { name: text().notNull() },
+      {
+        change: async (change: any) => {
+          changes.push({ newDoc: change.newDoc, oldDoc: change.oldDoc });
+        },
+      }
+    );
+
+    const orm = createOrm({ schema });
+    const { writer } = createWriter();
+    let gets = 0;
+    const countingWriter = {
+      ...writer,
+      get: async (table: string, id: string) => {
+        gets += 1;
+        return writer.get(table, id);
+      },
+    };
+    const ctx = orm.with({ db: countingWriter } as any);
+
+    const id = await ctx.db.insert('users_lifecycle_derived_change_test', {
+      name: 'Ada',
+    } as any);
+    const getsAfterInsert = gets;
+
+    await ctx.db.patch(
+      'users_lifecycle_derived_change_test',
+      id as any,
+      {
+        dropped: undefined,
+        meta: { keep: 1, gone: undefined },
+        name: 'Grace',
+      } as any
+    );
+
+    expect(gets - getsAfterInsert).toBe(1);
+    const [, updateChange] = changes;
+    expect(updateChange.oldDoc).toMatchObject({ _id: id, name: 'Ada' });
+    expect(updateChange.newDoc).toMatchObject({ _id: id, name: 'Grace' });
+    // Convex drops `undefined` at every depth, so the derived document must
+    // too or hook consumers see keys storage never held.
+    expect(updateChange.newDoc).not.toHaveProperty('dropped');
+    expect(updateChange.newDoc.meta).toEqual({ keep: 1 });
+  });
+
+  test('concurrent hooked writes stay serialized and land in queue order', async () => {
+    const seen: string[] = [];
+    const { schema } = createUsersSchema(
+      'users_lifecycle_contention_test',
+      { name: text().notNull() },
+      {
+        change: async (change: any) => {
+          seen.push(String(change.newDoc?.name ?? change.oldDoc?.name));
+        },
+      }
+    );
+
+    const orm = createOrm({ schema });
+    const { docs, writer } = createWriter();
+    const ctx = orm.with({ db: writer } as any);
+
+    const id = await ctx.db.insert('users_lifecycle_contention_test', {
+      name: 'n0',
+    } as any);
+
+    const names = Array.from({ length: 32 }, (_unused, index) => `n${index}`);
+    await Promise.all(
+      names.map((name) =>
+        ctx.db.patch(
+          'users_lifecycle_contention_test',
+          id as any,
+          { name } as any
+        )
+      )
+    );
+
+    expect(docs.get(id as any)).toMatchObject({ name: 'n31' });
+    // FIFO handoff: waiters run in the order they queued, so the change hooks
+    // observe the same order the callers issued.
+    expect(seen).toEqual(['n0', ...names]);
+  });
 });
