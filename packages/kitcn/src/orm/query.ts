@@ -6092,8 +6092,18 @@ export class GelRelationalQuery<
       // RLS and relation `where` run after the union is assembled and can drop
       // rows, so a per-probe bound would under-fill the page. `mode: 'skip'`
       // drops nothing and must not cost the bound.
+      //
+      // Only RELATION keys cost the bound. The plain-column part of `where` is
+      // already compiled into the probes and `postFilters`, and `postFilters`
+      // reaching Convex as `.filter()` is what `probeHasResidualFilter` above
+      // guarantees — so `take()` counts matching rows, not scanned ones.
+      // Testing `Boolean(whereFilter)` here would disable the bound for every
+      // `in`/`ne`/`notIn` query, since those only exist inside a `where`.
       const probeHasPostFetchMembership =
-        Boolean(whereFilter) ||
+        this._hasSearchDisallowedRelationFilter(
+          whereFilter,
+          this.tableConfig
+        ) ||
         (this.rls?.mode !== 'skip' &&
           isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
