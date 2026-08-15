@@ -155,6 +155,7 @@ export const list = optionalAuthQuery
     const memberships = await ctx.orm.query.projectMembers.findMany({
       where: { userId },
       limit: 1000,
+      columns: { projectId: true },
     });
     const memberProjectIds = new Set(memberships.map((m) => m.projectId));
 

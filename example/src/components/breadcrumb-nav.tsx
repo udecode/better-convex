@@ -131,15 +131,16 @@ export function BreadcrumbNav() {
     })
   );
 
+  // Existence check only. `projects.list` is a paginated read model whose
+  // filter runs in JS over an unindexed `_creationTime` scan, so asking it
+  // "does at least one row exist" scans the whole table for users with no
+  // projects. `listForDropdown` answers the same owner-or-member,
+  // non-archived question off `projects.ownerId` / `projectMembers.userId`
+  // and is already subscribed by the todo form, so the nav shares its cache.
   const { data: projectsData } = useQuery(
-    crpc.projects.list.queryOptions(
-      { limit: 1, cursor: null },
-      {
-        placeholderData: { page: [], isDone: true, continueCursor: '' },
-      }
-    )
+    crpc.projects.listForDropdown.queryOptions({}, { skipUnauth: true })
   );
-  const hasData = projectsData && projectsData.page.length > 0;
+  const hasData = (projectsData?.length ?? 0) > 0;
   const activeSection = activeSectionFromPath(pathname);
   const scopedNavItems =
     activeSection === 'labs' ? LAB_NAV_ITEMS : APP_NAV_ITEMS;
