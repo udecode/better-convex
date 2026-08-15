@@ -170,7 +170,7 @@ type InferHttpOutput<T> =
 // HTTP Query Key
 // ============================================================================
 
-export type { HttpMutationKey, HttpQueryKey };
+export type { HttpMutationKey, HttpQueryKey } from '../crpc/http-types';
 
 // ============================================================================
 // HTTP Procedure Options Types

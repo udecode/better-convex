@@ -65,7 +65,9 @@ describe('deny-list protection state', () => {
     for (let i = 0; i < 3; i++) {
       recordRatelimitFailure({ ...base, identifier: 'temp' });
     }
-    expect(pickDeniedValue({ prefix: PREFIX, identifier: 'temp' })).toBe('temp');
+    expect(pickDeniedValue({ prefix: PREFIX, identifier: 'temp' })).toBe(
+      'temp'
+    );
 
     now += THRESHOLD_BLOCK_MS + 1;
     expect(

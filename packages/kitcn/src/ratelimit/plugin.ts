@@ -2,11 +2,7 @@ import { definePlugin } from '../plugins';
 import { CRPCError } from '../server';
 import { requireMutationCtx } from '../server/context-utils';
 import { Ratelimit } from './ratelimit';
-import type {
-  LimitRequest,
-  RatelimitConfig,
-  ResolvedAlgorithm,
-} from './types';
+import type { LimitRequest, RatelimitConfig, ResolvedAlgorithm } from './types';
 
 type MaybePromise<T> = T | Promise<T>;
 
