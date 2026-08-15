@@ -300,8 +300,8 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, JSON.stringify(args), limit, queryClient]);
 
-  // Don't skip if we have prefetched data - use it for instant hydration
-  // Prefetched data bypasses both auth loading AND explicit disabled
+  // Build the first page when prefetched data exists so it can hydrate while
+  // auth is loading. The page-level enabled gate still blocks network work.
   const skip = !prefetchedFirstPage && (isAuthLoading || enabled === false);
 
   // Helper to get/set pagination state from queryClient with gcTime: Infinity

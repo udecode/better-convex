@@ -1,4 +1,6 @@
+import * as httpClient from '../crpc/http-client';
 import { HttpClientError } from '../crpc/http-types';
+import { getTransformer } from '../crpc/transformer';
 import { buildHttpQueryOptions, fetchHttpRoute } from './http-server';
 
 const jsonResponse = (body: unknown, init?: ResponseInit) =>
@@ -8,12 +10,17 @@ const jsonResponse = (body: unknown, init?: ResponseInit) =>
     headers: { 'content-type': 'application/json', ...init?.headers },
   });
 
+const defaultTransformer = getTransformer();
+
 describe('rsc/http-server', () => {
   let fetchSpy: ReturnType<typeof spyOn> | undefined;
+  let executeHttpRequestSpy: ReturnType<typeof spyOn> | undefined;
 
   afterEach(() => {
     fetchSpy?.mockRestore();
     fetchSpy = undefined;
+    executeHttpRequestSpy?.mockRestore();
+    executeHttpRequestSpy = undefined;
   });
 
   test('buildHttpQueryOptions matches client key format and stores route meta', () => {
@@ -47,7 +54,8 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/todos/:id', method: 'GET' },
         args,
-        't0'
+        't0',
+        defaultTransformer
       )
     ).resolves.toEqual({ ok: true });
 
@@ -66,6 +74,29 @@ describe('rsc/http-server', () => {
     });
   });
 
+  test('fetchHttpRoute preserves a normalized transformer', async () => {
+    const transformer = getTransformer({
+      serialize: (value) => value,
+      deserialize: (value) => value,
+    });
+    executeHttpRequestSpy = spyOn(
+      httpClient,
+      'executeHttpRequest'
+    ).mockResolvedValue({ ok: true });
+
+    await fetchHttpRoute(
+      'https://example.convex.site',
+      { path: '/api/todos', method: 'POST' },
+      { title: 'Ship it' },
+      undefined,
+      transformer
+    );
+
+    expect(executeHttpRequestSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ transformer })
+    );
+  });
+
   test('fetchHttpRoute decodes wire-tagged payloads', async () => {
     fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse({ dueDate: { __crpc: 1, t: '$date', v: 1_700_000_000_000 } })
@@ -75,7 +106,8 @@ describe('rsc/http-server', () => {
       'https://example.convex.site',
       { path: '/api/todos', method: 'GET' },
       {},
-      undefined
+      undefined,
+      defaultTransformer
     )) as { dueDate: Date };
 
     expect(result.dueDate).toBeInstanceOf(Date);
@@ -92,7 +124,8 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/health', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
     ).resolves.toBeNull();
 
@@ -106,7 +139,8 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/health', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
     ).resolves.toBeNull();
   });
@@ -124,7 +158,8 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/secret', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
     ).rejects.toMatchObject({
       code: 'FORBIDDEN',

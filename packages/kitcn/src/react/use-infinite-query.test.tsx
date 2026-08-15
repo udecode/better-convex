@@ -178,7 +178,7 @@ describe('useInfiniteQuery', () => {
     expect(useQueriesCalls[0].queries).toHaveLength(0);
   });
 
-  test('prefetched first page bypasses auth-loading skip and passes initialData to useQueries', () => {
+  test('prefetched first page hydrates while auth loading without fetching', () => {
     useSafeConvexAuthSpy.mockImplementation(() => ({
       isLoading: true,
       isAuthenticated: false,
@@ -202,7 +202,7 @@ describe('useInfiniteQuery', () => {
     const firstCall = useQueriesCalls[0];
     expect(firstCall.queries).toHaveLength(1);
     expect((firstCall.queries[0] as any).initialData).toBe(prefetched);
-    expect((firstCall.queries[0] as any).enabled).toBe(true);
+    expect((firstCall.queries[0] as any).enabled).toBe(false);
   });
 
   test('does not split a native Convex page solely because it has a split cursor', () => {

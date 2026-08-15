@@ -24,5 +24,5 @@ export function resolveEnabled(
   if (typeof enabled === 'function') {
     return (query) => enabled(query) !== false;
   }
-  return true;
+  return enabled ?? true;
 }

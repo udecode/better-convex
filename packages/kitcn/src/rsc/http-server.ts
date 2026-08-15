@@ -8,11 +8,7 @@
 import type { QueryOptions } from '@tanstack/react-query';
 import { executeHttpRequest, type HttpInputArgs } from '../crpc/http-client';
 import type { HttpRouteInfo } from '../crpc/http-types';
-import type {
-  CombinedDataTransformer,
-  DataTransformerOptions,
-} from '../crpc/transformer';
-import { getTransformer } from '../crpc/transformer';
+import type { CombinedDataTransformer } from '../crpc/transformer';
 
 /** Metadata attached to HTTP query options for execution by QueryClient */
 export interface HttpQueryMeta {
@@ -51,8 +47,8 @@ export async function fetchHttpRoute(
   convexSiteUrl: string,
   routeMeta: HttpQueryMeta,
   args: unknown,
-  token?: string,
-  transformer?: DataTransformerOptions | CombinedDataTransformer
+  token: string | undefined,
+  transformer: CombinedDataTransformer
 ): Promise<unknown> {
   const result = await executeHttpRequest({
     args: args as HttpInputArgs | undefined,
@@ -60,7 +56,7 @@ export async function fetchHttpRoute(
     convexSiteUrl,
     procedureName: `${routeMeta.method} ${routeMeta.path}`,
     route: routeMeta,
-    transformer: getTransformer(transformer),
+    transformer,
   });
 
   // TanStack Query rejects `undefined` as query data.

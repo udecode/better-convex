@@ -77,7 +77,7 @@ Closure matrix:
 | agent workflow | yes | Published behavior/guard discoverability | complete |
 | cleanup/review | yes | 29 findings fixed; final autoreview clean at 0.91 confidence | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | PR 319 update/merge/read-back | pending |
+| GitHub delivery | yes | PR 319 update/merge/read-back | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -85,8 +85,8 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed in focused proof.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver: none.
 - [x] Agent-native pack: package skill owner/mirror boundary recorded.
 - [x] Agent-native pack: ratelimit semantics and invalid shard guard are discoverable.
 - [x] Agent-native pack: package skill/mirror parity proved; `.agents/rules` N/A.
@@ -138,9 +138,9 @@ Completion Gates:
 | Agent-native reviewer | yes | Review published ratelimit guidance | pass: complete route/owner/mirror/proof chain |
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | passed: lint, types, tests, CLI, Concave, fixtures, and runtime scenarios |
-| GitHub delivery | yes | Update, squash-merge, read back | pending |
+| GitHub delivery | yes | Update, squash-merge, read back | passed: merged at `2aee478fcc75` |
 | Autoreview | yes | Resolve every accepted actionable finding | passed: 29 fixed; compatibility fallback rejected by hard-cut doctrine; final review clean at 0.91 confidence |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | passed after merge receipt |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
 | Agent action discoverability | yes | Audit published ratelimit skill route | passed: main skill links exact reference |
@@ -153,8 +153,8 @@ Phase / pass table:
 | Inventory | complete | PR, source, tests, docs, skill owners, changeset, and seven threads read | repair |
 | Repair | complete | Rebased and closed original plus independent review findings with TDD | review |
 | Review/checks | complete | 62 focused tests, final autoreview clean at 0.91 confidence, and exact `bun check` passed | delivery |
-| Delivery | in_progress | local head ready for lease-protected push | remote gates and merge |
-| Closeout | pending | | final |
+| Delivery | complete | CI/Vercel green, 13 threads resolved, auto-release off, squash merge read back | final |
+| Closeout | complete | merge receipt recorded and goal checker passed | final |
 
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
@@ -177,6 +177,9 @@ Verification evidence:
   protocol are internally consistent; no compatibility shim is warranted.
 - Final committed-head autoreview reports zero accepted/actionable findings at
   0.91 confidence after all 29 accepted fixes.
+- PR 319 merged on 2026-08-15T01:36:00Z as squash commit
+  `2aee478fcc750d06bd914bf5cd701045d1c79736`; all 13 review threads were
+  resolved and auto-release was disabled.
 
 Timeline:
 - 2026-08-14T18:17:55.073Z Autoclosure plan created.
@@ -209,18 +212,20 @@ Timeline:
   accepted/actionable findings at 0.91 confidence.
 - 2026-08-15T03:27:00+02:00 Exact `bun check` passed through lint, types,
   tests, CLI, Concave, fixture reproduction, and runtime scenarios.
+- 2026-08-15T03:36:00+02:00 Remote checks passed, all review threads resolved,
+  auto-release remained disabled, and PR 319 squash-merged at `2aee478fcc75`.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Remote gates, squash merge, final audit |
+| Where am I? | Closeout |
+| Where am I going? | Goal checker |
 | What is the goal? | Merge correct limiter accounting with synchronized guidance |
 | What have I learned? | Exact global quotas need fallback and capacity-aware scaling, not only per-shard division |
-| What have I done? | Rebased, repaired, synchronized, and proved all focused ratelimit lanes |
+| What have I done? | Rebased, repaired, proved, delivered, and read back the merge |
 
 Open risks:
-- Refreshed remote gates and merge receipt remain.
+- None.
 
 Findings:
 - The preferred-shard fast path must fall back before it can claim global exhaustion.
