@@ -831,7 +831,9 @@ describe('server/builder', () => {
     const iso = '2023-11-14T22:13:20.000Z';
     const fn = c.query
       .output(z.object({ at: z.string().transform((s) => new Date(s)) }))
-      .query(async () => ({ at: iso }));
+      // `.output()` types the handler by the schema output, so the
+      // pre-transform value needs the cast.
+      .query(async () => ({ at: iso }) as any);
 
     // The transform produces a Date, so the transformer must still get a
     // chance to encode it.
