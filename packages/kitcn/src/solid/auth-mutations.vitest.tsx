@@ -78,9 +78,10 @@ describe('createAuthMutations', () => {
 
   test('signOut: sets isAuthenticated=false, unsubscribes auth queries, and clears auth state after success', async () => {
     const unsubscribeAuthQueries = vi.fn(() => {});
+    const resetAuthQueries = vi.fn(async () => {});
     useConvexQueryClientSpy = vi
       .spyOn(contextModule, 'useConvexQueryClient')
-      .mockReturnValue({ unsubscribeAuthQueries } as any);
+      .mockReturnValue({ resetAuthQueries, unsubscribeAuthQueries } as any);
 
     const authClient = {
       signOut: vi.fn(async (_args: unknown) => ({ ok: true })),
@@ -114,12 +115,66 @@ describe('createAuthMutations', () => {
     expect(res).toMatchObject({ ok: true });
 
     expect(unsubscribeAuthQueries).toHaveBeenCalledTimes(1);
+    // Unsubscribing alone leaves the previous account's rows in the TanStack
+    // cache; Convex query options never refetch them away on their own.
+    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
     expect(authClient.signOut).toHaveBeenCalledTimes(1);
     expect(authClient.signOut).toHaveBeenCalledWith({ reason: 'logout' });
 
     expect(result.store.get('isAuthenticated')).toBe(false);
     expect(result.store.get('token')).toBeNull();
     expect(result.store.get('expiresAt')).toBeNull();
+  });
+
+  test('signIn/signUp reset auth-bound queries after the identity changes', async () => {
+    const resetAuthQueries = vi.fn(async () => {});
+    useConvexQueryClientSpy = vi
+      .spyOn(contextModule, 'useConvexQueryClient')
+      .mockReturnValue({ resetAuthQueries } as any);
+
+    const authClient = {
+      signOut: vi.fn(async () => ({})),
+      signIn: {
+        social: vi.fn(async () => ({ token: 'social-token' })),
+        email: vi.fn(async () => ({ token: 'email-token' })),
+      },
+      signUp: { email: vi.fn(async () => ({ token: 'sign-up-token' })) },
+    };
+
+    const {
+      useSignInMutationOptions,
+      useSignInSocialMutationOptions,
+      useSignUpMutationOptions,
+    } = createAuthMutations(authClient as any);
+
+    const wrapper = makeWrapper({ token: null });
+
+    const { result } = renderHook(
+      () => ({
+        signIn: useSignInMutationOptions(),
+        signInSocial: useSignInSocialMutationOptions(),
+        signUp: useSignUpMutationOptions(),
+      }),
+      { wrapper }
+    );
+
+    await result.signIn.mutationFn?.(
+      { email: 'a@b.com', password: 'pw' },
+      makeMutationCtx()
+    );
+    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+
+    await result.signInSocial.mutationFn?.(
+      { provider: 'github' },
+      makeMutationCtx()
+    );
+    expect(resetAuthQueries).toHaveBeenCalledTimes(2);
+
+    await result.signUp.mutationFn?.(
+      { email: 'a@b.com', password: 'pw' },
+      makeMutationCtx()
+    );
+    expect(resetAuthQueries).toHaveBeenCalledTimes(3);
   });
 
   test('signIn(email): throws AuthMutationError when better-auth returns an error payload', async () => {
