@@ -1002,6 +1002,28 @@ export async function deleteTreeNodes(
   await db.delete(node);
 }
 
+/**
+ * Deletes up to `limit` namespace trees belonging to one aggregate, returning
+ * true once none are left. Unlike `clearTree` this does not recreate the tree,
+ * so a caller can drain every namespace across several transactions.
+ */
+export async function deleteTreesHandler(
+  ctx: { db: DatabaseWriter },
+  args: { aggregateName: string; limit: number }
+): Promise<boolean> {
+  const trees = (await ctx.db
+    .query(AGGREGATE_TREE_TABLE)
+    .withIndex('by_aggregate_name', (q) =>
+      q.eq('aggregateName', args.aggregateName)
+    )
+    .take(args.limit)) as TreeDoc[];
+  for (const tree of trees) {
+    await deleteTreeNodes(ctx.db, tree.root);
+    await ctx.db.delete(tree._id);
+  }
+  return trees.length === 0;
+}
+
 export async function clearTree(
   db: DatabaseWriter,
   args: {

@@ -2090,3 +2090,218 @@ describe('aggregateIndex range scan budget', () => {
     });
   });
 });
+
+describe('aggregateIndex clearing is resumable', () => {
+  const membersFor = (db: any, kind: string, table: string, index: string) =>
+    db
+      .query('aggregate_member')
+      .withIndex('by_kind_table_index', (q: any) =>
+        q.eq('kind', kind).eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  const bucketsFor = (db: any, table: string, index: string) =>
+    db
+      .query('aggregate_bucket')
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  const stateFor = (db: any, kind: string, table: string, index: string) =>
+    db
+      .query('aggregate_state')
+      .withIndex('by_kind_table_index', (q: any) =>
+        q.eq('kind', kind).eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  it('rebuild drains stored state across chunks instead of one mutation', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      for (let i = 0; i < 12; i += 1) {
+        await baseCtx.db.insert('countPosts', {
+          orgId: `org-${i % 3}`,
+          title: `post-${i}`,
+        });
+      }
+      await backfillToReady(api, baseCtx.db);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(4);
+
+      // batchSize 2 cannot clear 12 members in a single mutation.
+      await (api as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        {
+          mode: 'rebuild',
+          batchSize: 2,
+          tableName: 'countPosts',
+          indexName: 'by_org',
+        }
+      );
+
+      const parked = await stateFor(
+        baseCtx.db,
+        METRIC_STATE_KIND,
+        'countPosts',
+        'by_org'
+      );
+      expect(parked[0]?.status).toBe('CLEARING');
+      expect(
+        (await membersFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countPosts',
+          'by_org'
+        )).length
+      ).toBeGreaterThan(0);
+
+      let reachedReady = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const states = await (api as any).aggregateBackfillStatus.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'countPosts', indexName: 'by_org' }
+        );
+        if (states.every((entry: any) => entry.status === 'READY')) {
+          reachedReady = true;
+          break;
+        }
+        await (api as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'countPosts', indexName: 'by_org', batchSize: 2 }
+        );
+      }
+
+      expect(reachedReady).toBe(true);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(4);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-1' } })
+      ).toBe(4);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-2' } })
+      ).toBe(4);
+    });
+  });
+
+  it('prune parks an oversized orphan in CLEARING and finishes it in chunks', async () => {
+    const { schema } = buildCountIndexedFixtures({
+      includeOrgStatusIndex: true,
+    });
+    const { relations: relationsWithoutOrgStatus } = buildCountIndexedFixtures({
+      includeOrgStatusIndex: false,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      for (let i = 0; i < 10; i += 1) {
+        await baseCtx.db.insert('aggregate_member', {
+          kind: METRIC_STATE_KIND,
+          tableKey: 'countUsers',
+          indexName: 'by_org_status',
+          docId: `doc-${i}`,
+          keyHash: '["org-1"]',
+          keyParts: ['org-1'],
+          sumValues: {},
+          nonNullCountValues: {},
+          extremaValues: {},
+          updatedAt: 0,
+        });
+      }
+      await baseCtx.db.insert('aggregate_bucket', {
+        tableKey: 'countUsers',
+        indexName: 'by_org_status',
+        keyHash: '["org-1"]',
+        keyParts: ['org-1'],
+        count: 10,
+        sumValues: {},
+        nonNullCountValues: {},
+        updatedAt: 0,
+      });
+
+      const prunedOrmClient = createOrm({
+        schema: relationsWithoutOrgStatus,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const prunedApi = prunedOrmClient.api();
+
+      const result = await (prunedApi as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        { mode: 'prune', batchSize: 2 }
+      );
+      expect(result).toMatchObject({ mode: 'prune', pruned: 0, pruning: 1 });
+      expect(
+        (
+          await stateFor(
+            baseCtx.db,
+            METRIC_STATE_KIND,
+            'countUsers',
+            'by_org_status'
+          )
+        )[0]?.status
+      ).toBe('CLEARING');
+
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const remainingState = await stateFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        );
+        if (remainingState.length === 0) {
+          break;
+        }
+        await (prunedApi as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          {
+            tableName: 'countUsers',
+            indexName: 'by_org_status',
+            batchSize: 2,
+          }
+        );
+      }
+
+      expect(
+        await membersFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        )
+      ).toHaveLength(0);
+      expect(
+        await bucketsFor(baseCtx.db, 'countUsers', 'by_org_status')
+      ).toHaveLength(0);
+      expect(
+        await stateFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        )
+      ).toHaveLength(0);
+    });
+  });
+});

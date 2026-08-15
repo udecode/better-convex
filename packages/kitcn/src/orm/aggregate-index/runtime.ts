@@ -35,6 +35,8 @@ export const AGGREGATE_STATE_KIND_RANK = 'rank';
 
 export const COUNT_STATUS_BUILDING = 'BUILDING';
 export const COUNT_STATUS_READY = 'READY';
+/** Stored state is being drained before a rebuild, across several mutations. */
+export const COUNT_STATUS_CLEARING = 'CLEARING';
 
 export const COUNT_ERROR = {
   FILTER_UNSUPPORTED: 'COUNT_FILTER_UNSUPPORTED',
@@ -1949,44 +1951,48 @@ const getExtremaByValue = async (
   return rows.find((row) => deepEquals(row.value, value)) ?? null;
 };
 
-const listMembersForIndex = async (
+const takeMembersForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountMemberRow[]> =>
-  (await db
-    .query(AGGREGATE_MEMBER_TABLE)
-    .withIndex('by_kind_table_index', (q: any) =>
+  (await (
+    db.query(AGGREGATE_MEMBER_TABLE).withIndex('by_kind_table_index', (q: any) =>
       q
         .eq('kind', AGGREGATE_STATE_KIND_METRIC)
         .eq('tableKey', tableName)
         .eq('indexName', indexName)
-    )
-    .collect()) as CountMemberRow[];
+    ) as any
+  ).take(limit)) as CountMemberRow[];
 
-const listBucketsForIndex = async (
+const takeBucketsForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountBucketRow[]> =>
-  (await db
-    .query(AGGREGATE_BUCKET_TABLE)
-    .withIndex('by_table_index', (q: any) =>
-      q.eq('tableKey', tableName).eq('indexName', indexName)
-    )
-    .collect()) as CountBucketRow[];
+  (await (
+    db
+      .query(AGGREGATE_BUCKET_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as CountBucketRow[];
 
-const listExtremaForIndex = async (
+const takeExtremaForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountExtremaRow[]> =>
-  (await db
-    .query(AGGREGATE_EXTREMA_TABLE)
-    .withIndex('by_table_index', (q: any) =>
-      q.eq('tableKey', tableName).eq('indexName', indexName)
-    )
-    .collect()) as CountExtremaRow[];
+  (await (
+    db
+      .query(AGGREGATE_EXTREMA_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as CountExtremaRow[];
 
 const applyBucketDelta = async (
   db: GenericDatabaseWriter<any>,
@@ -3061,7 +3067,12 @@ export const setCountStateError = async (
   }
 
   await db.patch(AGGREGATE_STATE_TABLE, existing._id as any, {
-    status: COUNT_STATUS_BUILDING,
+    // Keep the phase. Flipping a half-drained CLEARING index to BUILDING would
+    // resume a build over stale buckets and produce silently wrong counts.
+    status:
+      existing.status === COUNT_STATUS_CLEARING
+        ? COUNT_STATUS_CLEARING
+        : COUNT_STATUS_BUILDING,
     updatedAt: now,
     keyDefinitionHash: existing.keyDefinitionHash,
     metricDefinitionHash: existing.metricDefinitionHash,
@@ -3069,23 +3080,67 @@ export const setCountStateError = async (
   });
 };
 
-export const clearCountIndexData = async (
+export type ClearIndexChunkResult = {
+  /** True when nothing is left to clear for this index. */
+  done: boolean;
+  processed: number;
+};
+
+/**
+ * Removes at most `batchSize` documents of an aggregate index's stored state and
+ * reports whether anything is left. Callers drive it to completion across
+ * transactions, so clearing a large index never has to fit in one mutation.
+ *
+ * Members are removed through the normal delta machinery rather than raw
+ * deletes, so buckets and extrema stay consistent with the members that remain
+ * at every intermediate step. That keeps concurrent writers correct while the
+ * clear drains. Residual bucket/extrema rows (drift with no member behind them)
+ * are swept only once no members are left, and the loop re-checks members
+ * afterwards.
+ */
+export const clearCountIndexChunk = async (
   db: GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
-): Promise<void> => {
-  const members = await listMembersForIndex(db, tableName, indexName);
-  for (const member of members) {
-    await db.delete(AGGREGATE_MEMBER_TABLE, member._id as any);
+  indexName: string,
+  batchSize: number
+): Promise<ClearIndexChunkResult> => {
+  const members = await takeMembersForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
+  if (members.length > 0) {
+    const deltas = members.map((member) =>
+      computeMembershipDelta(member, {
+        tableName,
+        indexName,
+        docId: member.docId,
+        keyParts: null,
+        metricValues: null,
+      })
+    );
+    await flushAggregateMembershipDeltas(db, tableName, indexName, deltas);
+    return { done: false, processed: members.length };
   }
-  const buckets = await listBucketsForIndex(db, tableName, indexName);
-  for (const bucket of buckets) {
-    await db.delete(AGGREGATE_BUCKET_TABLE, bucket._id as any);
+
+  const buckets = await takeBucketsForIndex(db, tableName, indexName, batchSize);
+  if (buckets.length > 0) {
+    for (const bucket of buckets) {
+      await db.delete(AGGREGATE_BUCKET_TABLE, bucket._id as any);
+    }
+    return { done: false, processed: buckets.length };
   }
-  const extrema = await listExtremaForIndex(db, tableName, indexName);
-  for (const entry of extrema) {
-    await db.delete(AGGREGATE_EXTREMA_TABLE, entry._id as any);
+
+  const extrema = await takeExtremaForIndex(db, tableName, indexName, batchSize);
+  if (extrema.length > 0) {
+    for (const entry of extrema) {
+      await db.delete(AGGREGATE_EXTREMA_TABLE, entry._id as any);
+    }
+    return { done: false, processed: extrema.length };
   }
+
+  return { done: true, processed: 0 };
 };
 
 export const listCountStates = async (

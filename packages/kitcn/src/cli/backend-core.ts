@@ -6004,6 +6004,7 @@ export async function runAggregatePruneFlow(params: {
 
   type PruneResult = {
     pruned?: number;
+    pruning?: number;
   };
   const payload = parseBackendRunJson<PruneResult | unknown[]>(result.stdout);
   const pruned =
@@ -6013,11 +6014,23 @@ export async function runAggregatePruneFlow(params: {
     typeof payload.pruned === 'number'
       ? payload.pruned
       : 0;
+  const pruning =
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    typeof payload.pruning === 'number'
+      ? payload.pruning
+      : 0;
 
   if (pruned > 0) {
     logger.info(`aggregateBackfill pruned ${pruned} removed indexes`);
-  } else {
+  } else if (pruning === 0) {
     logger.info('aggregateBackfill prune no-op');
+  }
+  if (pruning > 0) {
+    logger.info(
+      `aggregateBackfill is clearing ${pruning} removed indexes in scheduled batches`
+    );
   }
 
   return 0;

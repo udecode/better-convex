@@ -19,6 +19,7 @@ import {
   type Key as BTreeKey,
   clearTree,
   deleteHandler,
+  deleteTreesHandler,
   getOrCreateTree,
   insertHandler,
   offsetHandler,
@@ -536,6 +537,18 @@ export class Aggregate<
       namespace: namespaceForOpts(this.aggregateName, opts),
       rootLazy: opts[0]?.rootLazy,
     });
+  }
+
+  /**
+   * Deletes up to `limit` namespace trees without recreating them. Returns true
+   * once this aggregate owns no trees, so callers can drain every namespace
+   * across several mutations instead of walking them all in one.
+   */
+  async deleteTrees(ctx: RunMutationCtx, limit: number): Promise<boolean> {
+    return await deleteTreesHandler(
+      { db: ctx.db },
+      { aggregateName: this.aggregateName, limit }
+    );
   }
 
   async makeRootLazy(
