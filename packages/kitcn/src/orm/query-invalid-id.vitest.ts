@@ -88,7 +88,7 @@ const createIndexedQuery = (rows: Record<string, unknown>[]) => ({
     return {
       collect: async () => matching(),
       take: async (count: number) => matching().slice(0, count),
-      [Symbol.asyncIterator]: async function* () {
+      async *[Symbol.asyncIterator]() {
         for (const row of matching()) {
           yield row;
         }

@@ -899,7 +899,8 @@ export class WhereClauseCompiler {
         // exact-match premium. Only sound for prefix matches: `matchedFields`
         // is a real prefix there, so position `prefixCount` is the first
         // unpinned key.
-        score: 75 + prefixCount + this.indexOrderBonus(indexFields, prefixCount),
+        score:
+          75 + prefixCount + this.indexOrderBonus(indexFields, prefixCount),
         matchType: 'prefix',
         matchedFields: indexFields.slice(0, prefixCount),
       };
