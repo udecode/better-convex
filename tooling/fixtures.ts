@@ -1,13 +1,24 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 import {
+  createLoggedRun,
   generateFreshApp,
+  getLocalInstallSpec,
   installLocalPackage,
   log,
+  mapWithConcurrency,
   normalizeEnvLocal,
   PROJECT_ROOT,
-  packLocalPackage,
   patchPreparedLocalDevPort,
   readJson,
   run,
@@ -30,6 +41,53 @@ export type FixtureCheckScope = 'owned' | 'full';
 const VALID_TEMPLATE_BACKENDS = new Set(['convex', 'concave'] as const);
 const VALID_FIXTURE_CHECK_SCOPES = new Set(['owned', 'full'] as const);
 const DEFAULT_FIXTURE_CHECK_SCOPE = 'owned' satisfies FixtureCheckScope;
+const FIXTURE_CONCURRENCY_ENV = 'KITCN_FIXTURE_CONCURRENCY';
+const DEFAULT_FIXTURE_CONCURRENCY = 4;
+
+type TemplateFailure = {
+  error: unknown;
+  templateKey: TemplateKey;
+};
+
+export class FixtureDriftError extends Error {
+  readonly templateKey: TemplateKey;
+
+  constructor(templateKey: TemplateKey) {
+    super(`Fixture drift detected for ${templateKey}.`);
+    this.name = 'FixtureDriftError';
+    this.templateKey = templateKey;
+  }
+}
+
+const describeTemplateFailure = ({ error, templateKey }: TemplateFailure) => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return `  - ${templateKey}: ${message}`;
+};
+
+const isDriftFailure = (failure: TemplateFailure) =>
+  failure.error instanceof FixtureDriftError;
+
+export class TemplateFailuresError extends Error {
+  readonly failures: readonly TemplateFailure[];
+
+  constructor(failures: readonly TemplateFailure[], total: number) {
+    const lines = [
+      `${failures.length} of ${total} templates failed:`,
+      ...failures.map(describeTemplateFailure),
+    ];
+
+    if (failures.some(isDriftFailure)) {
+      lines.push(
+        'Run `bun run fixtures:sync` and commit the updated snapshots.'
+      );
+    }
+
+    super(lines.join('\n'));
+    this.name = 'TemplateFailuresError';
+    this.failures = failures;
+  }
+}
 
 const getTemplateFixtureDir = (templateKey: TemplateKey) =>
   path.join(PROJECT_ROOT, 'fixtures', templateKey);
@@ -367,14 +425,14 @@ export const syncTemplate = async (
   const fixtureDir = getTemplateFixtureDir(templateKey);
   const { generatedAppDir, tempRoot } = await generateTemplateFn(templateKey, {
     backend: params.backend,
+    runCommand,
   });
 
   try {
-    const kitcnPackageSpec = packLocalPackage(tempRoot);
     await (params.installLocalPackageFn ?? installLocalPackage)(
       generatedAppDir,
       {
-        kitcnPackageSpec,
+        kitcnPackageSpec: getLocalInstallSpec(),
         runCommand,
       }
     );
@@ -395,6 +453,83 @@ export const syncTemplate = async (
   }
 };
 
+const resolveFixtureConcurrency = () => {
+  const raw = process.env[FIXTURE_CONCURRENCY_ENV];
+  if (!raw) {
+    return DEFAULT_FIXTURE_CONCURRENCY;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(
+      `Invalid ${FIXTURE_CONCURRENCY_ENV} value "${raw}". Expected a positive integer.`
+    );
+  }
+
+  return parsed;
+};
+
+const flushTemplateLog = (templateKey: TemplateKey, logFile: string) => {
+  const contents = existsSync(logFile)
+    ? readFileSync(logFile, 'utf8').trimEnd()
+    : '';
+
+  log(`----- ${templateKey} -----`);
+  if (contents.length > 0) {
+    log(contents);
+  }
+};
+
+/**
+ * Templates share no mutable state — each one scaffolds into its own
+ * `mkdtempSync` root — so they run through a bounded pool instead of serially.
+ * Every template's subprocess output is captured to its own log file and
+ * flushed on completion so concurrent runs stay attributable, and failures are
+ * collected so one run reports every broken template instead of aborting at the
+ * first.
+ */
+const runTemplates = async (
+  templateKeys: readonly TemplateKey[],
+  runTemplate: (
+    templateKey: TemplateKey,
+    io: { logFn: typeof log; runCommand: typeof run }
+  ) => Promise<void>
+) => {
+  const concurrency = resolveFixtureConcurrency();
+  const workerCount = Math.min(concurrency, templateKeys.length);
+  const logRoot = mkdtempSync(path.join(tmpdir(), 'kitcn-fixture-logs-'));
+  const failures: TemplateFailure[] = [];
+
+  log(
+    `Running ${templateKeys.length} templates with concurrency ${workerCount}.`
+  );
+
+  try {
+    await mapWithConcurrency(templateKeys, concurrency, async (templateKey) => {
+      const logFile = path.join(logRoot, `${templateKey}.log`);
+
+      try {
+        await runTemplate(templateKey, {
+          logFn: (message: string) => {
+            appendFileSync(logFile, `${message}\n`);
+          },
+          runCommand: createLoggedRun(logFile),
+        });
+      } catch (error) {
+        failures.push({ error, templateKey });
+      } finally {
+        flushTemplateLog(templateKey, logFile);
+      }
+    });
+  } finally {
+    rmSync(logRoot, { force: true, recursive: true });
+  }
+
+  if (failures.length > 0) {
+    throw new TemplateFailuresError(failures, templateKeys.length);
+  }
+};
+
 export const syncTemplates = async (
   params: {
     backend?: TemplateBackend;
@@ -403,11 +538,14 @@ export const syncTemplates = async (
   } = {}
 ) => {
   const syncTemplateFn = params.syncTemplateFn ?? syncTemplate;
-  for (const templateKey of resolveTemplateKeys(params.target)) {
-    await syncTemplateFn(templateKey, {
+
+  await runTemplates(resolveTemplateKeys(params.target), (templateKey, io) =>
+    syncTemplateFn(templateKey, {
       backend: params.backend,
-    });
-  }
+      logFn: io.logFn,
+      runCommand: io.runCommand,
+    })
+  );
 };
 
 export const checkTemplate = async (
@@ -436,12 +574,12 @@ export const checkTemplate = async (
   const runCommand = params.runCommand ?? run;
   const { generatedAppDir, tempRoot } = await generateTemplateFn(templateKey, {
     backend: params.backend ?? 'concave',
+    runCommand,
   });
 
   try {
-    const kitcnPackageSpec = packLocalPackage(tempRoot);
     await installLocalPackage(generatedAppDir, {
-      kitcnPackageSpec,
+      kitcnPackageSpec: getLocalInstallSpec(),
       packageName: getValidationPackageName(templateKey),
       runCommand,
     });
@@ -492,14 +630,12 @@ export const checkTemplate = async (
     }
 
     if (diffExitCode === 1) {
-      (params.logFn ?? log)('');
-      (params.logFn ?? log)(
-        'Fixture drift detected. Run `bun run fixtures:sync` and commit the updated snapshots.'
-      );
-      process.exit(1);
+      throw new FixtureDriftError(templateKey);
     }
 
-    process.exit(diffExitCode);
+    throw new Error(
+      `git diff --no-index failed with exit code ${diffExitCode} for ${templateKey}.`
+    );
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -508,24 +644,21 @@ export const checkTemplate = async (
 export const checkTemplates = async (
   params: {
     backend?: TemplateBackend;
-    checkTemplateFn?: (
-      templateKey: TemplateKey,
-      params?: {
-        backend?: TemplateBackend;
-        scope?: FixtureCheckScope;
-      }
-    ) => Promise<void>;
+    checkTemplateFn?: typeof checkTemplate;
     scope?: FixtureCheckScope;
     target?: TemplateTarget;
   } = {}
 ) => {
   const checkTemplateFn = params.checkTemplateFn ?? checkTemplate;
-  for (const templateKey of resolveTemplateKeys(params.target)) {
-    await checkTemplateFn(templateKey, {
+
+  await runTemplates(resolveTemplateKeys(params.target), (templateKey, io) =>
+    checkTemplateFn(templateKey, {
       backend: params.backend,
+      logFn: io.logFn,
+      runCommand: io.runCommand,
       scope: params.scope ?? DEFAULT_FIXTURE_CHECK_SCOPE,
-    });
-  }
+    })
+  );
 };
 
 const main = async () => {
@@ -542,5 +675,15 @@ const main = async () => {
 };
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (error) {
+    if (error instanceof TemplateFailuresError) {
+      log(error.message);
+    } else {
+      console.error(error);
+    }
+
+    process.exit(1);
+  }
 }
