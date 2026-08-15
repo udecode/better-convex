@@ -68,6 +68,7 @@ export class Ratelimit {
   private readonly blockCache?: EphemeralBlockCache;
   private readonly blockCacheSource?: Map<string, number>;
   private readonly checkCache = createReadDedupeCache<RatelimitSnapshot>();
+  private cacheGeneration = 0;
 
   constructor(private readonly config: RatelimitConfig) {
     this.store = new ConvexRatelimitStore(config.db);
@@ -127,6 +128,7 @@ export class Ratelimit {
 
   async resetUsedTokens(identifier: string): Promise<void> {
     await this.store.deleteStates(this.prefix, identifier);
+    this.cacheGeneration += 1;
     this.checkCache.clear();
     if (this.blockCache) {
       this.blockCache.clear(this.blockKey(identifier));
@@ -156,6 +158,7 @@ export class Ratelimit {
     identifier: string,
     options?: { sampleShards?: number }
   ): Promise<RatelimitSnapshot> {
+    const cacheGeneration = this.cacheGeneration;
     const cacheKey = `${identifier}:${options?.sampleShards ?? 0}`;
     const cached = this.checkCache.get(cacheKey);
     if (cached) {
@@ -260,7 +263,9 @@ export class Ratelimit {
             },
           };
 
-    this.checkCache.set(cacheKey, Promise.resolve(result));
+    if (cacheGeneration === this.cacheGeneration) {
+      this.checkCache.set(cacheKey, Promise.resolve(result));
+    }
     return result;
   }
 
@@ -279,6 +284,7 @@ export class Ratelimit {
     );
 
     await this.store.setDynamicLimit(this.prefix, options.limit);
+    this.cacheGeneration += 1;
     this.checkCache.clear();
     this.blockCache?.clearAll();
   }
@@ -360,6 +366,7 @@ export class Ratelimit {
     request: LimitRequest | CheckRequest | undefined,
     consume: boolean
   ): Promise<RatelimitResponse> {
+    const cacheGeneration = this.cacheGeneration;
     const deniedValue = this.enableProtection
       ? pickDeniedValue({
           prefix: this.prefix,
@@ -464,7 +471,12 @@ export class Ratelimit {
       };
     }
 
-    if (consume && this.blockCache && count > 0) {
+    if (
+      consume &&
+      this.blockCache &&
+      count > 0 &&
+      cacheGeneration === this.cacheGeneration
+    ) {
       for (const candidate of candidates) {
         if (!candidate.success) {
           this.blockCache.blockUntil(
@@ -492,6 +504,7 @@ export class Ratelimit {
           shard: best.shard,
           state: best.evaluated.state,
         });
+        this.cacheGeneration += 1;
       }
 
       clearProtection(this.prefix, identifier);

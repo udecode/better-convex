@@ -28,7 +28,7 @@ Ratelimit.tokenBucket(refillRate, interval, maxTokens, options?);
 - `tokenBucket` deals `maxTokens` and allocates `refillRate` in proportion to each shard's capacity share, so uneven capacities refill without clipping the configured total.
 - One call spends from one shard, so `count` can never exceed that shard's share. Aim for a share of ten or more times your largest `count`.
 - Builders **throw** when `limit / shards`, `capacity / shards`, or `maxTokens / shards` drops below `1`. `setDynamicLimit()` rejects non-positive, non-finite, or unservable overrides before writing them.
-- The ephemeral block cache is keyed per shard, requested count, and reservation mode, so an exhausted shard never blocks peers and a failed large or ordinary request never blocks a smaller or reserved one. Cache writes prune expired variants.
+- The ephemeral block cache is keyed per shard, requested count, and reservation mode, so an exhausted shard never blocks peers and a failed large or ordinary request never blocks a smaller or reserved one. Cache writes prune expired variants, skip infinite resets, and retain at most 32 variants per identifier.
 - Preferred shards are tried first; if none can serve the request, the limiter reads each remaining candidate concurrently before denying it.
 - Failure `reset` is the earliest retry across both cached and freshly evaluated shards.
 
@@ -79,7 +79,7 @@ const result = calculateRatelimit(
 
 For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 
-A request larger than every shard's capacity plus finite reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Full and partial snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
+A request larger than every shard's capacity plus finite reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Fresh, full, and partial snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
 
 ## Convex constraints
 
@@ -98,7 +98,7 @@ A request larger than every shard's capacity plus finite reservation headroom ca
 
 ## Dynamic limits
 
-Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and must be a positive finite budget that every configured shard can serve. Setting or clearing it invalidates snapshots and ephemeral block decisions held by that limiter instance.
+Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and must be a positive finite budget that every configured shard can serve. Setting or clearing it advances the limiter's cache generation, invalidates snapshots and ephemeral block decisions, and prevents older in-flight operations from restoring them.
 
 ```ts
 await limiter.setDynamicLimit({ limit: 20 }); // false clears the override

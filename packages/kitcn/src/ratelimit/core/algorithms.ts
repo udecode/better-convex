@@ -137,6 +137,7 @@ export function shardAlgorithm(
       refillRate: algorithm.refillRate * (maxTokens / algorithm.maxTokens),
       maxTokens,
       maxReserved,
+      shards: 1,
     };
   }
 
@@ -146,6 +147,7 @@ export function shardAlgorithm(
       limit: share(algorithm.limit),
       capacity: share(algorithm.capacity),
       maxReserved,
+      shards: 1,
     };
   }
 
@@ -153,6 +155,7 @@ export function shardAlgorithm(
     ...algorithm,
     limit: share(algorithm.limit),
     maxReserved,
+    shards: 1,
   };
 }
 

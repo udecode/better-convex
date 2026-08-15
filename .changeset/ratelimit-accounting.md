@@ -83,3 +83,7 @@
   reservation headroom when `maxReserved` is omitted.
 - Reject negative, non-finite `maxReserved` values before sharding or retry
   calculation.
+- Normalize shard-local algorithms, enforce per-shard capacity for fresh
+  projections, and generation-guard cache writes across dynamic updates.
+- Skip infinite block-cache entries and retain at most 32 finite variants per
+  identifier.

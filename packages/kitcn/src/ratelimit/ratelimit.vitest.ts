@@ -19,7 +19,10 @@ type TableRow = Record<string, unknown> & {
   _creationTime: number;
 };
 
-function createMockDb(options?: { delayMs?: number }) {
+function createMockDb(options?: {
+  delayMs?: number;
+  delayMsByTable?: Record<string, number>;
+}) {
   const tables = new Map<string, TableRow[]>();
   const counters = {
     uniqueReads: 0,
@@ -36,8 +39,8 @@ function createMockDb(options?: { delayMs?: number }) {
     return created;
   };
 
-  const delay = async () => {
-    const ms = options?.delayMs ?? 0;
+  const delay = async (tableName: string) => {
+    const ms = options?.delayMsByTable?.[tableName] ?? options?.delayMs ?? 0;
     if (ms > 0) {
       await new Promise((resolve) => setTimeout(resolve, ms));
     }
@@ -64,12 +67,12 @@ function createMockDb(options?: { delayMs?: number }) {
           return {
             async unique() {
               counters.uniqueReads += 1;
-              await delay();
+              await delay(tableName);
               return filtered()[0] ?? null;
             },
             async collect() {
               counters.collectReads += 1;
-              await delay();
+              await delay(tableName);
               return filtered();
             },
           };
@@ -561,6 +564,25 @@ describe('Ratelimit', () => {
     }
   });
 
+  test('block cache bounds count variants and skips infinite resets', () => {
+    const cache = new Map<string, number>();
+    const blockCache = new EphemeralBlockCache(cache);
+    const reset = Date.now() + 60_000;
+
+    for (let count = 1; count <= 40; count += 1) {
+      blockCache.blockUntil('bounded-cache-user', 0, count, false, reset);
+    }
+    blockCache.blockUntil(
+      'bounded-cache-user',
+      1,
+      100,
+      false,
+      Number.POSITIVE_INFINITY
+    );
+
+    expect(blockCache.size()).toBe(32);
+  });
+
   test('a cached shard contributes to the earliest retry time', async () => {
     const { db } = createMockDb();
     const cache = new Map<string, number>();
@@ -896,6 +918,34 @@ describe('Ratelimit', () => {
     expect(initial.config.limit).toBe(1);
     expect(blocked.success).toBe(false);
     expect(updated.config.limit).toBe(2);
+    expect(allowed.success).toBe(true);
+  });
+
+  test('dynamic updates discard in-flight stale cache writes', async () => {
+    const { db } = createMockDb({
+      delayMsByTable: { ratelimitState: 20 },
+    });
+    const limiter = new Ratelimit({
+      db,
+      dynamicLimits: true,
+      limiter: Ratelimit.slidingWindow(1, '1 m'),
+    });
+
+    const staleSnapshot = limiter.getValue('dynamic-race-snapshot');
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await limiter.setDynamicLimit({ limit: 2 });
+    await staleSnapshot;
+    const currentSnapshot = await limiter.getValue('dynamic-race-snapshot');
+
+    await limiter.setDynamicLimit({ limit: 1 });
+    await limiter.limit('dynamic-race-block');
+    const staleBlock = limiter.limit('dynamic-race-block');
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await limiter.setDynamicLimit({ limit: 2 });
+    await staleBlock;
+    const allowed = await limiter.limit('dynamic-race-block');
+
+    expect(currentSnapshot.config.limit).toBe(2);
     expect(allowed.success).toBe(true);
   });
 

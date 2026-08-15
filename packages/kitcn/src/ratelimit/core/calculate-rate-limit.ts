@@ -30,17 +30,15 @@ export function calculateRatelimit(
   count: number
 ): EvaluationResult {
   const shardStates = state?.shards;
-  if (algorithm.shards > 1 && shardStates) {
-    if (count > maximumShardCapacity(algorithm)) {
-      return {
-        ...calculateSingleRatelimit(state, algorithm, now, count),
-        retryAfter: Number.POSITIVE_INFINITY,
-        reset: Number.POSITIVE_INFINITY,
-      };
-    }
-    if (shardStates.length === algorithm.shards) {
-      return calculateShardedRatelimit(shardStates, algorithm, now, count);
-    }
+  if (algorithm.shards > 1 && count > maximumShardCapacity(algorithm)) {
+    return {
+      ...calculateSingleRatelimit(state, algorithm, now, count),
+      retryAfter: Number.POSITIVE_INFINITY,
+      reset: Number.POSITIVE_INFINITY,
+    };
+  }
+  if (algorithm.shards > 1 && shardStates?.length === algorithm.shards) {
+    return calculateShardedRatelimit(shardStates, algorithm, now, count);
   }
 
   return calculateSingleRatelimit(state, algorithm, now, count);

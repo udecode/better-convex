@@ -5,6 +5,8 @@
  * identifier: a shard can reject a large or ordinary request while still
  * serving a smaller or reserved one, and its peers may still hold tokens.
  */
+const MAX_BLOCK_VARIANTS_PER_IDENTIFIER = 32;
+
 export class EphemeralBlockCache {
   constructor(private readonly cache: Map<string, number>) {}
 
@@ -33,8 +35,15 @@ export class EphemeralBlockCache {
     reserve: boolean,
     reset: number
   ): void {
+    if (!Number.isFinite(reset)) {
+      return;
+    }
     this.pruneExpired();
-    this.cache.set(shardKey(identifier, shard, count, reserve), reset);
+    const key = shardKey(identifier, shard, count, reserve);
+    if (!this.cache.has(key)) {
+      this.evictOldestVariant(identifier);
+    }
+    this.cache.set(key, reset);
   }
 
   clear(identifier: string): void {
@@ -60,6 +69,22 @@ export class EphemeralBlockCache {
       if (reset <= now) {
         this.cache.delete(key);
       }
+    }
+  }
+
+  private evictOldestVariant(identifier: string): void {
+    const prefix = identifierPrefix(identifier);
+    let variants = 0;
+    let oldest: string | undefined;
+    for (const key of this.cache.keys()) {
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      oldest ??= key;
+      variants += 1;
+    }
+    if (variants >= MAX_BLOCK_VARIANTS_PER_IDENTIFIER && oldest) {
+      this.cache.delete(oldest);
     }
   }
 }

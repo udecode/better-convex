@@ -57,4 +57,12 @@ describe('calculateRatelimit', () => {
 
     expect(evaluated.retryAfter).toBe(Number.POSITIVE_INFINITY);
   });
+
+  test('fresh sharded projections enforce per-shard capacity', () => {
+    const config = fixedWindow(5, '1 s', { shards: 2 });
+
+    const evaluated = calculateRatelimit(null, config, 1000, 4);
+
+    expect(evaluated.retryAfter).toBe(Number.POSITIVE_INFINITY);
+  });
 });
