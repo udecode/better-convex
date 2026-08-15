@@ -8,6 +8,7 @@ import { createSchemaExtensionOrm } from '../../../../auth/create-schema-orm';
 import { createProjectJiti } from '../../../utils/project-jiti.js';
 import { createTypeScriptProxy } from '../../../utils/typescript-runtime.js';
 import type { RootSchemaTableUnit } from '../../schema-ownership.js';
+import { parseSchemaSource } from '../../schema-parse.js';
 import { DEFAULT_MANAGED_AUTH_EXTENSION_TEMPLATE } from './auth-schema.template.js';
 
 type AuthSchemaTemplateId = 'auth-schema' | 'auth-schema-convex';
@@ -118,13 +119,7 @@ export const renderManagedAuthSchemaFile = async ({
 const parseRootSchemaUnitsFromExtension = (
   source: string
 ): RootSchemaTableUnit[] => {
-  const sourceFile = ts.createSourceFile(
-    'auth-schema.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
+  const sourceFile = parseSchemaSource(source, 'auth-schema.ts');
   const ormImport = sourceFile.statements.find(
     (statement) =>
       ts.isImportDeclaration(statement) &&
