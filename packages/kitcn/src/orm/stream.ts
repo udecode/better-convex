@@ -1231,46 +1231,60 @@ class ConcatStreams<T extends GenericStreamItem> extends QueryStream<T> {
     );
   }
   iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
-    const iterables = this.#streams.map((stream) => stream.iterWithKeys());
+    const streams = this.#streams;
     const comparisonInversion = this.#order === 'asc' ? 1 : -1;
-    let previousIndexKey: IndexKey | undefined;
     return {
       [Symbol.asyncIterator]() {
-        const iterators = iterables.map((iterable) =>
-          iterable[Symbol.asyncIterator]()
-        );
+        // Substreams are read strictly in order, and each one is a Convex query
+        // whose registration happens the moment its iterator is taken. Open
+        // substream `i` only once `i - 1` is exhausted, so a consumer that
+        // stops early never registers the rest.
+        let index = 0;
+        let iterator: AsyncIterator<[T | null, IndexKey]> | undefined;
+        let previousIndexKey: IndexKey | undefined;
         return {
           async next() {
-            while (iterators.length > 0) {
-              const result = await iterators[0]!.next();
+            while (index < streams.length) {
+              iterator ??= streams[index]!
+                .iterWithKeys()
+                [Symbol.asyncIterator]();
+              const result = await iterator.next();
               if (result.done) {
-                iterators.shift();
-              } else {
-                const [_, indexKey] = result.value;
-                if (
-                  previousIndexKey !== undefined &&
-                  compareKeys(
-                    {
-                      value: previousIndexKey,
-                      kind: 'exact',
-                    },
-                    {
-                      value: indexKey,
-                      kind: 'exact',
-                    }
-                  ) *
-                    comparisonInversion >
-                    0
-                ) {
-                  throw new Error(
-                    `ConcatStreams in wrong order: ${JSON.stringify(previousIndexKey)}, ${JSON.stringify(indexKey)}`
-                  );
-                }
-                previousIndexKey = indexKey;
-                return result;
+                index++;
+                iterator = undefined;
+                continue;
               }
+              const [_, indexKey] = result.value;
+              if (
+                previousIndexKey !== undefined &&
+                compareKeys(
+                  {
+                    value: previousIndexKey,
+                    kind: 'exact',
+                  },
+                  {
+                    value: indexKey,
+                    kind: 'exact',
+                  }
+                ) *
+                  comparisonInversion >
+                  0
+              ) {
+                throw new Error(
+                  `ConcatStreams in wrong order: ${JSON.stringify(previousIndexKey)}, ${JSON.stringify(indexKey)}`
+                );
+              }
+              previousIndexKey = indexKey;
+              return result;
             }
             return { done: true, value: undefined };
+          },
+          async return() {
+            // Propagate an early `break` so the open substream is closed.
+            await iterator?.return?.();
+            index = streams.length;
+            iterator = undefined;
+            return { done: true as const, value: undefined };
           },
         };
       },
