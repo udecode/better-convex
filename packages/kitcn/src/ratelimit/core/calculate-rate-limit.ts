@@ -128,7 +128,7 @@ function calculateShardedRatelimit(
         },
       })),
     },
-    retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    retryAfter,
     remaining,
     remainingRaw,
     reset: Math.min(
@@ -152,8 +152,13 @@ function calculateTokenBucket(
     config.maxTokens
   );
   const nextValue = available - count;
-  const retryAfter =
-    nextValue < 0 ? Math.ceil(-nextValue / ratePerMs) : undefined;
+  let retryAfter: number | undefined;
+  if (nextValue < 0) {
+    retryAfter =
+      count > config.maxTokens
+        ? Number.POSITIVE_INFINITY
+        : Math.ceil(-nextValue / ratePerMs);
+  }
 
   return {
     state: { value: nextValue, ts: now },
@@ -188,17 +193,23 @@ function calculateFixedWindow(
   const ts = initial.ts + elapsedWindows * config.window;
   const nextValue = replenished - count;
 
-  const retryAfter =
-    nextValue < 0
-      ? ts + config.window * Math.ceil(-nextValue / config.limit) - now
-      : undefined;
+  let retryAfter: number | undefined;
+  if (nextValue < 0) {
+    retryAfter =
+      count > config.capacity
+        ? Number.POSITIVE_INFINITY
+        : ts + config.window * Math.ceil(-nextValue / config.limit) - now;
+  }
 
   return {
     state: { value: nextValue, ts },
     retryAfter,
     remaining: Math.max(0, Math.floor(nextValue)),
     remainingRaw: nextValue,
-    reset: ts + config.window,
+    reset:
+      retryAfter === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : ts + config.window,
     limit: config.limit,
   };
 }
@@ -234,8 +245,13 @@ function calculateSlidingWindow(
   const projectedCurrent = currentCount + count;
   const projectedUsed = projectedCurrent + previousCount * previousWeight;
   const remaining = config.limit - projectedUsed;
-  const retryAfter =
-    remaining < 0 ? Math.max(1, config.window - elapsedInWindow) : undefined;
+  let retryAfter: number | undefined;
+  if (remaining < 0) {
+    retryAfter =
+      count > config.limit
+        ? Number.POSITIVE_INFINITY
+        : Math.max(1, config.window - elapsedInWindow);
+  }
 
   return {
     state: {
@@ -247,7 +263,10 @@ function calculateSlidingWindow(
     retryAfter,
     remaining: Math.max(0, Math.floor(remaining)),
     remainingRaw: remaining,
-    reset: windowStart + config.window,
+    reset:
+      retryAfter === Number.POSITIVE_INFINITY
+        ? Number.POSITIVE_INFINITY
+        : windowStart + config.window,
     limit: config.limit,
   };
 }

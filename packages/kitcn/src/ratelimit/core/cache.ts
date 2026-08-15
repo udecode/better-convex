@@ -46,6 +46,10 @@ export class EphemeralBlockCache {
     }
   }
 
+  clearAll(): void {
+    this.cache.clear();
+  }
+
   size(): number {
     return this.cache.size;
   }

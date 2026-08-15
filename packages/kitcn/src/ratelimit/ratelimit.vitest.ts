@@ -319,6 +319,67 @@ describe('Ratelimit', () => {
     expect(reserved.success).toBe(true);
   });
 
+  test('permanently oversized reserved requests have no retry deadline', async () => {
+    const algorithms = [
+      Ratelimit.tokenBucket(2, '1 s', 2, { maxReserved: 1 }),
+      Ratelimit.fixedWindow(2, '1 s', { maxReserved: 1 }),
+    ];
+
+    for (const algorithm of algorithms) {
+      const { db, counters } = createMockDb();
+      const limiter = new Ratelimit({ db, limiter: algorithm });
+      const denied = await limiter.limit('oversized-reserved-user', {
+        count: 4,
+        reserve: true,
+      });
+
+      expect(denied.success).toBe(false);
+      expect(denied.reason).toBe('requestTooLarge');
+      expect(denied.reset).toBe(0);
+      expect(counters.uniqueReads).toBe(0);
+    }
+  });
+
+  test('permanently undersized shards do not shorten reservation retries', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const { db } = createMockDb();
+    await db.insert('ratelimitState', {
+      name: 'kitcn/ratelimit',
+      key: 'uneven-reserved-user',
+      shard: 0,
+      value: -1,
+      ts: 1000,
+    });
+    await db.insert('ratelimitState', {
+      name: 'kitcn/ratelimit',
+      key: 'uneven-reserved-user',
+      shard: 1,
+      value: 2,
+      ts: 1000,
+    });
+    const limiter = new Ratelimit({
+      db,
+      ephemeralCache: false,
+      limiter: Ratelimit.fixedWindow(5, '1 s', {
+        maxReserved: 1,
+        shards: 2,
+      }),
+    });
+
+    try {
+      Math.random = () => 0.9;
+      const denied = await limiter.limit('uneven-reserved-user', {
+        count: 4,
+        reserve: true,
+      });
+
+      expect(denied.success).toBe(false);
+      expect(denied.reset).toBe(3000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test('reserved token bucket retries when reservation headroom is ready', async () => {
     let now = 1000;
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
@@ -441,6 +502,8 @@ describe('Ratelimit', () => {
     const smaller = await limiter.limit('count-cache-user', { count: 1 });
 
     expect(oversized.success).toBe(false);
+    expect(oversized.reason).toBe('requestTooLarge');
+    expect(oversized.reset).toBe(0);
     expect(smaller.success).toBe(true);
   });
 
@@ -780,6 +843,27 @@ describe('Ratelimit', () => {
     expect(second.success).toBe(false);
   });
 
+  test('dynamic limit changes invalidate snapshots and block decisions', async () => {
+    const { db } = createMockDb();
+    const limiter = new Ratelimit({
+      db,
+      dynamicLimits: true,
+      limiter: Ratelimit.slidingWindow(1, '1 m'),
+    });
+
+    await limiter.limit('dynamic-cache-user');
+    const initial = await limiter.getValue('dynamic-cache-user');
+    const blocked = await limiter.limit('dynamic-cache-user');
+    await limiter.setDynamicLimit({ limit: 2 });
+    const updated = await limiter.getValue('dynamic-cache-user');
+    const allowed = await limiter.limit('dynamic-cache-user');
+
+    expect(initial.config.limit).toBe(1);
+    expect(blocked.success).toBe(false);
+    expect(updated.config.limit).toBe(2);
+    expect(allowed.success).toBe(true);
+  });
+
   test('rejects a dynamic limit the shard split cannot serve', async () => {
     const { db } = createMockDb();
     const limiter = new Ratelimit({
@@ -822,6 +906,16 @@ describe('Ratelimit', () => {
 
   test('fallback shard reads run within the configured timeout', async () => {
     const { db } = createMockDb({ delayMs: 20 });
+    const identifier = 'parallel-fallback-user';
+    for (let shard = 0; shard < 10; shard += 1) {
+      await db.insert('ratelimitState', {
+        name: 'kitcn/ratelimit',
+        key: identifier,
+        shard,
+        value: 0,
+        ts: Date.now(),
+      });
+    }
     const limiter = new Ratelimit({
       db,
       ephemeralCache: false,
@@ -830,7 +924,7 @@ describe('Ratelimit', () => {
       limiter: Ratelimit.fixedWindow(10, '1 m', { shards: 10 }),
     });
 
-    const denied = await limiter.limit('parallel-fallback-user', { count: 2 });
+    const denied = await limiter.limit(identifier);
 
     expect(denied.success).toBe(false);
     expect(denied.reason).toBeUndefined();

@@ -73,3 +73,9 @@
 - Preserve sampled per-shard state in snapshots so all-shard projections retain
   independent capacity saturation and sliding-window decay.
 - Read each candidate shard set concurrently, including exhaustion fallbacks.
+- Reject requests that exceed every shard's capacity and reservation headroom
+  with `reason: "requestTooLarge"` and no retry deadline or shard reads.
+- Exclude permanently undersized shards from retry deadlines and invalidate
+  local snapshot and block-decision caches when dynamic limits change.
+- Preserve permanent oversized denials through all-shard snapshots and React
+  projections without scheduling an infinite retry timer.

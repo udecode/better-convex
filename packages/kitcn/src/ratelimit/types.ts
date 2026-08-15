@@ -1,6 +1,10 @@
 import type { Duration } from './duration';
 
-export type RatelimitReason = 'timeout' | 'cacheBlock' | 'denyList';
+export type RatelimitReason =
+  | 'timeout'
+  | 'cacheBlock'
+  | 'denyList'
+  | 'requestTooLarge';
 
 export type RatelimitResponse = {
   success: boolean;

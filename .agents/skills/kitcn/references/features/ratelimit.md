@@ -79,6 +79,8 @@ const result = calculateRatelimit(
 
 For denied reserved fixed-window and token-bucket requests, `reset` is when the request fits within `maxReserved`, not when all debt reaches zero.
 
+A request larger than every shard's capacity plus usable reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
+
 ## Convex constraints
 
 - `blockUntilReady()` needs `setTimeout`, so it only runs in actions or non-Convex runtimes. It throws with that guidance inside queries and mutations. `limit()` and `check()` never touch timers.
@@ -92,11 +94,11 @@ For denied reserved fixed-window and token-bucket requests, `reset` is when the 
 | `failureMode: 'closed'` (default) | a timeout denies the request, `reason: 'timeout'` |
 | `failureMode: 'open'` | a timeout allows the request, `success: true` with `reason: 'timeout'` |
 
-`reason` is `'timeout' \| 'cacheBlock' \| 'denyList'`. `success: true` with `reason: 'timeout'` is reachable only under `failureMode: 'open'` — do not treat `reason` as proof of denial.
+`reason` is `'timeout' \| 'cacheBlock' \| 'denyList' \| 'requestTooLarge'`. `success: true` with `reason: 'timeout'` is reachable only under `failureMode: 'open'` — do not treat `reason` as proof of denial.
 
 ## Dynamic limits
 
-Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and must be a positive finite budget that every configured shard can serve.
+Requires `dynamicLimits: true` in the constructor, otherwise `setDynamicLimit()` / `getDynamicLimit()` throw. The override replaces `limit` (or `refillRate`) at read time and must be a positive finite budget that every configured shard can serve. Setting or clearing it invalidates snapshots and ephemeral block decisions held by that limiter instance.
 
 ```ts
 await limiter.setDynamicLimit({ limit: 20 }); // false clears the override

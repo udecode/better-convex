@@ -135,4 +135,38 @@ describe('useRatelimit', () => {
 
     expect(projected?.value).toBe(6);
   });
+
+  test('all-shard snapshots deny permanently oversized checks', () => {
+    const start = Math.floor(Date.now() / 1000) * 1000;
+    const snapshot: RatelimitSnapshot = {
+      value: 5,
+      ts: start,
+      shard: 0,
+      state: {
+        value: 5,
+        ts: start,
+        shards: [
+          { shard: 0, state: { value: 3, ts: start } },
+          { shard: 1, state: { value: 2, ts: start } },
+        ],
+      },
+      config: {
+        kind: 'fixedWindow',
+        limit: 5,
+        window: 1000,
+        capacity: 5,
+        shards: 2,
+      },
+    };
+    useQuerySpy.mockReturnValue(snapshot as any);
+
+    const { result } = renderHook(() =>
+      useRatelimit('ratelimit/getRatelimit', { count: 4 })
+    );
+
+    expect(result.current.status?.ok).toBe(false);
+    expect(result.current.check(start, 4)?.retryAt).toBe(
+      Number.POSITIVE_INFINITY
+    );
+  });
 });

@@ -41,4 +41,20 @@ describe('calculateRatelimit', () => {
     expect(evaluated.retryAfter).toBeDefined();
     expect(evaluated.remaining).toBe(0);
   });
+
+  test('all-shard projections preserve permanent oversized denials', () => {
+    const config = fixedWindow(5, '1 s', { shards: 2 });
+    const state = {
+      value: 5,
+      ts: 1000,
+      shards: [
+        { shard: 0, state: { value: 3, ts: 1000 } },
+        { shard: 1, state: { value: 2, ts: 1000 } },
+      ],
+    };
+
+    const evaluated = calculateRatelimit(state, config, 1000, 4);
+
+    expect(evaluated.retryAfter).toBe(Number.POSITIVE_INFINITY);
+  });
 });

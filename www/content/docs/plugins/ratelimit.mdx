@@ -283,7 +283,7 @@ The hook returns:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `status` | `HookStatus \| undefined` | `undefined` while loading. `{ ok: true }` when allowed, `{ ok: false, retryAt: number }` when blocked. Auto-updates when `retryAt` passes. |
+| `status` | `HookStatus \| undefined` | `undefined` while loading. `{ ok: true }` when allowed, `{ ok: false, retryAt: number }` when blocked. Auto-updates when a finite `retryAt` passes. Permanently oversized checks use `Infinity` and schedule no timer. |
 | `check` | `(ts?, count?) => HookCheckValue \| undefined` | Manual projection function. Call it with a timestamp and count to get a precise snapshot for custom gauges or progress bars. |
 
 The `HookCheckValue` returned by `check()` has this shape:
@@ -295,7 +295,7 @@ The `HookCheckValue` returned by `check()` has this shape:
 | `config` | `ResolvedAlgorithm` | The algorithm config for further calculations |
 | `shard` | `number` | Which shard was sampled |
 | `ok` | `boolean` | `true` when `value >= 0` |
-| `retryAt` | `number \| undefined` | Client timestamp when tokens become available |
+| `retryAt` | `number \| undefined` | Client timestamp when tokens become available. `Infinity` means no shard can serve the requested count. |
 
 If you need precise projected values (for custom gauges), call `check(ts, count)`.
 
@@ -374,7 +374,7 @@ const { dynamicLimit } = await limiter.getDynamicLimit();
 await limiter.setDynamicLimit({ limit: false });
 ```
 
-The dynamic limit overrides the `limit` field of the algorithm. For token bucket, it overrides `refillRate` (and `maxTokens` if they were originally equal). Overrides must be positive, finite budgets that every configured shard can serve.
+The dynamic limit overrides the `limit` field of the algorithm. For token bucket, it overrides `refillRate` (and `maxTokens` if they were originally equal). Overrides must be positive, finite budgets that every configured shard can serve. Setting or clearing an override invalidates snapshots and ephemeral block decisions held by that limiter instance.
 
 ## Limits and mitigations you should know
 
@@ -563,9 +563,9 @@ Returned by `limit()` and `check()`.
 | `ok` | `boolean` | Alias for `success` (Convex DX parity) |
 | `limit` | `number` | Maximum tokens for this algorithm |
 | `remaining` | `number` | Tokens left after this request (floored to 0). With `shards > 1` this is extrapolated from the stored capacity of the shard that served the request, so it is an estimate — use `getRemaining()` for an exact count. |
-| `reset` | `number` | Epoch ms when tokens will be available. Denied reserved fixed-window and token-bucket requests use the point where the request fits within `maxReserved`, not full debt recovery. |
+| `reset` | `number` | Epoch ms when tokens will be available. Denied reserved fixed-window and token-bucket requests use the point where the request fits within `maxReserved`, not full debt recovery. Permanently oversized requests return `0`. |
 | `pending` | `Promise<unknown>` | Resolves when async side-effects complete |
-| `reason` | `'timeout' \| 'cacheBlock' \| 'denyList'` | Present when a reason applies. Note: `failureMode: 'open'` can return `success: true` with `reason: 'timeout'`. |
+| `reason` | `'timeout' \| 'cacheBlock' \| 'denyList' \| 'requestTooLarge'` | Present when a reason applies. `requestTooLarge` means no shard can ever serve the requested count; smaller unusable shards do not contribute retry deadlines. Reduce `count`, reduce `shards`, or raise capacity. Note: `failureMode: 'open'` can return `success: true` with `reason: 'timeout'`. |
 | `deniedValue` | `string` | Present only when `reason === 'denyList'`. The value that triggered the block. |
 
 #### `RemainingResponse`

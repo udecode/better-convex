@@ -279,6 +279,8 @@ export class Ratelimit {
     );
 
     await this.store.setDynamicLimit(this.prefix, options.limit);
+    this.checkCache.clear();
+    this.blockCache?.clearAll();
   }
 
   async getDynamicLimit(): Promise<DynamicLimitResponse> {
@@ -383,6 +385,18 @@ export class Ratelimit {
     const algorithm = await this.resolveAlgorithm();
     const count = normalizeCount(request);
     const reserveRequested = Boolean(request?.reserve);
+
+    if (count > maximumRequestSize(algorithm, reserveRequested)) {
+      return {
+        success: false,
+        ok: false,
+        limit: algorithmBudget(algorithm),
+        remaining: 0,
+        reset: 0,
+        pending: Promise.resolve(),
+        reason: 'requestTooLarge',
+      };
+    }
 
     const picked = pickCandidateShards(algorithm.shards);
     const attempted = new Set<number>();
@@ -579,6 +593,7 @@ export class Ratelimit {
           evaluated,
           perShard,
           now,
+          count,
           reserveRequested
         );
 
@@ -637,12 +652,37 @@ export class Ratelimit {
   }
 }
 
+function maximumRequestSize(
+  algorithm: ResolvedAlgorithm,
+  reserveRequested: boolean
+): number {
+  let maximum = 0;
+  for (let shard = 0; shard < algorithm.shards; shard += 1) {
+    const perShard = shardAlgorithm(algorithm, shard);
+    const reservation =
+      reserveRequested && perShard.kind !== 'slidingWindow'
+        ? (perShard.maxReserved ?? 0)
+        : 0;
+    maximum = Math.max(maximum, algorithmCapacity(perShard) + reservation);
+  }
+  return maximum;
+}
+
 function getRequestRetryAfter(
   evaluated: ReturnType<typeof calculateRatelimit>,
   algorithm: ResolvedAlgorithm,
   now: number,
+  count: number,
   reserveRequested: boolean
 ): number | undefined {
+  const reservation =
+    reserveRequested && algorithm.kind !== 'slidingWindow'
+      ? (algorithm.maxReserved ?? 0)
+      : 0;
+  if (count > algorithmCapacity(algorithm) + reservation) {
+    return Number.POSITIVE_INFINITY;
+  }
+
   if (
     !reserveRequested ||
     evaluated.retryAfter === undefined ||

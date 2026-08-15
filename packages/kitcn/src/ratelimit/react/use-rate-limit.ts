@@ -98,9 +98,10 @@ export function useRatelimit(
         config: ratelimitData.config,
         shard: ratelimitData.shard,
         ok: evaluation.retryAfter === undefined,
-        retryAt: evaluation.retryAfter
-          ? serverTs + evaluation.retryAfter - timeOffset
-          : undefined,
+        retryAt:
+          evaluation.retryAfter === undefined
+            ? undefined
+            : serverTs + evaluation.retryAfter - timeOffset,
       };
     },
     [count, ratelimitData, timeOffset]
@@ -126,7 +127,11 @@ export function useRatelimit(
   }, [check, current]);
 
   useEffect(() => {
-    if (response.status?.ok !== false || !response.status.retryAt) {
+    if (
+      response.status?.ok !== false ||
+      !response.status.retryAt ||
+      !Number.isFinite(response.status.retryAt)
+    ) {
       return;
     }
 

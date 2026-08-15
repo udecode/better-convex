@@ -68,7 +68,7 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | 51 focused ratelimit tests | complete |
+| source behavior | yes | 56 focused ratelimit tests | complete |
 | package/API/build | yes | Package build and root typecheck | complete |
 | generated output | yes | Package skill to `.agents` mirror | complete |
 | fixtures/scenarios | no | N/A: no scaffold output | N/A |
@@ -115,12 +115,16 @@ Error attempts:
 | Token-bucket dynamic overrides persisted invalid refill rates | 1 | Validate every numeric override before writing | Red zero/negative/non-finite test became green |
 | Aggregate snapshots transferred clipped refill across full shards | 1 | Carry and project sampled per-shard state | Server and React saturation tests became green |
 | Exhaustion fallback awaited every shard read serially | 1 | Read each candidate set concurrently | Ten-shard timeout regression became green |
+| Permanently oversized reserved requests returned finite retry times | 1 | Reject requests above every shard's capacity and reservation headroom | Red zero-read permanent-denial test became green |
+| Permanently undersized shards shortened global reservation retries | 1 | Exclude impossible shard candidates from retry selection | Red uneven-shard retry test became green |
+| Dynamic limit changes retained stale snapshots and block decisions | 1 | Clear instance caches after persisting an override | Red snapshot/block invalidation test became green |
+| All-shard snapshots erased permanent oversized denials | 1 | Preserve the infinite retry sentinel through core and React projection | Red core and hook projection tests became green |
 | Root typecheck raced package build cleaning `dist` | 1 | Rerun typecheck after build completes | Standalone root typecheck passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 51 tests across four files |
+| Targeted behavior proof | yes | Run focused ratelimit tests | passed: 56 tests across four files |
 | Source/generated audit | yes | Prove package skill/mirror parity | passed: sync plus three byte comparisons |
 | Package/docs/scenario closure | yes | Build and audit docs/skill/changeset | passed |
 | Deslop | yes | Run changed-file cleanup review | zero net findings and score; moved wrapper accepted |
@@ -128,7 +132,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; no fixes |
 | Repository check | yes | Run `bun check` | pending |
 | GitHub delivery | yes | Update, squash-merge, read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | 18 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
+| Autoreview | yes | Resolve every accepted actionable finding | 22 fixed; compatibility fallback rejected by hard-cut doctrine; final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/319-close-ratelimit-accounting-pr.md` | pending |
 | Agent source / generated sync | yes | Verify package skill/mirror | passed after `sync-kitcn-skill.ts` |
 | Installed lock audit | no | N/A: no skill membership change | N/A |
@@ -148,7 +152,7 @@ Phase / pass table:
 Verification evidence:
 - PR 319 CI/Vercel green at goal creation; no approval yet.
 - Rebased both original commits onto main at `799dc4f8` without conflicts.
-- Focused proof passes 42 Vitest tests and 9 Bun tests across all four ratelimit
+- Focused proof passes 46 Vitest tests and 10 Bun tests across all four ratelimit
   test files.
 - TDD proves shard fallback, exact fractional whole-request capacity,
   whole-token reservation headroom, and capacity-based fixed-window projections.
@@ -182,6 +186,12 @@ Timeline:
   override findings; final autoreview is clean at 0.94 confidence.
 - 2026-08-15T02:15:00+02:00 A final post-CI audit found and closed per-shard
   snapshot saturation and serial fallback latency findings with TDD.
+- 2026-08-15T02:27:00+02:00 Closed the permanently oversized reservation
+  finding with a zero-read permanent-denial contract and 52 focused tests.
+- 2026-08-15T02:37:00+02:00 Closed the undersized-shard retry and dynamic-cache
+  findings with two red-to-green regressions and 54 focused tests.
+- 2026-08-15T02:47:00+02:00 Closed all-shard permanent-denial projection with
+  core and React regressions, bringing focused proof to 56 tests.
 
 Reboot status:
 | Question | Answer |
@@ -237,5 +247,11 @@ Review fixes:
   refill across shards.
 - Preferred and fallback candidate sets read concurrently, so exhaustion cost is
   bounded by candidate-set read latency instead of multiplying by shard count.
+- Requests that exceed every shard's capacity and reservation headroom return
+  `requestTooLarge` with no retry deadline and no shard reads.
+- Permanently undersized shards cannot shorten a retry deadline, and dynamic
+  limit changes invalidate local snapshots and block decisions.
+- All-shard snapshots and the React hook preserve permanent oversized denial
+  without scheduling an infinite retry timer.
 - Snapshot compatibility fallback rejected: closed-alpha hard-cut doctrine
   requires the state-bearing shape across server, hook, types, and docs.
