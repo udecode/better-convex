@@ -18,7 +18,7 @@ import { useInfiniteQuery } from './use-infinite-query';
 // QueryClient, the real observers and the real page fetches.
 
 type FakePage = {
-  page: Array<Record<string, unknown>>;
+  page: Record<string, unknown>[];
   isDone: boolean;
   continueCursor: string | null;
   splitCursor?: string;

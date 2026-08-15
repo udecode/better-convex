@@ -591,8 +591,9 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   // a consumer reading only `status` is untouched when only `data` changes.
   const derive = (): CombinedPages<PaginatedQueryItem<Query>> =>
     aggregatePages<PaginatedQueryItem<Query>>(pageResults(), !!placeholderData);
-  const [combined, setCombined] =
-    createStore<CombinedPages<PaginatedQueryItem<Query>>>(derive());
+  const [combined, setCombined] = createStore<
+    CombinedPages<PaginatedQueryItem<Query>>
+  >(derive());
   createRenderEffect(() => setCombined(derive()));
 
   // Auto-recovery from stale cursors after WebSocket reconnection
