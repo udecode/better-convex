@@ -295,9 +295,8 @@ describe('cli/codegen', () => {
       expect(moduleRuntime).toContain('createGeneratedFunctionReference,');
       expect(moduleRuntime).not.toContain('getGeneratedFunctionReference(');
       expect(moduleRuntime).not.toContain('_generated/api.js');
-      expect(moduleRuntime).not.toContain(
-        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
-      );
+      expect(moduleRuntime).not.toContain('generatedApi');
+      expect(moduleRuntime).not.toContain('generatedInternal');
       expect(moduleRuntime).toContain(
         'createGeneratedFunctionReference<"query", "public", typeof import("../../items/queries").list>("items/queries:list")'
       );
@@ -1229,7 +1228,7 @@ describe('cli/codegen', () => {
       const runtimeGenerated = fs.readFileSync(runtimeFile, 'utf-8');
 
       expect(runtimeGenerated).toContain(
-        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
+        "import type { api as generatedApi } from '../_generated/api';"
       );
       expect(runtimeGenerated).toContain(
         'createGeneratedFunctionReference<"query", "public", typeof generatedApi["foo"]["detail"]>("foo:detail")'
@@ -1239,6 +1238,73 @@ describe('cli/codegen', () => {
       );
       expect(runtimeGenerated).not.toContain('typeof import("../foo").detail');
       expect(runtimeGenerated).not.toContain('typeof import("../foo").list');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta only imports the generated api roots a module actually uses', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'pub.ts'),
+        `
+        import { createPubHandler } from './generated/pub.runtime';
+        void createPubHandler;
+
+        export const list = { _crpcMeta: { type: 'query' } };
+        export const detail = { _crpcMeta: { type: 'query' } };
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'priv.ts'),
+        `
+        import { createPrivHandler } from './generated/priv.runtime';
+        void createPrivHandler;
+
+        export const sweep = { _crpcMeta: { type: 'mutation', internal: true } };
+        export const purge = { _crpcMeta: { type: 'mutation', internal: true } };
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'mixed.ts'),
+        `
+        import { createMixedHandler } from './generated/mixed.runtime';
+        void createMixedHandler;
+
+        export const list = { _crpcMeta: { type: 'query' } };
+        export const sweep = { _crpcMeta: { type: 'mutation', internal: true } };
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const readRuntime = (moduleName: string) =>
+        fs.readFileSync(
+          path.join(dir, 'convex', 'generated', `${moduleName}.runtime.ts`),
+          'utf-8'
+        );
+
+      const pubRuntime = readRuntime('pub');
+      expect(pubRuntime).toContain(
+        "import type { api as generatedApi } from '../_generated/api';"
+      );
+      expect(pubRuntime).not.toContain('generatedInternal');
+
+      const privRuntime = readRuntime('priv');
+      expect(privRuntime).toContain(
+        "import type { internal as generatedInternal } from '../_generated/api';"
+      );
+      expect(privRuntime).not.toContain('generatedApi');
+
+      const mixedRuntime = readRuntime('mixed');
+      expect(mixedRuntime).toContain(
+        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
+      );
     } finally {
       process.chdir(oldCwd);
     }
