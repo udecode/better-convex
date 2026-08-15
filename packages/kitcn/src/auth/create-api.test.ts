@@ -356,6 +356,33 @@ describe('updateOneHandler', () => {
     ).rejects.toThrow('Failed to update users');
   });
 
+  test('throws instead of patching an arbitrary row when the where matches more than one', async () => {
+    const { db, store } = createMemoryCtx({
+      'user-1': { _id: 'user-1', email: 'a@b.com', name: 'alice' },
+      'user-2': { _id: 'user-2', email: 'a@b.com', name: 'anna' },
+    });
+
+    await expect(
+      updateOneHandler(
+        { db } as any,
+        {
+          input: {
+            model: 'users',
+            update: { name: 'bob' },
+            where: [
+              { field: '_id', operator: 'in', value: ['user-1', 'user-2'] },
+            ],
+          },
+        },
+        schema,
+        betterAuthSchema
+      )
+    ).rejects.toThrow('Multiple users found matching criteria');
+
+    expect(store.get('user-1')).toMatchObject({ name: 'alice' });
+    expect(store.get('user-2')).toMatchObject({ name: 'anna' });
+  });
+
   test('applies update.before and runs update.after/change', async () => {
     const { db, store } = createMemoryCtx({
       'user-1': { _id: 'user-1', email: 'a@b.com', name: 'alice' },

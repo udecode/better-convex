@@ -613,10 +613,21 @@ export const updateOneHandler = async (
 ) => {
   const triggerCtx = args.triggerCtx ?? ctx;
   const tableTriggers = args.tableTriggers;
-  const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+  // Read two rows so the "exactly 1 match" contract is asserted on the same
+  // read that feeds the patch, inside the same transaction.
+  const { page } = await paginate(ctx, schema, betterAuthSchema, {
+    ...args.input,
+    paginationOpts: { cursor: null, numItems: 2 },
+  });
+  const doc = page[0];
 
   if (!doc) {
     throw new Error(`Failed to update ${args.input.model}`);
+  }
+  if (page.length > 1) {
+    throw new Error(
+      `Multiple ${args.input.model} found matching criteria. Expected exactly 1.`
+    );
   }
   const normalizedDoc = withBothIdFields(doc);
   const transformedUpdate = await applyBeforeHook(

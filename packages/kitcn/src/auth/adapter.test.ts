@@ -649,6 +649,31 @@ describe('httpAdapter', () => {
     expect(runMutation).not.toHaveBeenCalled();
   });
 
+  test('update dispatches one mutation and no pre-check query', async () => {
+    const runQuery = mock(async () => ({
+      continueCursor: null,
+      isDone: true,
+      page: [{ _id: 'user-1', name: 'alice' }],
+      pageStatus: 'Done' as const,
+    }));
+    const runMutation = mock(async () => ({ _id: 'user-1', name: 'alice' }));
+    const adapterFactory = httpAdapter({ runMutation, runQuery } as any, {
+      authFunctions: { findMany: 'findMany', updateOne: 'updateOne' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+
+    await adapter.update({
+      model: 'user',
+      update: { name: 'alice' },
+      where: [{ field: 'id', operator: 'eq', value: 'user-1' }],
+    });
+
+    // The multiplicity assertion lives in updateOne, on the read it already
+    // performs, so the adapter must not pre-read in a second transaction.
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(runMutation).toHaveBeenCalledTimes(1);
+  });
+
   test('findMany and count reject mixed OR and AND where clauses', async () => {
     const runQuery = mock(async () => ({
       continueCursor: null,

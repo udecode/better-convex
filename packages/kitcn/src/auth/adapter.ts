@@ -475,26 +475,10 @@ export const httpAdapter = <
           );
 
           if (isValidWhere) {
-            // Validate exactly 1 match before updating
-            const countResult = await handlePagination(
-              async ({ paginationOpts }) =>
-                await ctx.runQuery(authFunctions.findMany, {
-                  model: data.model,
-                  paginationOpts,
-                  where: parseWhere(data.where),
-                }),
-              { limit: 2 }
-            );
-
-            if (countResult.docs.length === 0) {
-              throw new Error(`No ${data.model} found matching criteria`);
-            }
-            if (countResult.docs.length > 1) {
-              throw new Error(
-                `Multiple ${data.model} found matching criteria. Expected exactly 1.`
-              );
-            }
-
+            // updateOne asserts the "exactly 1 match" contract inside the
+            // mutation, on the read it already performs. Asserting it here
+            // would cost a second transaction and still guarantee nothing,
+            // because the write happens in a later one.
             return await ctx.runMutation(authFunctions.updateOne, {
               input: {
                 model: data.model as any,
@@ -815,34 +799,12 @@ export const dbAdapter = <
           );
 
           if (isValidWhere) {
-            // Validate exactly 1 match before updating
-            const countResult = await handlePagination(
-              async ({ paginationOpts }) =>
-                await findManyHandler(
-                  ctx,
-                  {
-                    model: data.model,
-                    paginationOpts,
-                    where: parseWhere(data.where),
-                  },
-                  schema,
-                  betterAuthSchema
-                ),
-              { limit: 2 }
-            );
-
-            if (countResult.docs.length === 0) {
-              throw new Error(`No ${data.model} found matching criteria`);
-            }
-            if (countResult.docs.length > 1) {
-              throw new Error(
-                `Multiple ${data.model} found matching criteria. Expected exactly 1.`
-              );
-            }
             if (!('runMutation' in ctx)) {
               throw new Error('ctx is not a mutation ctx');
             }
 
+            // updateOne asserts the "exactly 1 match" contract inside the
+            // mutation, on the read it already performs.
             return await ctx.runMutation(authFunctions.updateOne, {
               input: {
                 model: data.model as any,
