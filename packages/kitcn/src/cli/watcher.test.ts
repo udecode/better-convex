@@ -12,12 +12,19 @@ import {
 const CLI_TS_RE = /\/cli\.ts$/;
 
 describe('cli/watcher', () => {
-  test('getWatchRoots includes the functions dir and sibling routers dir', () => {
-    const functionsDir = '/repo/convex';
+  test('getWatchRoots includes the shared roots codegen reads from', () => {
+    const functionsDir = path.join('/repo', 'convex', 'functions');
     expect(getWatchRoots(functionsDir)).toEqual([
       functionsDir,
-      path.join('/repo', 'routers'),
+      path.join('/repo', 'convex', 'routers'),
+      path.join('/repo', 'convex', 'lib'),
+      path.join('/repo', 'convex', 'shared'),
     ]);
+  });
+
+  test('getWatchRoots stays inside the functions dir when it is the convex root', () => {
+    const functionsDir = path.join('/repo', 'convex');
+    expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
   });
 
   test('shouldIgnoreWatchPath excludes kitcn outputs', () => {

@@ -40,7 +40,21 @@ type WatcherCodegenDeps = {
 export function getWatchRoots(functionsDir: string): string[] {
   // Watch the real roots. chokidar v5 dropped glob support.
   const convexDir = path.dirname(functionsDir);
-  return [functionsDir, path.join(convexDir, 'routers')];
+  // Convex modules import their builders from `lib/` and their contracts from
+  // `shared/`, so an edit there changes emitted meta just as much as an edit
+  // to a function file. Only reachable when the functions dir is nested inside
+  // the Convex root — otherwise these resolve to unrelated project-root
+  // directories.
+  if (path.basename(convexDir) !== 'convex') {
+    return [functionsDir];
+  }
+
+  return [
+    functionsDir,
+    path.join(convexDir, 'routers'),
+    path.join(convexDir, 'lib'),
+    path.join(convexDir, 'shared'),
+  ];
 }
 
 function parseWatcherBackendEnv(
