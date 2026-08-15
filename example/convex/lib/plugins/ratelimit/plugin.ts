@@ -54,6 +54,28 @@ function getUserTier(user: RatelimitUser | null): RatelimitTier {
 }
 
 /**
+ * Live request metadata wins over the session's recorded address, and the
+ * session fills in whatever the request does not carry. Session helpers return
+ * `{}` when there is no session, which is exactly when anonymous traffic needs
+ * an IP to key on.
+ */
+async function getRequestSignals(
+  ctx: RatelimitCtx,
+  user: RatelimitUser | null
+): Promise<LimitRequest> {
+  const [{ ip, userAgent }, session] = await Promise.all([
+    ctx.meta.getRequestMetadata(),
+    getSessionNetworkSignals(ctx, user?.session ?? null),
+  ]);
+
+  return {
+    ...session,
+    ...(ip ? { ip } : {}),
+    ...(userAgent ? { userAgent } : {}),
+  };
+}
+
+/**
  * The identifier is the rate-limit partition key: everything that resolves to
  * the same string shares one budget and one `ratelimitState` document.
  *
@@ -83,7 +105,7 @@ export const ratelimit = RatelimitPlugin.configure({
   }: {
     ctx: RatelimitCtx;
     user: RatelimitUser | null;
-  }) => getSessionNetworkSignals(ctx, user?.session ?? null),
+  }) => getRequestSignals(ctx, user),
   getIdentifier: ({
     user,
     signals,
