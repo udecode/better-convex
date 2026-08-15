@@ -58,6 +58,12 @@
       "kitcn/orm": [
         "../../../../packages/kitcn/src/orm/index.ts"
       ],
+      "kitcn/orm/aggregate-index": [
+        "../../../../packages/kitcn/src/orm/aggregate-index/index.ts"
+      ],
+      "kitcn/orm/migrations": [
+        "../../../../packages/kitcn/src/orm/migrations/index.ts"
+      ],
       "kitcn/plugins": [
         "../../../../packages/kitcn/src/plugins/index.ts"
       ],
@@ -78,12 +84,6 @@
       ],
       "kitcn/solid": [
         "../../../../packages/kitcn/src/solid/index.ts"
-      ],
-      "kitcn/orm/aggregate-index": [
-        "../../../../packages/kitcn/src/orm/aggregate-index/index.ts"
-      ],
-      "kitcn/orm/migrations": [
-        "../../../../packages/kitcn/src/orm/migrations/index.ts"
       ]
     }
   },
