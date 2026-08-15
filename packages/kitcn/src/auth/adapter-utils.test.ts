@@ -30,16 +30,15 @@ describe('hasUniqueFields', () => {
       user: { fields: { email: { unique: true } }, modelName: 'users' },
       userAlias: { fields: { email: { unique: false } }, modelName: 'users' },
     } as any;
+    const input = { email: 'a@b.com' };
 
-    expect(hasUniqueFields(duplicated, 'users', { email: 'a@b.com' })).toBe(
-      true
-    );
+    expect(hasUniqueFields(duplicated, 'users', input)).toBe(true);
   });
 
   test('falls back to the raw schema key when no modelName matches', () => {
-    expect(
-      hasUniqueFields(betterAuthSchema, 'user', { email: 'a@b.com' })
-    ).toBe(true);
+    const input = { email: 'a@b.com' };
+
+    expect(hasUniqueFields(betterAuthSchema, 'user', input)).toBe(true);
   });
 
   test('scans a schema object once, not once per lookup', () => {
