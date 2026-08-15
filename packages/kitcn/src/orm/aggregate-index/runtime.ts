@@ -2136,30 +2136,6 @@ const applyExtremaDelta = async (
   });
 };
 
-const applyExtremaValuesDelta = async (
-  db: GenericDatabaseWriter<any>,
-  tableName: string,
-  indexName: string,
-  keyHash: string,
-  values: Record<string, unknown>,
-  delta: number
-): Promise<void> => {
-  if (delta === 0) {
-    return;
-  }
-  for (const [fieldName, value] of Object.entries(values)) {
-    await applyExtremaDelta(
-      db,
-      tableName,
-      indexName,
-      keyHash,
-      fieldName,
-      value,
-      delta
-    );
-  }
-};
-
 const buildKeyHashPrefixBounds = (
   prefixParts: unknown[]
 ): { start: string; end: string } => {
@@ -2567,8 +2543,67 @@ export const computeAggregateMetricValues = (
   };
 };
 
-export const reconcileAggregateMembership = async (
-  db: GenericDatabaseWriter<any>,
+export type AggregateBucketDelta = {
+  keyHash: string;
+  keyParts: unknown[];
+  deltaCount: number;
+  deltaSums: Record<string, number>;
+  deltaNonNullCounts: Record<string, number>;
+};
+
+export type AggregateExtremaDelta = {
+  keyHash: string;
+  fieldName: string;
+  value: unknown;
+  delta: number;
+};
+
+export type AggregateMemberWrite =
+  | { kind: 'none' }
+  | { kind: 'delete'; id: GenericId<any> }
+  | { kind: 'patch'; id: GenericId<any>; doc: Record<string, unknown> }
+  | { kind: 'insert'; doc: Record<string, unknown> };
+
+export type AggregateMembershipDelta = {
+  buckets: AggregateBucketDelta[];
+  extrema: AggregateExtremaDelta[];
+  member: AggregateMemberWrite;
+};
+
+const toExtremaDeltas = (
+  keyHash: string,
+  values: Record<string, unknown>,
+  delta: number
+): AggregateExtremaDelta[] =>
+  Object.entries(values).map(([fieldName, value]) => ({
+    keyHash,
+    fieldName,
+    value,
+    delta,
+  }));
+
+const accumulateNumberValues = (
+  target: Record<string, number>,
+  source: Record<string, number>
+): void => {
+  for (const [field, value] of Object.entries(source)) {
+    const next = (target[field] ?? 0) + value;
+    if (next === 0) {
+      delete target[field];
+      continue;
+    }
+    target[field] = next;
+  }
+};
+
+/**
+ * Pure half of aggregate reconciliation: works out what a single document's
+ * membership change implies, without touching the database. Callers batch these
+ * and flush once so a page of documents sharing a key tuple writes its bucket
+ * one time instead of once per document.
+ */
+const computeMembershipDelta = (
+  existing: CountMemberRow | null,
   params: {
     tableName: string;
     indexName: string;
@@ -2576,34 +2611,32 @@ export const reconcileAggregateMembership = async (
     keyParts: unknown[] | null;
     metricValues: AggregateMetricValues | null;
   }
-): Promise<void> => {
+): AggregateMembershipDelta => {
   const { tableName, indexName, docId, keyParts, metricValues } = params;
-  const existing = await getMemberByDoc(db, tableName, indexName, docId);
 
   if (!keyParts || !metricValues) {
-    if (existing) {
-      await applyBucketDelta(
-        db,
-        tableName,
-        indexName,
-        existing.keyParts,
-        -1,
-        negateSumValues(normalizeSumValues(existing.sumValues)),
-        negateCountValues(
-          normalizeNonNullCountValues(existing.nonNullCountValues)
-        )
-      );
-      await applyExtremaValuesDelta(
-        db,
-        tableName,
-        indexName,
+    if (!existing) {
+      return { buckets: [], extrema: [], member: { kind: 'none' } };
+    }
+    return {
+      buckets: [
+        {
+          keyHash: serializeCountKeyParts(existing.keyParts),
+          keyParts: existing.keyParts,
+          deltaCount: -1,
+          deltaSums: negateSumValues(normalizeSumValues(existing.sumValues)),
+          deltaNonNullCounts: negateCountValues(
+            normalizeNonNullCountValues(existing.nonNullCountValues)
+          ),
+        },
+      ],
+      extrema: toExtremaDeltas(
         existing.keyHash,
         normalizeExtremaValues(existing.extremaValues),
         -1
-      );
-      await db.delete(AGGREGATE_MEMBER_TABLE, existing._id as any);
-    }
-    return;
+      ),
+      member: { kind: 'delete', id: existing._id },
+    };
   }
 
   const normalizedKeyParts = keyParts.map((part) => normalizeUndefined(part));
@@ -2635,77 +2668,200 @@ export const reconcileAggregateMembership = async (
       normalizedNextExtremaValues
     )
   ) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      updatedAt: now,
-    });
-    return;
+    // Member row is value-identical. Nothing reads `updatedAt`, so writing it
+    // would be a document write carrying no information.
+    return { buckets: [], extrema: [], member: { kind: 'none' } };
   }
 
+  const buckets: AggregateBucketDelta[] = [];
+  const extrema: AggregateExtremaDelta[] = [];
+
   if (existing) {
-    await applyBucketDelta(
-      db,
-      tableName,
-      indexName,
-      existing.keyParts,
-      -1,
-      negateSumValues(normalizeSumValues(existing.sumValues)),
-      negateCountValues(
+    buckets.push({
+      keyHash: serializeCountKeyParts(existing.keyParts),
+      keyParts: existing.keyParts,
+      deltaCount: -1,
+      deltaSums: negateSumValues(normalizeSumValues(existing.sumValues)),
+      deltaNonNullCounts: negateCountValues(
         normalizeNonNullCountValues(existing.nonNullCountValues)
+      ),
+    });
+    extrema.push(
+      ...toExtremaDeltas(
+        existing.keyHash,
+        normalizeExtremaValues(existing.extremaValues),
+        -1
       )
     );
-    await applyExtremaValuesDelta(
-      db,
-      tableName,
-      indexName,
-      existing.keyHash,
-      normalizeExtremaValues(existing.extremaValues),
-      -1
-    );
   }
 
-  await applyBucketDelta(
-    db,
-    tableName,
-    indexName,
-    normalizedKeyParts,
-    1,
-    normalizedNextSumValues,
-    normalizedNextNonNullCountValues
-  );
-  await applyExtremaValuesDelta(
-    db,
-    tableName,
-    indexName,
+  buckets.push({
     keyHash,
-    normalizedNextExtremaValues,
-    1
-  );
+    keyParts: normalizedKeyParts,
+    deltaCount: 1,
+    deltaSums: normalizedNextSumValues,
+    deltaNonNullCounts: normalizedNextNonNullCountValues,
+  });
+  extrema.push(...toExtremaDeltas(keyHash, normalizedNextExtremaValues, 1));
 
-  if (existing) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      kind: AGGREGATE_STATE_KIND_METRIC,
-      keyHash,
-      keyParts: normalizedKeyParts,
-      sumValues: normalizedNextSumValues,
-      nonNullCountValues: normalizedNextNonNullCountValues,
-      extremaValues: normalizedNextExtremaValues,
-      updatedAt: now,
-    });
-    return;
-  }
-
-  await db.insert(AGGREGATE_MEMBER_TABLE, {
+  const memberFields = {
     kind: AGGREGATE_STATE_KIND_METRIC,
-    tableKey: tableName,
-    indexName,
-    docId,
     keyHash,
     keyParts: normalizedKeyParts,
     sumValues: normalizedNextSumValues,
     nonNullCountValues: normalizedNextNonNullCountValues,
     extremaValues: normalizedNextExtremaValues,
     updatedAt: now,
-  });
+  };
+
+  return {
+    buckets,
+    extrema,
+    member: existing
+      ? { kind: 'patch', id: existing._id, doc: memberFields }
+      : {
+          kind: 'insert',
+          doc: {
+            ...memberFields,
+            tableKey: tableName,
+            indexName,
+            docId,
+          },
+        },
+  };
+};
+
+export const computeAggregateMembershipDelta = async (
+  db: GenericDatabaseWriter<any>,
+  params: {
+    tableName: string;
+    indexName: string;
+    docId: string;
+    keyParts: unknown[] | null;
+    metricValues: AggregateMetricValues | null;
+  }
+): Promise<AggregateMembershipDelta> => {
+  const existing = await getMemberByDoc(
+    db,
+    params.tableName,
+    params.indexName,
+    params.docId
+  );
+  return computeMembershipDelta(existing, params);
+};
+
+/**
+ * Write half of aggregate reconciliation. Folds bucket deltas by key tuple and
+ * extrema deltas by (keyHash, field, value) so each storage document is read and
+ * written once regardless of how many source documents contributed to it.
+ */
+export const flushAggregateMembershipDeltas = async (
+  db: GenericDatabaseWriter<any>,
+  tableName: string,
+  indexName: string,
+  deltas: AggregateMembershipDelta[]
+): Promise<void> => {
+  const bucketDeltas = new Map<string, AggregateBucketDelta>();
+  const extremaDeltas = new Map<string, AggregateExtremaDelta>();
+
+  for (const delta of deltas) {
+    for (const bucket of delta.buckets) {
+      const current = bucketDeltas.get(bucket.keyHash);
+      if (!current) {
+        bucketDeltas.set(bucket.keyHash, {
+          keyHash: bucket.keyHash,
+          keyParts: bucket.keyParts,
+          deltaCount: bucket.deltaCount,
+          deltaSums: { ...bucket.deltaSums },
+          deltaNonNullCounts: { ...bucket.deltaNonNullCounts },
+        });
+        continue;
+      }
+      current.deltaCount += bucket.deltaCount;
+      accumulateNumberValues(current.deltaSums, bucket.deltaSums);
+      accumulateNumberValues(
+        current.deltaNonNullCounts,
+        bucket.deltaNonNullCounts
+      );
+    }
+
+    for (const entry of delta.extrema) {
+      const cacheKey = serializeStable([
+        entry.keyHash,
+        entry.fieldName,
+        serializeStable(entry.value),
+      ]);
+      const current = extremaDeltas.get(cacheKey);
+      if (!current) {
+        extremaDeltas.set(cacheKey, { ...entry });
+        continue;
+      }
+      current.delta += entry.delta;
+    }
+  }
+
+  for (const bucket of bucketDeltas.values()) {
+    await applyBucketDelta(
+      db,
+      tableName,
+      indexName,
+      bucket.keyParts,
+      bucket.deltaCount,
+      bucket.deltaSums,
+      bucket.deltaNonNullCounts
+    );
+  }
+
+  for (const entry of extremaDeltas.values()) {
+    await applyExtremaDelta(
+      db,
+      tableName,
+      indexName,
+      entry.keyHash,
+      entry.fieldName,
+      entry.value,
+      entry.delta
+    );
+  }
+
+  for (const delta of deltas) {
+    const member = delta.member;
+    if (member.kind === 'delete') {
+      await db.delete(AGGREGATE_MEMBER_TABLE, member.id as any);
+      continue;
+    }
+    if (member.kind === 'patch') {
+      await db.patch(
+        AGGREGATE_MEMBER_TABLE,
+        member.id as any,
+        member.doc as any
+      );
+      continue;
+    }
+    if (member.kind === 'insert') {
+      await db.insert(AGGREGATE_MEMBER_TABLE, member.doc as any);
+    }
+  }
+};
+
+/**
+ * Single-document reconciliation. Flushes eagerly so user code reading an
+ * aggregate later in the same mutation sees its own writes.
+ */
+export const reconcileAggregateMembership = async (
+  db: GenericDatabaseWriter<any>,
+  params: {
+    tableName: string;
+    indexName: string;
+    docId: string;
+    keyParts: unknown[] | null;
+    metricValues: AggregateMetricValues | null;
+  }
+): Promise<void> => {
+  const delta = await computeAggregateMembershipDelta(db, params);
+  await flushAggregateMembershipDeltas(db, params.tableName, params.indexName, [
+    delta,
+  ]);
 };
 
 export const computeCountKeyParts = (

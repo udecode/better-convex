@@ -1815,3 +1815,192 @@ describe('ORM count() with aggregateIndex', () => {
     });
   });
 });
+
+const trackWrites = (db: any) => {
+  const inserted: string[] = [];
+  const touched: string[] = [];
+  const originalInsert = db.insert.bind(db);
+  const originalPatch = db.patch.bind(db);
+  const originalReplace = db.replace.bind(db);
+  const originalDelete = db.delete.bind(db);
+  let recording = false;
+
+  db.insert = (...args: any[]) => {
+    if (recording) {
+      inserted.push(String(args[0]));
+    }
+    return originalInsert(...args);
+  };
+  const recordTouched = (args: any[]) => {
+    if (!recording) {
+      return;
+    }
+    for (const arg of args) {
+      if (typeof arg === 'string') {
+        touched.push(arg);
+      }
+    }
+  };
+  db.patch = (...args: any[]) => {
+    recordTouched(args);
+    return originalPatch(...args);
+  };
+  db.replace = (...args: any[]) => {
+    recordTouched(args);
+    return originalReplace(...args);
+  };
+  db.delete = (...args: any[]) => {
+    recordTouched(args);
+    return originalDelete(...args);
+  };
+
+  return {
+    start: () => {
+      recording = true;
+      inserted.length = 0;
+      touched.length = 0;
+    },
+    stop: () => {
+      recording = false;
+    },
+    insertsInto: (table: string) =>
+      inserted.filter((entry) => entry === table).length,
+    // `patch`/`delete` are called with either (table, id, ...) or (id, ...), so
+    // count every string argument that matches a known document id or table.
+    writesTouching: (ids: Set<string>) =>
+      touched.filter((entry) => ids.has(entry)).length,
+  };
+};
+
+const idsIn = async (db: any, table: string): Promise<Set<string>> =>
+  new Set(
+    (await db.query(table).collect()).map((row: any) => String(row._id))
+  );
+
+describe('aggregateIndex write amplification', () => {
+  const backfillToReady = async (api: any, db: any) => {
+    await (api as any).aggregateBackfill.handler(
+      { db, scheduler: schedulerStub },
+      {}
+    );
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const states = await (api as any).aggregateBackfillStatus.handler(
+        { db, scheduler: schedulerStub },
+        {}
+      );
+      if (states.every((entry: any) => entry.status === 'READY')) {
+        return;
+      }
+      await (api as any).aggregateBackfillChunk.handler(
+        { db, scheduler: schedulerStub },
+        {}
+      );
+    }
+    throw new Error('backfill did not reach READY');
+  };
+
+  it('writes nothing when an update touches no aggregated field', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await backfillToReady(api, baseCtx.db);
+
+      const id = await ctx.db.insert('countPosts', {
+        orgId: 'org-1',
+        title: 'first',
+      });
+
+      const aggregateIds = new Set([
+        ...(await idsIn(baseCtx.db, 'aggregate_member')),
+        ...(await idsIn(baseCtx.db, 'aggregate_bucket')),
+        ...(await idsIn(baseCtx.db, 'aggregate_extrema')),
+      ]);
+
+      const writes = trackWrites(baseCtx.db);
+
+      // `title` is not part of any aggregateIndex.
+      writes.start();
+      await ctx.db.patch(id as any, { title: 'second' });
+      writes.stop();
+
+      expect(writes.writesTouching(aggregateIds)).toBe(0);
+      expect(writes.insertsInto('aggregate_member')).toBe(0);
+      expect(writes.insertsInto('aggregate_bucket')).toBe(0);
+
+      // Control: changing the indexed field still reconciles.
+      writes.start();
+      await ctx.db.patch(id as any, { orgId: 'org-2' });
+      writes.stop();
+
+      expect(writes.writesTouching(aggregateIds)).toBeGreaterThan(0);
+
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-2' } })
+      ).toBe(1);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-1' } })
+      ).toBe(0);
+    });
+  });
+
+  it('writes one bucket per distinct key tuple per backfill chunk', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Seed through the raw db so no lifecycle hook pre-populates buckets.
+      const distinctOrgs = 3;
+      const rowCount = 30;
+      for (let i = 0; i < rowCount; i += 1) {
+        await baseCtx.db.insert('countPosts', {
+          orgId: `org-${i % distinctOrgs}`,
+          title: `post-${i}`,
+        });
+      }
+
+      const writes = trackWrites(baseCtx.db);
+      writes.start();
+      await backfillToReady(api, baseCtx.db);
+      writes.stop();
+
+      // One insert per distinct key tuple, and no per-document re-patching.
+      expect(writes.insertsInto('aggregate_bucket')).toBe(distinctOrgs);
+      const bucketIds = await idsIn(baseCtx.db, 'aggregate_bucket');
+      expect(writes.writesTouching(bucketIds)).toBe(0);
+      expect(writes.insertsInto('aggregate_member')).toBe(rowCount);
+
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(10);
+    });
+  });
+});

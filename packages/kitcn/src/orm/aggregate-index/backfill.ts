@@ -13,14 +13,16 @@ import {
 import {
   AGGREGATE_STATE_KIND_METRIC,
   AGGREGATE_STATE_KIND_RANK,
+  type AggregateMembershipDelta,
   COUNT_STATUS_BUILDING,
   COUNT_STATUS_READY,
   clearCountIndexData,
+  computeAggregateMembershipDelta,
   computeAggregateMetricValues,
   computeCountKeyParts,
+  flushAggregateMembershipDeltas,
   getCountState,
   listSchemaAggregateIndexes,
-  reconcileAggregateMembership,
   setCountState,
   setCountStateError,
 } from './runtime';
@@ -638,6 +640,10 @@ export function createCountBackfillHandlers(
           .withIndex('by_creation_time')
           .paginate({ cursor, numItems: batchSize });
 
+        // A page of documents typically shares a handful of key tuples, so
+        // deltas are accumulated and flushed once instead of reading and
+        // patching the same bucket document per document.
+        const pendingDeltas: AggregateMembershipDelta[] = [];
         for (const doc of page.page as Record<string, unknown>[]) {
           if (target.kind === 'rank') {
             await reconcileRankMembership(ctx.db, {
@@ -652,22 +658,33 @@ export function createCountBackfillHandlers(
               doc,
             });
           } else {
-            await reconcileAggregateMembership(ctx.db, {
-              tableName: target.tableName,
-              indexName: target.indexName,
-              docId: String((doc as any)._id),
-              keyParts: computeCountKeyParts(doc, target.fields),
-              metricValues: computeAggregateMetricValues(doc, {
-                name: target.indexName,
-                fields: target.fields,
-                countFields: target.countFields ?? [],
-                sumFields: target.sumFields ?? [],
-                avgFields: target.avgFields ?? [],
-                minFields: target.minFields ?? [],
-                maxFields: target.maxFields ?? [],
-              }),
-            });
+            pendingDeltas.push(
+              await computeAggregateMembershipDelta(ctx.db, {
+                tableName: target.tableName,
+                indexName: target.indexName,
+                docId: String((doc as any)._id),
+                keyParts: computeCountKeyParts(doc, target.fields),
+                metricValues: computeAggregateMetricValues(doc, {
+                  name: target.indexName,
+                  fields: target.fields,
+                  countFields: target.countFields ?? [],
+                  sumFields: target.sumFields ?? [],
+                  avgFields: target.avgFields ?? [],
+                  minFields: target.minFields ?? [],
+                  maxFields: target.maxFields ?? [],
+                }),
+              })
+            );
           }
+        }
+
+        if (pendingDeltas.length > 0) {
+          await flushAggregateMembershipDeltas(
+            ctx.db,
+            target.tableName,
+            target.indexName,
+            pendingDeltas
+          );
         }
 
         const now = Date.now();

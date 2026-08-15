@@ -435,9 +435,8 @@ export const reconcileRankMembership = async (
     stableEquals(existing.rankKey, key) &&
     (existing.rankSumValue ?? 0) === sumValue
   ) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      updatedAt: now,
-    });
+    // Member row is value-identical. Nothing reads `updatedAt`, so writing it
+    // would be a document write carrying no information.
     return;
   }
 
