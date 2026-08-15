@@ -233,7 +233,18 @@ export const isSessionSyncGraceActive = (
 /** Decode JWT expiration (ms timestamp) from token */
 export function decodeJwtExp(token: string): number | null {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const segment = token.split('.')[1];
+    if (!segment) {
+      return null;
+    }
+
+    // JWT segments are base64url; atob only accepts the standard alphabet.
+    const binary = atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
+    const payload = JSON.parse(
+      new TextDecoder().decode(
+        Uint8Array.from(binary, (char) => char.charCodeAt(0))
+      )
+    );
     return payload.exp ? payload.exp * 1000 : null;
   } catch {
     return null;

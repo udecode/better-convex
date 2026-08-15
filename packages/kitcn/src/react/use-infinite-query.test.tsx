@@ -41,7 +41,7 @@ describe('useInfiniteQuery', () => {
 
   function createOptions(opts: {
     args?: Record<string, unknown>;
-    enabled?: boolean;
+    enabled?: boolean | ((query: any) => boolean);
     limit?: number;
     skipUnauth?: boolean;
   }) {
@@ -147,7 +147,38 @@ describe('useInfiniteQuery', () => {
     expect(onQueryUnauthorized).toHaveBeenCalledTimes(0);
   });
 
-  test('prefetched first page bypasses auth-loading skip and passes initialData to useQueries', () => {
+  test('forwards a function-form enabled predicate to the page queries', () => {
+    const predicate = mock(() => false);
+
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    const options = createOptions({ enabled: predicate, limit: 2 });
+    renderHook(() => useInfiniteQuery(options), { wrapper });
+
+    expect(useQueriesCalls.length).toBeGreaterThan(0);
+    const pageEnabled = (useQueriesCalls[0].queries[0] as any).enabled;
+
+    // The predicate must survive all the way to useQueries, not be collapsed
+    // into a boolean by the enabled === false checks along the way.
+    expect(typeof pageEnabled).toBe('function');
+    expect(pageEnabled({} as any)).toBe(false);
+    expect(predicate).toHaveBeenCalled();
+  });
+
+  test('still disables page queries for a boolean enabled: false', () => {
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    const options = createOptions({ enabled: false, limit: 2 });
+    renderHook(() => useInfiniteQuery(options), { wrapper });
+
+    expect(useQueriesCalls.length).toBeGreaterThan(0);
+    // A boolean false skips before any page query is built.
+    expect(useQueriesCalls[0].queries).toHaveLength(0);
+  });
+
+  test('prefetched first page hydrates while auth loading without fetching', () => {
     useSafeConvexAuthSpy.mockImplementation(() => ({
       isLoading: true,
       isAuthenticated: false,
@@ -171,7 +202,7 @@ describe('useInfiniteQuery', () => {
     const firstCall = useQueriesCalls[0];
     expect(firstCall.queries).toHaveLength(1);
     expect((firstCall.queries[0] as any).initialData).toBe(prefetched);
-    expect((firstCall.queries[0] as any).enabled).toBe(true);
+    expect((firstCall.queries[0] as any).enabled).toBe(false);
   });
 
   test('does not split a native Convex page solely because it has a split cursor', () => {

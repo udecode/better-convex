@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CRPCClientError, isCRPCClientError } from '../crpc/error';
 import { convexQuery } from '../crpc/query-options';
 import { type ExtractPaginatedItem, FUNC_REF_SYMBOL } from '../crpc/types';
+import { resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useAuthValue, useSafeConvexAuth } from './auth-store';
@@ -299,8 +300,8 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, JSON.stringify(args), limit, queryClient]);
 
-  // Don't skip if we have prefetched data - use it for instant hydration
-  // Prefetched data bypasses both auth loading AND explicit disabled
+  // Build the first page when prefetched data exists so it can hydrate while
+  // auth is loading. The page-level enabled gate still blocks network work.
   const skip = !prefetchedFirstPage && (isAuthLoading || enabled === false);
 
   // Helper to get/set pagination state from queryClient with gcTime: Infinity
@@ -461,7 +462,9 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
 
         return {
           ...convexQuery(query, convexArgs as any, meta),
-          enabled: !skip && !!state.queries[key],
+          // Resolve the caller's `enabled` here so a predicate is evaluated
+          // per page instead of being collapsed into a boolean upstream.
+          enabled: resolveEnabled(!skip && !!state.queries[key], enabled),
           structuralSharing: false,
           // Apply TanStack Query options to all pages
           ...(queryOptions ?? {}),
@@ -486,6 +489,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
       state.pageKeys,
       state.queries,
       skip,
+      enabled,
       meta,
       queryOptions,
       prefetchedFirstPage,
@@ -761,8 +765,9 @@ export function useInfiniteQuery<
   const result = useInfiniteQueryInternal(query as any, args as any, {
     limit,
     ...(queryOptions as any),
-    // Internal hook handles prefetch detection and will bypass skip if data exists
-    enabled: !shouldSkip,
+    // Internal hook handles prefetch detection and will bypass skip if data exists.
+    // Forward a predicate untouched so the internal hook can resolve it per page.
+    enabled: resolveEnabled(!shouldSkip, factoryEnabled),
   });
 
   // Include auth loading in loading state for optional and required types

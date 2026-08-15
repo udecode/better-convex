@@ -11,6 +11,7 @@ import type {
   FunctionReference,
   FunctionReturnType,
 } from 'convex/server';
+import { defaultIsUnauthorized } from '../crpc/error';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import type { EmptyObject } from '../internal/upstream';
 import { buildMetaIndex } from '../shared/meta-utils';
@@ -40,7 +41,13 @@ type GetTokenFn = (
 type AuthOptions = {
   /** Function to extract auth token from request headers. */
   getToken: GetTokenFn;
-  /** Custom function to detect UNAUTHORIZED errors. Default checks code property. */
+  /**
+   * Custom function to detect UNAUTHORIZED errors.
+   * Set this to resolve those errors to `null` instead of throwing.
+   *
+   * Refreshing an expired cached token and retrying does not require this:
+   * that always falls back to `defaultIsUnauthorized`.
+   */
   isUnauthorized?: (error: unknown) => boolean;
 };
 
@@ -124,7 +131,14 @@ export function createCallerFactory<TApi extends Record<string, unknown>>(
   const siteUrl = parseConvexSiteUrl(opts.convexSiteUrl);
   const convexUrl = getConvexUrl(siteUrl, opts.convexUrl);
   const getToken = opts.auth?.getToken ?? noAuthGetToken;
-  const isUnauthorized = opts.auth?.isUnauthorized;
+  // Two distinct jobs, deliberately not sharing a predicate:
+  // - retry: defaults on, so an expired cached token still refreshes itself.
+  // - swallow-to-null: opt-in only, so authorization failures keep throwing
+  //   unless the app asked for them to be turned into null.
+  const isRetryableAuthError = opts.auth
+    ? (opts.auth.isUnauthorized ?? defaultIsUnauthorized)
+    : undefined;
+  const shouldReturnNullOnUnauthorized = opts.auth?.isUnauthorized;
   const crpcMeta = buildMetaIndex(opts.api);
 
   // Internal: call with token and retry logic
@@ -136,14 +150,15 @@ export function createCallerFactory<TApi extends Record<string, unknown>>(
     tokenResult: TokenResult,
     headers: Headers
   ): Promise<FunctionReturnType<Fn> | null> => {
-    const shouldRetryWithFreshToken = !!opts.auth && !tokenResult.isFresh;
+    const canRefreshToken = !!opts.auth && !tokenResult.isFresh;
 
     try {
       return await fn(tokenResult.token);
     } catch (error) {
-      // Only refresh when the initial token came from cache and may be stale.
-      if (!shouldRetryWithFreshToken) {
-        if (isUnauthorized?.(error)) {
+      // Only replay the call when the cached token may be the cause. Any other
+      // failure is surfaced as-is: mutations and actions are not idempotent.
+      if (!(canRefreshToken && isRetryableAuthError?.(error))) {
+        if (shouldReturnNullOnUnauthorized?.(error)) {
           return null;
         }
         throw error;
@@ -157,7 +172,7 @@ export function createCallerFactory<TApi extends Record<string, unknown>>(
       try {
         return await fn(newToken.token);
       } catch (retryError) {
-        if (isUnauthorized?.(retryError)) {
+        if (shouldReturnNullOnUnauthorized?.(retryError)) {
           return null;
         }
         throw retryError;

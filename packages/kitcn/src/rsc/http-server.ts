@@ -6,12 +6,9 @@
  */
 
 import type { QueryOptions } from '@tanstack/react-query';
+import { executeHttpRequest, type HttpInputArgs } from '../crpc/http-client';
 import type { HttpRouteInfo } from '../crpc/http-types';
-import type {
-  CombinedDataTransformer,
-  DataTransformerOptions,
-} from '../crpc/transformer';
-import { decodeWire } from '../crpc/transformer';
+import type { CombinedDataTransformer } from '../crpc/transformer';
 
 /** Metadata attached to HTTP query options for execution by QueryClient */
 export interface HttpQueryMeta {
@@ -42,72 +39,26 @@ export function buildHttpQueryOptions(
 /**
  * Execute an HTTP route fetch.
  * Called by getServerQueryClientOptions queryFn.
+ *
+ * Shares the browser client's request builder so a prefetched entry hydrates
+ * the client cache instead of being refetched from a different URL.
  */
 export async function fetchHttpRoute(
   convexSiteUrl: string,
   routeMeta: HttpQueryMeta,
   args: unknown,
-  token?: string,
-  transformer?: DataTransformerOptions | CombinedDataTransformer
+  token: string | undefined,
+  transformer: CombinedDataTransformer
 ): Promise<unknown> {
-  const url = buildUrl(
+  const result = await executeHttpRequest({
+    args: args as HttpInputArgs | undefined,
+    baseHeaders: token ? { Authorization: `Bearer ${token}` } : undefined,
     convexSiteUrl,
-    routeMeta.path,
-    args as Record<string, unknown>
-  );
-
-  const response = await fetch(url, {
-    method: routeMeta.method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    procedureName: `${routeMeta.method} ${routeMeta.path}`,
+    route: routeMeta,
+    transformer,
   });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-  }
-
-  // Handle empty responses
-  const contentLength = response.headers.get('content-length');
-  if (contentLength === '0' || response.status === 204) {
-    return null;
-  }
-
-  return decodeWire(await response.json(), transformer);
-}
-
-/**
- * Build URL with path params and query params.
- */
-function buildUrl(
-  convexSiteUrl: string,
-  pathTemplate: string,
-  args: Record<string, unknown>
-): string {
-  // Clone args to avoid mutation
-  const remaining = { ...args };
-
-  // Replace path params: /todos/:id -> /todos/123
-  const path = pathTemplate.replace(/:(\w+)/g, (_, key) => {
-    const value = remaining[key];
-    delete remaining[key];
-    return value !== null && value !== undefined
-      ? encodeURIComponent(String(value))
-      : '';
-  });
-
-  // Remaining args -> query params for GET
-  const queryEntries = Object.entries(remaining).filter(
-    ([_, v]) => v !== undefined && v !== null
-  );
-  if (queryEntries.length > 0) {
-    const params = new URLSearchParams();
-    for (const [key, value] of queryEntries) {
-      params.set(key, String(value));
-    }
-    return `${convexSiteUrl}${path}?${params.toString()}`;
-  }
-
-  return convexSiteUrl + path;
+  // TanStack Query rejects `undefined` as query data.
+  return result ?? null;
 }

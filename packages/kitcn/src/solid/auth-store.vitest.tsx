@@ -18,8 +18,10 @@ import {
 } from './auth-store';
 
 const makeJwt = (payload: Record<string, unknown>) => {
-  const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
-  const body = btoa(JSON.stringify(payload));
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT' })
+  ).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${header}.${body}.sig`;
 };
 
@@ -32,6 +34,21 @@ describe('decodeJwtExp', () => {
   test('returns null when exp claim is missing', () => {
     const token = makeJwt({ sub: 'user-1' });
     expect(decodeJwtExp(token)).toBeNull();
+  });
+
+  test('decodes base64url payloads carrying non-ASCII claims', () => {
+    // Better Auth embeds user.name/user.email in the Convex JWT payload, so
+    // multi-byte characters routinely push `-`/`_` into the payload segment.
+    const token = makeJwt({
+      email: 'zoe@example.com',
+      exp: 1_786_000_900,
+      name: 'Zoë 🌍 佐藤',
+      sessionId: 'sess_1',
+    });
+
+    const payload = token.split('.')[1] ?? '';
+    expect(payload.includes('-') || payload.includes('_')).toBe(true);
+    expect(decodeJwtExp(token)).toBe(1_786_000_900_000);
   });
 
   test('returns null for malformed tokens', () => {

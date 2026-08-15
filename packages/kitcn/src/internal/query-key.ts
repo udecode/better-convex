@@ -6,6 +6,8 @@
 
 import { convexToJson, type Value } from 'convex/values';
 
+import { encodeWire } from '../crpc/transformer';
+
 /**
  * Check if query key is for a Convex query function.
  * Format: ['convexQuery', 'namespace:functionName', { args }]
@@ -27,6 +29,14 @@ export function isConvexAction(
 }
 
 /**
+ * Serialize args the same way they go over the wire, so non-native Convex
+ * types the transformer supports (e.g. `Date`) can be hashed.
+ */
+function hashArgs(args: Record<string, unknown>): string {
+  return JSON.stringify(convexToJson(encodeWire(args) as Value));
+}
+
+/**
  * Create stable hash for Convex query keys.
  * Uses Convex's JSON serialization for consistent argument hashing.
  */
@@ -34,7 +44,7 @@ export function hashConvexQuery(
   queryKey: ['convexQuery', string, Record<string, unknown>]
 ): string {
   const [, funcName, args] = queryKey;
-  return `convexQuery|${funcName}|${JSON.stringify(convexToJson(args as Value))}`;
+  return `convexQuery|${funcName}|${hashArgs(args)}`;
 }
 
 /**
@@ -45,5 +55,5 @@ export function hashConvexAction(
   queryKey: ['convexAction', string, Record<string, unknown>]
 ): string {
   const [, funcName, args] = queryKey;
-  return `convexAction|${funcName}|${JSON.stringify(convexToJson(args as Value))}`;
+  return `convexAction|${funcName}|${hashArgs(args)}`;
 }

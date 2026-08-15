@@ -1,13 +1,26 @@
+import * as httpClient from '../crpc/http-client';
+import { HttpClientError } from '../crpc/http-types';
+import { getTransformer } from '../crpc/transformer';
 import { buildHttpQueryOptions, fetchHttpRoute } from './http-server';
 
-const HTTP_403_NOPE_RE = /HTTP 403: nope/;
+const jsonResponse = (body: unknown, init?: ResponseInit) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    ...init,
+    headers: { 'content-type': 'application/json', ...init?.headers },
+  });
+
+const defaultTransformer = getTransformer();
 
 describe('rsc/http-server', () => {
   let fetchSpy: ReturnType<typeof spyOn> | undefined;
+  let executeHttpRequestSpy: ReturnType<typeof spyOn> | undefined;
 
   afterEach(() => {
     fetchSpy?.mockRestore();
     fetchSpy = undefined;
+    executeHttpRequestSpy?.mockRestore();
+    executeHttpRequestSpy = undefined;
   });
 
   test('buildHttpQueryOptions matches client key format and stores route meta', () => {
@@ -21,42 +34,84 @@ describe('rsc/http-server', () => {
     expect(opts.meta).toEqual({ path: '/api/health', method: 'GET' });
   });
 
-  test('fetchHttpRoute builds URL with path params and query params, and sends auth header', async () => {
-    const mockFetch = Object.assign(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        expect(String(input)).toBe(
-          'https://example.convex.site/api/todos/a%20b?foo=bar&n=1'
-        );
+  test('fetchHttpRoute builds URL from params/searchParams and sends auth header', async () => {
+    const seen: { url: string; init?: RequestInit }[] = [];
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      seen.push({ url: String(input), init });
+      return jsonResponse({ ok: true });
+    }) as any);
 
-        expect(init?.method).toBe('GET');
-        expect(init?.headers).toMatchObject({
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer t0',
-        });
+    const args = {
+      params: { id: 'a b' },
+      searchParams: { foo: 'bar', tag: ['x', 'y'] },
+    };
 
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { 'content-length': '12' },
-        });
-      },
-      // Bun's fetch has extra static helpers like fetch.preconnect().
-      { preconnect: () => {} }
-    ) as typeof fetch;
-
-    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(mockFetch);
-
-    const args = { id: 'a b', foo: 'bar', n: 1, ignore: null };
     await expect(
       fetchHttpRoute(
         'https://example.convex.site',
         { path: '/api/todos/:id', method: 'GET' },
         args,
-        't0'
+        't0',
+        defaultTransformer
       )
     ).resolves.toEqual({ ok: true });
 
+    expect(seen[0]?.url).toBe(
+      'https://example.convex.site/api/todos/a%20b?foo=bar&tag=x&tag=y'
+    );
+    expect(seen[0]?.init?.method).toBe('GET');
+    expect(seen[0]?.init?.headers).toMatchObject({
+      Authorization: 'Bearer t0',
+    });
+
     // Ensure args are not mutated.
-    expect(args).toEqual({ id: 'a b', foo: 'bar', n: 1, ignore: null });
+    expect(args).toEqual({
+      params: { id: 'a b' },
+      searchParams: { foo: 'bar', tag: ['x', 'y'] },
+    });
+  });
+
+  test('fetchHttpRoute preserves a normalized transformer', async () => {
+    const transformer = getTransformer({
+      serialize: (value) => value,
+      deserialize: (value) => value,
+    });
+    executeHttpRequestSpy = spyOn(
+      httpClient,
+      'executeHttpRequest'
+    ).mockResolvedValue({ ok: true });
+
+    await fetchHttpRoute(
+      'https://example.convex.site',
+      { path: '/api/todos', method: 'POST' },
+      { title: 'Ship it' },
+      undefined,
+      transformer
+    );
+
+    expect(executeHttpRequestSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ transformer })
+    );
+  });
+
+  test('fetchHttpRoute decodes wire-tagged payloads', async () => {
+    fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ dueDate: { __crpc: 1, t: '$date', v: 1_700_000_000_000 } })
+    );
+
+    const result = (await fetchHttpRoute(
+      'https://example.convex.site',
+      { path: '/api/todos', method: 'GET' },
+      {},
+      undefined,
+      defaultTransformer
+    )) as { dueDate: Date };
+
+    expect(result.dueDate).toBeInstanceOf(Date);
+    expect(result.dueDate.getTime()).toBe(1_700_000_000_000);
   });
 
   test('fetchHttpRoute returns null for empty responses', async () => {
@@ -69,7 +124,8 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/health', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
     ).resolves.toBeNull();
 
@@ -83,14 +139,18 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/health', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
     ).resolves.toBeNull();
   });
 
-  test('fetchHttpRoute throws for non-ok responses and includes status and body', async () => {
+  test('fetchHttpRoute throws HttpClientError for non-ok responses', async () => {
     fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('nope', { status: 403 })
+      jsonResponse(
+        { error: { code: 'FORBIDDEN', message: 'nope' } },
+        { status: 403 }
+      )
     );
 
     await expect(
@@ -98,8 +158,12 @@ describe('rsc/http-server', () => {
         'https://example.convex.site',
         { path: '/api/secret', method: 'GET' },
         {},
-        undefined
+        undefined,
+        defaultTransformer
       )
-    ).rejects.toThrow(HTTP_403_NOPE_RE);
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+    } satisfies Partial<HttpClientError>);
   });
 });
