@@ -1,6 +1,10 @@
 import type { Duration } from './duration';
 
-export type RatelimitReason = 'timeout' | 'cacheBlock' | 'denyList';
+export type RatelimitReason =
+  | 'timeout'
+  | 'cacheBlock'
+  | 'denyList'
+  | 'requestTooLarge';
 
 export type RatelimitResponse = {
   success: boolean;
@@ -23,11 +27,20 @@ export type DynamicLimitResponse = {
   dynamicLimit: number | null;
 };
 
-export type RatelimitState = {
+export type RatelimitStoredState = {
   value: number;
   ts: number;
   auxValue?: number;
   auxTs?: number;
+};
+
+export type RatelimitShardState = {
+  shard: number;
+  state: RatelimitStoredState;
+};
+
+export type RatelimitState = RatelimitStoredState & {
+  shards?: RatelimitShardState[];
 };
 
 export type RatelimitSnapshot = {
@@ -35,6 +48,7 @@ export type RatelimitSnapshot = {
   ts: number;
   shard: number;
   config: ResolvedAlgorithm;
+  state: RatelimitState;
 };
 
 export type BaseAlgorithmOptions = {

@@ -1,8 +1,11 @@
 import { mutationGeneric, queryGeneric } from 'convex/server';
 import { v } from 'convex/values';
 import {
+  algorithmBudget,
+  algorithmCapacity,
   applyDynamicLimit,
   fixedWindow,
+  shardAlgorithm,
   slidingWindow,
   tokenBucket,
 } from './core/algorithms';
@@ -38,7 +41,14 @@ type EvaluationCandidate = {
   shard: number;
   state: RatelimitState | null;
   evaluated: ReturnType<typeof calculateRatelimit>;
+  retryAfter?: number;
   success: boolean;
+};
+
+type EvaluatedShard = {
+  shard: number;
+  perShard: ResolvedAlgorithm;
+  evaluated: ReturnType<typeof calculateRatelimit>;
 };
 
 export class Ratelimit {
@@ -58,6 +68,7 @@ export class Ratelimit {
   private readonly blockCache?: EphemeralBlockCache;
   private readonly blockCacheSource?: Map<string, number>;
   private readonly checkCache = createReadDedupeCache<RatelimitSnapshot>();
+  private cacheGeneration = 0;
 
   constructor(private readonly config: RatelimitConfig) {
     this.store = new ConvexRatelimitStore(config.db);
@@ -117,31 +128,29 @@ export class Ratelimit {
 
   async resetUsedTokens(identifier: string): Promise<void> {
     await this.store.deleteStates(this.prefix, identifier);
+    this.cacheGeneration += 1;
     this.checkCache.clear();
     if (this.blockCache) {
-      this.blockCache.clear(identifier);
+      this.blockCache.clear(this.blockKey(identifier));
     }
     clearProtection(this.prefix, identifier);
   }
 
   async getRemaining(identifier: string): Promise<RemainingResponse> {
-    const value = await this.getValue(identifier, {
-      sampleShards: this.limiter.shards,
-    });
-    const evaluated = calculateRatelimit(
-      {
-        value: value.value,
-        ts: value.ts,
-      },
-      value.config,
-      Date.now(),
-      0
+    const algorithm = await this.resolveAlgorithm();
+    const evaluated = await this.readShards(
+      identifier,
+      algorithm,
+      Array.from({ length: algorithm.shards }, (_, shard) => shard)
     );
 
     return {
-      remaining: Math.max(0, evaluated.remaining),
-      reset: evaluated.reset,
-      limit: evaluated.limit,
+      remaining: Math.max(
+        0,
+        evaluated.reduce((total, shard) => total + shard.evaluated.remaining, 0)
+      ),
+      reset: Math.min(...evaluated.map((shard) => shard.evaluated.reset)),
+      limit: algorithmBudget(algorithm),
     };
   }
 
@@ -149,6 +158,7 @@ export class Ratelimit {
     identifier: string,
     options?: { sampleShards?: number }
   ): Promise<RatelimitSnapshot> {
+    const cacheGeneration = this.cacheGeneration;
     const cacheKey = `${identifier}:${options?.sampleShards ?? 0}`;
     const cached = this.checkCache.get(cacheKey);
     if (cached) {
@@ -164,45 +174,98 @@ export class Ratelimit {
       Math.min(options?.sampleShards ?? 1, algorithm.shards)
     );
     const shards = pickSampleShards(algorithm.shards, sampleShards);
-    const now = Date.now();
+    const samples = await this.readShards(identifier, algorithm, shards);
 
-    let best: RatelimitSnapshot | null = null;
+    let sampledRemaining = 0;
+    let sampledCapacity = 0;
+    let sampledStateValue = 0;
+    let sampledAuxValue = 0;
+    let latestTs: number | null = null;
+    let latestAuxTs: number | null = null;
+    let fullestShard: number | null = null;
+    let fullestRemaining = Number.NEGATIVE_INFINITY;
 
-    for (const shard of shards) {
-      const state = normalizeState(
-        await this.store.getState(this.prefix, identifier, shard)
-      );
-      const evaluated = calculateRatelimit(state, algorithm, now, 0);
-      const value =
-        algorithm.kind === 'slidingWindow'
-          ? evaluated.remaining
-          : evaluated.state.value;
+    for (const { evaluated, perShard, shard } of samples) {
+      sampledRemaining += evaluated.remainingRaw;
+      sampledCapacity += algorithmCapacity(perShard);
+      sampledStateValue += evaluated.state.value;
+      sampledAuxValue += evaluated.state.auxValue ?? 0;
+      latestTs =
+        latestTs === null
+          ? evaluated.state.ts
+          : Math.max(latestTs, evaluated.state.ts);
+      if (evaluated.state.auxTs !== undefined) {
+        latestAuxTs =
+          latestAuxTs === null
+            ? evaluated.state.auxTs
+            : Math.max(latestAuxTs, evaluated.state.auxTs);
+      }
 
-      const current: RatelimitSnapshot = {
-        value,
-        ts: evaluated.state.ts,
-        shard,
-        config: algorithm,
-      };
-
-      if (!best || current.value > best.value) {
-        best = current;
+      if (evaluated.remainingRaw > fullestRemaining) {
+        fullestRemaining = evaluated.remainingRaw;
+        fullestShard = shard;
       }
     }
 
-    const result =
-      best ??
-      ({
-        value:
-          algorithm.kind === 'tokenBucket'
-            ? algorithm.maxTokens
-            : algorithm.limit,
-        ts: now,
-        shard: 0,
-        config: algorithm,
-      } as RatelimitSnapshot);
+    const result: RatelimitSnapshot =
+      fullestShard === null
+        ? {
+            value: algorithmCapacity(algorithm),
+            ts: Date.now(),
+            shard: 0,
+            config: algorithm,
+            state: {
+              value:
+                algorithm.kind === 'slidingWindow'
+                  ? 0
+                  : algorithmCapacity(algorithm),
+              ts: Date.now(),
+              shards: [],
+            },
+          }
+        : {
+            value: scaleToGlobal(
+              sampledRemaining,
+              sampledCapacity,
+              algorithmCapacity(algorithm)
+            ),
+            ts: latestTs ?? Date.now(),
+            shard: fullestShard,
+            config: algorithm,
+            state: {
+              value: scaleToGlobal(
+                sampledStateValue,
+                sampledCapacity,
+                algorithmCapacity(algorithm)
+              ),
+              ts: latestTs ?? Date.now(),
+              ...(algorithm.kind === 'slidingWindow'
+                ? {
+                    auxValue: scaleToGlobal(
+                      sampledAuxValue,
+                      sampledCapacity,
+                      algorithmCapacity(algorithm)
+                    ),
+                    auxTs:
+                      latestAuxTs ??
+                      (latestTs ?? Date.now()) - algorithm.window,
+                  }
+                : {}),
+              shards: samples.map(({ evaluated, shard }) => ({
+                shard,
+                state: {
+                  value: evaluated.state.value,
+                  ts: evaluated.state.ts,
+                  auxValue: evaluated.state.auxValue,
+                  auxTs: evaluated.state.auxTs,
+                },
+              })),
+            },
+          };
 
-    this.checkCache.set(cacheKey, Promise.resolve(result));
+    if (cacheGeneration === this.cacheGeneration) {
+      this.checkCache.set(cacheKey, Promise.resolve(result));
+    }
     return result;
   }
 
@@ -213,7 +276,17 @@ export class Ratelimit {
       );
     }
 
+    // Resolving throws when the override leaves a shard under one token, so an
+    // unservable budget is rejected here instead of denying every later request.
+    applyDynamicLimit(
+      this.limiter,
+      options.limit === false ? null : options.limit
+    );
+
     await this.store.setDynamicLimit(this.prefix, options.limit);
+    this.cacheGeneration += 1;
+    this.checkCache.clear();
+    this.blockCache?.clearAll();
   }
 
   async getDynamicLimit(): Promise<DynamicLimitResponse> {
@@ -238,6 +311,25 @@ export class Ratelimit {
           ts: v.number(),
           shard: v.number(),
           config: v.any(),
+          state: v.object({
+            value: v.number(),
+            ts: v.number(),
+            auxValue: v.optional(v.number()),
+            auxTs: v.optional(v.number()),
+            shards: v.optional(
+              v.array(
+                v.object({
+                  shard: v.number(),
+                  state: v.object({
+                    value: v.number(),
+                    ts: v.number(),
+                    auxValue: v.optional(v.number()),
+                    auxTs: v.optional(v.number()),
+                  }),
+                })
+              )
+            ),
+          }),
         }),
         handler: async (ctx, args): Promise<RatelimitSnapshot> => {
           const identifier = await resolveIdentifier(
@@ -274,6 +366,7 @@ export class Ratelimit {
     request: LimitRequest | CheckRequest | undefined,
     consume: boolean
   ): Promise<RatelimitResponse> {
+    const cacheGeneration = this.cacheGeneration;
     const deniedValue = this.enableProtection
       ? pickDeniedValue({
           prefix: this.prefix,
@@ -287,7 +380,7 @@ export class Ratelimit {
       return {
         success: false,
         ok: false,
-        limit: this.rawLimit(this.limiter),
+        limit: algorithmBudget(this.limiter),
         remaining: 0,
         reset: Date.now() + 60_000,
         pending: Promise.resolve(),
@@ -297,38 +390,111 @@ export class Ratelimit {
     }
 
     const algorithm = await this.resolveAlgorithm();
-    const count = consume ? normalizeCount(request) : 0;
-    const reserveRequested = consume && Boolean(request?.reserve);
+    const count = normalizeCount(request);
+    const reserveRequested = Boolean(request?.reserve);
 
-    if (this.blockCache && count > 0) {
-      const cacheKey = `${this.prefix}:${identifier}`;
-      const blocked = this.blockCache.isBlocked(cacheKey);
-      if (blocked.blocked) {
-        return {
-          success: false,
-          ok: false,
-          limit: this.rawLimit(algorithm),
-          remaining: 0,
-          reset: blocked.reset,
-          pending: Promise.resolve(),
-          reason: 'cacheBlock',
-        };
-      }
+    if (count > maximumRequestSize(algorithm, reserveRequested)) {
+      return {
+        success: false,
+        ok: false,
+        limit: algorithmBudget(algorithm),
+        remaining: 0,
+        reset: 0,
+        pending: Promise.resolve(),
+        reason: 'requestTooLarge',
+      };
     }
+
+    const picked = pickCandidateShards(algorithm.shards);
+    const attempted = new Set<number>();
+    let blockedUntil = Number.POSITIVE_INFINITY;
+
+    const findOpen = (shards: number[]): number[] => {
+      const open: number[] = [];
+      for (const shard of shards) {
+        attempted.add(shard);
+        const blocked =
+          this.blockCache && count > 0
+            ? this.blockCache.isBlocked(
+                this.blockKey(identifier),
+                shard,
+                count,
+                reserveRequested
+              )
+            : undefined;
+
+        if (blocked?.blocked) {
+          blockedUntil = Math.min(blockedUntil, blocked.reset);
+        } else {
+          open.push(shard);
+        }
+      }
+      return open;
+    };
 
     const now = Date.now();
     const candidates = await this.evaluateCandidates(
       identifier,
       algorithm,
+      findOpen(picked),
       now,
       count,
       reserveRequested
     );
+
+    if (!candidates.some((candidate) => candidate.success)) {
+      const fallback = Array.from(
+        { length: algorithm.shards },
+        (_, shard) => shard
+      ).filter((shard) => !attempted.has(shard));
+      candidates.push(
+        ...(await this.evaluateCandidates(
+          identifier,
+          algorithm,
+          findOpen(fallback),
+          now,
+          count,
+          reserveRequested
+        ))
+      );
+    }
+
+    if (candidates.length === 0) {
+      return {
+        success: false,
+        ok: false,
+        limit: algorithmBudget(algorithm),
+        remaining: 0,
+        reset: blockedUntil,
+        pending: Promise.resolve(),
+        reason: 'cacheBlock',
+      };
+    }
+
+    if (
+      consume &&
+      this.blockCache &&
+      count > 0 &&
+      cacheGeneration === this.cacheGeneration
+    ) {
+      for (const candidate of candidates) {
+        if (!candidate.success) {
+          this.blockCache.blockUntil(
+            this.blockKey(identifier),
+            candidate.shard,
+            count,
+            reserveRequested,
+            now + (candidate.retryAfter ?? 1)
+          );
+        }
+      }
+    }
+
     const successful = candidates.filter((candidate) => candidate.success);
 
     if (successful.length > 0) {
       const best = successful.sort(
-        (a, b) => b.evaluated.remaining - a.evaluated.remaining
+        (a, b) => b.evaluated.remainingRaw - a.evaluated.remainingRaw
       )[0];
 
       if (consume && count !== 0) {
@@ -338,19 +504,26 @@ export class Ratelimit {
           shard: best.shard,
           state: best.evaluated.state,
         });
+        this.cacheGeneration += 1;
       }
 
-      if (this.blockCache) {
-        this.blockCache.clear(`${this.prefix}:${identifier}`);
-      }
       clearProtection(this.prefix, identifier);
       this.checkCache.clear();
 
       return {
         success: true,
         ok: true,
-        limit: best.evaluated.limit,
-        remaining: best.evaluated.remaining,
+        limit: algorithmBudget(algorithm),
+        remaining: Math.max(
+          0,
+          Math.floor(
+            scaleToGlobal(
+              best.evaluated.remainingRaw,
+              algorithmCapacity(shardAlgorithm(algorithm, best.shard)),
+              algorithmCapacity(algorithm)
+            )
+          )
+        ),
         reset: best.evaluated.reset,
         pending: Promise.resolve(),
       };
@@ -358,19 +531,15 @@ export class Ratelimit {
 
     const failure =
       candidates
-        .filter((candidate) => candidate.evaluated.retryAfter !== undefined)
+        .filter((candidate) => candidate.retryAfter !== undefined)
         .sort(
           (a, b) =>
-            (a.evaluated.retryAfter ?? Number.MAX_SAFE_INTEGER) -
-            (b.evaluated.retryAfter ?? Number.MAX_SAFE_INTEGER)
+            (a.retryAfter ?? Number.MAX_SAFE_INTEGER) -
+            (b.retryAfter ?? Number.MAX_SAFE_INTEGER)
         )[0] ?? candidates[0];
 
-    const retryAfter = failure.evaluated.retryAfter ?? 1;
-    const reset = now + retryAfter;
-
-    if (consume && this.blockCache && count > 0) {
-      this.blockCache.blockUntil(`${this.prefix}:${identifier}`, reset);
-    }
+    const retryAfter = failure.retryAfter ?? 1;
+    const reset = Math.min(now + retryAfter, blockedUntil);
 
     if (consume && this.enableProtection) {
       recordRatelimitFailure({
@@ -384,48 +553,72 @@ export class Ratelimit {
     return {
       success: false,
       ok: false,
-      limit: failure.evaluated.limit,
+      limit: algorithmBudget(algorithm),
       remaining: 0,
       reset,
       pending: Promise.resolve(),
     };
   }
 
+  private blockKey(identifier: string): string {
+    return `${this.prefix}:${identifier}`;
+  }
+
+  private async readShards(
+    identifier: string,
+    algorithm: ResolvedAlgorithm,
+    shards: number[]
+  ): Promise<EvaluatedShard[]> {
+    const samples = await Promise.all(
+      shards.map(async (shard) => ({
+        perShard: shardAlgorithm(algorithm, shard),
+        shard,
+        state: normalizeState(
+          await this.store.getState(this.prefix, identifier, shard)
+        ),
+      }))
+    );
+
+    const now = Date.now();
+    return samples.map(({ perShard, shard, state }) => ({
+      shard,
+      perShard,
+      evaluated: calculateRatelimit(state, perShard, now, 0),
+    }));
+  }
+
   private async evaluateCandidates(
     identifier: string,
     algorithm: ResolvedAlgorithm,
+    shards: number[],
     now: number,
     count: number,
     reserveRequested: boolean
   ): Promise<EvaluationCandidate[]> {
-    const shards = pickCandidateShards(algorithm.shards);
+    return Promise.all(
+      shards.map(async (shard) => {
+        const perShard = shardAlgorithm(algorithm, shard);
+        const state = normalizeState(
+          await this.store.getState(this.prefix, identifier, shard)
+        );
+        const evaluated = calculateRatelimit(state, perShard, now, count);
+        const retryAfter = getRequestRetryAfter(
+          evaluated,
+          perShard,
+          now,
+          count,
+          reserveRequested
+        );
 
-    const result: EvaluationCandidate[] = [];
-
-    for (const shard of shards) {
-      const state = normalizeState(
-        await this.store.getState(this.prefix, identifier, shard)
-      );
-      const evaluated = calculateRatelimit(state, algorithm, now, count);
-
-      const canReserve =
-        reserveRequested &&
-        evaluated.retryAfter !== undefined &&
-        algorithm.kind !== 'slidingWindow' &&
-        (algorithm.maxReserved === undefined ||
-          Math.abs(evaluated.state.value) <= algorithm.maxReserved);
-
-      const success = evaluated.retryAfter === undefined || canReserve;
-
-      result.push({
-        shard,
-        state,
-        evaluated,
-        success,
-      });
-    }
-
-    return result;
+        return {
+          shard,
+          state,
+          evaluated,
+          retryAfter,
+          success: retryAfter === undefined,
+        };
+      })
+    );
   }
 
   private async resolveAlgorithm(): Promise<ResolvedAlgorithm> {
@@ -435,13 +628,6 @@ export class Ratelimit {
 
     const dynamicLimit = await this.store.getDynamicLimit(this.prefix);
     return applyDynamicLimit(this.limiter, dynamicLimit);
-  }
-
-  private rawLimit(algorithm: ResolvedAlgorithm): number {
-    if (algorithm.kind === 'tokenBucket') {
-      return algorithm.maxTokens;
-    }
-    return algorithm.limit;
   }
 
   private async runWithTimeout(
@@ -477,6 +663,92 @@ export class Ratelimit {
       reason: 'timeout',
     };
   }
+}
+
+function maximumRequestSize(
+  algorithm: ResolvedAlgorithm,
+  reserveRequested: boolean
+): number {
+  let maximum = 0;
+  for (let shard = 0; shard < algorithm.shards; shard += 1) {
+    const perShard = shardAlgorithm(algorithm, shard);
+    maximum = Math.max(
+      maximum,
+      algorithmCapacity(perShard) +
+        reservationHeadroom(perShard, reserveRequested)
+    );
+  }
+  return maximum;
+}
+
+function reservationHeadroom(
+  algorithm: ResolvedAlgorithm,
+  reserveRequested: boolean
+): number {
+  if (!reserveRequested || algorithm.kind === 'slidingWindow') {
+    return 0;
+  }
+  return algorithm.maxReserved ?? Number.POSITIVE_INFINITY;
+}
+
+function getRequestRetryAfter(
+  evaluated: ReturnType<typeof calculateRatelimit>,
+  algorithm: ResolvedAlgorithm,
+  now: number,
+  count: number,
+  reserveRequested: boolean
+): number | undefined {
+  const reservation = reservationHeadroom(algorithm, reserveRequested);
+  if (count > algorithmCapacity(algorithm) + reservation) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (
+    !reserveRequested ||
+    evaluated.retryAfter === undefined ||
+    algorithm.kind === 'slidingWindow'
+  ) {
+    return evaluated.retryAfter;
+  }
+
+  if (algorithm.maxReserved === undefined) {
+    return undefined;
+  }
+
+  const excessDebt =
+    -evaluated.remainingRaw - Math.max(0, algorithm.maxReserved);
+  if (excessDebt <= 0) {
+    return undefined;
+  }
+
+  if (algorithm.kind === 'tokenBucket') {
+    return Math.ceil(excessDebt / (algorithm.refillRate / algorithm.interval));
+  }
+
+  return Math.max(
+    1,
+    evaluated.state.ts +
+      algorithm.window * Math.ceil(excessDebt / algorithm.limit) -
+      now
+  );
+}
+
+/**
+ * Project the tokens left on the sampled shards onto the full budget.
+ *
+ * Sampling every shard adds up to the real global balance, so it is returned
+ * untouched. A partial sample is scaled by the share of the budget it covers,
+ * which assumes the unread shards are drained like the ones that were read.
+ */
+function scaleToGlobal(
+  remaining: number,
+  sampledBudget: number,
+  totalBudget: number
+): number {
+  if (sampledBudget <= 0 || sampledBudget >= totalBudget) {
+    return remaining;
+  }
+  return remaining * (totalBudget / sampledBudget);
 }
 
 function normalizeCount(request?: LimitRequest | CheckRequest): number {

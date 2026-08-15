@@ -76,8 +76,8 @@ Closure matrix:
 | changeset | yes | Minor changeset names Convex/HTTP middleware and raw-input behavior | complete |
 | agent workflow | no | N/A: no agent action | N/A |
 | cleanup/review | yes | Deslop tradeoff audited; autoreview clean at 0.98 | complete |
-| repository check | yes | `bun check` | pending |
-| GitHub delivery | yes | PR 320 update/merge/read-back | pending |
+| repository check | yes | Exact final-tree `bun check` | complete |
+| GitHub delivery | yes | PR 320 merged as `799dc4f8` | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -85,8 +85,8 @@ Work Checklist:
 - [x] Generated output is N/A: no generated owner is touched.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner: none.
 - [x] Agent-native pack: no rule/generated mirror changed.
 - [x] Agent-native pack: no agent action changed; discoverability N/A.
 - [x] Agent-native pack: mirror sync N/A.
@@ -109,10 +109,10 @@ Completion Gates:
 | Deslop | yes | Run changed-file cleanup review | Score +2.06; one fan-out finding accepted for canonical shared runner |
 | Agent-native reviewer | no | N/A: no agent-facing change | Applicability audit recorded |
 | Final lint | yes | Run `bun lint:fix` | passed: 880 files; one formatting fix applied |
-| Repository check | yes | Run `bun check` | pending |
-| GitHub delivery | yes | Update, squash-merge, read back | pending |
+| Repository check | yes | Run `bun check` | passed on exact `764b98fa` tree |
+| GitHub delivery | yes | Update, squash-merge, read back | merged as `799dc4f8` |
 | Autoreview | yes | Resolve every accepted actionable finding | clean at 0.98; zero actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/320-close-crpc-correctness-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/320-close-crpc-correctness-pr.md` | passed |
 | Agent source / generated sync | no | N/A: no agent source/mirror | N/A |
 | Installed lock audit | no | N/A: no skill state change | N/A |
 | Agent action discoverability | no | N/A: no agent action | N/A |
@@ -124,9 +124,9 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | VISION, PR, changeset, source, tests, checks, and four threads read | repair |
 | Repair | complete | Rebased onto `b80d7340`; fixed both live HTTP findings with TDD | review |
-| Review/checks | in_progress | Focused tests, build, typecheck, lint, deslop, and autoreview pass | exact check |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Review/checks | complete | Focused tests, build, typecheck, lint, deslop, autoreview, and exact check pass | delivery |
+| Delivery | complete | CI 8m18 and Vercel passed; four threads resolved; squash-merged | final audit |
+| Closeout | complete | Merge receipt and no-release state read back | final |
 
 Verification evidence:
 - Pre-rebase PR 320 CI/Vercel green; stale after rebasing onto PR 322 merge.
@@ -142,23 +142,30 @@ Verification evidence:
 - Deslop score improves by 2.06; the one new directory fan-out occurrence is
   accepted because a canonical shared runner is safer than duplicated recursion.
 - Final autoreview reports zero actionable findings at 0.98 confidence.
+- Exact final-tree `bun check` passed at `764b98fa00544ab2d62e7244440295e6dc631ce8`.
+- GitHub CI passed in 8m18, Vercel passed, and all four review threads were
+  resolved before merge.
+- PR 320 was squash-merged at 2026-08-14T21:56:25Z as
+  `799dc4f80ab998646fd1960fbf82d6f536e5317a`; auto-release remained unchecked.
 
 Timeline:
 - 2026-08-14T18:17:54.952Z Autoclosure plan created.
 - 2026-08-14T23:35:00+02:00 Rebased onto PR 322, closed both live HTTP
   findings with red-to-green tests, and completed pre-gate review proof.
+- 2026-08-14T23:56:25+02:00 Passed exact check and remote gates, resolved all
+  threads, and squash-merged without triggering a release.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Exact repository gate, delivery, final audit |
+| Where am I? | Complete |
+| Where am I going? | PR 319 closure |
 | What is the goal? | Merge proven cRPC validation, middleware, and HTTP correctness |
 | What have I learned? | HTTP and Convex middleware need one terminal-chain owner |
-| What have I done? | Rebased, repaired both live findings, and proved focused behavior |
+| What have I done? | Proved, reviewed, checked, delivered, and read back PR 320 |
 
 Open risks:
-- GitHub CI and final merge receipt remain pending.
+- None within PR 320.
 
 Findings:
 - cRPC error identity crosses a Convex syscall boundary and needs behavior-level tests.

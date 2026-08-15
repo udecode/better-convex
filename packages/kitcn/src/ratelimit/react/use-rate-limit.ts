@@ -1,7 +1,10 @@
 import { useConvex, useQuery } from 'convex/react';
 import { type FunctionReference, makeFunctionReference } from 'convex/server';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateRatelimit } from '../core/calculate-rate-limit';
+import {
+  calculateRatelimit,
+  snapshotToState,
+} from '../core/calculate-rate-limit';
 import type {
   HookCheckValue,
   RatelimitSnapshot,
@@ -94,10 +97,11 @@ export function useRatelimit(
         ts: evaluation.ts - timeOffset,
         config: ratelimitData.config,
         shard: ratelimitData.shard,
-        ok: evaluation.value >= 0,
-        retryAt: evaluation.retryAfter
-          ? serverTs + evaluation.retryAfter - timeOffset
-          : undefined,
+        ok: evaluation.retryAfter === undefined,
+        retryAt:
+          evaluation.retryAfter === undefined
+            ? undefined
+            : serverTs + evaluation.retryAfter - timeOffset,
       };
     },
     [count, ratelimitData, timeOffset]
@@ -109,7 +113,7 @@ export function useRatelimit(
       return { status: undefined, check };
     }
 
-    if (current.value < 0) {
+    if (!current.ok) {
       return {
         status: { ok: false as const, retryAt: current.retryAt! },
         check,
@@ -123,7 +127,11 @@ export function useRatelimit(
   }, [check, current]);
 
   useEffect(() => {
-    if (response.status?.ok !== false || !response.status.retryAt) {
+    if (
+      response.status?.ok !== false ||
+      !response.status.retryAt ||
+      !Number.isFinite(response.status.retryAt)
+    ) {
       return;
     }
 
@@ -162,20 +170,8 @@ function evaluateSnapshot(
   now: number,
   count: number
 ): { value: number; ts: number; retryAfter?: number } {
-  const baseState =
-    snapshot.config.kind === 'slidingWindow'
-      ? {
-          // hookAPI snapshots for sliding windows expose "remaining" at read time.
-          // Rebuild a conservative state so checks can recover as time advances.
-          value: Math.max(0, snapshot.config.limit - snapshot.value),
-          ts: snapshot.ts,
-        }
-      : {
-          value: snapshot.value,
-          ts: snapshot.ts,
-        };
   const evaluated = calculateRatelimit(
-    baseState,
+    snapshotToState(snapshot),
     snapshot.config as ResolvedAlgorithm,
     now,
     count
