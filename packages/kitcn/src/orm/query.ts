@@ -10,40 +10,21 @@
 import type { GenericDatabaseReader } from 'convex/server';
 import { compareValues } from 'convex/values';
 import {
-  compileRankPlan,
-  ensureRankAllowedForRls,
-  ensureRankIndexReady,
-  readRankAt,
-  readRankCount,
-  readRankIndexOf,
-  readRankMax,
-  readRankMin,
-  readRankPaginate,
-  readRankRandom,
-  readRankSum,
-} from './aggregate-index/rank-runtime';
-import type { PlanBucketReadCache } from './aggregate-index/runtime';
-import {
   AGGREGATE_ERROR,
   COUNT_ERROR,
-  compileAggregateQueryPlan,
-  compileCountFieldQueryPlan,
-  compileCountQueryPlan,
   createAggregateError,
   createCountError,
   ensureAggregateAllowedForRls,
-  ensureAggregateIndexReady,
   ensureCountAllowedForRls,
-  ensureCountIndexReady,
-  isAggregatePlanZero,
-  isIndexCountZero,
-  readAverageFromBuckets,
-  readCountFieldFromBuckets,
-  readCountFromBuckets,
-  readExtremaFromBuckets,
-  readSumFromBuckets,
-} from './aggregate-index/runtime';
+} from './aggregate-index/errors';
+// Value-level imports of the aggregate-index runtime would put ~7k lines of
+// btree/backfill code in every Convex function bundle. The runtime arrives
+// through the aggregate capability instead; these stay type-only so the module
+// graph edge is erased. See ./capabilities.
+import type { PlanBucketReadCache } from './aggregate-index/runtime';
 import { type ColumnBuilder, entityKind } from './builders/column-builder';
+import type { OrmAggregateCapability } from './capabilities';
+import { requireAggregateCapability } from './capabilities';
 import { OrmNotFoundError } from './errors';
 import type { EdgeMetadata } from './extractRelationsConfig';
 import type {
@@ -334,36 +315,44 @@ export class GelRankQuery<
   ) {}
 
   private async _plan() {
-    ensureRankAllowedForRls(this.tableConfig, this.rls?.mode);
-    const plan = compileRankPlan(
+    const aggregate = requireAggregateCapability(
+      getOrmContext(this.db as any)?.capabilities,
+      'rank()'
+    );
+    aggregate.ensureRankAllowedForRls(this.tableConfig, this.rls?.mode);
+    const plan = aggregate.compileRankPlan(
       this.tableConfig,
       this.indexName,
       this.config.where
     );
-    await ensureRankIndexReady(this.db, this.tableConfig.name, this.indexName);
-    return plan;
+    await aggregate.ensureRankIndexReady(
+      this.db,
+      this.tableConfig.name,
+      this.indexName
+    );
+    return { aggregate, plan };
   }
 
   async count(): Promise<number> {
-    const plan = await this._plan();
-    return await readRankCount(this.db, plan);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankCount(this.db, plan);
   }
 
   async sum(): Promise<number> {
-    const plan = await this._plan();
-    return await readRankSum(this.db, plan);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankSum(this.db, plan);
   }
 
   async at(
     offset: number
   ): Promise<{ id: string; key: unknown; sumValue: number } | null> {
-    const plan = await this._plan();
-    return await readRankAt(this.db, plan, offset);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankAt(this.db, plan, offset);
   }
 
   async indexOf(args: { id: string }): Promise<number> {
-    const plan = await this._plan();
-    return await readRankIndexOf(this.db, plan, args);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankIndexOf(this.db, plan, args);
   }
 
   async paginate(args: { cursor?: string | null; limit: number }): Promise<{
@@ -374,8 +363,8 @@ export class GelRankQuery<
     if (!Number.isInteger(args.limit) || args.limit < 1) {
       throw new Error('rank().paginate() requires a positive integer limit.');
     }
-    const plan = await this._plan();
-    return await readRankPaginate(
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankPaginate(
       this.db,
       plan,
       args.cursor ?? null,
@@ -384,13 +373,13 @@ export class GelRankQuery<
   }
 
   async min(): Promise<{ id: string; key: unknown; sumValue: number } | null> {
-    const plan = await this._plan();
-    return await readRankMin(this.db, plan);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankMin(this.db, plan);
   }
 
   async max(): Promise<{ id: string; key: unknown; sumValue: number } | null> {
-    const plan = await this._plan();
-    return await readRankMax(this.db, plan);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankMax(this.db, plan);
   }
 
   async random(): Promise<{
@@ -398,8 +387,8 @@ export class GelRankQuery<
     key: unknown;
     sumValue: number;
   } | null> {
-    const plan = await this._plan();
-    return await readRankRandom(this.db, plan);
+    const { aggregate, plan } = await this._plan();
+    return await aggregate.readRankRandom(this.db, plan);
   }
 }
 
@@ -456,6 +445,20 @@ export class GelRelationalQuery<
   ) {
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
+  }
+
+  /**
+   * The aggregate-index runtime, registered at `createOrm()`.
+   *
+   * Only `count()`, `aggregate()` and relation counts reach this; plain reads
+   * never touch the aggregate runtime, which is why it is injected rather than
+   * statically imported.
+   */
+  private _aggregate(usage: string): OrmAggregateCapability {
+    return requireAggregateCapability(
+      getOrmContext(this.db as any)?.capabilities,
+      usage
+    );
   }
 
   private _usesSystemCreatedAtAlias(
@@ -3262,14 +3265,12 @@ export class GelRelationalQuery<
       return;
     }
 
-    const pending = ensureCountIndexReady(
-      this.db as any,
-      tableName,
-      indexName
-    ).catch((error) => {
-      this._countIndexReadinessByKey.delete(key);
-      throw error;
-    });
+    const pending = this._aggregate('count()')
+      .ensureCountIndexReady(this.db as any, tableName, indexName)
+      .catch((error) => {
+        this._countIndexReadinessByKey.delete(key);
+        throw error;
+      });
 
     this._countIndexReadinessByKey.set(key, pending);
     await pending;
@@ -3286,14 +3287,12 @@ export class GelRelationalQuery<
       return;
     }
 
-    const pending = ensureAggregateIndexReady(
-      this.db as any,
-      tableName,
-      indexName
-    ).catch((error) => {
-      this._aggregateIndexReadinessByKey.delete(key);
-      throw error;
-    });
+    const pending = this._aggregate('aggregate()')
+      .ensureAggregateIndexReady(this.db as any, tableName, indexName)
+      .catch((error) => {
+        this._aggregateIndexReadinessByKey.delete(key);
+        throw error;
+      });
 
     this._aggregateIndexReadinessByKey.set(key, pending);
     await pending;
@@ -3334,6 +3333,8 @@ export class GelRelationalQuery<
   ): Promise<number> {
     ensureCountAllowedForRls(this.tableConfig, this.rls?.mode as any);
 
+    // An unfiltered count is served by the native Convex syscall and needs no
+    // aggregate index, so it must not require the aggregate capability.
     if (this._isEmptyWhere(where)) {
       const nativeCount = await this._tryNativeUnfilteredCount();
       if (nativeCount !== null) {
@@ -3345,12 +3346,17 @@ export class GelRelationalQuery<
       );
     }
 
-    const plan = compileCountQueryPlan(this.tableConfig, where);
-    if (isIndexCountZero(plan)) {
+    const aggregate = this._aggregate('A filtered count()');
+    const plan = aggregate.compileCountQueryPlan(this.tableConfig, where);
+    if (aggregate.isIndexCountZero(plan)) {
       return 0;
     }
     await this._ensureCountIndexReadyOnce(plan.tableName, plan.indexName);
-    return await readCountFromBuckets(this.db as any, plan, bucketCache);
+    return await aggregate.readCountFromBuckets(
+      this.db as any,
+      plan,
+      bucketCache
+    );
   }
 
   private async _executeCount(
@@ -3379,18 +3385,26 @@ export class GelRelationalQuery<
       );
     }
 
+    if (select.fields.length === 0) {
+      return result;
+    }
+
+    const aggregate = this._aggregate('count({ select: { field: true } })');
     const fieldEntries = await Promise.all(
       select.fields.map(async (field) => {
-        const plan = compileCountFieldQueryPlan(
+        const plan = aggregate.compileCountFieldQueryPlan(
           this.tableConfig,
           normalizedWhere,
           field
         );
-        if (isAggregatePlanZero(plan)) {
+        if (aggregate.isAggregatePlanZero(plan)) {
           return [field, 0] as const;
         }
         await this._ensureCountIndexReadyOnce(plan.tableName, plan.indexName);
-        const value = await readCountFieldFromBuckets(this.db as any, plan);
+        const value = await aggregate.readCountFieldFromBuckets(
+          this.db as any,
+          plan
+        );
         return [field, value] as const;
       })
     );
@@ -3605,6 +3619,7 @@ export class GelRelationalQuery<
     config: any
   ): Promise<Record<string, unknown>> {
     const normalized = this._coerceAggregateConfig(config);
+    const aggregate = this._aggregate('aggregate()');
     ensureAggregateAllowedForRls(
       this.tableConfig,
       this.rls?.mode as any,
@@ -3661,12 +3676,12 @@ export class GelRelationalQuery<
 
             countTasks.push(
               ...countSelection.fields.map(async (field) => {
-                const plan = compileAggregateQueryPlan(
+                const plan = aggregate.compileAggregateQueryPlan(
                   this.tableConfig,
                   normalized.where,
                   { kind: 'countField', field }
                 );
-                if (isAggregatePlanZero(plan)) {
+                if (aggregate.isAggregatePlanZero(plan)) {
                   countResult[field] = 0;
                   return;
                 }
@@ -3674,7 +3689,7 @@ export class GelRelationalQuery<
                   plan.tableName,
                   plan.indexName
                 );
-                countResult[field] = await readCountFieldFromBuckets(
+                countResult[field] = await aggregate.readCountFieldFromBuckets(
                   this.db as any,
                   plan,
                   bucketReadCache
@@ -3694,19 +3709,19 @@ export class GelRelationalQuery<
         (async () => {
           const sumEntries = await Promise.all(
             normalized.sumFields.map(async (field) => {
-              const plan = compileAggregateQueryPlan(
+              const plan = aggregate.compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'sum', field }
               );
-              if (isAggregatePlanZero(plan)) {
+              if (aggregate.isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await readSumFromBuckets(
+              const value = await aggregate.readSumFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3724,19 +3739,19 @@ export class GelRelationalQuery<
         (async () => {
           const avgEntries = await Promise.all(
             normalized.avgFields.map(async (field) => {
-              const plan = compileAggregateQueryPlan(
+              const plan = aggregate.compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'avg', field }
               );
-              if (isAggregatePlanZero(plan)) {
+              if (aggregate.isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await readAverageFromBuckets(
+              const value = await aggregate.readAverageFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3754,19 +3769,19 @@ export class GelRelationalQuery<
         (async () => {
           const minEntries = await Promise.all(
             normalized.minFields.map(async (field) => {
-              const plan = compileAggregateQueryPlan(
+              const plan = aggregate.compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'min', field }
               );
-              if (isAggregatePlanZero(plan)) {
+              if (aggregate.isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await readExtremaFromBuckets(
+              const value = await aggregate.readExtremaFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3787,19 +3802,19 @@ export class GelRelationalQuery<
         (async () => {
           const maxEntries = await Promise.all(
             normalized.maxFields.map(async (field) => {
-              const plan = compileAggregateQueryPlan(
+              const plan = aggregate.compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'max', field }
               );
-              if (isAggregatePlanZero(plan)) {
+              if (aggregate.isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await readExtremaFromBuckets(
+              const value = await aggregate.readExtremaFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -7289,14 +7304,15 @@ export class GelRelationalQuery<
     where: Record<string, unknown>,
     relationPath: string
   ): Promise<number> {
+    const aggregate = this._aggregate('_count on a relation');
     ensureCountAllowedForRls(tableConfig, this.rls?.mode as any);
     try {
-      const plan = compileCountQueryPlan(tableConfig, where);
-      if (isIndexCountZero(plan)) {
+      const plan = aggregate.compileCountQueryPlan(tableConfig, where);
+      if (aggregate.isIndexCountZero(plan)) {
         return 0;
       }
       await this._ensureCountIndexReadyOnce(plan.tableName, plan.indexName);
-      return await readCountFromBuckets(this.db as any, plan);
+      return await aggregate.readCountFromBuckets(this.db as any, plan);
     } catch (error) {
       throw this._remapRelationCountError(error, relationPath);
     }
@@ -7310,6 +7326,7 @@ export class GelRelationalQuery<
     tableConfig: TableRelationalConfig
   ): Promise<number> {
     const relationPath = `${tableConfig.name}.${relationName}`;
+    const aggregate = this._aggregate('_count on a relation');
 
     if (edge.through) {
       const throughTableConfig = this._getTableConfigByDbName(
@@ -7359,11 +7376,11 @@ export class GelRelationalQuery<
 
       const whereRecord = where as Record<string, unknown>;
       try {
-        const filterPlan = compileCountQueryPlan(
+        const filterPlan = aggregate.compileCountQueryPlan(
           targetTableConfig,
           whereRecord
         );
-        if (isIndexCountZero(filterPlan)) {
+        if (aggregate.isIndexCountZero(filterPlan)) {
           return 0;
         }
         await this._ensureCountIndexReadyOnce(

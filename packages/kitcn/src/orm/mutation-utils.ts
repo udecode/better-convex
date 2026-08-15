@@ -8,6 +8,7 @@ import type {
   ColumnBuilder,
   ForeignKeyAction,
 } from './builders/column-builder';
+import type { OrmCapabilities } from './capabilities';
 import type { EdgeMetadata } from './extractRelationsConfig';
 import type {
   BinaryExpression,
@@ -74,6 +75,7 @@ export type ForeignKeyGraph = {
 };
 
 export type OrmContextValue = {
+  capabilities?: OrmCapabilities;
   foreignKeyGraph?: ForeignKeyGraph;
   schema?: TablesRelationalConfig;
   edgeMetadata?: EdgeMetadata[];

@@ -18,6 +18,7 @@ import type {
   SchedulableFunctionReference,
   Scheduler,
 } from 'convex/server';
+import type { OrmCapabilities } from './capabilities';
 import { ConvexDeleteBuilder } from './delete';
 import type { EdgeMetadata } from './extractRelationsConfig';
 import { ConvexInsertBuilder } from './insert';
@@ -91,6 +92,8 @@ export type OrmWriter<TSchema extends TablesRelationalConfig> =
   };
 
 export type CreateDatabaseOptions = {
+  /** Optional subsystems registered at `createOrm()`. See `./capabilities`. */
+  capabilities?: OrmCapabilities;
   scheduler?: Scheduler;
   scheduledDelete?: SchedulableFunctionReference;
   scheduledMutationBatch?: SchedulableFunctionReference;
@@ -158,6 +161,7 @@ export function createDatabase<TSchema extends TablesRelationalConfig>(
       scheduledMutationBatch: options?.scheduledMutationBatch,
     });
     const ormContext: OrmContextValue = {
+      capabilities: options?.capabilities,
       foreignKeyGraph: buildForeignKeyGraph(schema),
       schema,
       edgeMetadata,

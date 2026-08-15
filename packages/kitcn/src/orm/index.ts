@@ -71,11 +71,6 @@ export {
   pretend,
   pretendRequired,
 } from '../internal/upstream/validators';
-export type {
-  CountBackfillChunkArgs,
-  CountBackfillKickoffArgs,
-  CountBackfillStatusArgs,
-} from './aggregate-index/backfill';
 // M6: Column Builders (Drizzle-style)
 export type {
   AnyColumn,
@@ -133,6 +128,12 @@ export {
   unionOf,
   vector,
 } from './builders';
+export type {
+  OrmAggregateCapability,
+  OrmCapabilities,
+  OrmCapability,
+  OrmMigrationCapability,
+} from './capabilities';
 export {
   type ConvexCheckBuilder,
   type ConvexCheckConfig,
@@ -248,9 +249,10 @@ export {
   getTableConfig,
   type TableConfigResult,
 } from './introspection';
+// Sourced from ./migrations/definitions, not the ./migrations barrel: the
+// barrel names the migration runtime and would put it in every ORM bundle.
 export type {
   MigrationAppliedState,
-  MigrationCancelArgs,
   MigrationDefinition,
   MigrationDirection,
   MigrationDoc,
@@ -259,22 +261,19 @@ export type {
   MigrationManifestEntry,
   MigrationMigrateOne,
   MigrationPlan,
-  MigrationRunArgs,
-  MigrationRunChunkArgs,
   MigrationRunStatus,
   MigrationSet,
   MigrationStateMap,
-  MigrationStatusArgs,
   MigrationStep,
   MigrationTableName,
   MigrationWriteMode,
-} from './migrations';
+} from './migrations/definitions';
 export {
   buildMigrationPlan,
   defineMigration,
   defineMigrationSet,
   detectMigrationDrift,
-} from './migrations';
+} from './migrations/definitions';
 // M5: OrderBy
 export { asc, desc } from './order-by';
 export type {

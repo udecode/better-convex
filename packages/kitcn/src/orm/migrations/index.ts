@@ -21,6 +21,7 @@ export {
   defineMigrationSet,
   detectMigrationDrift,
 } from './definitions';
+export { migrationCapability } from './capability';
 export type {
   MigrationCancelArgs,
   MigrationRunArgs,

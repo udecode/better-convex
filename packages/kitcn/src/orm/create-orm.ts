@@ -7,7 +7,12 @@ import {
   type Scheduler,
 } from 'convex/server';
 import { v } from 'convex/values';
-import { createCountBackfillHandlers } from './aggregate-index/backfill';
+import type { OrmCapabilities, OrmCapability } from './capabilities';
+import {
+  requireAggregateCapability,
+  requireMigrationCapability,
+  resolveOrmCapabilities,
+} from './capabilities';
 import {
   type CreateDatabaseOptions,
   createDatabase,
@@ -16,7 +21,7 @@ import {
 } from './database';
 import { extractRelationsConfig } from './extractRelationsConfig';
 import { createOrmDbLifecycle, type OrmDbLifecycle } from './lifecycle';
-import { createMigrationHandlers, type MigrationSet } from './migrations';
+import type { MigrationSet } from './migrations';
 import type {
   ExtractTablesFromSchema,
   RelationsConfigWithSchema,
@@ -96,6 +101,17 @@ type GenericOrmCtx<
 
 type CreateOrmConfigBase<TSchema extends OrmSchemaInput> = {
   schema: TSchema;
+  /**
+   * Optional subsystems this ORM may use.
+   *
+   * `count()`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`,
+   * `aggregateIndex(...)` / `rankIndex(...)` write maintenance and the
+   * `orm.api()` backfill handlers need `aggregateCapability()` from
+   * `kitcn/orm/aggregate`. The `orm.api()` migration handlers need
+   * `migrationCapability()` from `kitcn/orm/migrations`. Anything not
+   * registered here stays out of the Convex bundle for this module.
+   */
+  capabilities?: readonly OrmCapability[];
   migrations?: MigrationSet<any>;
   internalMutation?: typeof internalMutationGeneric;
 };
@@ -215,6 +231,7 @@ function resolveOrmSchemaConfig<TSchema extends OrmSchemaInput>(
 function createDbFactory<TSchema extends TablesRelationalConfig>(
   schema: TSchema,
   dbLifecycle: OrmDbLifecycle,
+  capabilities: OrmCapabilities,
   ormFunctions?: OrmFunctions
 ): OrmFactory<TSchema> {
   const edgeMetadata = extractRelationsConfig(schema as TablesRelationalConfig);
@@ -239,6 +256,7 @@ function createDbFactory<TSchema extends TablesRelationalConfig>(
     const wrappedCtx = dbLifecycle.wrapDB(lifecycleSource);
     const orm = createDatabase(wrappedCtx.db, schema, edgeMetadata, {
       ...options,
+      capabilities,
       scheduler,
       vectorSearch,
       scheduledDelete,
@@ -269,11 +287,23 @@ export function createOrm<TSchema extends OrmSchemaInput>(
   const { schema: resolvedSchema, triggers } = resolveOrmSchemaConfig(
     config.schema
   );
-  const dbLifecycle = createOrmDbLifecycle(resolvedSchema, triggers);
+  // `createOrmDbLifecycle` fails closed when a table declares an
+  // aggregateIndex/rankIndex without the aggregate capability registered.
+  const capabilities = resolveOrmCapabilities(config.capabilities);
+  const dbLifecycle = createOrmDbLifecycle(
+    resolvedSchema,
+    triggers,
+    capabilities
+  );
   const edgeMetadata = extractRelationsConfig(
     resolvedSchema as TablesRelationalConfig
   );
-  const db = createDbFactory(resolvedSchema, dbLifecycle, config.ormFunctions);
+  const db = createDbFactory(
+    resolvedSchema,
+    dbLifecycle,
+    capabilities,
+    config.ormFunctions
+  );
   const withContext = <TContext extends OrmReaderCtx | OrmWriterCtx>(
     ctx: TContext,
     options?: CreateOrmOptions
@@ -306,11 +336,17 @@ export function createOrm<TSchema extends OrmSchemaInput>(
         config.ormFunctions.migrationRunChunk;
       let resetChunkRef: SchedulableFunctionReference | undefined =
         config.ormFunctions.resetChunk;
-      const countBackfillHandlers = createCountBackfillHandlers(
+      const countBackfillHandlers = requireAggregateCapability(
+        capabilities,
+        'orm.api()'
+      ).createCountBackfillHandlers(
         resolvedSchema,
         () => aggregateBackfillChunkRef
       );
-      const migrationHandlers = createMigrationHandlers({
+      const migrationHandlers = requireMigrationCapability(
+        capabilities,
+        'orm.api()'
+      ).createMigrationHandlers({
         schema: resolvedSchema,
         migrations: config.migrations as MigrationSet<any> | undefined,
         getOrm: (ctx) => db(ctx as any) as OrmWriter<ResolveOrmSchema<TSchema>>,
