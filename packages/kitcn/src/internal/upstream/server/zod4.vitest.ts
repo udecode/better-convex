@@ -110,4 +110,40 @@ describe('zod4 (vendored)', () => {
       role: 'writer',
     });
   });
+
+  test('the args schema is built once per procedure, not once per request', async () => {
+    let shapeReads = 0;
+    const shape = new Proxy(
+      { name: z.string() },
+      {
+        get(target, key, receiver) {
+          shapeReads += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      }
+    );
+
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: shape as any,
+      handler: async (_ctx, args) => (args as { name: string }).name,
+    });
+
+    // Undeclared keys are still dropped before the handler sees them.
+    await expect(
+      (queryFn as any)._handler({}, { name: 'ada', extra: 'dropped' })
+    ).resolves.toBe('ada');
+
+    const afterFirstCall = shapeReads;
+
+    await expect((queryFn as any)._handler({}, { name: 'bob' })).resolves.toBe(
+      'bob'
+    );
+
+    // A fresh z.object(shape) per request would re-read the shape here.
+    expect(shapeReads).toBe(afterFirstCall);
+  });
 });

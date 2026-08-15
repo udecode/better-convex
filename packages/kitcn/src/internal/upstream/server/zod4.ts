@@ -44,7 +44,7 @@ import type {
 import { ConvexError, v } from 'convex/values';
 import * as z from 'zod/v4';
 import * as zCore from 'zod/v4/core';
-import { type Expand, pick } from '../index';
+import type { Expand } from '../index';
 import { addFieldsToValidator, type VRequired, vRequired } from '../validators';
 import type { Customization, Registration } from './customFunctions';
 import { NoOp } from './customFunctions';
@@ -830,13 +830,27 @@ export type CustomBuilder<
     : ReturnValueOutput<ReturnsZodValidator>
 >;
 
+/**
+ * Single-pass `pick` over own keys, preserving `obj`'s insertion order.
+ *
+ * The shared `pick` helper is `Object.fromEntries(Object.entries(obj).filter(
+ * ([k]) => keys.includes(k)))`, i.e. O(fields^2) with three intermediate
+ * allocations. This runs on every request, so it gets a Set instead.
+ */
+function pickKeys(obj: Record<string, any>, keys: Set<string>) {
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    if (keys.has(key)) {
+      result[key] = obj[key];
+    }
+  }
+  return result;
+}
+
 function customFnBuilder(
   builder: (args: any) => any,
   customization: Customization<any, any, any, any, any>
 ) {
-  // Most of the code in here is identical to customFnBuilder in zod3.ts.
-  // If making changes, please keep zod3.ts in sync.
-
   // Looking forward to when input / args / ... are optional
   const customInput: Customization<any, any, any, any, any>['input'] =
     customization.input ?? NoOp.input;
@@ -873,6 +887,16 @@ function customFnBuilder(
         }
       }
       const convexValidator = zodToConvexFields(argsValidator);
+      // `argsValidator` is frozen at definition time, so everything derived
+      // from it belongs here rather than inside the per-request handler.
+      const inputArgKeys = Object.keys(inputArgs);
+      const inputArgKeySet = new Set(inputArgKeys);
+      const argKeySet = new Set(Object.keys(argsValidator));
+      // Built on first invocation, then reused for the isolate's lifetime: a
+      // fresh z.object() per request discards zod's per-instance parse memo,
+      // and constructing it eagerly would tax cold starts of procedures that
+      // are never called.
+      let argsSchema;
       return builder({
         args: skipConvexValidation
           ? undefined
@@ -881,11 +905,14 @@ function customFnBuilder(
         handler: async (ctx: any, allArgs: any) => {
           const added = await customInput(
             ctx,
-            pick(allArgs, Object.keys(inputArgs)) as any,
+            (inputArgKeys.length === 0
+              ? {}
+              : pickKeys(allArgs, inputArgKeySet)) as any,
             extra
           );
-          const rawArgs = pick(allArgs, Object.keys(argsValidator));
-          const parsed = await z.object(argsValidator).safeParseAsync(rawArgs);
+          const rawArgs = pickKeys(allArgs, argKeySet);
+          argsSchema ??= z.object(argsValidator);
+          const parsed = await argsSchema.safeParseAsync(rawArgs);
           if (!parsed.success) {
             throw new ConvexError({
               ZodError: JSON.parse(
