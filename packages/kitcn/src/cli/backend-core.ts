@@ -12,13 +12,6 @@ import {
   resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  multiselect as clackMultiselect,
-  select as clackSelect,
-  confirm,
-  isCancel,
-} from '@clack/prompts';
-import { parse as parseDotEnv } from 'dotenv';
 import { execa } from 'execa';
 import { getTableConfig } from '../orm/introspection.js';
 import { getSchemaRelations } from '../orm/schema.js';
@@ -160,6 +153,7 @@ import {
   formatPluginView as formatPluginViewOutput,
 } from './utils/dry-run-formatter.js';
 import { highlighter } from './utils/highlighter.js';
+import { loadClackPrompts, loadDotenv } from './utils/lazy-deps.js';
 import { logger } from './utils/logger.js';
 import { createProjectJiti } from './utils/project-jiti.js';
 import { createSpinner } from './utils/spinner.js';
@@ -736,6 +730,7 @@ function createPromptAdapter(): PromptAdapter {
         process.stdin.isTTY && process.stdout.isTTY && !isCiEnvironment()
       ),
     confirm: async (message: string, defaultValue?: boolean) => {
+      const { confirm, isCancel } = loadClackPrompts();
       const response = await confirm({
         message,
         ...(defaultValue === undefined ? {} : { initialValue: defaultValue }),
@@ -763,7 +758,7 @@ function createPromptAdapter(): PromptAdapter {
         }
         return next;
       });
-      return (await clackSelect<TValue>({
+      return (await loadClackPrompts().select<TValue>({
         message: params.message,
         options: options as any,
       })) as TValue | symbol;
@@ -788,7 +783,7 @@ function createPromptAdapter(): PromptAdapter {
         }
         return next;
       });
-      return (await clackMultiselect<TValue>({
+      return (await loadClackPrompts().multiselect<TValue>({
         message: params.message,
         options: options as any,
         initialValues: params.initialValues as TValue[] | undefined,
@@ -898,7 +893,7 @@ function readConvexTargetEnvFile(
     return null;
   }
 
-  return parseDotEnv(fs.readFileSync(envFilePath, 'utf8'));
+  return loadDotenv().parse(fs.readFileSync(envFilePath, 'utf8'));
 }
 
 function resolveRemoteConvexDeploymentKey(
@@ -938,7 +933,10 @@ function getLocalParseEnvVars(
     if (!fs.existsSync(envPath)) {
       continue;
     }
-    Object.assign(mergedEnv, parseDotEnv(fs.readFileSync(envPath, 'utf8')));
+    Object.assign(
+      mergedEnv,
+      loadDotenv().parse(fs.readFileSync(envPath, 'utf8'))
+    );
   }
 
   return mergedEnv;
@@ -959,7 +957,10 @@ function getLocalBackendEnvVars(
     if (!fs.existsSync(envPath)) {
       continue;
     }
-    Object.assign(mergedEnv, parseDotEnv(fs.readFileSync(envPath, 'utf8')));
+    Object.assign(
+      mergedEnv,
+      loadDotenv().parse(fs.readFileSync(envPath, 'utf8'))
+    );
   }
 
   return mergedEnv;

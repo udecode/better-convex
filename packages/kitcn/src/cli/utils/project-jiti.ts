@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { createJiti } from 'jiti';
 import { CRPC_BUILDER_STUB_SOURCE } from './crpc-builder-stub.js';
+import { loadJiti } from './lazy-deps.js';
 
 const require = createRequire(import.meta.url);
 
@@ -254,7 +254,7 @@ export const getProjectServerParserShimPath = (cwd = process.cwd()) =>
   ensureServerParserShim(cwd);
 
 export const createProjectJiti = (cwd = process.cwd()) =>
-  createJiti(cwd, {
+  loadJiti().createJiti(cwd, {
     interopDefault: true,
     jsx: {
       runtime: 'automatic',

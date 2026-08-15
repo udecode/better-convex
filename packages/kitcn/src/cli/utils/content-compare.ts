@@ -1,4 +1,4 @@
-import { parse } from '@babel/parser';
+import { loadBabelParser } from './lazy-deps.js';
 
 const AST_COMPARABLE_EXTENSIONS = new Set([
   '.js',
@@ -54,7 +54,7 @@ const parseComparableAst = (content: string, filePath: string): unknown => {
   const isJsx = ['.jsx', '.tsx'].includes(extension);
 
   return normalizeAst(
-    parse(content, {
+    loadBabelParser().parse(content, {
       sourceType: 'unambiguous',
       errorRecovery: false,
       plugins: [
