@@ -55,7 +55,7 @@ describe('zod4 (vendored)', () => {
     expect(outputValidator.fields.value.kind).toBe('any');
   });
 
-  test('zCustom builders apply custom context and validate I/O', async () => {
+  test('zCustom builders apply custom context, validate args, and declare returns', async () => {
     const zQuery = zCustomQuery(
       query,
       customCtx(async () => ({
@@ -84,6 +84,11 @@ describe('zod4 (vendored)', () => {
     await expect(
       (queryFn as any)._handler({}, { name: 123 })
     ).rejects.toThrow();
+
+    // `returns` still declares the Convex validator the backend enforces.
+    expect(JSON.parse((queryFn as any).exportReturns())).toMatchObject({
+      type: 'object',
+    });
 
     const zMutation = zCustomMutation(
       mutation,
