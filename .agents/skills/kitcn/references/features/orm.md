@@ -267,7 +267,7 @@ export default defineSchema(tables, {
   defaults: {
     defaultLimit: 100, // default limit for findMany
     mutationBatchSize: 100, // page size for mutation row collection
-    mutationMaxRows: 1000, // row budget per transaction (matched rows + cascade fan-out)
+    mutationMaxRows: 1000, // sync-mode hard cap
     mutationLeafBatchSize: 900, // async FK fan-out batch size
     mutationMaxBytesPerBatch: 2_097_152, // async measured-byte budget
     mutationScheduleCallCap: 100, // async schedule calls per mutation
