@@ -76,8 +76,8 @@ Closure matrix:
 | docs/package skill | no | N/A: no docs or published skill change | complete |
 | changeset | yes | Patch changeset matches client payload/stack behavior | complete |
 | agent workflow | no | N/A: no agent surface changes | complete |
-| cleanup/review | yes | deslop + autoreview | pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop bounded; autoreview clean at 0.99 | complete |
+| repository check | yes | `bun check`: pass | complete |
 | GitHub delivery | yes | update/push/read back/merge/release #326 | pending |
 
 Work Checklist:
@@ -85,7 +85,7 @@ Work Checklist:
 - [x] Each lane is classified with concrete owner or N/A reason.
 - [x] Generated output: N/A, no generated file changed.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized for current local state.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed: type cleanup applied; autoreview clean.
 - [ ] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner: none.
 - [x] Agent-native pack: N/A, no agent rule or generated skill mirror changed.
@@ -110,9 +110,9 @@ Completion Gates:
 | Deslop | yes | Run bounded cleanup or N/A | 0 added occurrences; fan-out heuristic ignored because V8 requires its own `.vitest.ts` lane |
 | Agent-native reviewer | no | Run for workflow changes or N/A | N/A: no agent workflow change |
 | Final lint | yes | Run `bun lint:fix` | 883 files checked; no fixes |
-| Repository check | yes | Run `bun check` | pending |
+| Repository check | yes | Run `bun check` | Pass: check:ci, test:verify, and test:runtime |
 | GitHub delivery | yes | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
+| Autoreview | yes | Resolve every accepted actionable finding | Codex Sol/high: clean, 0 actionable findings, 0.99 |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-15-pr-326-autoclosure.md` | pending |
 | Agent source / generated sync | no | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent rule change |
 | Installed lock audit | no | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill change |
@@ -125,8 +125,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | PR body/files/head/checks reconstructed | checkout/rebase |
 | Repair | complete | Replaced two new `any` casts with `Value`; V8 test remains 7/7 | review |
-| Review/checks | in_progress | focused tests, build, deslop, lint pass | autoreview and `bun check` |
-| Delivery | pending | | final audit |
+| Review/checks | complete | focused tests, build, deslop, lint, autoreview, `bun check` pass | delivery |
+| Delivery | in_progress | local closure ready | force-with-lease push, remote checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -137,6 +137,8 @@ Verification evidence:
 - `bun run lint:slop:delta`: 0 added occurrences; one directory fan-out
   heuristic ignored because the separate V8 test lane is required.
 - `bun lint:fix`: 883 files checked; no fixes.
+- Autoreview Codex Sol/high: clean, 0 actionable findings, 0.99.
+- `bun check`: pass through check:ci, test:verify, and test:runtime.
 
 Review fixes:
 - Local standards audit found two new `any` uses in `error.vitest.ts`; accepted
@@ -146,15 +148,16 @@ Timeline:
 - 2026-08-15T19:04:02.015Z Autoclosure plan created.
 - 2026-08-15 Rebased onto #324 merge; source/issue/feedback reconstructed.
 - 2026-08-15 Focused tests/build/lint passed; two test-only `any` uses removed.
+- 2026-08-15 Autoreview clean and full repository gate passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Autoreview, `bun check`, push, remote checks, merge, release |
+| Where am I? | Delivery |
+| Where am I going? | Push, remote checks, merge, release verification |
 | What is the goal? | Merge PR #326 and verify one release. |
 | What have I learned? | V8 lazy stack materialization is the payload-loss trigger; no GitHub feedback exists. |
-| What have I done? | Rebased, tightened types, and passed focused/package/deslop/lint gates. |
+| What have I done? | Rebased, tightened types, and passed every local review/check gate. |
 
 Open risks:
 - Remote release automation must publish exactly once after the final merge.
