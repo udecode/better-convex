@@ -37,7 +37,13 @@ index('by_type_created').on(t.type, t.createdAt);
   `with: { posts: { limit: 5, orderBy: { createdAt: 'desc' } } }` reads five
   posts per parent instead of every post of every parent.
 - Bound `.through()` relation reads by the requested `limit` instead of reading
-  every junction row of every parent.
+  every junction row of every parent. Links whose target is missing or is
+  dropped by RLS or the relation `where` do not consume a slot, so the page
+  still comes back full.
+- Fill `limit` with rows that survive RLS and relation `where` instead of
+  filtering after the read. `findMany({ where: { ownerId }, limit: 3 })` on a
+  table with a select policy used to return only whichever of the first three
+  stored rows happened to be visible — often none.
 - Push `limit` into `in`, `notIn`, `ne` and `isNotNull` reads, which previously
   read every matching row and sliced afterwards.
 - Use an index for `in` combined with another filter — `where: { status: { in:

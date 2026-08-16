@@ -6575,6 +6575,16 @@ export class GelRelationalQuery<
     );
     const hasResidualPostFilter =
       convexPostFilters.length !== queryConfig.postFilters.length;
+    // RLS and relation `where` run in JavaScript after the read and can drop
+    // rows, so a `take()` sized on scanned rows under-fills the page: three
+    // hidden rows first and `limit: 3` returns nothing. Same reasoning as the
+    // multi-probe bound above, and the same test for it — a plain-column
+    // `where` is already in the index scan and `.filter()`, and `mode: 'skip'`
+    // drops nothing.
+    const hasPostFetchMembership =
+      this._hasSearchDisallowedRelationFilter(whereFilter, this.tableConfig) ||
+      (this.rls?.mode !== 'skip' &&
+        isRlsEnabled(this.tableConfig.table as any));
     if (convexPostFilters.length > 0) {
       query = query.filter((q: any) => {
         // Combine all post-filters with AND logic
@@ -6601,11 +6611,12 @@ export class GelRelationalQuery<
 
     // A residual filter runs in JavaScript, so `query.take(limit)` would spend
     // the whole budget on unfiltered rows and return mostly (often entirely)
-    // non-matching ones. Offset has the same problem: it must skip matches, not
-    // scanned rows. So when a residual filter is present, sizing moves after the
-    // JavaScript pass.
+    // non-matching ones. RLS and relation `where` are the same shape of
+    // problem. Offset too: it must skip matches, not scanned rows. So whenever
+    // anything survives into JavaScript, sizing moves after that pass.
     const sizeAfterPostFilter =
-      hasResidualPostFilter && !paginateAfterPostFetchSort;
+      (hasResidualPostFilter || hasPostFetchMembership) &&
+      !paginateAfterPostFetchSort;
 
     // Read through a stream when we can: `filterWith` runs the predicate as rows
     // are pulled, so `take` still stops early but counts matches rather than
@@ -6630,7 +6641,8 @@ export class GelRelationalQuery<
     } else if (
       limit === undefined ||
       paginateAfterPostFetchSort ||
-      hasResidualPostFilter
+      hasResidualPostFilter ||
+      hasPostFetchMembership
     ) {
       // No stream available (no defineSchema()) or no limit to push down.
       // Correctness wins over the read bound: scan, then size below.
@@ -7954,6 +7966,196 @@ export class GelRelationalQuery<
   }
 
   /**
+   * Junction links per parent, stopped once each parent holds `fetchLimit`
+   * links whose target actually reaches the page.
+   *
+   * A link only contributes if its target exists and survives target RLS and
+   * the relation `where` — all of which run after the junction read. Sizing the
+   * read on links alone therefore under-fills: three dangling or filtered links
+   * first and `{ limit: 3 }` returns nothing. So the read is refilled in rounds,
+   * each round resolving only the targets it newly needs and asking again for
+   * whatever the survivors did not cover.
+   *
+   * Rounds are the unit rather than single links because both the target fetch
+   * and the relation `where` de-duplicate and batch their own reads across the
+   * parents in the round.
+   */
+  private async _readBoundedThroughLinks(params: {
+    /** `[sourceKey, sourceFieldValues]` for every distinct parent. */
+    entries: [string, unknown[]][];
+    edge: EdgeMetadata;
+    throughTableConfig: TableRelationalConfig;
+    throughIndexName: string | null;
+    /** Fields the target is keyed by, matching `edge.through.targetFields`. */
+    targetFields: string[];
+    fetchTargets: (
+      keyEntries: [string, unknown[]][]
+    ) => Promise<{ key: string; target: any }[]>;
+    applyTargetFilters: (targets: any[]) => Promise<any[]>;
+    /** Per-parent `offset + limit`, in surviving links. */
+    fetchLimit: number;
+    enforceTargetKeyCap: (keyCount: number) => void;
+  }): Promise<{ linksBySourceKey: Map<string, any[]>; targets: any[] }> {
+    const {
+      applyTargetFilters,
+      edge,
+      enforceTargetKeyCap,
+      entries,
+      fetchLimit,
+      fetchTargets,
+      targetFields,
+      throughIndexName,
+      throughTableConfig,
+    } = params;
+    const throughTargetFields = edge.through!.targetFields;
+
+    const cursors = entries.map(([key, values]) => ({
+      /** Visible links pulled but not yet classified. Never dropped. */
+      buffered: [] as any[],
+      exhausted: false,
+      iterator: this._queryByFields(
+        this.db.query(edge.through!.table),
+        edge.through!.sourceFields,
+        values,
+        throughIndexName
+      )[Symbol.asyncIterator]() as AsyncIterator<any>,
+      key,
+      /** Links whose target reached the page, in junction order. */
+      links: [] as any[],
+    }));
+    type LinkCursor = (typeof cursors)[number];
+
+    // Junction-table RLS also drops rows after the read, so the buffer counts
+    // visible links rather than scanned ones.
+    const bufferVisibleLinks = async (cursor: LinkCursor, count: number) => {
+      let batch: any[] = [];
+      const drain = async () => {
+        const visible = await this._applyRlsSelectFilter(
+          batch,
+          throughTableConfig
+        );
+        batch = [];
+        cursor.buffered.push(...visible);
+      };
+      while (
+        !cursor.exhausted &&
+        cursor.buffered.length + batch.length < count
+      ) {
+        const next = await cursor.iterator.next();
+        if (next.done) {
+          cursor.exhausted = true;
+          break;
+        }
+        batch.push(next.value);
+        if (batch.length >= RELATION_FILTER_STREAM_CHUNK) {
+          await drain();
+        }
+      }
+      // Runs even for an empty batch: that is also what validates policy
+      // configuration on an empty partition, matching the unbounded read.
+      await drain();
+    };
+
+    /** Target key -> the surviving document, absent when it did not survive. */
+    const survivorByKey = new Map<string, any>();
+    const resolvedKeys = new Set<string>();
+    const survivors: any[] = [];
+
+    while (true) {
+      const active = cursors.filter(
+        (cursor) =>
+          cursor.links.length < fetchLimit &&
+          !(cursor.exhausted && cursor.buffered.length === 0)
+      );
+      if (active.length === 0) {
+        break;
+      }
+
+      const candidatesPerCursor = await this._mapWithConcurrency(
+        active,
+        async (cursor) => {
+          const need = fetchLimit - cursor.links.length;
+          await bufferVisibleLinks(cursor, need);
+          return cursor.buffered.splice(0, need);
+        }
+      );
+
+      const newKeys = new Map<string, unknown[]>();
+      for (const candidates of candidatesPerCursor) {
+        for (const link of candidates) {
+          const values = throughTargetFields.map((field) => link[field]);
+          if (values.some((value) => value === null || value === undefined)) {
+            continue;
+          }
+          const key = JSON.stringify(values);
+          if (resolvedKeys.has(key) || newKeys.has(key)) {
+            continue;
+          }
+          newKeys.set(key, values);
+        }
+      }
+
+      if (newKeys.size > 0) {
+        enforceTargetKeyCap(resolvedKeys.size + newKeys.size);
+        const fetched = await fetchTargets(Array.from(newKeys.entries()));
+        for (const key of newKeys.keys()) {
+          resolvedKeys.add(key);
+        }
+        const surviving = await applyTargetFilters(
+          fetched
+            .map((entry) => entry.target)
+            .filter((target): target is any => !!target)
+        );
+        for (const target of surviving) {
+          const key = this._buildRelationKey(target, targetFields);
+          if (!key || survivorByKey.has(key)) {
+            continue;
+          }
+          survivorByKey.set(key, target);
+          survivors.push(target);
+        }
+      }
+
+      for (let i = 0; i < active.length; i += 1) {
+        const cursor = active[i];
+        for (const link of candidatesPerCursor[i]) {
+          if (cursor.links.length >= fetchLimit) {
+            break;
+          }
+          const key = this._buildRelationKey(link, throughTargetFields);
+          if (!key || !survivorByKey.has(key)) {
+            continue;
+          }
+          cursor.links.push(link);
+        }
+      }
+    }
+
+    const linksBySourceKey = new Map<string, any[]>();
+    const usedKeys = new Set<string>();
+    for (const cursor of cursors) {
+      linksBySourceKey.set(cursor.key, cursor.links);
+      for (const link of cursor.links) {
+        const key = this._buildRelationKey(link, throughTargetFields);
+        if (key) {
+          usedKeys.add(key);
+        }
+      }
+    }
+
+    // A round can survive more targets than the parents that triggered it end
+    // up keeping. Dropping the leftovers here keeps the nested `with` and the
+    // next fan-out level sized to the page.
+    return {
+      linksBySourceKey,
+      targets: survivors.filter((target) => {
+        const key = this._buildRelationKey(target, targetFields);
+        return key !== null && usedKeys.has(key);
+      }),
+    };
+  }
+
+  /**
    * Load many() relation (one-to-many)
    * Example: users.posts where posts.authorId → users.id
    *
@@ -8164,124 +8366,128 @@ export class GelRelationalQuery<
       );
 
       const entries = Array.from(sourceKeyMap.entries());
+      const enforceTargetKeyCap = (keyCount: number) =>
+        this._enforceRelationFanOutKeyCap({
+          tableConfig,
+          relationName,
+          keyCount,
+          scope: 'through-target',
+        });
+
+      // Resolved on first use so an empty junction partition still costs
+      // nothing and never reports a missing target index.
+      let targetLookup: {
+        useGetById: boolean;
+        indexName: string | null;
+      } | null = null;
+      const fetchThroughTargets = async (
+        keyEntries: [string, unknown[]][]
+      ): Promise<{ key: string; target: any }[]> => {
+        if (!targetLookup) {
+          const useGetById =
+            targetFields.length === 1 && targetFields[0] === '_id';
+          targetLookup = {
+            useGetById,
+            indexName: useGetById
+              ? null
+              : findRelationIndex(
+                  targetTableConfig.table as any,
+                  targetFields,
+                  `${tableConfig.name}.${relationName}`,
+                  edge.targetTable,
+                  strict,
+                  this.allowFullScan
+                ),
+          };
+        }
+        const { useGetById, indexName } = targetLookup;
+        return await this._mapWithConcurrency(
+          keyEntries,
+          async ([key, values]) => {
+            let target: any | null = null;
+            if (useGetById) {
+              target = await this._getById(edge.targetTable, values[0]);
+            } else {
+              target = await this._queryByFields(
+                this.db.query(edge.targetTable),
+                targetFields,
+                values,
+                indexName
+              ).first();
+            }
+            return { key, target };
+          }
+        );
+      };
+
       // `orderBy` on a through relation sorts by *target* columns, which the
       // junction index knows nothing about, so that case still needs the whole
       // partition. Every other shape can stop at the page the caller asked for
       // instead of reading every link of every parent.
       const boundJunctionRead =
         orderSpecs.length === 0 && effectivePerParentLimit !== undefined;
-      const throughFetchLimit =
-        Math.max(perParentOffset ?? 0, 0) + (effectivePerParentLimit ?? 0);
-      const throughRowsPerSource = await this._mapWithConcurrency(
-        entries,
-        async ([key, values]) => {
-          const query = this._queryByFields(
-            this.db.query(edge.through!.table),
-            edge.through!.sourceFields,
-            values,
-            throughIndexName
-          );
-          if (!boundJunctionRead) {
+
+      if (boundJunctionRead) {
+        const bounded = await this._readBoundedThroughLinks({
+          applyTargetFilters: applyPostFetchTargetFilters,
+          edge,
+          enforceTargetKeyCap,
+          entries,
+          fetchLimit:
+            Math.max(perParentOffset ?? 0, 0) + effectivePerParentLimit!,
+          fetchTargets: fetchThroughTargets,
+          targetFields,
+          throughIndexName,
+          throughTableConfig,
+        });
+        throughBySourceKey = bounded.linksBySourceKey;
+        targets = bounded.targets;
+        targetFiltersApplied = true;
+      } else {
+        const throughRowsPerSource = await this._mapWithConcurrency(
+          entries,
+          async ([key, values]) => {
+            const query = this._queryByFields(
+              this.db.query(edge.through!.table),
+              edge.through!.sourceFields,
+              values,
+              throughIndexName
+            );
             const throughRows = await this._applyRlsSelectFilter(
               await query.collect(),
               throughTableConfig
             );
             return { key, rows: throughRows };
           }
-
-          // Junction-table RLS drops rows after the read, so the bound counts
-          // survivors rather than scanned rows — a flat `take` under-fills.
-          const rows: any[] = [];
-          let batch: any[] = [];
-          const drain = async () => {
-            const visible = await this._applyRlsSelectFilter(
-              batch,
-              throughTableConfig
-            );
-            batch = [];
-            for (const row of visible) {
-              if (rows.length >= throughFetchLimit) return;
-              rows.push(row);
-            }
-          };
-          for await (const throughRow of query) {
-            batch.push(throughRow);
-            const chunk = Math.min(
-              RELATION_FILTER_STREAM_CHUNK,
-              throughFetchLimit - rows.length
-            );
-            if (batch.length < chunk) continue;
-            await drain();
-            if (rows.length >= throughFetchLimit) break;
-          }
-          if (rows.length < throughFetchLimit) {
-            // Also the path that validates policy configuration when the
-            // partition is empty, matching the unbounded read above.
-            await drain();
-          }
-          return { key, rows };
-        }
-      );
-
-      throughBySourceKey = new Map<string, any[]>();
-      const targetKeyMap = new Map<string, unknown[]>();
-      for (const entry of throughRowsPerSource) {
-        throughBySourceKey.set(entry.key, entry.rows);
-        for (const row of entry.rows) {
-          const values = edge.through!.targetFields.map((field) => row[field]);
-          if (values.some((value) => value === null || value === undefined)) {
-            continue;
-          }
-          const key = JSON.stringify(values);
-          if (!targetKeyMap.has(key)) {
-            targetKeyMap.set(key, values);
-          }
-        }
-      }
-      this._enforceRelationFanOutKeyCap({
-        tableConfig,
-        relationName,
-        keyCount: targetKeyMap.size,
-        scope: 'through-target',
-      });
-
-      if (targetKeyMap.size > 0) {
-        const useGetById =
-          targetFields.length === 1 && targetFields[0] === '_id';
-        const targetIndexName = useGetById
-          ? null
-          : findRelationIndex(
-              targetTableConfig.table as any,
-              targetFields,
-              `${tableConfig.name}.${relationName}`,
-              edge.targetTable,
-              strict,
-              this.allowFullScan
-            );
-
-        const targetEntries = Array.from(targetKeyMap.entries());
-        const fetchedTargets = await this._mapWithConcurrency(
-          targetEntries,
-          async ([key, values]) => {
-            let target: any | null = null;
-            if (useGetById) {
-              target = await this._getById(edge.targetTable, values[0]);
-            } else {
-              const query = this._queryByFields(
-                this.db.query(edge.targetTable),
-                targetFields,
-                values,
-                targetIndexName
-              );
-              target = await query.first();
-            }
-            return { key, target };
-          }
         );
 
-        targets = fetchedTargets
-          .map((entry) => entry.target)
-          .filter((value): value is any => !!value);
+        throughBySourceKey = new Map<string, any[]>();
+        const targetKeyMap = new Map<string, unknown[]>();
+        for (const entry of throughRowsPerSource) {
+          throughBySourceKey.set(entry.key, entry.rows);
+          for (const row of entry.rows) {
+            const values = edge.through!.targetFields.map(
+              (field) => row[field]
+            );
+            if (values.some((value) => value === null || value === undefined)) {
+              continue;
+            }
+            const key = JSON.stringify(values);
+            if (!targetKeyMap.has(key)) {
+              targetKeyMap.set(key, values);
+            }
+          }
+        }
+        enforceTargetKeyCap(targetKeyMap.size);
+
+        if (targetKeyMap.size > 0) {
+          const fetchedTargets = await fetchThroughTargets(
+            Array.from(targetKeyMap.entries())
+          );
+          targets = fetchedTargets
+            .map((entry) => entry.target)
+            .filter((value): value is any => !!value);
+        }
       }
     } else {
       const indexName = findRelationIndex(

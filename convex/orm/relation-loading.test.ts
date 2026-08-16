@@ -42,6 +42,7 @@ const ormComments = convexTable(
 
 const ormGroups = convexTable('groups', {
   name: text().notNull(),
+  status: text(),
 });
 
 const ormUsersToGroups = convexTable(
@@ -1504,6 +1505,77 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       // 1 user + 3 junction rows + 3 groups. Without the bound this reads all
       // 30 links and all 30 groups.
       expect(reads.documents).toBeLessThanOrEqual(10);
+    });
+
+    test('through relation limit fills the page past filtered targets', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Charlie',
+        email: 'through-filtered@example.com',
+      });
+
+      for (let i = 0; i < 30; i += 1) {
+        const groupId = await (ctx.db as any).insert('groups', {
+          name: `group-${String(i).padStart(2, '0')}`,
+          status: i < 6 ? 'archived' : 'active',
+        });
+        await (ctx.db as any).insert('usersToGroups', { userId, groupId });
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { groups: { limit: 3, where: { status: 'active' } } },
+      });
+
+      // The junction index knows nothing about `status`, so the first six links
+      // resolve to targets the relation `where` drops. The bound has to keep
+      // pulling links until three surviving targets exist.
+      expect((users[0] as any).groups.map((group: any) => group.name)).toEqual([
+        'group-06',
+        'group-07',
+        'group-08',
+      ]);
+      // Refilling still stops at the page: three rounds of three links and
+      // three groups, not all 30 links and all 30 groups.
+      expect(reads.documents).toBeLessThanOrEqual(25);
+    });
+
+    test('through relation limit fills the page past dangling links', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Charlie',
+        email: 'through-dangling@example.com',
+      });
+
+      const groupIds: any[] = [];
+      for (let i = 0; i < 30; i += 1) {
+        const groupId = await (ctx.db as any).insert('groups', {
+          name: `group-${String(i).padStart(2, '0')}`,
+        });
+        await (ctx.db as any).insert('usersToGroups', { userId, groupId });
+        groupIds.push(groupId);
+      }
+      for (let i = 0; i < 6; i += 1) {
+        await ctx.db.delete(groupIds[i]);
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { groups: { limit: 3 } },
+      });
+
+      // A link whose target no longer exists contributes nothing to the page,
+      // so it must not consume a slot of the limit either.
+      expect((users[0] as any).groups.map((group: any) => group.name)).toEqual([
+        'group-06',
+        'group-07',
+        'group-08',
+      ]);
+      expect(reads.documents).toBeLessThanOrEqual(25);
     });
   });
 
