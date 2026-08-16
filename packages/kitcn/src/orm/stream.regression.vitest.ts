@@ -3,8 +3,8 @@ import { defineSchema, defineTable } from 'convex/server';
 import { convexToJson, v } from 'convex/values';
 import { describe, expect, test } from 'vitest';
 import { convexTest } from '../../../../convex/setup.testing';
-import type { IndexKey } from './stream';
-import { mergedStream, stream, streamIndexRange } from './stream';
+import type { IndexBounds, IndexKey } from './stream';
+import { mergedStream, QueryStream, stream, streamIndexRange } from './stream';
 
 const schema = defineSchema({
   foo: defineTable({
@@ -40,6 +40,60 @@ function dropAndStripSystemFields(
       ? [stripSystemFields(item.value[0]), dropSystemFields(item.value[1])]
       : undefined,
   };
+}
+
+class ReturnTrackingStream extends QueryStream<{ value: number }> {
+  constructor(
+    private readonly value: number,
+    readonly returns = { count: 0 }
+  ) {
+    super();
+  }
+
+  iterWithKeys() {
+    const returns = this.returns;
+    const value = this.value;
+    return {
+      [Symbol.asyncIterator]() {
+        let emitted = false;
+        return {
+          async next() {
+            if (emitted) {
+              return { done: true as const, value: undefined };
+            }
+            emitted = true;
+            return {
+              done: false as const,
+              value: [{ value }, [value, value, `id-${value}`]] as [
+                { value: number },
+                IndexKey,
+              ],
+            };
+          },
+          async return() {
+            returns.count += 1;
+            return { done: true as const, value: undefined };
+          },
+        };
+      },
+    };
+  }
+
+  getOrder() {
+    return 'asc' as const;
+  }
+
+  getEqualityIndexFilter() {
+    return [];
+  }
+
+  getIndexFields() {
+    return ['value', '_creationTime', '_id'];
+  }
+
+  narrow(_bounds: IndexBounds) {
+    return new ReturnTrackingStream(this.value, this.returns);
+  }
 }
 
 describe('stream reflection', () => {
@@ -671,6 +725,42 @@ describe('stream read amplification', () => {
     };
     return counted;
   }
+
+  test('mapped streams close their source on an early page stop', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    await source.map(async (doc) => doc).take(1);
+
+    expect(source.returns.count).toBe(1);
+  });
+
+  test('direct stream iteration closes the source on an early stop', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    for await (const _doc of source) {
+      break;
+    }
+
+    expect(source.returns.count).toBe(1);
+  });
+
+  test('merged streams close every opened source on an early page stop', async () => {
+    const first = new ReturnTrackingStream(1);
+    const second = new ReturnTrackingStream(2);
+
+    await mergedStream([first, second], ['value']).take(1);
+
+    expect(first.returns.count).toBe(1);
+    expect(second.returns.count).toBe(1);
+  });
+
+  test('distinct streams close superseded and active source iterators', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    await source.distinct(['value']).take(1);
+
+    expect(source.returns.count).toBe(2);
+  });
 
   test('distinct on two fields opens a linear number of index ranges', async () => {
     const t = convexTest(schema);

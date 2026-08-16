@@ -478,6 +478,10 @@ export abstract class QueryStream<T extends GenericStreamItem>
         }
         return { done: false, value: result.value[0]! };
       },
+      async return() {
+        await iterator.return?.();
+        return { done: true as const, value: undefined };
+      },
     };
   }
 }
@@ -1156,6 +1160,14 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
             refillIndex = minIndex;
             return { done: false, value: result };
           },
+          async return() {
+            await Promise.all(
+              iterators.map(async (iterator) => {
+                await iterator.return?.();
+              })
+            );
+            return { done: true as const, value: undefined };
+          },
         };
       },
     };
@@ -1418,6 +1430,16 @@ class FlatMapStreamIterator<
     this.#currentOuterItem.count++;
     const fullIndexKey = [...this.#currentOuterItem.indexKey, ...indexKey];
     return { done: false, value: [u, fullIndexKey] };
+  }
+
+  async return(): Promise<IteratorResult<[U | null, IndexKey]>> {
+    try {
+      await this.#currentOuterItem?.innerIterator.return?.();
+    } finally {
+      this.#currentOuterItem = null;
+      await this.#outerIterator.return?.();
+    }
+    return { done: true, value: undefined };
   }
 }
 
@@ -1765,6 +1787,10 @@ class OrderByStream<T extends GenericStreamItem> extends QueryStream<T> {
               value: [doc, indexKey.slice(staticFilter.length)],
             };
           },
+          async return() {
+            await iterator.return?.();
+            return { done: true as const, value: undefined };
+          },
         };
       },
     };
@@ -1878,8 +1904,13 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
                 upperBoundInclusive: false,
               });
             }
+            await currentIterator.return?.();
             currentIterator = narrowed.iterWithKeys()[Symbol.asyncIterator]();
             return result;
+          },
+          async return() {
+            await currentIterator.return?.();
+            return { done: true as const, value: undefined };
           },
         };
       },

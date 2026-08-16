@@ -4,10 +4,11 @@
 
 ## Breaking changes
 
-- Read `where: { id: { in: [...] } }` in the order the ids are given instead of
-  creation order, so a page costs one document read per row it returns rather
-  than one per id in the list. Add `orderBy` to keep creation order. Cursors
-  issued by the previous behavior are not portable.
+- Read `.select().where({ id: { in: [...] } })` in the order the ids are given
+  instead of creation order. Each page reads only the listed positions it
+  visits rather than the complete ID list; missing or policy-filtered ids still
+  count as reads. Add `orderBy` to keep creation order. Cursors issued by the
+  previous behavior are not portable.
 
 ```ts
 // Before — creation order, and every page read the whole id list

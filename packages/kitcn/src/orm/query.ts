@@ -289,8 +289,8 @@ const ID_LIST_POSITION_FIELD = '__kitcn_id_list_position';
  * ids were given.
  *
  * The index key is the position in the de-duplicated id list, so a cursor names
- * a position and `narrow` drops entries without reading them. A page costs one
- * `db.get` per row it returns, not one per id in the list on every page.
+ * a position and `narrow` drops entries without reading them. A page reads only
+ * the listed positions it visits, not every id in the list on every page.
  */
 class LazyIdListQueryStream<
   T extends NonNullable<unknown>,
@@ -2631,10 +2631,10 @@ export class GelRelationalQuery<
    * in the post-filters and the stream walks the creation-time index until it
    * happens on the row. `db.get()` reads exactly the rows asked for.
    *
-   * Rows come back in the order the ids were given, one read at a time, so a
-   * page costs one read per row it returns. An `orderBy` on creation time is
-   * the exception: an id carries no creation time, so every id in the list has
-   * to be read before the first row can be placed.
+   * Rows come back in the order the ids were given, one read at a time. Missing
+   * or policy-filtered ids still cost a read, but a page does not reread the
+   * complete list. An `orderBy` on creation time is the exception: an id carries
+   * no creation time, so every id must be read before the first row is placed.
    *
    * Returns null when something else already owns the read: a pinned index, an
    * index the compiler did select, a `where(predicate)`, or an `orderBy` that
