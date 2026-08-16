@@ -867,7 +867,13 @@ export class ProcedureBuilder<
     let fn!: Record<string, unknown>;
     fn = customFunction({
       args: typedArgs,
-      ...(typedReturnsSchema ? { returns: typedReturnsSchema } : {}),
+      // The schema is here to generate the Convex `returns` validator only.
+      // cRPC parses `.output()` itself, below, against the value the handler
+      // returned; letting the zod layer parse again would re-run transforms on
+      // the already-encoded payload.
+      ...(typedReturnsSchema
+        ? { returns: typedReturnsSchema, skipZodReturnsValidation: true }
+        : {}),
       handler: async (ctx: any, rawInput: any) => {
         const decodedInput =
           functionConfig.transformer.input.deserialize(rawInput);

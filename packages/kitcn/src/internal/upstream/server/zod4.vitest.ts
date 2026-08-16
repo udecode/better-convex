@@ -55,7 +55,7 @@ describe('zod4 (vendored)', () => {
     expect(outputValidator.fields.value.kind).toBe('any');
   });
 
-  test('zCustom builders apply custom context, validate args, and declare returns', async () => {
+  test('zCustom builders apply custom context and validate I/O', async () => {
     const zQuery = zCustomQuery(
       query,
       customCtx(async () => ({
@@ -113,6 +113,63 @@ describe('zod4 (vendored)', () => {
     ).resolves.toEqual({
       doubled: 10,
       role: 'writer',
+    });
+  });
+
+  test('returns runs before the Convex validator it declares', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      // The handler is typed as the schema's input, and Convex validates its
+      // output, so the parse has to bridge the two.
+      returns: z.object({
+        count: z.string().transform((value) => Number(value)),
+        label: z.string().default('anon'),
+      }),
+      handler: async () => ({ count: '5' }),
+    });
+
+    await expect((queryFn as any)._handler({}, { id: 'a' })).resolves.toEqual({
+      count: 5,
+      label: 'anon',
+    });
+  });
+
+  test('returns rejects a value the schema does not accept', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      returns: z.object({ name: z.string() }),
+      handler: async () => ({ name: 123 }) as any,
+    });
+
+    await expect((queryFn as any)._handler({}, { id: 'a' })).rejects.toThrow();
+  });
+
+  test('skipZodReturnsValidation declares the validator without parsing', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      returns: z.object({ name: z.string().toUpperCase() }),
+      skipZodReturnsValidation: true,
+      handler: async () => ({ name: 'ada' }),
+    });
+
+    // Untouched by Zod, and still declared for the Convex backend to enforce.
+    await expect((queryFn as any)._handler({}, { id: 'a' })).resolves.toEqual({
+      name: 'ada',
+    });
+    expect(JSON.parse((queryFn as any).exportReturns())).toMatchObject({
+      type: 'object',
     });
   });
 
