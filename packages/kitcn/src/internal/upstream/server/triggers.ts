@@ -157,6 +157,18 @@ const innerWriteLock = new Lock();
 const outerWriteLock = new Lock();
 const triggerQueue: (() => Promise<void>)[] = [];
 
+type DatabaseVars<Database> = Database extends { vars: infer Vars }
+  ? Vars
+  : never;
+
+function databaseVars<Database>(database: Database): DatabaseVars<Database> {
+  return (
+    database as Database & {
+      vars: DatabaseVars<Database>;
+    }
+  ).vars;
+}
+
 /** @deprecated use writerWithTriggers instead */
 export class DatabaseWriterWithTriggers<
   DataModel extends GenericDataModel,
@@ -175,6 +187,10 @@ export class DatabaseWriterWithTriggers<
   ) {
     this.system = innerDb.system;
     this.writer = writerWithTriggers(ctx, innerDb, triggers, isWithinTrigger);
+  }
+
+  get vars(): DatabaseVars<GenericDatabaseWriter<DataModel>> {
+    return databaseVars(this.writer);
   }
 
   delete<TableName extends TableNamesInDataModel<DataModel>>(
@@ -398,6 +414,7 @@ export function writerWithTriggers<
     patch,
     replace,
     delete: delete_,
+    vars: databaseVars(innerDb),
     system: innerDb.system,
     get: innerDb.get.bind(innerDb),
     query: innerDb.query.bind(innerDb),

@@ -1,0 +1,29 @@
+name: Convex Latest
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    name: Convex latest typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: 📥 Monorepo install
+        uses: ./.github/actions/bun-install
+        with:
+          generate: "true"
+
+      - name: 📌 Install latest Convex type package
+        run: bun add --dev --no-save convex-type-test@npm:convex@latest
+
+      - name: 🔬 Check latest validator and minimum declaration contracts
+        run: bun run typecheck:convex

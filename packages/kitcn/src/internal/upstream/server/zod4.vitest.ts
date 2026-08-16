@@ -9,11 +9,12 @@ import {
   mutationGeneric,
   queryGeneric,
 } from 'convex/server';
-import { v } from 'convex/values';
+import { CommitTsPlaceholder, v } from 'convex/values';
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod/v4';
 import { customCtx } from './customFunctions';
 import {
+  convexToZod,
   zCustomMutation,
   zCustomQuery,
   zid,
@@ -31,6 +32,14 @@ const query = queryGeneric as QueryBuilder<DataModel, 'public'>;
 const mutation = mutationGeneric as MutationBuilder<DataModel, 'public'>;
 
 describe('zod4 (vendored)', () => {
+  test('convexToZod supports commit timestamp values and placeholders', () => {
+    const validator = convexToZod(v.commitTs());
+
+    expect(validator.safeParse(42n).success).toBe(true);
+    expect(validator.safeParse(new CommitTsPlaceholder()).success).toBe(true);
+    expect(validator.safeParse(42).success).toBe(false);
+  });
+
   test('zid converts to a table-scoped Convex id validator', () => {
     const validator = zodToConvex(
       z.object({

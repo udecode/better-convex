@@ -55,7 +55,8 @@
     "build:watch": "NODE_OPTIONS=\"--require ../../tooling/node-styletext-patch.cjs\" tsdown --watch",
     "prepublishOnly": "bun run build",
     "typecheck": "tsc --noEmit",
-    "typecheck:types": "tsc --project ../../convex/test-types/tsconfig.json"
+    "typecheck:convex": "tsc --project tsconfig.type-tests.json && bun run typecheck:convex:minimum",
+    "typecheck:convex:minimum": "bun run build && tsc --project tsconfig.type-tests-minimum.json"
   },
   "dependencies": {
     "@babel/parser": "^7.28.4",
@@ -93,7 +94,7 @@
     "@tanstack/react-start": ">=1",
     "@tanstack/solid-query": ">=5",
     "better-auth": ">=1.6.11 <1.7.0",
-    "convex": ">=1.42",
+    "convex": ">=1.42 <1.45.0",
     "hono": "4.12.9",
     "next": ">=14",
     "react": ">=18",

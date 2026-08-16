@@ -38,6 +38,23 @@ import type {
 import { asObjectValidator, v } from 'convex/values';
 import { assert } from './index';
 
+export const CONVEX_VALIDATOR_KINDS = [
+  'id',
+  'string',
+  'float64',
+  'int64',
+  'commitTs',
+  'boolean',
+  'null',
+  'any',
+  'literal',
+  'bytes',
+  'object',
+  'array',
+  'record',
+  'union',
+] as const satisfies readonly GenericValidator['kind'][];
+
 /**
  * Helper for defining a union of literals more concisely.
  *
@@ -936,61 +953,69 @@ export type VRequired<T extends Validator<any, OptionalProperty, any>> =
         ? VFloat64<NotUndefined<Type>, 'required'>
         : T extends VInt64<infer Type, OptionalProperty>
           ? VInt64<NotUndefined<Type>, 'required'>
-          : T extends VBoolean<infer Type, OptionalProperty>
-            ? VBoolean<NotUndefined<Type>, 'required'>
-            : T extends VNull<infer Type, OptionalProperty>
-              ? VNull<NotUndefined<Type>, 'required'>
-              : T extends VAny<infer Type, OptionalProperty>
-                ? VAny<NotUndefined<Type>, 'required'>
-                : T extends VLiteral<infer Type, OptionalProperty>
-                  ? VLiteral<NotUndefined<Type>, 'required'>
-                  : T extends VBytes<infer Type, OptionalProperty>
-                    ? VBytes<NotUndefined<Type>, 'required'>
-                    : T extends VObject<
-                          infer Type,
-                          infer Fields,
-                          OptionalProperty,
-                          infer FieldPaths
-                        >
-                      ? VObject<
-                          NotUndefined<Type>,
-                          Fields,
-                          'required',
-                          FieldPaths
-                        >
-                      : T extends VArray<
+          : T extends {
+                readonly kind: 'commitTs';
+                readonly type: infer Type;
+              }
+            ? Omit<T, 'isOptional' | 'type'> & {
+                readonly isOptional: 'required';
+                readonly type: NotUndefined<Type>;
+              }
+            : T extends VBoolean<infer Type, OptionalProperty>
+              ? VBoolean<NotUndefined<Type>, 'required'>
+              : T extends VNull<infer Type, OptionalProperty>
+                ? VNull<NotUndefined<Type>, 'required'>
+                : T extends VAny<infer Type, OptionalProperty>
+                  ? VAny<NotUndefined<Type>, 'required'>
+                  : T extends VLiteral<infer Type, OptionalProperty>
+                    ? VLiteral<NotUndefined<Type>, 'required'>
+                    : T extends VBytes<infer Type, OptionalProperty>
+                      ? VBytes<NotUndefined<Type>, 'required'>
+                      : T extends VObject<
                             infer Type,
-                            infer Element,
-                            OptionalProperty
+                            infer Fields,
+                            OptionalProperty,
+                            infer FieldPaths
                           >
-                        ? VArray<NotUndefined<Type>, Element, 'required'>
-                        : T extends VRecord<
+                        ? VObject<
+                            NotUndefined<Type>,
+                            Fields,
+                            'required',
+                            FieldPaths
+                          >
+                        : T extends VArray<
                               infer Type,
-                              infer Key,
-                              infer Value,
-                              OptionalProperty,
-                              infer FieldPaths
+                              infer Element,
+                              OptionalProperty
                             >
-                          ? VRecord<
-                              NotUndefined<Type>,
-                              Key,
-                              Value,
-                              'required',
-                              FieldPaths
-                            >
-                          : T extends VUnion<
+                          ? VArray<NotUndefined<Type>, Element, 'required'>
+                          : T extends VRecord<
                                 infer Type,
-                                infer Members,
+                                infer Key,
+                                infer Value,
                                 OptionalProperty,
                                 infer FieldPaths
                               >
-                            ? VUnion<
+                            ? VRecord<
                                 NotUndefined<Type>,
-                                Members,
+                                Key,
+                                Value,
                                 'required',
                                 FieldPaths
                               >
-                            : never;
+                            : T extends VUnion<
+                                  infer Type,
+                                  infer Members,
+                                  OptionalProperty,
+                                  infer FieldPaths
+                                >
+                              ? VUnion<
+                                  NotUndefined<Type>,
+                                  Members,
+                                  'required',
+                                  FieldPaths
+                                >
+                              : never;
 
 /**
  * Converts an optional validator to a required validator.
@@ -1028,6 +1053,8 @@ export function vRequired<T extends Validator<any, OptionalProperty, any>>(
       return v.float64() as VRequired<T>;
     case 'int64':
       return v.int64() as VRequired<T>;
+    case 'commitTs':
+      return v.commitTs() as VRequired<T>;
     case 'boolean':
       return v.boolean() as VRequired<T>;
     case 'null':
@@ -1047,7 +1074,6 @@ export function vRequired<T extends Validator<any, OptionalProperty, any>>(
     case 'union':
       return v.union(...validator.members) as VRequired<T>;
     default:
-      kind satisfies never;
       throw new Error('Unknown Convex validator type: ' + kind);
   }
 }

@@ -40,6 +40,7 @@ describe('tooling/dependency-pins', () => {
       '>=1.6.11 <1.7.0'
     );
     expect(getMinorVersionPeerRange('1.6.11', '1.7.3')).toBe('>=1.6.11 <1.8.0');
+    expect(getMinorVersionPeerRange('1.42', '1.44.0')).toBe('>=1.42 <1.45.0');
   });
 
   test('applies pinned versions to package.json dependency maps', () => {
