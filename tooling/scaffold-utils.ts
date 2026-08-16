@@ -1,9 +1,7 @@
 import {
-  closeSync,
   cpSync,
   existsSync,
   mkdtempSync,
-  openSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -132,50 +130,6 @@ export class CommandFailedError extends Error {
 export type RunOptions = {
   allowNonZeroExit?: boolean;
   env?: Record<string, string | undefined>;
-  /**
-   * Append stdout and stderr to this file instead of inheriting the parent
-   * streams. Required to keep output attributable when templates run
-   * concurrently.
-   */
-  logFile?: string;
-};
-
-const spawnInherited = (
-  cmd: string[],
-  cwd: string,
-  env: Record<string, string | undefined>
-) => {
-  const child = Bun.spawn({
-    cmd,
-    cwd,
-    env,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  });
-
-  return child.exited;
-};
-
-const spawnToLogFile = async (
-  cmd: string[],
-  cwd: string,
-  env: Record<string, string | undefined>,
-  logFile: string
-) => {
-  // O_APPEND keeps stdout and stderr writes ordered behind one shared offset.
-  const fd = openSync(logFile, 'a');
-
-  try {
-    const child = Bun.spawn({
-      cmd,
-      cwd,
-      env,
-      stdio: ['ignore', fd, fd],
-    });
-
-    return await child.exited;
-  } finally {
-    closeSync(fd);
-  }
 };
 
 export const run = async (
@@ -183,60 +137,22 @@ export const run = async (
   cwd: string,
   options: RunOptions = {}
 ): Promise<number> => {
-  const env = {
-    ...process.env,
-    ...options.env,
-  };
-  const exitCode = options.logFile
-    ? await spawnToLogFile(cmd, cwd, env, options.logFile)
-    : await spawnInherited(cmd, cwd, env);
+  const child = Bun.spawn({
+    cmd,
+    cwd,
+    env: {
+      ...process.env,
+      ...options.env,
+    },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  const exitCode = await child.exited;
 
   if (!options.allowNonZeroExit && exitCode !== 0) {
     throw new CommandFailedError({ command: cmd, cwd, exitCode });
   }
 
   return exitCode;
-};
-
-export const createLoggedRun = (logFile: string): typeof run => {
-  return (cmd, cwd, options = {}) => run(cmd, cwd, { ...options, logFile });
-};
-
-/**
- * Dispatch `items` in order through a bounded worker pool. Stops handing out new
- * work after the first rejection, waits for in-flight work to settle, then
- * rethrows so callers never leak half-finished temp trees.
- */
-export const mapWithConcurrency = async <Item, Result>(
-  items: readonly Item[],
-  concurrency: number,
-  task: (item: Item, index: number) => Promise<Result>
-): Promise<Result[]> => {
-  const results: Result[] = [];
-  let cursor = 0;
-  let failure: { error: unknown } | undefined;
-
-  const worker = async () => {
-    while (cursor < items.length && !failure) {
-      const index = cursor;
-      cursor += 1;
-
-      try {
-        results[index] = await task(items[index], index);
-      } catch (error) {
-        failure ??= { error };
-      }
-    }
-  };
-
-  const workerCount = Math.max(1, Math.min(concurrency, items.length));
-  await Promise.all(Array.from({ length: workerCount }, worker));
-
-  if (failure) {
-    throw failure.error;
-  }
-
-  return results;
 };
 
 const SKIP_LOCAL_BUILD_ENV = 'KITCN_SKIP_LOCAL_BUILD';
@@ -292,24 +208,14 @@ export const buildLocalCliCommand = (
   ];
 };
 
-const INSTALL_SPEC_DIRS = new Set<string>();
-let installSpecCleanupRegistered = false;
-
-const createInstallSpecDir = (prefix: string) => {
-  const outputDir = mkdtempSync(path.join(tmpdir(), prefix));
-  INSTALL_SPEC_DIRS.add(outputDir);
-
-  if (!installSpecCleanupRegistered) {
-    installSpecCleanupRegistered = true;
-    process.on('exit', () => {
-      for (const directory of INSTALL_SPEC_DIRS) {
-        rmSync(directory, { force: true, recursive: true });
-      }
-    });
-  }
-
-  return outputDir;
-};
+/**
+ * Install-spec tarballs outlive the process that packs them: `kitcn add` writes
+ * the returned `file:` spec straight into the scaffolded app's `package.json`,
+ * and `scenario:prepare` leaves that app on disk for manual runs. Deleting these
+ * directories on exit would leave prepared apps unable to reinstall.
+ */
+const createInstallSpecDir = (prefix: string) =>
+  mkdtempSync(path.join(tmpdir(), prefix));
 
 export const getLocalInstallSpec = () => {
   if (localInstallSpec) {
