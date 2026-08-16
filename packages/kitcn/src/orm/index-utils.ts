@@ -84,22 +84,24 @@ export function findIndexForColumns(
   columns: string[]
 ): string | null {
   for (const index of indexes) {
-    if (index.fields.length < columns.length) {
-      continue;
-    }
-    let matches = true;
-    for (let i = 0; i < columns.length; i++) {
-      if (index.fields[i] !== columns[i]) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) {
+    if (hasColumnPrefix(index, columns)) {
       return index.name;
     }
   }
   return null;
 }
+
+const hasColumnPrefix = (index: TableIndex, columns: readonly string[]) => {
+  if (index.fields.length < columns.length) {
+    return false;
+  }
+  for (let i = 0; i < columns.length; i += 1) {
+    if (index.fields[i] !== columns[i]) {
+      return false;
+    }
+  }
+  return true;
+};
 
 export type OrderSpec = { field: string; direction: 'asc' | 'desc' };
 
@@ -188,9 +190,24 @@ export function findRelationIndex(
   relationName: string,
   targetTableName: string,
   strict = true,
-  allowFullScan = false
+  allowFullScan = false,
+  orderSpecs: readonly OrderSpec[] = []
 ): string | null {
-  const index = findIndexForColumns(getIndexes(table), columns);
+  const indexes = getIndexes(table);
+  const fallbackIndex = findIndexForColumns(indexes, columns);
+  const orderedIndex =
+    orderSpecs.length === 0
+      ? undefined
+      : indexes.find(
+          (candidate) =>
+            hasColumnPrefix(candidate, columns) &&
+            resolveIndexOrderPushdown({
+              indexFields: candidate.fields,
+              pinnedEqCount: columns.length,
+              orderSpecs,
+            }) !== null
+        );
+  const index = orderedIndex?.name ?? fallbackIndex;
   if (!index && !allowFullScan) {
     throw new Error(
       `Relation ${relationName} requires index on '${targetTableName}(${columns.join(

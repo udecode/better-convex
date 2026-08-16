@@ -68,17 +68,17 @@ Closure matrix:
 | docs/package skill | no | no user docs or published skill touched | N/A |
 | changeset | yes | `.changeset/spicy-pianos-guess.md` patch | complete; accidental feature/API claim removed |
 | agent workflow | no | no agent files or workflow actions | N/A |
-| cleanup/review | yes | deslop complete; autoreview pending | in progress |
+| cleanup/review | yes | deslop and committed-head autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, pinned checks, merge/release | pending |
+| GitHub delivery | yes | feedback, pinned checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
 - [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated, or N/A.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
 - [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text, or N/A is recorded.
@@ -104,9 +104,9 @@ Completion Gates:
 | Agent-native reviewer | N/A | no agent workflow delta | no `.agents`/skill/workflow changes |
 | Final lint | yes | `bun lint:fix` | complete |
 | Repository check | yes | `bun check` | complete, exit 0 |
-| GitHub delivery | pending | push, feedback, pinned checks, merge/release | pending |
-| Autoreview | yes | final committed-head review | pending |
-| Goal plan complete | yes | run checker | pending |
+| GitHub delivery | complete | push, feedback, pinned checks, merge/release | PR #332 and release PR #348 merged; v0.17.5 live |
+| Autoreview | complete | final committed-head review | clean at `0d9f81b1` |
+| Goal plan complete | yes | run checker | pending final plan commit |
 | Agent source / generated sync | N/A | no agent files | N/A |
 | Installed lock audit | N/A | no skill delta | N/A |
 | Agent action discoverability | N/A | no agent workflow delta | N/A |
@@ -118,9 +118,9 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, source owners, feedback, released main | repair |
 | Repair | complete | internal JWT owner; no accidental API; release story corrected | review |
-| Review/checks | in_progress | 80 focused, typecheck, build, deslop, lint, full check | autoreview |
-| Delivery | pending | | closeout |
-| Closeout | pending | | final |
+| Review/checks | complete | 80 focused, typecheck, build, deslop, lint, full check, autoreview | delivery |
+| Delivery | complete | pinned CI/Vercel, merge, release matrix, publish, post-release CI | closeout |
+| Closeout | complete | exact remote and registry read-back | final |
 
 Verification evidence:
 - The JWT issuer always includes stable `sessionId` and freshly minted `iat`;
@@ -142,18 +142,27 @@ Verification evidence:
 - Package typecheck/build, `bun lint:fix`, and full `bun check` pass. The latter
   includes all tests, fresh fixture parity, auth smokes, and runtime scenarios.
 - v0.17.4 post-release CI run `31973032035` passed before this branch's gate.
+- Committed head `0d9f81b1` passed autoreview, CI run `31973863217`, and
+  Vercel. The changeset thread was replied to and resolved.
+- PR #332 squash-merged as `2609245d`. Release PR #348 head `7b790683` passed
+  Convex Matrix run `31974237216` plus Vercel and merged as `c38d4a7c`.
+- npm `kitcn@0.17.5` and `@kitcn/resend@0.17.5`, GitHub release `v0.17.5`,
+  release workflow `31974926748`, and post-release CI `31974926735` all
+  read back successfully. The release-note AI annotation is non-blocking and
+  package/tag/GitHub publication succeeded.
 
 Timeline:
 - 2026-08-16 v0.17.4 published; PR #332 merged released main cleanly.
+- 2026-08-17 PR #332 merged and published as v0.17.5; post-release CI passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Committed-head review, remote gates, deliver |
+| Where am I? | Closed |
+| Where am I going? | Batch PR #335 |
 | What is the goal? | Ship only proven React identity stability as a patch. |
 | What have I learned? | The behavior is real; the release story is inflated and stale. |
-| What have I done? | Removed API creep, passed focused/package/full gates, and improved the slop score. |
+| What have I done? | Removed API creep, proved the patch, merged it, and verified v0.17.5 end to end. |
 
 Open risks:
-- Committed-head autoreview and remote GitHub gates remain.
+- None for PR #332.

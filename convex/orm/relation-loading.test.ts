@@ -1308,15 +1308,13 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
           groups: {
             orderBy: { name: 'asc' },
             offset: 1,
+            limit: 1,
           },
         },
       });
 
       const charlie = users.find((u: any) => u.id === userId) as any;
-      expect(charlie.groups.map((group: any) => group.name)).toEqual([
-        'B',
-        'C',
-      ]);
+      expect(charlie.groups.map((group: any) => group.name)).toEqual(['B']);
     });
   });
 
@@ -1412,7 +1410,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       expect(reads.documents).toBeLessThanOrEqual(5);
     });
 
-    test('orderBy the index cannot serve still returns the right page', async ({
+    test('a later compound relation index serves order and bounds reads', async ({
       ctx,
     }) => {
       const userId = await ctx.db.insert('users', {
@@ -1420,7 +1418,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
         email: 'unindexed-relation-order@example.com',
       });
 
-      for (const numLikes of [50, 10, 30, 20, 40]) {
+      for (let numLikes = 0; numLikes < 40; numLikes += 1) {
         await ctx.db.insert('posts', {
           text: `likes-${numLikes}`,
           numLikes,
@@ -1429,14 +1427,16 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
         });
       }
 
+      const reads = countDocumentReads(ctx);
       const users = await ctx.orm.query.users.findMany({
         limit: 10,
-        with: { posts: { limit: 2, orderBy: { numLikes: 'desc' } } },
+        with: { posts: { limit: 3, orderBy: { numLikes: 'desc' } } },
       });
 
       expect((users[0] as any).posts.map((post: any) => post.numLikes)).toEqual(
-        [50, 40]
+        [39, 38, 37]
       );
+      expect(reads.documents).toBeLessThanOrEqual(5);
     });
 
     test('nested with only loads the children that survive the limit', async ({
@@ -1505,6 +1505,35 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       // 1 user + 3 junction rows + 3 groups. Without the bound this reads all
       // 30 links and all 30 groups.
       expect(reads.documents).toBeLessThanOrEqual(10);
+    });
+
+    test('through relation bounded read applies offset before limit', async ({
+      ctx,
+    }) => {
+      const userId = await ctx.db.insert('users', {
+        name: 'Charlie',
+        email: 'through-offset-bound@example.com',
+      });
+
+      for (let i = 0; i < 10; i += 1) {
+        const groupId = await (ctx.db as any).insert('groups', {
+          name: `group-${i}`,
+        });
+        await (ctx.db as any).insert('usersToGroups', { userId, groupId });
+      }
+
+      const reads = countDocumentReads(ctx);
+      const users = await ctx.orm.query.users.findMany({
+        limit: 10,
+        with: { groups: { offset: 2, limit: 3 } },
+      });
+
+      expect((users[0] as any).groups.map((group: any) => group.name)).toEqual([
+        'group-2',
+        'group-3',
+        'group-4',
+      ]);
+      expect(reads.documents).toBeLessThanOrEqual(14);
     });
 
     test('through relation limit fills the page past filtered targets', async ({

@@ -29,6 +29,8 @@ Linked plans:
   Example/docs render and read-path cleanup with browser proof.
 - [PR #332 autoclosure](docs/plans/2026-08-16-pr-332-autoclosure.md) -
   React identity stability and auth token rotation.
+- [PR #335 autoclosure](docs/plans/2026-08-17-pr-335-autoclosure.md) -
+  ORM limit/order pushdown and relation index selection.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -110,10 +112,10 @@ PR disposition ledger:
 | #329 | Solid infinite query mounts against real Solid Query | not slop; real compact correctness fix | 0 threads | first; #339 depends on it | closed: merged/released 0.17.2, post-release CI green |
 | #330 | lazy CLI startup and bounded codegen rework | credible but broad; not slop | repaired: 1 outdated + 1 current P2 | before #337/#342 | closed: merged `b78d94a5`, remote gates green |
 | #331 | remove ORM write-path rereads without corrupting hooks/RLS | credible but oversized; not slop | 1 obsolete + 1 repaired P1; structured review found/fixed another RLS P1 | before #335/#336/#337/#342 | closed: merged `23c0c999`, remote gates green |
-| #332 | preserve React queries across token rotation | credible but overstuffed React identity work; stale release story is slop | 1 outdated changeset thread already fixed to patch | before #339 | current main merged; focused proof green |
+| #332 | preserve React queries across token rotation | credible but overstuffed; accidental public API and stale release story were slop and removed | thread resolved | before #339 | closed: merged `2609245d`, released v0.17.5 |
 | #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | closed: merged `413d4068`, remote gates green |
 | #334 | reduce example/www client work and reads | mixed but mostly real; three proof/owner defects were slop and repaired | both threads resolved | codegen fix released in 0.17.4 | closed: merged `6bc8d1ca`, released 0.17.4 |
-| #335 | push ORM limit/order into indexes | valuable but high-risk | 3 P1 threads | before #336/#337/#342 | repair pending |
+| #335 | push ORM limit/order into indexes | valuable but high-risk; advertised index preference was missing | 3 GitHub P1s plus 2 accepted local P1s repaired; 1 local P1 rejected with owner proof; threads pending | before #336/#337/#342 | focused/package/docs/skill/deslop green |
 | #336 | bound streams and id-list pagination | credible, breaking | 2 P2 threads | after #335 | repair pending |
 | #337 | bound aggregate reads and clearing | valuable but high-risk | 2 P1 threads | before #342 | repair pending |
 | #338 | cache auth schema and repair session restore | credible, breaking | 3 P1 threads | after #337 by release plan | repair pending |
@@ -125,7 +127,7 @@ PR disposition ledger:
 Dependency-safe order:
 - Release 0.17.2: #329.
 - Released 0.17.4: #331 plus #334's package repair; #333 had no package delta.
-- Next patch release: #332.
+- Released 0.17.5: #332.
 - Release 0.19.x: #335 then #336.
 - Release 0.20.x: #337 then #338.
 - Release 0.21.x: #339 then #340.
@@ -232,6 +234,25 @@ Verification evidence:
   identity comparison and referential-stability invariants are real; its stale
   claim that an additive export requires a minor is release-story slop. The
   branch itself already follows repository v0 policy with a patch changeset.
+- #332 committed head `0d9f81b1` passed autoreview, CI `31973863217`, and
+  Vercel; the review thread was resolved and PR #332 squash-merged as
+  `2609245d`. Release PR #348 passed Convex Matrix `31974237216`, merged as
+  `c38d4a7c`, published npm/GitHub `v0.17.5`, and post-release CI
+  `31974926735` passed.
+- #335 merged released v0.17.5 main cleanly. TDD proved its remaining P1:
+  relation selection chose the first FK index and read 41 documents despite a
+  later order-serving compound index. The repaired selector reads the bounded
+  page. P1 review then exposed an opaque configured index masquerading as
+  native creation order; its red `[90, 70]` result now returns `[70, 20]` only
+  after proven pushdown. Committed-head review then caught a compatibility gap:
+  fully equality-pinned configured indexes must retain creation-order cursors.
+  The real range-builder operations now prove that case without blessing
+  partial/range prefixes. A through-slicing claim was rejected because the final
+  owner already applies offset/limit, backed by exact and bounded regressions.
+  All 62 unit plus 152 integration tests, package typecheck/build, generated
+  skill parity, doc-sync quality gates, agent-native map, and zero-net slop
+  delta pass. Final `bun check` also passes after both configured-index repairs,
+  including fresh fixtures and runtime scenarios.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.

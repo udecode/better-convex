@@ -702,4 +702,49 @@ describe('M5: OrderBy - Index Selection', () => {
 
     expect(posts.map((post) => post.numLikes)).toEqual([70, 20]);
   });
+
+  test('configured compound index does not masquerade as creation order', async ({
+    ctx,
+  }) => {
+    for (const numLikes of [50, 10, 90, 20, 70]) {
+      await ctx.db.insert('posts', {
+        text: `configured-${numLikes}`,
+        numLikes,
+        type: 'configured',
+      });
+    }
+
+    const posts = await ctx.orm.query.posts
+      .withIndex('numLikesAndType', (q) => q.eq('type', 'configured'))
+      .findMany({
+        orderBy: { createdAt: 'desc' },
+        limit: 2,
+      });
+
+    expect(posts.map((post) => post.numLikes)).toEqual([70, 20]);
+  });
+
+  test('fully pinned configured index keeps creation-order cursors', async ({
+    ctx,
+  }) => {
+    for (let i = 0; i < 4; i += 1) {
+      await ctx.db.insert('users', {
+        name: 'Pinned',
+        email: `pinned-${i}@example.com`,
+      });
+    }
+
+    const page = await ctx.orm.query.users
+      .withIndex('by_name', (q) => q.eq('name', 'Pinned'))
+      .findMany({
+        cursor: null,
+        orderBy: { createdAt: 'desc' },
+        limit: 2,
+      });
+
+    expect(page.page.map((user) => user.email)).toEqual([
+      'pinned-3@example.com',
+      'pinned-2@example.com',
+    ]);
+  });
 });

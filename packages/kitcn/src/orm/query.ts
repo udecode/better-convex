@@ -434,6 +434,61 @@ export class GelRankQuery<
   }
 }
 
+type ConfiguredIndexRangeOperation = {
+  field: string;
+  operator: 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
+};
+
+const CONFIGURED_INDEX_RANGE_OPERATORS = new Set<
+  ConfiguredIndexRangeOperation['operator']
+>(['eq', 'gt', 'gte', 'lt', 'lte']);
+
+const observeConfiguredIndexRange = (
+  builder: any,
+  operations: ConfiguredIndexRangeOperation[]
+): any =>
+  new Proxy(builder, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (
+        typeof property === 'string' &&
+        CONFIGURED_INDEX_RANGE_OPERATORS.has(
+          property as ConfiguredIndexRangeOperation['operator']
+        ) &&
+        typeof value === 'function'
+      ) {
+        return (field: string, ...args: unknown[]) => {
+          operations.push({
+            field,
+            operator: property as ConfiguredIndexRangeOperation['operator'],
+          });
+          return observeConfiguredIndexRange(
+            Reflect.apply(value, target, [field, ...args]),
+            operations
+          );
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+const countConfiguredIndexEqPrefix = (
+  indexFields: readonly string[] | null | undefined,
+  operations: readonly ConfiguredIndexRangeOperation[]
+) => {
+  if (!indexFields) {
+    return 0;
+  }
+  let count = 0;
+  for (const operation of operations) {
+    if (operation.operator !== 'eq' || operation.field !== indexFields[count]) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+};
+
 /**
  * Relational query builder with promise-based execution
  *
@@ -5924,31 +5979,30 @@ export class GelRelationalQuery<
         }
       }
     } else if (configuredIndex?.name) {
+      const configuredIndexFields = getIndexes(this.tableConfig.table).find(
+        (idx) => idx.name === configuredIndex.name
+      )?.fields;
+      const rangeOperations: ConfiguredIndexRangeOperation[] = [];
+      const configuredRange = configuredIndex.range;
       query = query.withIndex(
         configuredIndex.name as any,
-        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
+        configuredRange
+          ? (q: any) =>
+              configuredRange(observeConfiguredIndexRange(q, rangeOperations))
+          : (q: any) => q
       );
 
       if (primaryOrder) {
-        // A pinned range is an opaque callback, so how much of the key it fixes
-        // is unknowable and only the historical `_creationTime` accept applies.
-        // With the range left open nothing is pinned, so the scan is in leading
-        // index-field order and can serve a sort on it natively.
-        const pinnedIndexFields = configuredIndex.range
-          ? null
-          : (getIndexes(this.tableConfig.table).find(
-              (idx) => idx.name === configuredIndex.name
-            )?.fields ?? null);
         const pushdownDirection = resolveIndexOrderPushdown({
-          indexFields: pinnedIndexFields,
-          pinnedEqCount: 0,
+          indexFields: configuredIndexFields,
+          pinnedEqCount: countConfiguredIndexEqPrefix(
+            configuredIndexFields,
+            rangeOperations
+          ),
           orderSpecs: [primaryOrder],
         });
-        if (
-          pushdownDirection ||
-          primaryOrder.field === INTERNAL_CREATION_TIME_FIELD
-        ) {
-          query = query.order(primaryOrder.direction);
+        if (pushdownDirection) {
+          query = query.order(pushdownDirection);
         } else {
           needsPostFetchSortForPrimary = true;
         }
@@ -8536,7 +8590,8 @@ export class GelRelationalQuery<
         `${tableConfig.name}.${relationName}`,
         edge.targetTable,
         strict,
-        this.allowFullScan
+        this.allowFullScan,
+        orderSpecs
       );
 
       const entries = Array.from(sourceKeyMap.entries());

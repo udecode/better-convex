@@ -200,6 +200,27 @@ describe('index-utils', () => {
       )
     ).toThrow(/requires index/i);
   });
+
+  test('findRelationIndex prefers a later index that serves the order', () => {
+    const table = {
+      getIndexes: () => [
+        { name: 'by_author', fields: ['authorId'] },
+        { name: 'by_author_likes', fields: ['authorId', 'numLikes'] },
+      ],
+    };
+
+    expect(
+      findRelationIndex(
+        table as any,
+        ['authorId'],
+        'users.posts',
+        'posts',
+        true,
+        false,
+        [{ field: 'numLikes', direction: 'desc' }]
+      )
+    ).toBe('by_author_likes');
+  });
 });
 
 describe('resolveIndexOrderPushdown', () => {
