@@ -138,19 +138,34 @@ describe('createHttpProxy', () => {
     });
   });
 
-  test('queryKey/queryFilter return prefix keys when args are empty', () => {
+  test('queryKey returns the exact stored key, empty args included', () => {
     const proxy: any = createHttpProxy<any>({
       convexSiteUrl: 'https://example.convex.site',
       routes,
     });
 
-    expect(proxy.todos.get.queryKey()).toEqual(['httpQuery', 'todos.get']);
-    expect(proxy.todos.get.queryKey({})).toEqual(['httpQuery', 'todos.get']);
+    // Same key queryOptions stores under, so getQueryData/setQueryData hit.
+    expect(proxy.todos.get.queryKey()).toEqual(['httpQuery', 'todos.get', {}]);
+    expect(proxy.todos.get.queryKey()).toEqual(
+      proxy.todos.get.queryOptions().queryKey
+    );
+    expect(proxy.todos.get.queryKey({})).toEqual([
+      'httpQuery',
+      'todos.get',
+      {},
+    ]);
     expect(proxy.todos.get.queryKey({ params: { id: '1' } })).toEqual([
       'httpQuery',
       'todos.get',
       { params: { id: '1' } },
     ]);
+  });
+
+  test('queryFilter returns a route-wide prefix key when args are empty', () => {
+    const proxy: any = createHttpProxy<any>({
+      convexSiteUrl: 'https://example.convex.site',
+      routes,
+    });
 
     expect(proxy.todos.get.queryFilter()).toEqual({
       queryKey: ['httpQuery', 'todos.get'],
@@ -158,6 +173,9 @@ describe('createHttpProxy', () => {
     expect(proxy.todos.get.queryFilter({}, { stale: true })).toEqual({
       queryKey: ['httpQuery', 'todos.get'],
       stale: true,
+    });
+    expect(proxy.todos.get.queryFilter({ params: { id: '1' } })).toEqual({
+      queryKey: ['httpQuery', 'todos.get', { params: { id: '1' } }],
     });
   });
 

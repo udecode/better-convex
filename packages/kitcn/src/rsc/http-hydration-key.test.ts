@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/react-query';
 import { makeFunctionReference } from 'convex/server';
 import { createHashFn } from '../internal/hash';
 import { createHttpProxy } from '../react/http-proxy';
@@ -75,10 +76,30 @@ describe('rsc/http hydration key', () => {
     expect(opts.staleTime).toBe(0);
   });
 
-  test('queryKey()/queryFilter() keep emitting prefix keys for invalidation', () => {
-    expect(clientProxy.health.queryKey()).toEqual(['httpQuery', 'health']);
+  test('queryKey() reads back a server-prefetched no-arg entry', () => {
+    const queryClient = new QueryClient();
+    const serverKey = serverProxy.http.health.queryOptions().queryKey;
+    queryClient.setQueryData(serverKey, { status: 'ok' });
+
+    // getQueryData is an exact-hash lookup: a prefix key would miss.
+    expect(queryClient.getQueryData(clientProxy.health.queryKey())).toEqual({
+      status: 'ok',
+    });
+  });
+
+  test('queryFilter() matches every args variant of a route', () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['httpQuery', 'health', {}], { status: 'ok' });
+    queryClient.setQueryData(['httpQuery', 'health', { verbose: true }], {
+      status: 'ok',
+      uptime: 1,
+    });
+
     expect(clientProxy.health.queryFilter()).toEqual({
       queryKey: ['httpQuery', 'health'],
     });
+    expect(
+      queryClient.getQueryCache().findAll(clientProxy.health.queryFilter())
+    ).toHaveLength(2);
   });
 });

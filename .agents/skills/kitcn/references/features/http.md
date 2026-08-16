@@ -568,6 +568,20 @@ const updateTodo = useMutation(
 );
 ```
 
+### Cache Keys
+
+```ts
+const queryKey = crpc.http.todos.list.queryKey();
+// => ['httpQuery', 'todos.list', {}]
+queryClient.getQueryData(queryKey);
+
+crpc.http.todos.get.queryKey({ params: { id: '123' } });
+// => ['httpQuery', 'todos.get', { params: { id: '123' } }]
+```
+
+`queryKey()` is the exact key `queryOptions()` and RSC prefetching store under, so
+`getQueryData`/`setQueryData` hit. Use `queryFilter()` to match every args variant.
+
 See [Client Methods](#client-methods) in API Reference.
 
 ## RSC Prefetching
@@ -655,4 +669,5 @@ Client args can include `params`, `searchParams`, `form`, custom `fetch`,
 ### Client Methods
 
 Generated clients expose `queryOptions`, `staticQueryOptions`,
-`mutationOptions`, `queryKey`, and `queryFilter`.
+`mutationOptions`, `queryKey` (exact cache key), and `queryFilter` (matches every
+args variant when called without args).

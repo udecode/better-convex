@@ -27,6 +27,7 @@ import type { z } from 'zod';
 import { executeHttpRequest } from '../crpc/http-client';
 import {
   buildHttpQueryKey,
+  buildHttpQueryPrefixKey,
   HTTP_DEFAULT_STALE_TIME,
   HttpClientError,
   type HttpMutationKey,
@@ -170,7 +171,11 @@ type InferHttpOutput<T> =
 // HTTP Query Key
 // ============================================================================
 
-export type { HttpMutationKey, HttpQueryKey } from '../crpc/http-types';
+export type {
+  HttpMutationKey,
+  HttpQueryKey,
+  HttpQueryPrefixKey,
+} from '../crpc/http-types';
 
 // ============================================================================
 // HTTP Procedure Options Types
@@ -226,9 +231,9 @@ type DecorateHttpQuery<T extends HttpProcedure> = {
           args: InferHttpClientArgs<T>,
           opts?: HttpQueryOptions<T>
         ) => HttpQueryOptsReturn<T>;
-  /** Get query key for QueryClient methods (with args = exact match, without = prefix) */
+  /** Get the exact cache key these args are stored under (getQueryData/setQueryData) */
   queryKey: (args?: InferHttpClientArgs<T>) => HttpQueryKey;
-  /** Get query filter for QueryClient methods (e.g., invalidateQueries) */
+  /** Get query filter matching every args variant (e.g., invalidateQueries) */
   queryFilter: (
     args?: InferHttpClientArgs<T>,
     filters?: DistributiveOmit<QueryFilters, 'queryKey'>
@@ -480,28 +485,16 @@ function createRecursiveHttpProxy(
       }
 
       // Terminal method: queryKey (for GET endpoints)
-      // When called without args or empty object, return 2-element key for prefix matching
-      // When called with args, return 3-element key for exact match
+      // Always the exact key the entry is stored under, so `getQueryData` hits.
+      // Prefix matching belongs to `queryFilter`.
       if (prop === 'queryKey') {
-        return (args?: unknown) => {
-          // undefined or empty object = no args = prefix key
-          const hasArgs =
-            args !== undefined &&
-            !(
-              typeof args === 'object' &&
-              args !== null &&
-              Object.keys(args).length === 0
-            );
-          return hasArgs
-            ? buildHttpQueryKey(routeKey, args)
-            : (['httpQuery', routeKey] as const);
-        };
+        return (args?: unknown) => buildHttpQueryKey(routeKey, args);
       }
 
       // Terminal method: queryFilter (for GET endpoints, used for invalidation)
       if (prop === 'queryFilter') {
         return (args?: unknown, filters?: Record<string, unknown>) => {
-          // undefined or empty object = no args = prefix key
+          // undefined or empty object = no args = match every args variant
           const hasArgs =
             args !== undefined &&
             !(
@@ -513,7 +506,7 @@ function createRecursiveHttpProxy(
             ...filters,
             queryKey: hasArgs
               ? buildHttpQueryKey(routeKey, args)
-              : (['httpQuery', routeKey] as const),
+              : buildHttpQueryPrefixKey(routeKey),
           };
         };
       }

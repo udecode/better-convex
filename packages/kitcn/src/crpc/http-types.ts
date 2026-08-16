@@ -25,10 +25,11 @@ export type HttpRouteMap = Record<string, HttpRouteInfo>;
 // Query Key + Cache Policy (single owner for every `crpc.http.*` consumer)
 // ============================================================================
 
-/** Query key with args (3-element) or prefix key without args (2-element) for invalidation */
-export type HttpQueryKey =
-  | readonly ['httpQuery', string, unknown]
-  | readonly ['httpQuery', string];
+/** Exact cache key for one route + args, as stored in the QueryClient */
+export type HttpQueryKey = readonly ['httpQuery', string, unknown];
+
+/** Route-wide prefix key that matches every args variant of one route */
+export type HttpQueryPrefixKey = readonly ['httpQuery', string];
 
 /** Mutation key for HTTP endpoints */
 export type HttpMutationKey = readonly ['httpMutation', string];
@@ -36,15 +37,25 @@ export type HttpMutationKey = readonly ['httpMutation', string];
 /**
  * Build the exact cache key for an HTTP route.
  *
- * Missing args normalize to `{}` so the RSC prefetch and the browser observer
- * hash to the same key and a server-prefetched entry hydrates instead of being
- * refetched. Every producer of a 3-element `httpQuery` key goes through here.
+ * Missing args normalize to `{}` so the RSC prefetch, the browser observer, and
+ * a hand-written `getQueryData` call all hash to the same key. Every producer
+ * of an `httpQuery` cache key goes through here.
  */
 export function buildHttpQueryKey(
   routeKey: string,
   args?: unknown
-): readonly ['httpQuery', string, unknown] {
+): HttpQueryKey {
   return ['httpQuery', routeKey, args ?? {}] as const;
+}
+
+/**
+ * Build the route-wide prefix key.
+ *
+ * Filters match on prefix, so this matches every args variant of the route.
+ * Not a cache key: nothing is ever stored under it.
+ */
+export function buildHttpQueryPrefixKey(routeKey: string): HttpQueryPrefixKey {
+  return ['httpQuery', routeKey] as const;
 }
 
 /**
