@@ -25,6 +25,8 @@ Linked plans:
   ORM write-path read reduction with hook and RLS correctness repairs.
 - [PR #333 autoclosure](docs/plans/2026-08-16-pr-333-autoclosure.md) -
   Turbo/CI input cleanup and throwable scaffold command failures.
+- [PR #334 autoclosure](docs/plans/2026-08-16-pr-334-autoclosure.md) -
+  Example/docs render and read-path cleanup with browser proof.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -107,8 +109,8 @@ PR disposition ledger:
 | #330 | lazy CLI startup and bounded codegen rework | credible but broad; not slop | repaired: 1 outdated + 1 current P2 | before #337/#342 | closed: merged `b78d94a5`, remote gates green |
 | #331 | remove ORM write-path rereads without corrupting hooks/RLS | credible but oversized; not slop | 1 obsolete + 1 repaired P1; structured review found/fixed another RLS P1 | before #335/#336/#337/#342 | closed: merged `23c0c999`, remote gates green |
 | #332 | preserve React queries across token rotation | credible identity fix | 1 outdated changeset thread | before #339 | verify pending |
-| #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | review pending |
-| #334 | reduce example/www client work and reads | mixed bundle, not proven | browser gap + 1 P2 thread | ride 0.18 only if fixed | repair pending |
+| #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | closed: merged `413d4068`, remote gates green |
+| #334 | reduce example/www client work and reads | mixed but mostly real; three proof/owner defects were slop and repaired | browser P1 + dedicated-existence P2 | package codegen fix joins pending patch release | local proof complete; delivery pending |
 | #335 | push ORM limit/order into indexes | valuable but high-risk | 3 P1 threads | before #336/#337/#342 | repair pending |
 | #336 | bound streams and id-list pagination | credible, breaking | 2 P2 threads | after #335 | repair pending |
 | #337 | bound aggregate reads and clearing | valuable but high-risk | 2 P1 threads | before #342 | repair pending |
@@ -120,7 +122,8 @@ PR disposition ledger:
 
 Dependency-safe order:
 - Release 0.17.2: #329.
-- Release 0.18.x: #330, #331, #333, #334 if proven, then #332 as release trigger.
+- Pending patch release: #331, #333, #334 after proof.
+- Next release trigger: #332 after the pending patch release settles.
 - Release 0.19.x: #335 then #336.
 - Release 0.20.x: #337 then #338.
 - Release 0.21.x: #339 then #340.
@@ -209,6 +212,17 @@ Verification evidence:
   feedback threads are resolved and the pinned head squash-merged as `23c0c999`.
 - #330's patch changeset auto-published separately as `0.17.3` through release
   PR #345. #331 remains an unreleased patch and can ride #332's minor trigger.
+- #333's final six-file tooling delta passed 45 focused tests, Turbo dry-run,
+  zero slop delta, agent-native audit, lint, full check, committed-head review,
+  CI run `31969584708`, and Vercel; it merged as `413d4068` with no release.
+- #334's dropdown reuse is not a valid existence contract: it subscribes the
+  app shell to up to 2,000 rows. A red/green production-owner test now drives a
+  dedicated indexed `projects.hasAny` query and generated client/runtime output.
+- #334 also contained copied tag tests and a no-assertion HTTP codegen test.
+  Repairs route tests through real owners, preserve nested HTTP route metadata,
+  regenerate 17 routes, and pass 4 focused read-count tests, 63 codegen tests,
+  package build, example/Convex typechecks, five Browser routes, responsive
+  walkthrough proof, zero slop delta, lint, and full `bun check`.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.

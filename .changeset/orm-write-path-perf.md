@@ -27,3 +27,5 @@
 - Improve mutations that issue concurrent writes to a hooked table: the
   internal write lock now hands off to one waiter instead of waking all of
   them.
+- Fix `kitcn codegen` dropping nested cRPC HTTP routes when parsing projects
+  through generated server placeholders.

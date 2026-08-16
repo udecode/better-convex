@@ -398,6 +398,7 @@ export declare const api: {
         todoCount: number;
       } | null
     >;
+    hasAny: FunctionReference<"query", "public", {}, boolean>;
     leave: FunctionReference<"mutation", "public", { projectId: string }, any>;
     list: FunctionReference<
       "query",
@@ -471,7 +472,27 @@ export declare const api: {
       "query",
       "public",
       { identifier?: string; sampleShards?: number },
-      { config: any; shard: number; ts: number; value: number }
+      {
+        config: any;
+        shard: number;
+        state: {
+          auxTs?: number;
+          auxValue?: number;
+          shards?: Array<{
+            shard: number;
+            state: {
+              auxTs?: number;
+              auxValue?: number;
+              ts: number;
+              value: number;
+            };
+          }>;
+          ts: number;
+          value: number;
+        };
+        ts: number;
+        value: number;
+      }
     >;
     getInteractiveServerTime: FunctionReference<
       "mutation",

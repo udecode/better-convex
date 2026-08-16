@@ -131,15 +131,9 @@ export function BreadcrumbNav() {
     })
   );
 
-  const { data: projectsData } = useQuery(
-    crpc.projects.list.queryOptions(
-      { limit: 1, cursor: null },
-      {
-        placeholderData: { page: [], isDone: true, continueCursor: '' },
-      }
-    )
+  const { data: hasData } = useQuery(
+    crpc.projects.hasAny.queryOptions({}, { skipUnauth: true })
   );
-  const hasData = projectsData && projectsData.page.length > 0;
   const activeSection = activeSectionFromPath(pathname);
   const scopedNavItems =
     activeSection === 'labs' ? LAB_NAV_ITEMS : APP_NAV_ITEMS;
@@ -176,7 +170,7 @@ export function BreadcrumbNav() {
             {isAuth ? (
               <>
                 <OrganizationSwitcher />
-                {!hasData && (
+                {hasData === false && (
                   <Button
                     className="gap-2"
                     disabled={generateSamplesAction.isPending}
