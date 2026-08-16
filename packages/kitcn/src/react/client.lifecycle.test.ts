@@ -276,25 +276,70 @@ describe('ConvexQueryClient (client mode lifecycle)', () => {
       unsubscribe: () => {},
     };
 
-    const setQueryData = spyOn(queryClient, 'setQueryData');
-
     // undefined -> should NOT overwrite existing data
     client.onUpdateQueryKeyHash((query as any).queryHash);
-    expect(setQueryData).not.toHaveBeenCalled();
+    expect((query as any).state.data).toEqual({ existing: true });
 
     // null -> valid Convex result, should overwrite existing data
     localQueryValue = null;
     client.onUpdateQueryKeyHash((query as any).queryHash);
-    expect(setQueryData).toHaveBeenCalledTimes(1);
-    expect(setQueryData).toHaveBeenCalledWith(queryKey as any, null);
+    expect((query as any).state.data).toBeNull();
 
     // non-nullish -> should update
     localQueryValue = { updated: true };
     client.onUpdateQueryKeyHash((query as any).queryHash);
-    expect(setQueryData).toHaveBeenCalledTimes(2);
-    expect(setQueryData).toHaveBeenCalledWith(queryKey as any, {
-      updated: true,
+    expect((query as any).state.data).toEqual({ updated: true });
+
+    unsubObserver();
+  });
+
+  test('onUpdateQueryKeyHash leaves an unresolved subscription pending on undefined', async () => {
+    // Query.setData has no undefined short-circuit, so writing through it must
+    // stay guarded: an undefined push with no cached data would otherwise mark
+    // a never-resolved subscription as successfully loaded with data undefined.
+    const ConvexQueryClient = await getClientConvexQueryClient('pending');
+
+    const queryClient = new QueryClient();
+    const convexClient = {
+      watchQuery: () => ({
+        onUpdate: () => () => {},
+      }),
+    };
+    const client = new ConvexQueryClient(convexClient, {
+      queryClient,
+      unsubscribeDelay: 0,
     });
+
+    const queryKey = ['convexQuery', 'todos:pending', {}] as const;
+    const observer = new QueryObserver(queryClient as any, {
+      enabled: false,
+      meta: { subscribe: true },
+      queryFn: async () => ({ ok: true }),
+      queryKey,
+    });
+    const unsubObserver = observer.subscribe(() => {});
+
+    const query =
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .find((q) => JSON.stringify(q.queryKey) === JSON.stringify(queryKey)) ??
+      null;
+    expect(query).not.toBeNull();
+    expect((query as any).state.data).toBeUndefined();
+
+    client.subscriptions[(query as any).queryHash] = {
+      queryKey: queryKey as any,
+      watch: {
+        localQueryResult: () => undefined,
+      } as any,
+      unsubscribe: () => {},
+    };
+
+    client.onUpdateQueryKeyHash((query as any).queryHash);
+
+    expect((query as any).state.data).toBeUndefined();
+    expect((query as any).state.status).not.toBe('success');
 
     unsubObserver();
   });

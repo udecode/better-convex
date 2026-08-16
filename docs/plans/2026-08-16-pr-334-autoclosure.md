@@ -68,17 +68,17 @@ Closure matrix:
 | docs/package skill | no | landing UI only; no reference prose/API guidance | N/A |
 | changeset | yes | existing unreleased ORM patch changeset extended for codegen fix | complete |
 | agent workflow | yes | deterministic codegen/runtime/browser routes | complete |
-| cleanup/review | yes | deslop and agent-native map complete; autoreview pending | in progress |
+| cleanup/review | yes | deslop, agent-native map, committed-head autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, pinned checks, merge/read-back | pending |
+| GitHub delivery | yes | feedback, pinned checks, merge/read-back | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
 - [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
 - [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
@@ -110,9 +110,9 @@ Completion Gates:
 | Agent-native reviewer | complete | map codegen/browser route | capability map below passes; no workflow files touched |
 | Final lint | yes | `bun lint:fix` | complete |
 | Repository check | yes | `bun check` | complete, exit 0 |
-| GitHub delivery | pending | push, feedback, pinned checks, merge | pending |
-| Autoreview | yes | final committed-head review | pending |
-| Goal plan complete | yes | run checker | pending |
+| GitHub delivery | complete | push, feedback, pinned checks, merge | head `26b8f4de`, CI `31971886260`, Vercel, merge `6bc8d1ca` |
+| Autoreview | yes | final committed-head review | clean, 0.98 confidence |
+| Goal plan complete | yes | run checker | complete |
 | Agent source / generated sync | N/A | no `.agents/rules/**` change | no mirror sync needed |
 | Installed lock audit | N/A | no skill installation delta | lock untouched |
 | Agent action discoverability | complete | prove codegen/browser commands | `kitcn codegen`, `bun --cwd example codegen`, Browser routes |
@@ -124,9 +124,9 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, doctrine, sources, feedback | repair |
 | Repair | complete | existence/tag owners, HTTP parser, source-first type graph | review |
-| Review/checks | in_progress | focused tests, browser, walkthrough, deslop, lint, full check | autoreview |
-| Delivery | pending | | closeout |
-| Closeout | pending | | final |
+| Review/checks | complete | focused tests, browser, walkthrough, deslop, lint, full check, autoreview | delivery |
+| Delivery | complete | both threads resolved; pinned CI/Vercel green; squash merge | closeout |
+| Closeout | complete | merge and v0.17.4 publication read back | final |
 
 Verification evidence:
 - The branch is mixed but each retained delta maps to a real rendered or read
@@ -151,6 +151,10 @@ Verification evidence:
   390 px. Walkthrough artifacts live under `tmp/walkthrough/pr-334/`.
 - `bun --cwd packages/kitcn build`, both example/Convex typechecks,
   `bun lint:fix`, and full `bun check` pass.
+- Committed head `26b8f4de` passed autoreview, CI run `31971886260`, and
+  Vercel; both review threads were resolved before squash merge `6bc8d1ca`.
+- Release PR #346 merged as `e79a0d8d`; npm and GitHub `v0.17.4` include the
+  nested HTTP route codegen repair.
 
 Agent-native capability map:
 | User action | Route | Source owner | Generated/runtime output | Proof | Verdict |
@@ -160,15 +164,16 @@ Agent-native capability map:
 
 Timeline:
 - 2026-08-16 PR #333 merged; walkthrough baseline captured on #334 before repair.
+- 2026-08-16 PR #334 merged and the package repair published in v0.17.4.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Committed-head review, remote gates, deliver |
+| Where am I? | Closed |
+| Where am I going? | Next frozen PR |
 | What is the goal? | Merge only the proven render/read reductions with live route proof. |
 | What have I learned? | Two copied tests and one no-assert test concealed real source-owner defects. |
-| What have I done? | Repaired all three owners; proved the changed routes, generated output, package, and repository. |
+| What have I done? | Repaired all three owners, merged #334, and published its package repair in v0.17.4. |
 
 Open risks:
-- Only committed-head review and remote GitHub gates remain.
+- None for PR #334.
