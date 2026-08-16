@@ -13,36 +13,49 @@ const CLI_TS_RE = /\/cli\.ts$/;
 
 describe('cli/watcher', () => {
   test('getWatchRoots includes the shared roots codegen reads from', () => {
-    const functionsDir = path.join('/repo', 'convex', 'functions');
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'convex', 'functions');
     expect(getWatchRoots(functionsDir)).toEqual([
       functionsDir,
-      path.join('/repo', 'convex', 'routers'),
-      path.join('/repo', 'convex', 'lib'),
-      path.join('/repo', 'convex', 'shared'),
+      path.join(projectDir, 'convex', 'routers'),
+      path.join(projectDir, 'convex', 'lib'),
+      path.join(projectDir, 'convex', 'shared'),
     ]);
   });
 
   test('getWatchRoots stays inside the functions dir when it is the convex root', () => {
-    const functionsDir = path.join('/repo', 'convex');
+    const functionsDir = path.join(process.cwd(), 'convex');
     expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
   });
 
   test('getWatchRoots keeps the shared roots for a convex root that is not named convex', () => {
     // convex.json `functions` accepts any path, so the Convex root comes from
     // the functions dir itself, never from its parent's name.
-    const functionsDir = path.join('/repo', 'backend', 'functions');
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'backend', 'functions');
     expect(getWatchRoots(functionsDir)).toEqual([
       functionsDir,
-      path.join('/repo', 'backend', 'routers'),
-      path.join('/repo', 'backend', 'lib'),
-      path.join('/repo', 'backend', 'shared'),
+      path.join(projectDir, 'backend', 'routers'),
+      path.join(projectDir, 'backend', 'lib'),
+      path.join(projectDir, 'backend', 'shared'),
+    ]);
+  });
+
+  test('getWatchRoots keeps sibling roots when the functions dir has a custom name', () => {
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'backend', 'api');
+    expect(getWatchRoots(functionsDir)).toEqual([
+      functionsDir,
+      path.join(projectDir, 'backend', 'routers'),
+      path.join(projectDir, 'backend', 'lib'),
+      path.join(projectDir, 'backend', 'shared'),
     ]);
   });
 
   test('getWatchRoots never watches project-root siblings', () => {
     // `functions: "backend"` has no Convex root above it, so /repo/routers and
     // friends are unrelated project directories.
-    const functionsDir = path.join('/repo', 'backend');
+    const functionsDir = path.join(process.cwd(), 'backend');
     expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
   });
 

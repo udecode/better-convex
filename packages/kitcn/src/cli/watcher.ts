@@ -37,15 +37,16 @@ type WatcherCodegenDeps = {
   resolveConfiguredBackendFn?: typeof resolveConfiguredBackend;
 };
 
-/**
- * Convex root that owns a functions dir, using the same rule the init tsconfig
- * scaffold applies: a dir named `functions` is nested inside the Convex root,
- * anything else is the Convex root itself.
- */
 function getConvexRoot(functionsDir: string): string {
-  return path.basename(functionsDir) === 'functions'
-    ? path.dirname(functionsDir)
-    : functionsDir;
+  const projectDir = path.resolve(process.cwd());
+  const relativeFunctionsDir = path.relative(projectDir, functionsDir);
+  const isNestedProjectPath =
+    relativeFunctionsDir.includes(path.sep) &&
+    relativeFunctionsDir !== '..' &&
+    !relativeFunctionsDir.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativeFunctionsDir);
+
+  return isNestedProjectPath ? path.dirname(functionsDir) : functionsDir;
 }
 
 export function getWatchRoots(functionsDir: string): string[] {

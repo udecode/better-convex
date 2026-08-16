@@ -19,6 +19,8 @@ Applied packs:
 Linked plans:
 - [PR #329 autoclosure](docs/plans/2026-08-16-pr-329-autoclosure.md) -
   Solid infinite-query mount crash and first release root.
+- [PR #330 autoclosure](docs/plans/2026-08-16-pr-330-autoclosure.md) -
+  CLI lazy startup/codegen refactor and custom-root watcher repair.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -97,8 +99,8 @@ Closure matrix:
 PR disposition ledger:
 | PR | Intended invariant | Initial slop verdict | Feedback | Dependency / order | Status |
 | --- | --- | --- | --- | --- | --- |
-| #329 | Solid infinite query mounts against real Solid Query | not slop; real compact correctness fix | 0 threads | first; #339 depends on it | verified; delivery in progress |
-| #330 | lazy CLI startup and bounded codegen rework | credible but broad | 2 P2 threads | before #337/#342 | repair pending |
+| #329 | Solid infinite query mounts against real Solid Query | not slop; real compact correctness fix | 0 threads | first; #339 depends on it | closed: merged/released 0.17.2, post-release CI green |
+| #330 | lazy CLI startup and bounded codegen rework | credible but broad; not slop | repaired: 1 outdated + 1 current P2 | before #337/#342 | locally verified; delivery in progress |
 | #331 | remove ORM write-path rereads without corrupting hooks/RLS | credible but oversized | 2 P1 threads | before #335/#336/#337/#342 | repair pending |
 | #332 | preserve React queries across token rotation | credible identity fix | 1 outdated changeset thread | before #339 | verify pending |
 | #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | review pending |
@@ -181,6 +183,14 @@ Verification evidence:
 - #329 source audit proves the crash owner against TanStack's real Solid Query
   implementation; focused 9-test regression, typecheck, build, changeset,
   deslop, lint, full `bun check`, and autoreview all pass after merging main.
+- #329 merged at `c8531153`; release PR #344 merged at `7728ed62`; npm and
+  GitHub `v0.17.2` are live; post-release CI run `31966196360` passed.
+- #330's remaining current review finding is valid: `getWatchRoots` handles
+  `backend/functions` but still misses siblings for `backend/api` because it
+  assumes the final directory is literally named `functions`.
+- #330 repair derives nested ownership from the configured path relative to
+  the project, with a failing-then-passing `backend/api` regression; focused
+  tests, package build, changeset, deslop, lint, full check, and autoreview pass.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.
