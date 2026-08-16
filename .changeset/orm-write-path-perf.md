@@ -2,6 +2,8 @@
 "kitcn": patch
 ---
 
+## Patches
+
 - Improve mutation latency on tables with triggers, `aggregateIndex()` or
   `rankIndex()`. Writes no longer re-read the document after patching or
   replacing it, and no longer read it at all when no hook consumes it.
@@ -13,6 +15,9 @@
   `withCheck` callbacks now run once per query or mutation statement instead of
   once per row, so an `async` policy that reads the database no longer issues
   one read per returned row.
+- Fix row-level-security visibility when one query object is awaited more than
+  once. Every await re-resolves the table's policies, so a policy that reads
+  the database sees writes made between the two awaits.
 - Improve CPU cost of every ORM read and every `returning()` row by reshaping
   documents in a single pass.
 - Improve `returning({ _count })` on multi-row mutations: the aggregate-index
