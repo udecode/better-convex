@@ -63,6 +63,7 @@ import {
   getTransformer,
 } from '../crpc/transformer';
 import type { ConvexQueryMeta } from '../crpc/types';
+import { clearAuthBoundQueries } from '../internal/auth-reset';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
 import {
@@ -393,6 +394,16 @@ export class ConvexQueryClient {
   }
 
   /**
+   * Advance the account generation published by the auth store.
+   * Client state that only makes sense inside one account's result set —
+   * paginated cursor chains — keys on it, so it is rebuilt instead of reused.
+   */
+  private bumpAuthEpoch() {
+    if (!this.authStore) return;
+    this.authStore.set('authEpoch', this.authStore.get('authEpoch') + 1);
+  }
+
+  /**
    * Drop every auth-bound cache entry and resubscribe.
    * Call on an identity transition (sign-in, sign-up, sign-out): Convex query
    * options set `staleTime: Infinity` with every refetch trigger off, so
@@ -401,23 +412,27 @@ export class ConvexQueryClient {
    * (actions, `subscribe: false`), which have no push to correct them.
    */
   async resetAuthQueries() {
-    const authQueries = this.queryClient
-      .getQueryCache()
-      .getAll()
-      .filter((query) => isAuthBoundQuery(query));
+    const queryCache = this.queryClient.getQueryCache();
 
-    for (const query of authQueries) {
+    for (const query of queryCache.getAll()) {
+      if (!isAuthBoundQuery(query)) continue;
+
       this.cancelPendingUnsubscribe(query.queryHash);
       this.unsubscribeQueryByHash(query.queryHash);
     }
 
-    // Reset between the loops: a live watch would re-seed the entry it just
+    this.bumpAuthEpoch();
+
+    // Clear between the loops: a live watch would re-seed the entry it just
     // cleared through onUpdateQueryKeyHash's hydration guard.
-    await this.queryClient.resetQueries({
+    await clearAuthBoundQueries(queryCache, (query) => isAuthBoundQuery(query));
+
+    await this.queryClient.refetchQueries({
       predicate: (query) => isAuthBoundQuery(query),
+      type: 'active',
     });
 
-    for (const query of this.queryClient.getQueryCache().getAll()) {
+    for (const query of queryCache.getAll()) {
       if (isAuthBoundQuery(query)) {
         this.subscribeQuery(query);
       }

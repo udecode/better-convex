@@ -77,6 +77,7 @@ import {
   getTransformer,
 } from '../crpc/transformer';
 import type { ConvexQueryMeta } from '../crpc/types';
+import { clearAuthBoundQueries } from '../internal/auth-reset';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
 import {
@@ -434,22 +435,38 @@ export class ConvexQueryClient {
     }
   }
 
-  async resetAuthQueries() {
-    const authQueries = this.queryClient
-      .getQueryCache()
-      .getAll()
-      .filter((query) => isAuthBoundQuery(query));
+  /**
+   * Advance the account generation published by the auth store.
+   * Client state that only makes sense inside one account's result set —
+   * paginated cursor chains — keys on it, so it is rebuilt instead of reused.
+   */
+  private bumpAuthEpoch() {
+    if (!this.authStore) return;
+    this.authStore.set('authEpoch', this.authStore.get('authEpoch') + 1);
+  }
 
-    for (const query of authQueries) {
+  async resetAuthQueries() {
+    const queryCache = this.queryClient.getQueryCache();
+
+    for (const query of queryCache.getAll()) {
+      if (!isAuthBoundQuery(query)) continue;
+
       this.cancelPendingUnsubscribe(query.queryHash);
       this.unsubscribeQueryByHash(query.queryHash);
     }
 
-    await this.queryClient.resetQueries({
+    this.bumpAuthEpoch();
+
+    // Clear between the loops: a live watch would re-seed the entry it just
+    // cleared through onUpdateQueryKeyHash's hydration guard.
+    await clearAuthBoundQueries(queryCache, (query) => isAuthBoundQuery(query));
+
+    await this.queryClient.refetchQueries({
       predicate: (query) => isAuthBoundQuery(query),
+      type: 'active',
     });
 
-    for (const query of this.queryClient.getQueryCache().getAll()) {
+    for (const query of queryCache.getAll()) {
       if (isAuthBoundQuery(query)) {
         this.subscribeQuery(query);
       }
