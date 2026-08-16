@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/refs, react-hooks/immutability, react-hooks/purity -- render-phase identity cache: the write is idempotent for a given input */
+/* eslint-disable react-hooks/refs -- render-phase identity cache: the write is idempotent for a given input */
 
 import { useRef } from 'react';
 
