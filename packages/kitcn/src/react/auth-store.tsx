@@ -220,6 +220,12 @@ export type AuthStoreState = {
   isAuthenticated: boolean;
   /** Grace window for freshly seeded auth tokens while session sync catches up */
   sessionSyncGraceUntil: number | null;
+  /**
+   * Account generation, advanced on every identity transition. Client state
+   * that only makes sense inside one account's result set — paginated cursor
+   * chains — keys on it so it is rebuilt instead of reused across accounts.
+   */
+  authEpoch: number;
 };
 
 export const AUTH_SESSION_SYNC_GRACE_MS = 10_000;
@@ -230,8 +236,7 @@ export const isSessionSyncGraceActive = (
   typeof sessionSyncGraceUntil === 'number' &&
   sessionSyncGraceUntil > Date.now();
 
-/** Decode JWT expiration (ms timestamp) from token */
-export function decodeJwtExp(token: string): number | null {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const segment = token.split('.')[1];
     if (!segment) {
@@ -240,15 +245,29 @@ export function decodeJwtExp(token: string): number | null {
 
     // JWT segments are base64url; atob only accepts the standard alphabet.
     const binary = atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
-    const payload = JSON.parse(
+    return JSON.parse(
       new TextDecoder().decode(
         Uint8Array.from(binary, (char) => char.charCodeAt(0))
       )
     );
-    return payload.exp ? payload.exp * 1000 : null;
   } catch {
     return null;
   }
+}
+
+/** Decode JWT expiration (ms timestamp) from token */
+export function decodeJwtExp(token: string): number | null {
+  const exp = decodeJwtPayload(token)?.exp;
+  return typeof exp === 'number' ? exp * 1000 : null;
+}
+
+/**
+ * Decode the account a JWT belongs to. Distinguishes a scheduled refresh, which
+ * mints a new token for the same `sub`, from an actual account change.
+ */
+export function decodeJwtSubject(token: string): string | null {
+  const sub = decodeJwtPayload(token)?.sub;
+  return typeof sub === 'string' ? sub : null;
 }
 
 export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
@@ -267,6 +286,7 @@ export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
       isLoading: true,
       isAuthenticated: false,
       sessionSyncGraceUntil: null,
+      authEpoch: 0,
     } as AuthStoreState,
     { name: 'auth' as const, suppressWarnings: true }
   );

@@ -67,6 +67,12 @@ export type AuthStoreState = {
   isLoading: boolean;
   /** Auth state (synced from useConvexAuth for class methods) */
   isAuthenticated: boolean;
+  /**
+   * Account generation, advanced on every identity transition. Client state
+   * that only makes sense inside one account's result set — paginated cursor
+   * chains — keys on it so it is rebuilt instead of reused across accounts.
+   */
+  authEpoch: number;
 };
 
 /** Decode JWT expiration (ms timestamp) from token */
@@ -103,6 +109,7 @@ const defaultState: AuthStoreState = {
   expiresAt: null,
   isLoading: true,
   isAuthenticated: false,
+  authEpoch: 0,
 };
 
 // ============================================================================
