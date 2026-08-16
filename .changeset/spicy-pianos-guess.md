@@ -1,5 +1,5 @@
 ---
-"kitcn": patch
+"kitcn": minor
 ---
 
 ## Features
