@@ -20,11 +20,15 @@ import { aggregateCapability } from "kitcn/orm/aggregate-index";
 export const orm = createOrm({ schema, capabilities: [aggregateCapability()] });
 ```
 
-`kitcn codegen` writes this into `<functionsDir>/generated/server.ts`. Convex bundles everything a
-module statically imports and has no dynamic `import()`, so `kitcn/orm` never reaches the aggregate
-runtime on its own. Without the capability, `aggregateIndex`/`rankIndex` schemas and filtered
-`count()` / `aggregate()` / `groupBy()` / `rank()` / relation `_count` throw a setup error.
-Unfiltered `count()` needs nothing.
+`kitcn codegen` writes this into `<functionsDir>/generated/server.ts` for schemas that declare an
+`aggregateIndex` or `rankIndex`, and leaves it out otherwise. Convex bundles everything a module
+statically imports and has no dynamic `import()`, and every procedure module imports
+`generated/server.ts`, so an unused registration would put the aggregate btree in every Convex
+function of the app. Declare the index first, then rerun `kitcn codegen`.
+
+Without the capability, `aggregateIndex`/`rankIndex` schemas and filtered `count()` / `aggregate()`
+/ `groupBy()` / `rank()` / relation `_count` throw a setup error. Unfiltered `count()` and
+`aggregate({ _count: true })` are served by the native Convex count syscall and need nothing.
 
 ## ORM Scalar Metrics
 

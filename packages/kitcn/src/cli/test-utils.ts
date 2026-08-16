@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const LEGACY_TRAILING_COMMA_RE = /,\n(\s*[)\]}])/g;
@@ -964,6 +965,70 @@ export function writeMinimalSchema(dir: string, source?: string) {
     `.trim();
   fs.mkdirSync(path.join(dir, 'convex'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'convex', 'schema.ts'), `${schemaSource}\n`);
+}
+
+/**
+ * Runs `fn` in a throwaway project that uses the optional ORM subsystems.
+ *
+ * The aggregate and migration flows skip when the app declares no
+ * aggregate/rank index and has no migrations manifest, because `kitcn codegen`
+ * only registers those capabilities for apps that use them. Tests that assert
+ * a flow actually runs therefore need a project shaped like one that uses it.
+ * The schema is duck-typed rather than built with `kitcn/orm` so it resolves
+ * without a package fixture.
+ */
+let subsystemProjectReturnCwd: string | null = null;
+
+/** Chdirs into a throwaway project that uses the optional ORM subsystems. */
+export function enterSubsystemProject(
+  options: { aggregateIndexes?: boolean; migrations?: boolean } = {}
+) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-subsystem-'));
+  fs.mkdirSync(path.join(dir, 'convex'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'convex', 'schema.ts'),
+    options.aggregateIndexes === false
+      ? 'export default { tables: {} };\n'
+      : `const scores = {
+  getAggregateIndexes: () => [{ name: 'by_points', fields: ['points'] }],
+  getRankIndexes: () => [],
+};
+
+export default { tables: { scores } };
+`
+  );
+  if (options.migrations !== false) {
+    fs.mkdirSync(path.join(dir, 'convex', 'migrations'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'convex', 'migrations', 'manifest.ts'),
+      'export const migrations = { migrations: [] };\n'
+    );
+  }
+
+  subsystemProjectReturnCwd ??= process.cwd();
+  process.chdir(dir);
+  return dir;
+}
+
+/** No-op unless `enterSubsystemProject` moved the cwd. Safe in `afterEach`. */
+export function exitSubsystemProject() {
+  if (subsystemProjectReturnCwd === null) {
+    return;
+  }
+  process.chdir(subsystemProjectReturnCwd);
+  subsystemProjectReturnCwd = null;
+}
+
+export async function withSubsystemProject(
+  options: { aggregateIndexes?: boolean; migrations?: boolean },
+  fn: () => Promise<void>
+) {
+  enterSubsystemProject(options);
+  try {
+    await fn();
+  } finally {
+    exitSubsystemProject();
+  }
 }
 
 export function formatAsLegacySingleQuoteTs(source: string) {

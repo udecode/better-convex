@@ -1652,6 +1652,19 @@ describe('cli/commands/dev', () => {
       path.join(dir, 'convex', '.env'),
       'SITE_URL=http://localhost:3000\n'
     );
+    // The backfill flow only runs for apps whose schema declares an aggregate
+    // or rank index, since those are the only apps whose generated ORM
+    // registers the aggregate capability.
+    fs.writeFileSync(
+      path.join(dir, 'convex', 'schema.ts'),
+      `const scores = {
+  getAggregateIndexes: () => [{ name: 'by_points', fields: ['points'] }],
+  getRankIndexes: () => [],
+};
+
+export default { tables: { scores } };
+`
+    );
 
     const watcherProcess = createPendingProcess();
     const convexProcess = createPersistentProcess();

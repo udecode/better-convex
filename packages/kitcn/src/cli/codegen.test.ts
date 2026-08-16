@@ -1878,8 +1878,58 @@ describe('cli/codegen', () => {
       expect(generatedServer).toContain('const ormSchema = schema;');
       expect(generatedServer).toContain('schema: ormSchema,');
       expect(generatedServer).toContain('ormFunctions,');
-      // orm.api() owns the backfill and migration handlers, so the generated
-      // module that calls it has to register both optional subsystems.
+      // Every procedure module imports this file, so an unused optional
+      // runtime named here lands in every Convex function of the app. This
+      // schema declares no aggregate/rank index and the app has no migrations
+      // manifest, so neither runtime may appear.
+      expect(generatedServer).not.toContain('kitcn/orm/aggregate-index');
+      expect(generatedServer).not.toContain('kitcn/orm/migrations');
+      expect(generatedServer).not.toContain('capabilities:');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generated orm module registers the capabilities the app uses', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ name: 'caps-both', private: true, type: 'module' })
+      );
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { aggregateIndex, convexTable, defineSchema, text } from 'kitcn/orm';
+
+        export const todos = convexTable(
+          'todos',
+          { title: text().notNull() },
+          (t) => [aggregateIndex('byTitle').on(t.title)]
+        );
+
+        export default defineSchema({ todos });
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'migrations', 'manifest.ts'),
+        `
+        import { defineMigrationSet } from 'kitcn/orm';
+
+        export const migrations = defineMigrationSet([]);
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const generatedServer = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        'utf-8'
+      );
       expect(generatedServer).toContain(
         "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
       );
@@ -1888,6 +1938,58 @@ describe('cli/codegen', () => {
       );
       expect(generatedServer).toContain(
         'capabilities: [aggregateCapability(), migrationCapability()],'
+      );
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generated orm module registers the aggregate capability alone', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({
+          name: 'caps-aggregate',
+          private: true,
+          type: 'module',
+        })
+      );
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { convexTable, defineSchema, rankIndex, integer, text } from 'kitcn/orm';
+
+        export const scores = convexTable(
+          'scores',
+          { player: text().notNull(), points: integer().notNull() },
+          (t) => [
+            rankIndex('byPoints')
+              .all()
+              .orderBy({ column: t.points, direction: 'desc' }),
+          ]
+        );
+
+        export default defineSchema({ scores });
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const generatedServer = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        'utf-8'
+      );
+      expect(generatedServer).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedServer).not.toContain('kitcn/orm/migrations');
+      expect(generatedServer).toContain(
+        'capabilities: [aggregateCapability()],'
       );
     } finally {
       process.chdir(oldCwd);

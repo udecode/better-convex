@@ -14,6 +14,13 @@ const createReader = () =>
     system: {},
   }) as any;
 
+/** A reader whose `query()` exposes the native Convex count syscall. */
+const createCountingReader = (total: number) =>
+  ({
+    query: () => ({ count: async () => total }),
+    system: {},
+  }) as any;
+
 const plainTable = convexTable('capability_plain', {
   name: text().notNull(),
 });
@@ -51,6 +58,22 @@ describe('ORM capabilities', () => {
     expect((thrown as Error).message).toMatch(
       /requires the aggregate capability/
     );
+  });
+
+  test('the native count paths need no capability', async () => {
+    const orm = createOrm({ schema: plainSchema });
+    const db = orm.db(createCountingReader(7)) as any;
+
+    expect(await db.query.plain.count()).toBe(7);
+    expect(await db.query.plain.count({ select: { _all: true } })).toEqual({
+      _all: 7,
+    });
+    expect(await db.query.plain.aggregate({ _count: true })).toEqual({
+      _count: 7,
+    });
+    expect(await db.query.plain.aggregate({ _count: { _all: true } })).toEqual({
+      _count: { _all: 7 },
+    });
   });
 
   test('a schema declaring aggregateIndex requires the capability up front', () => {

@@ -94,7 +94,7 @@ export const resolveOrmCapabilities = (
 };
 
 const AGGREGATE_SETUP_HINT =
-  "import { aggregateCapability } from 'kitcn/orm/aggregate-index' and pass createOrm({ schema, capabilities: [aggregateCapability()] }).";
+  "Generated ORM: declare an aggregateIndex(...)/rankIndex(...) in your schema and rerun `kitcn codegen`, which registers the capability in <functionsDir>/generated/server.ts. Hand-written ORM: import { aggregateCapability } from 'kitcn/orm/aggregate-index' and pass createOrm({ schema, capabilities: [aggregateCapability()] }).";
 
 export const missingAggregateCapabilityError = (usage: string): Error =>
   new Error(
@@ -119,7 +119,7 @@ export const requireMigrationCapability = (
   const migrations = capabilities?.migrations;
   if (!migrations) {
     throw new Error(
-      `${usage} requires the migration capability. import { migrationCapability } from 'kitcn/orm/migrations' and pass createOrm({ schema, capabilities: [migrationCapability()] }).`
+      `${usage} requires the migration capability. Generated ORM: add a migration under <functionsDir>/migrations and rerun \`kitcn codegen\`, which registers the capability in <functionsDir>/generated/server.ts. Hand-written ORM: import { migrationCapability } from 'kitcn/orm/migrations' and pass createOrm({ schema, capabilities: [migrationCapability()] }).`
     );
   }
   return migrations;

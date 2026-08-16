@@ -25,6 +25,8 @@ import {
   resolveScaffoldInstallSpec,
 } from './supported-dependencies';
 import {
+  enterSubsystemProject,
+  exitSubsystemProject,
   writeExpoDefaultApp,
   writeShadcnNextApp,
   writeShadcnStartApp,
@@ -612,6 +614,11 @@ function expectDependencyInstallCallWithPackages(
 }
 
 describe('cli/cli', () => {
+  // The aggregate and migration flows only run for apps that declare an
+  // aggregate/rank index or ship a migrations manifest, so the tests that
+  // assert those flows run enter a project shaped like one.
+  afterEach(exitSubsystemProject);
+
   test('isEntryPoint treats symlinked bin shims as the entrypoint', () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'kitcn-cli-entrypoint-')
@@ -6659,6 +6666,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) executes post-deploy aggregate backfill with wait', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -6759,6 +6767,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) passes ambient Convex deployment env through deploy flow', async () => {
+    enterSubsystemProject();
     const deploymentEnvKeys = [
       'CONVEX_DEPLOYMENT',
       'CONVEX_DEPLOY_KEY',
@@ -6833,6 +6842,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) uses concave deploy + concave run when backend is concave', async () => {
+    enterSubsystemProject();
     const concaveCliPath = path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-concave-cli-')),
       'main.mjs'
@@ -6902,6 +6912,7 @@ describe('cli/cli', () => {
   });
 
   test('run(migrate up) executes migration runtime with polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
@@ -6940,6 +6951,7 @@ describe('cli/cli', () => {
   });
 
   test('run(migrate up) prints explicit noop message when nothing is pending', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
@@ -7062,6 +7074,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) fails in strict resume mode when kickoff reports needsRebuild', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
@@ -7141,6 +7154,7 @@ describe('cli/cli', () => {
   });
 
   test('run(aggregate rebuild) executes rebuild backfill and status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -7182,6 +7196,7 @@ describe('cli/cli', () => {
   });
 
   test('run(aggregate backfill) executes resume backfill and status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -7223,6 +7238,7 @@ describe('cli/cli', () => {
   });
 
   test('run(aggregate prune) executes prune without status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -7296,6 +7312,7 @@ describe('cli/cli', () => {
   });
 
   test('run(reset) executes before hook, reset, resume backfill, status, then after hook', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -7356,6 +7373,7 @@ describe('cli/cli', () => {
   });
 
   test('run(dev) runs aggregateBackfill and waits via status polling by default', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[]; opts?: any }[] = [];
     const onSpy = spyOn(process, 'on').mockImplementation(() => process as any);
 

@@ -298,7 +298,8 @@ The generated module wires `schema`, `triggers`, `ormFunctions`, `capabilities`,
 **`capabilities`**
 
 Optional ORM subsystems. Convex bundles everything a module statically imports and has no dynamic
-`import()`, so `kitcn/orm` does not reach them on its own — register the ones you use:
+`import()`, so `kitcn/orm` does not reach them on its own. `kitcn codegen` registers the ones the
+app uses; a hand-written `createOrm()` passes them itself:
 
 ```ts showLineNumbers
 import { createOrm } from 'kitcn/orm';
@@ -312,12 +313,16 @@ export const orm = createOrm({
 })
 ```
 
-| Capability | Required by |
-|---|---|
-| `aggregateCapability()` | `aggregateIndex`/`rankIndex` schemas, filtered `count()`, `count({ select })`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`, and `orm.api()` backfill handlers |
-| `migrationCapability()` | `orm.api()` migration handlers |
+| Capability | Registered when | Required by |
+|---|---|---|
+| `aggregateCapability()` | the schema declares an `aggregateIndex` or `rankIndex` | `aggregateIndex`/`rankIndex` schemas, filtered `count()`, `count({ select: { field } })`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`, and `orm.api()` backfill handlers |
+| `migrationCapability()` | `<functionsDir>/migrations/manifest.ts` exists | `orm.api()` migration handlers |
 
-Unfiltered `count()` is served by the native Convex count syscall and needs no capability.
+Every procedure module imports `generated/server.ts`, so `kitcn codegen` registers a capability only
+when the app uses it — otherwise the runtime would land in every Convex function of the app.
+
+Unfiltered `count()` and `aggregate({ _count: true })` are served by the native Convex count syscall
+and need no capability.
 
 `createdAt` is always public in ORM rows. Its type is:
 - `number` for the system alias

@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { createDefaultConfig } from '../test-utils';
+import { createDefaultConfig, withSubsystemProject } from '../test-utils';
 import { handleAggregateCommand } from './aggregate';
 
 describe('cli/commands/aggregate', () => {
@@ -11,7 +11,7 @@ describe('cli/commands/aggregate', () => {
     process.env.CONVEX_DEPLOY_KEY = deployKey;
 
     try {
-      await run();
+      await withSubsystemProject({ aggregateIndexes: true }, run);
     } finally {
       process.env.CONVEX_DEPLOY_KEY = originalDeployKey;
     }

@@ -1,4 +1,5 @@
 import {
+  backendUsesMigrations,
   createBackendAdapter,
   extractBackendRunTargetArgs,
   extractMigrationCliOptions,
@@ -166,6 +167,15 @@ export const handleMigrateCommand = async (
       steps,
       to,
     });
+  }
+
+  // Codegen registers the migration capability off the manifest, so without
+  // one the deployed procedures have no runtime to answer with.
+  if (!backendUsesMigrations()) {
+    logger.info(
+      'No migrations manifest. Run `kitcn migrate create <name>` to add one.'
+    );
+    return 0;
   }
 
   if (migrateArgs.subcommand === 'status') {

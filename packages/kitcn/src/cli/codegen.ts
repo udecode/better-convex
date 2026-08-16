@@ -13,6 +13,7 @@ import {
   createProjectJiti,
   getProjectServerParserShimPath,
 } from './utils/project-jiti.js';
+import { schemaDeclaresAggregateIndexes } from './utils/schema-tables.js';
 
 /**
  * Generate api.ts with cRPC metadata and client-facing public API refs.
@@ -774,21 +775,27 @@ function listGeneratedRuntimeFiles(functionsDir: string): string[] {
     .map((file) => path.join(generatedDir, file));
 }
 
+type SchemaMetadataForCodegen = {
+  hasOrmSchema: boolean;
+  hasAggregateIndexes: boolean;
+  hasRelations: boolean;
+  hasTriggers: boolean;
+};
+
+const EMPTY_SCHEMA_METADATA: SchemaMetadataForCodegen = {
+  hasOrmSchema: false,
+  hasAggregateIndexes: false,
+  hasRelations: false,
+  hasTriggers: false,
+};
+
 async function resolveSchemaMetadataForCodegen(
   functionsDir: string,
   debug: boolean
-): Promise<{
-  hasOrmSchema: boolean;
-  hasRelations: boolean;
-  hasTriggers: boolean;
-}> {
+): Promise<SchemaMetadataForCodegen> {
   const schemaPath = path.join(functionsDir, 'schema.ts');
   if (!fs.existsSync(schemaPath)) {
-    return {
-      hasOrmSchema: false,
-      hasRelations: false,
-      hasTriggers: false,
-    };
+    return EMPTY_SCHEMA_METADATA;
   }
 
   const jitiInstance = createProjectJiti();
@@ -801,11 +808,7 @@ async function resolveSchemaMetadataForCodegen(
         : null;
 
     if (!schemaValue || typeof schemaValue !== 'object') {
-      return {
-        hasOrmSchema: false,
-        hasRelations: false,
-        hasTriggers: false,
-      };
+      return EMPTY_SCHEMA_METADATA;
     }
 
     const hasOrmSchema = OrmSchemaOptions in schemaValue;
@@ -814,6 +817,13 @@ async function resolveSchemaMetadataForCodegen(
 
     return {
       hasOrmSchema,
+      hasAggregateIndexes:
+        hasOrmSchema &&
+        resolveHasAggregateIndexes(
+          schemaValue as Record<string, unknown>,
+          schemaPath,
+          debug
+        ),
       hasRelations,
       hasTriggers,
     };
@@ -823,11 +833,28 @@ async function resolveSchemaMetadataForCodegen(
         `⚠️  Failed to load schema extensions from ${schemaPath}: ${(error as Error).message}`
       );
     }
-    return {
-      hasOrmSchema: false,
-      hasRelations: false,
-      hasTriggers: false,
-    };
+    return EMPTY_SCHEMA_METADATA;
+  }
+}
+
+/**
+ * Fails open: registering an unused capability only costs bundle size, while
+ * omitting a needed one breaks `createOrm()` for every function in the app.
+ */
+function resolveHasAggregateIndexes(
+  schemaValue: Record<string, unknown>,
+  schemaPath: string,
+  debug: boolean
+): boolean {
+  try {
+    return schemaDeclaresAggregateIndexes(schemaValue);
+  } catch (error) {
+    if (debug) {
+      logger.warn(
+        `⚠️  Failed to inspect aggregate indexes in ${schemaPath}: ${(error as Error).message}`
+      );
+    }
+    return true;
   }
 }
 
@@ -847,6 +874,7 @@ function emitGeneratedServerFile(
   outputFile: string,
   functionsDir: string,
   hasOrmSchema: boolean,
+  hasAggregateIndexes: boolean,
   hasMigrationsManifest: boolean,
   procedureNameLookup: ProcedureNameLookup
 ): string {
@@ -873,6 +901,26 @@ function emitGeneratedServerFile(
     ? `import { migrations } from ${migrationsManifestImportLiteral};\n`
     : '';
   const migrationsConfigLine = hasMigrationsManifest ? '  migrations,\n' : '';
+  // Every procedure module imports this file for `initCRPC`/`withOrm`, and
+  // Convex bundles the whole static import graph of each entry. Naming an
+  // optional runtime here therefore puts it in every function of the app, so
+  // only the subsystems this schema actually uses get registered.
+  const capabilityImportLines = [
+    hasAggregateIndexes
+      ? "import { aggregateCapability } from 'kitcn/orm/aggregate-index';\n"
+      : '',
+    hasMigrationsManifest
+      ? "import { migrationCapability } from 'kitcn/orm/migrations';\n"
+      : '',
+  ].join('');
+  const capabilityEntries = [
+    ...(hasAggregateIndexes ? ['aggregateCapability()'] : []),
+    ...(hasMigrationsManifest ? ['migrationCapability()'] : []),
+  ];
+  const capabilitiesConfigLine =
+    capabilityEntries.length > 0
+      ? `  capabilities: [${capabilityEntries.join(', ')}],\n`
+      : '';
   const functionsDirHint =
     normalizeImportPath(path.relative(process.cwd(), functionsDir)) || 'convex';
   const procedureNameLookupLiteral =
@@ -948,9 +996,7 @@ import {
   type GenericOrmCtx,
   type OrmFunctions,
 } from 'kitcn/orm';
-import { aggregateCapability } from 'kitcn/orm/aggregate-index';
-import { migrationCapability } from 'kitcn/orm/migrations';
-import {
+${capabilityImportLines}import {
   createGeneratedFunctionReference,
   initCRPC as baseInitCRPC,
   registerProcedureNameLookup,
@@ -976,8 +1022,7 @@ registerProcedureNameLookup(
 export const orm = createOrm({
   schema: ormSchema,
   ormFunctions,
-  capabilities: [aggregateCapability(), migrationCapability()],
-${migrationsConfigLine}  internalMutation,
+${capabilitiesConfigLine}${migrationsConfigLine}  internalMutation,
 });
 
 export type OrmCtx<Ctx extends ServerQueryCtx | ServerMutationCtx = ServerQueryCtx> = GenericOrmCtx<Ctx, typeof ormSchema>;
@@ -2188,6 +2233,7 @@ ${optionalTypeExports}
     serverOutputFile,
     functionsDir,
     hasOrmSchema,
+    schemaMetadata.hasAggregateIndexes,
     hasMigrationsManifest,
     procedureNameLookup
   );

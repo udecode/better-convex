@@ -3619,7 +3619,10 @@ export class GelRelationalQuery<
     config: any
   ): Promise<Record<string, unknown>> {
     const normalized = this._coerceAggregateConfig(config);
-    const aggregate = this._aggregate('aggregate()');
+    // Resolved per metric, not up front: `_count: true` and `_count: { _all }`
+    // route to the native Convex count syscall, so an aggregate that only asks
+    // for those must not require the aggregate capability.
+    const aggregate = () => this._aggregate('aggregate()');
     ensureAggregateAllowedForRls(
       this.tableConfig,
       this.rls?.mode as any,
@@ -3676,12 +3679,12 @@ export class GelRelationalQuery<
 
             countTasks.push(
               ...countSelection.fields.map(async (field) => {
-                const plan = aggregate.compileAggregateQueryPlan(
+                const plan = aggregate().compileAggregateQueryPlan(
                   this.tableConfig,
                   normalized.where,
                   { kind: 'countField', field }
                 );
-                if (aggregate.isAggregatePlanZero(plan)) {
+                if (aggregate().isAggregatePlanZero(plan)) {
                   countResult[field] = 0;
                   return;
                 }
@@ -3689,11 +3692,12 @@ export class GelRelationalQuery<
                   plan.tableName,
                   plan.indexName
                 );
-                countResult[field] = await aggregate.readCountFieldFromBuckets(
-                  this.db as any,
-                  plan,
-                  bucketReadCache
-                );
+                countResult[field] =
+                  await aggregate().readCountFieldFromBuckets(
+                    this.db as any,
+                    plan,
+                    bucketReadCache
+                  );
               })
             );
 
@@ -3709,19 +3713,19 @@ export class GelRelationalQuery<
         (async () => {
           const sumEntries = await Promise.all(
             normalized.sumFields.map(async (field) => {
-              const plan = aggregate.compileAggregateQueryPlan(
+              const plan = aggregate().compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'sum', field }
               );
-              if (aggregate.isAggregatePlanZero(plan)) {
+              if (aggregate().isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await aggregate.readSumFromBuckets(
+              const value = await aggregate().readSumFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3739,19 +3743,19 @@ export class GelRelationalQuery<
         (async () => {
           const avgEntries = await Promise.all(
             normalized.avgFields.map(async (field) => {
-              const plan = aggregate.compileAggregateQueryPlan(
+              const plan = aggregate().compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'avg', field }
               );
-              if (aggregate.isAggregatePlanZero(plan)) {
+              if (aggregate().isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await aggregate.readAverageFromBuckets(
+              const value = await aggregate().readAverageFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3769,19 +3773,19 @@ export class GelRelationalQuery<
         (async () => {
           const minEntries = await Promise.all(
             normalized.minFields.map(async (field) => {
-              const plan = aggregate.compileAggregateQueryPlan(
+              const plan = aggregate().compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'min', field }
               );
-              if (aggregate.isAggregatePlanZero(plan)) {
+              if (aggregate().isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await aggregate.readExtremaFromBuckets(
+              const value = await aggregate().readExtremaFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -3802,19 +3806,19 @@ export class GelRelationalQuery<
         (async () => {
           const maxEntries = await Promise.all(
             normalized.maxFields.map(async (field) => {
-              const plan = aggregate.compileAggregateQueryPlan(
+              const plan = aggregate().compileAggregateQueryPlan(
                 this.tableConfig,
                 normalized.where,
                 { kind: 'max', field }
               );
-              if (aggregate.isAggregatePlanZero(plan)) {
+              if (aggregate().isAggregatePlanZero(plan)) {
                 return [field, null] as const;
               }
               await this._ensureAggregateIndexReadyOnce(
                 plan.tableName,
                 plan.indexName
               );
-              const value = await aggregate.readExtremaFromBuckets(
+              const value = await aggregate().readExtremaFromBuckets(
                 this.db as any,
                 plan,
                 bucketReadCache
@@ -7326,7 +7330,9 @@ export class GelRelationalQuery<
     tableConfig: TableRelationalConfig
   ): Promise<number> {
     const relationPath = `${tableConfig.name}.${relationName}`;
-    const aggregate = this._aggregate('_count on a relation');
+    // Resolved where a plan is actually compiled: a null parent key short
+    // circuits to 0 without reading any aggregate index.
+    const aggregate = () => this._aggregate('_count on a relation');
 
     if (edge.through) {
       const throughTableConfig = this._getTableConfigByDbName(
@@ -7376,11 +7382,11 @@ export class GelRelationalQuery<
 
       const whereRecord = where as Record<string, unknown>;
       try {
-        const filterPlan = aggregate.compileCountQueryPlan(
+        const filterPlan = aggregate().compileCountQueryPlan(
           targetTableConfig,
           whereRecord
         );
-        if (aggregate.isIndexCountZero(filterPlan)) {
+        if (aggregate().isIndexCountZero(filterPlan)) {
           return 0;
         }
         await this._ensureCountIndexReadyOnce(
