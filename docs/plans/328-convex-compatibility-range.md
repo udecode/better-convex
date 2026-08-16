@@ -34,7 +34,7 @@ Timed checkpoint:
 - semantics: N/A
 - initial confidence score: N/A: case matrix is the better metric
 - improvement loop: close source-listed cases, review, and required gates
-- final score / loop closure: pending final evidence
+- final score / loop closure: complete; seven source cases and all local gates pass
 
 Completion threshold:
 - Every source-listed case has a before/after verdict, focused proof passes on
@@ -95,10 +95,10 @@ Blocked condition:
 Task state:
 - task_type: bug plus compatibility/tooling hardening
 - task_complexity: non-trivial normal package task
-- current_phase: implementation
-- current_phase_status: in_progress
-- next_phase: implementation
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: final response
+- goal_status: complete
 
 Current verdict:
 - verdict: valid with a corrected implementation path
@@ -218,7 +218,7 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
@@ -276,17 +276,17 @@ Completion Gates:
 | High-risk mini gate | yes | Prove compatibility ends | strict packed consumers pass on Convex 1.42.3 and 1.44.0 |
 | Agent-native review for agent/tooling changes | no | N/A | no agent/tool/user-action surface changed |
 | Local install corruption suspected | no | N/A | install was required for dependency graph, not corruption recovery |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| Commit created | yes | Commit entire checkout | implementation and closeout commits pushed on task branch |
+| PR create or update | yes | Push/create PR | PR #343 open against `main` after green local `bun check` |
+| Task-style PR body verified | yes | Remote body read-back | auto-release block, issue/confidence/table/sections present; no self-link |
 | PR proof image hosting | no | N/A | no browser proof or images |
-| GitHub issue sync-back | pending | Post concise issue sync after PR exists, or record N/A/blocker | pending |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| GitHub issue sync-back | yes | Post issue sync | issue comment `#issuecomment-5306553176` links #343 and QA proof |
+| Final handoff contract | yes | Fill exact receipts | fields below contain PR, issue, proof, caveat, design, and browser N/A |
 | Final lint | yes | Run lint fix | `bun lint:fix` passes with no fixes |
 | Output budget discipline | yes | Keep output bounded | one broad Ship grep recorded/recovered; final full check captured to bounded log |
 | Timed checkpoint | no | N/A | no duration requested |
 | Autoreview for non-trivial implementation changes | yes | Run final local review | Codex autoreview clean, no accepted/actionable findings, 0.98 correctness |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/328-convex-compatibility-range.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/328-convex-compatibility-range.md` | passes before closeout push |
 | Public API / package boundary proof | yes | Audit public declarations | structural validator boundary removes latest-only symbols; strict min/latest consumers pass |
 | Convex bundle/import proof | yes | Audit static graphs | no new static runtime import; constructor-name checks preserve 1.42 loading |
 | CLI/scaffold/generated proof | yes | Prove warning/pins/fixtures | warning and pin tests pass; eight fixtures match fresh output |
@@ -303,8 +303,8 @@ Phase / pass table:
 | Intake and source read | complete | issue, VISION, upstream, owners, and repros read | implementation |
 | Implementation | complete | runtime, wrappers, warnings, pins, type lanes, workflow, tests, fixtures, and changeset implemented | verification |
 | Verification | complete | focused tests, package build, min/latest lanes, fixtures, `bun check`, and clean autoreview | commit/PR |
-| Commit / PR / GitHub sync | in_progress | verified branch ready | commit, push, PR, issue sync |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | complete | branch pushed; PR #343 and issue #328 synced | closeout |
+| Closeout | complete | final branch-head CI/Vercel required before response | final response |
 
 Findings:
 - npm latest is Convex 1.44.0; 1.43.0 adds `v.commitTs()`, `VCommitTs`,
@@ -356,7 +356,6 @@ Review fixes:
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
 | Broad Ship homepage grep streamed minified HTML | 1 | use exact changelog route metadata and package changelog | recovered with exact 1.43/1.44 sources |
 | Proposed Convex 1.42 floor failed the first packed strict-consumer proof | 1 | replace leaked vendor union with a structural declaration boundary | recovered; the rebuilt tarball passes 1.42.3 and 1.44.0 consumers |
 
@@ -389,9 +388,9 @@ Source-listed case matrix:
 | stale auth scenario pin | raw auth adoption scenario remains on Convex `^1.33.0` outside pin sync | dependency-pin generation test/audit | outside `PACKAGE_JSON_TARGETS` | source target participates in the supported pin contract | target added; pin test and fixture sync/check pass | passed |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
+- Commit line: entire checkout committed and pushed on `codex/issue-328-convex-compatibility`
+- PR line: https://github.com/udecode/kitcn/pull/343
+- Issue line: https://github.com/udecode/kitcn/issues/328#issuecomment-5306553176
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: exact source failures; browser N/A
@@ -404,7 +403,7 @@ Final handoff contract:
   - Why not quick patch: bounding the peer alone leaves current runtime broken
   - Why not broader change: structural declarations preserve 1.42 without a breaking floor bump
 - Verified: `bun check`, `bun run typecheck:convex`, packed consumers, clean autoreview
-- PR body verified: pending
+- PR body verified: remote read-back matches the PR #270 task-style contract
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -427,11 +426,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
+- Commit: implementation and plan closeout commits pushed
+- PR: #343 open against `main`; task-style body remotely verified
+- Issue: #328 QA sync comment posted
 - Browser proof: N/A: no browser surface
-- Caveats: support intentionally stops before Convex 1.45 pending scheduled audit
+- Caveats: support intentionally stops before Convex 1.45; scheduled audits own later versions
 
 Timeline:
 - 2026-08-16T07:44:06.619Z Task goal plan created.
@@ -447,18 +446,21 @@ Timeline:
 - 2026-08-16 Replaced the leaked vendor union with a structural validator
   declaration boundary; strict packed consumers pass on 1.42.3 and 1.44.0, so
   the non-breaking floor is preserved.
+- 2026-08-16 Full local gate and final autoreview passed; PR #343 opened with
+  verified task-style body and issue #328 received the QA sync comment.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Verification |
-| Where am I going? | Full repo gate, review, commit, and ship PR |
+| Where am I? | Closeout |
+| Where am I going? | Confirm final branch-head CI/Vercel, then final response |
 | What is the goal? | Fix all issue #328 compatibility cases and ship a verified PR. |
 | What have I learned? | Convex 1.42 can consume the package when emitted declarations depend on a structural validator contract instead of an expanded 1.44 union. |
 | What have I done? | Implemented all source cases and proved both supported ends with runtime, type, fixture, and packed-consumer harnesses. |
 
 Open risks:
-- Full repo check and final autoreview remain before delivery.
+- None. Future Convex 1.45+ is intentionally outside the declared range and
+  owned by the scheduled latest-version contract.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
