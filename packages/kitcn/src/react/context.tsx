@@ -22,6 +22,7 @@ import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import { buildMetaIndex } from '../shared/meta-utils';
 import {
   decodeJwtExp,
+  decodeJwtSubject,
   useAuthStore,
   useAuthValue,
   useFetchAccessToken,
@@ -184,7 +185,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     const isAuthenticated = useAuthValue('isAuthenticated');
     const previousAuthRef = useRef<{
       isAuthenticated: boolean;
-      token: string | null;
+      subject: string | null;
     } | null>(null);
     // Get fetchAccessToken from context (immediately available, no race condition)
     const fetchAccessToken = useFetchAccessToken();
@@ -192,9 +193,14 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     useEffect(() => {
       const previous = previousAuthRef.current;
       const tokenReady = token === null || decodeJwtExp(token) !== null;
+      // Compare the account the JWT belongs to, not the JWT itself. A
+      // scheduled refresh mints a new token for the same `sub`, and treating
+      // that as a transition would drop every auth-bound entry — and every
+      // paginated cursor chain keyed on the account — once an hour.
+      const subject = token === null ? null : decodeJwtSubject(token);
       previousAuthRef.current = {
         isAuthenticated,
-        token,
+        subject,
       };
 
       if (!previous) {
@@ -203,7 +209,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
 
       if (
         tokenReady &&
-        (previous.token !== token ||
+        (previous.subject !== subject ||
           previous.isAuthenticated !== isAuthenticated)
       ) {
         void convexQueryClient.resetAuthQueries();
