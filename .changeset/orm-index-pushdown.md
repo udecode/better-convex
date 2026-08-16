@@ -22,8 +22,8 @@ await ctx.orm.query.posts.findMany({
   limit: 2,
 });
 
-// Add the sort column to the index to keep it a two-document read
-index('by_type_created').on(t.type, t.createdAt);
+// Pinning the narrower index leaves creation time as the implicit next key
+index('by_type').on(t.type);
 ```
 
 - Change which rows a `.through()` relation returns for a given `limit`. Each
