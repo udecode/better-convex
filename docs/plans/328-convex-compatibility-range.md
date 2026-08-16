@@ -1,8 +1,9 @@
 # Convex compatibility range
 
 Objective:
-Fix issue #328 Convex compatibility drift; done when all source-listed cases
-pass, package/repo gates are green, and the PR ships.
+Fix issue #328 Convex compatibility drift without recurring automation; done
+when all source-listed cases pass, no cron remains, package/repo gates are
+green, and the PR ships.
 
 Flow mode:
 one-shot execution
@@ -27,7 +28,8 @@ Task source:
 - acceptance criteria: reproduce both `commitTs` conversion failures; bound the
   supported Convex minor range while floating patches; warn symmetrically for
   below/above-range specs; add latest-Convex drift proof; resolve the two named
-  dependency/tooling loose ends; add a release artifact; ship a verified PR.
+  dependency/tooling loose ends; add a release artifact; ship a verified PR;
+  keep the latest-version lane manual rather than recurring.
 
 Timed checkpoint:
 - requested duration: N/A: none requested
@@ -37,6 +39,8 @@ Timed checkpoint:
 - final score / loop closure: complete; seven source cases and all local gates pass
 
 Completion threshold:
+- `.github/workflows/convex-latest.yml` exposes only `workflow_dispatch`; no
+  recurring trigger remains.
 - Every source-listed case has a before/after verdict, focused proof passes on
   the supported minimum and latest compatibility lanes, `bun --cwd
   packages/kitcn build`, `bun lint:fix`, and `bun check` pass, autoreview has
@@ -97,7 +101,7 @@ Task state:
 - task_complexity: non-trivial normal package task
 - current_phase: closeout
 - current_phase_status: complete
-- next_phase: final response
+- next_phase: commit, push, and verify branch-head checks
 - goal_status: complete
 
 Current verdict:
@@ -301,7 +305,7 @@ Phase / pass table:
 | Phase | Status | Evidence | Next |
 |-------|--------|----------|------|
 | Intake and source read | complete | issue, VISION, upstream, owners, and repros read | implementation |
-| Implementation | complete | runtime, wrappers, warnings, pins, type lanes, workflow, tests, fixtures, and changeset implemented | verification |
+| Implementation | complete | runtime, wrappers, warnings, pins, type lanes, manual-only workflow, tests, fixtures, and changeset implemented | verification |
 | Verification | complete | focused tests, package build, min/latest lanes, fixtures, `bun check`, and clean autoreview | commit/PR |
 | Commit / PR / GitHub sync | complete | branch pushed; PR #343 and issue #328 synced | closeout |
 | Closeout | complete | final branch-head CI/Vercel required before response | final response |
@@ -332,7 +336,7 @@ Decisions and tradeoffs:
   boundary passed strict packed-consumer proof on both supported ends.
 - Keep unknown runtime kinds fail-closed, but move exhaustiveness to the
   dedicated latest type test -> users do not fail compilation merely because a
-  vendor union grew; maintainers still get scheduled drift alarms.
+  vendor union grew; maintainers can run the drift check on demand.
 - Convex-to-Zod accepts both committed `bigint` and the runtime placeholder
   without a static value import unavailable in Convex 1.42 -> explicit runtime
   predicate plus structural type mapping.
@@ -341,13 +345,15 @@ Implementation notes:
 - Added explicit runtime and structural type support for `commitTs` in required
   validator and Convex-to-Zod conversion.
 - Added symmetric supported-range warnings, centralized dependency pins, a
-  scheduled latest-Convex type lane, focused tests, and a changeset.
+  manual latest-Convex type lane, focused tests, and a changeset.
 - Added a minimum-version declaration lane and forwarded the new `db.vars`
   member through both database-writer wrappers without importing new runtime
   symbols unavailable in 1.42.
 - Regenerated fixtures from their owners; all eight variants match fresh output.
 
 Review fixes:
+- User-correction autoreview accepted no findings; it confirmed the manual-only
+  workflow and matching plan language at 0.99 correctness.
 - Self-review tightened the structural validator contract with stable
   `fieldPaths` and `isConvexValidator` markers so fake validator-like objects do
   not gain the old public overload accidentally.
@@ -361,6 +367,13 @@ Error attempts:
 | Proposed Convex 1.42 floor failed the first packed strict-consumer proof | 1 | replace leaked vendor union with a structural declaration boundary | recovered; the rebuilt tarball passes 1.42.3 and 1.44.0 consumers |
 
 Verification evidence:
+- Source audit: `.github/workflows/convex-latest.yml` contains
+  `workflow_dispatch` and no `schedule` or `cron` key.
+- `bun run typecheck:convex && bun lint:fix && bun check` exits 0 after the
+  user correction; the manual compatibility lane, full test suites, all eight
+  fixture comparisons, verification scenarios, and runtime scenarios pass.
+- `./.agents/skills/autoreview/scripts/autoreview --mode local` exits 0 with
+  no accepted/actionable findings and 0.99 correctness for the correction.
 - Before-fix source harness (cwd repo): `vRequired` -> `Unknown Convex validator
   type: commitTs`; `convexToZod` -> `Unknown convex validator type: commitTs`.
 - External-source: npm latest 1.44.0; package changelog and upstream diff
@@ -384,7 +397,7 @@ Source-listed case matrix:
 | Convex to Zod `v.commitTs()` | Zod converter rejects `commitTs` | focused Zod conversion regression | exact error reproduced with shaped validator | schema accepts `bigint` and real placeholder, rejects other values | focused Zod test passes with no type errors | passed |
 | Convex peer range | `>=1.42` overclaims every future minor | dependency pin/package manifest audit plus packed strict consumers | unbounded range; first repaired build leaked `VCommitTs` into minimum declarations | `>=1.42 <1.45.0`; patches float | rebuilt tarball passes 1.42.3 and 1.44.0 strict consumers | passed |
 | version warnings | above-range concrete specs are silent | focused warning tests | above-range installed/declared versions produced no warning | below-minimum and at/above-ceiling specs warn; in-range specs do not | 11 supported-dependency tests pass | passed |
-| latest drift lane | no scheduled/latest Convex type proof catches union additions | type-test workflow/config harness | dead alias config had no task/workflow owner | latest lane fails on unsupported drift and current latest passes owned mappings | weekly/manual workflow plus exact kind equality; current latest passes | passed |
+| latest drift lane | no latest Convex type proof catches union additions | type-test workflow/config harness | dead alias config had no task/workflow owner | latest lane fails on unsupported drift and current latest passes owned mappings without recurring automation | manual workflow plus exact kind equality; current latest passes | passed |
 | dead type script | `typecheck:types` points to missing path and is unused | manifest/task-graph source audit | command targets missing `convex/test-types` path | removed or repaired and owned by a real gate | replaced by min/latest `typecheck:convex` scripts | passed |
 | stale auth scenario pin | raw auth adoption scenario remains on Convex `^1.33.0` outside pin sync | dependency-pin generation test/audit | outside `PACKAGE_JSON_TARGETS` | source target participates in the supported pin contract | target added; pin test and fixture sync/check pass | passed |
 
@@ -398,7 +411,7 @@ Final handoff contract:
   - Verified: focused/full/type/packed/fixture proof; browser N/A
 - Browser check: N/A: package/runtime/type change
 - Outcome: commit timestamps supported; Convex range bounded; drift lanes owned
-- Caveat: future Convex minors intentionally warn/fail the scheduled contract
+- Caveat: future Convex minors require an on-demand compatibility audit
 - Design:
   - Chosen boundary: explicit runtime maps plus structural public declaration contract
   - Why not quick patch: bounding the peer alone leaves current runtime broken
@@ -431,7 +444,7 @@ Final handoff / sync:
 - PR: #343 open against `main`; task-style body remotely verified
 - Issue: #328 QA sync comment posted
 - Browser proof: N/A: no browser surface
-- Caveats: support intentionally stops before Convex 1.45; scheduled audits own later versions
+- Caveats: support intentionally stops before Convex 1.45; on-demand audits own later versions
 
 Timeline:
 - 2026-08-16T07:44:06.619Z Task goal plan created.
@@ -449,19 +462,23 @@ Timeline:
   the non-breaking floor is preserved.
 - 2026-08-16 Full local gate and final autoreview passed; PR #343 opened with
   verified task-style body and issue #328 received the QA sync comment.
+- 2026-08-16 User rejected recurring automation; removed its recurring trigger
+  while retaining the explicit manual compatibility workflow.
+- 2026-08-16 Manual compatibility typecheck, lint, full repository gate, eight
+  fixture comparisons, and runtime scenarios passed after the correction.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout |
-| Where am I going? | Confirm final branch-head CI/Vercel, then final response |
-| What is the goal? | Fix all issue #328 compatibility cases and ship a verified PR. |
+| Where am I? | User-correction closeout |
+| Where am I going? | Commit, push, confirm final branch-head CI/Vercel, then respond |
+| What is the goal? | Keep issue #328 compatibility proof without recurring automation and ship the corrected PR. |
 | What have I learned? | Convex 1.42 can consume the package when emitted declarations depend on a structural validator contract instead of an expanded 1.44 union. |
-| What have I done? | Implemented all source cases and proved both supported ends with runtime, type, fixture, and packed-consumer harnesses. |
+| What have I done? | Removed the recurring trigger, retained the manual lane, and reran the full local proof successfully. |
 
 Open risks:
 - None. Future Convex 1.45+ is intentionally outside the declared range and
-  owned by the scheduled latest-version contract.
+  owned by the manual latest-version contract.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless

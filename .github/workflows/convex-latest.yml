@@ -1,8 +1,6 @@
 name: Convex Latest
 
 on:
-  schedule:
-    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
