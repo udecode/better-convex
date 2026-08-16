@@ -103,6 +103,7 @@ import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
 import {
   assertRlsRolesResolvable,
+  createRlsPolicyResolutionCache,
   filterSelectRows,
   isRlsEnabled,
 } from './rls/evaluator';
@@ -148,6 +149,7 @@ import {
   type IndexStrategy,
   WhereClauseCompiler,
 } from './where-clause-compiler';
+import { mapWithConcurrency } from './write-fanout';
 
 /**
  * Operators that Convex's `.filter()` cannot express, so `_toConvexExpression`
@@ -453,11 +455,34 @@ export class GelRelationalQuery<
     readonly result: TResult;
   };
   private allowFullScan: boolean;
-  private readonly _countIndexReadinessByKey = new Map<string, Promise<void>>();
-  private readonly _aggregateIndexReadinessByKey = new Map<
-    string,
-    Promise<void>
-  >();
+  /**
+   * Set synchronously by the first `execute()`. Later executions run on a fresh
+   * instance instead, which is what keeps execution-scoped state from leaking
+   * between two awaits of the same query object.
+   */
+  private _executionClaimed = false;
+  /**
+   * Scoped to one execution, because `_executionClaimed` diverts every later
+   * execution to its own instance. Within a run, every `_applyRlsSelectFilter`
+   * call shares it, including the streaming sites that pass a single row at a
+   * time — those would otherwise re-resolve the whole policy set per row.
+   *
+   * SECURITY: a resolved policy expression can embed database state that a
+   * later write invalidates, so it must never outlive the execution that
+   * resolved it.
+   */
+  private readonly _rlsPolicyResolution = createRlsPolicyResolutionCache();
+  /**
+   * Assigned in the constructor so callers that run many short-lived query
+   * instances against the same tables (mutation `returning({ _count })`) can
+   * share one readiness memo instead of re-probing per instance.
+   */
+  private readonly _countIndexReadinessByKey: Map<string, Promise<void>>;
+  /**
+   * Index readiness is a probe memo, not execution state, so `_forExecution`
+   * hands it to the next run rather than re-probing.
+   */
+  private _aggregateIndexReadinessByKey = new Map<string, Promise<void>>();
 
   constructor(
     private schema: TSchema,
@@ -481,10 +506,12 @@ export class GelRelationalQuery<
     private rls?: RlsContext,
     private relationLoading?: { concurrency?: number },
     private vectorSearchProvider?: VectorSearchProvider,
-    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
+    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>,
+    countIndexReadiness?: Map<string, Promise<void>>
   ) {
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
+    this._countIndexReadinessByKey = countIndexReadiness ?? new Map();
   }
 
   private _usesSystemCreatedAtAlias(
@@ -634,6 +661,7 @@ export class GelRelationalQuery<
     // Empty result sets still reach `filterSelectRows` so policy configuration
     // is validated independently of what the table currently stores.
     return await filterSelectRows({
+      cache: this._rlsPolicyResolution,
       table: tableConfig.table as any,
       rows,
       rls: this.rls,
@@ -5175,10 +5203,42 @@ export class GelRelationalQuery<
   }
 
   /**
+   * A second instance of the same query: identical configuration, its own
+   * execution-scoped state, the same index-readiness memos.
+   */
+  private _forExecution(): GelRelationalQuery<TSchema, TTableConfig, TResult> {
+    const next = new GelRelationalQuery<TSchema, TTableConfig, TResult>(
+      this.schema,
+      this.tableConfig,
+      this.edgeMetadata,
+      this.db,
+      this.config,
+      this.mode,
+      this._allEdges,
+      this.rls,
+      this.relationLoading,
+      this.vectorSearchProvider,
+      this.configuredIndex,
+      this._countIndexReadinessByKey
+    );
+    next._aggregateIndexReadinessByKey = this._aggregateIndexReadinessByKey;
+    return next;
+  }
+
+  /**
    * Execute the query and return results
    * Phase 4 implementation with WhereClauseCompiler integration
    */
   async execute(): Promise<TResult> {
+    // `QueryPromise.then()` calls this on every await, so one query object can
+    // run many times. Each run needs its own RLS policy resolution: a policy
+    // resolved before an intervening write must not decide visibility after it.
+    // Claiming the instance synchronously also isolates concurrent awaits.
+    if (this._executionClaimed) {
+      return this._forExecution().execute();
+    }
+    this._executionClaimed = true;
+
     const config = this.config as any;
     if (this.mode === 'count') {
       return (await this._executeCount(config)) as TResult;
@@ -7219,31 +7279,11 @@ export class GelRelationalQuery<
     }
   }
 
-  private async _mapWithConcurrency<T, R>(
+  private _mapWithConcurrency<T, R>(
     items: T[],
     worker: (item: T, index: number) => Promise<R>
   ): Promise<R[]> {
-    if (items.length === 0) {
-      return [];
-    }
-    const limit = Math.min(this._getRelationConcurrency(), items.length);
-    const results = new Array<R>(items.length);
-    let nextIndex = 0;
-
-    const runWorker = async () => {
-      while (true) {
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= items.length) {
-          return;
-        }
-        results[index] = await worker(items[index], index);
-      }
-    };
-
-    await Promise.all(Array.from({ length: limit }, () => runWorker()));
-
-    return results;
+    return mapWithConcurrency(items, this._getRelationConcurrency(), worker);
   }
 
   /**
@@ -8773,11 +8813,20 @@ export class GelRelationalQuery<
     }
 
     for (const row of rows) {
+      // Hydrate at most once per row and mirror each computed extra onto the
+      // public copy, so later extras still observe earlier ones without paying
+      // a fresh reshape per extra.
+      let publicRow: any;
       for (const [key, definition] of entries) {
-        row[key] =
-          typeof definition === 'function'
-            ? definition(this._toPublicRow(row, tableConfig))
-            : definition;
+        if (typeof definition === 'function') {
+          publicRow ??= this._toPublicRow(row, tableConfig);
+          row[key] = definition(publicRow);
+        } else {
+          row[key] = definition;
+        }
+        if (publicRow) {
+          publicRow[key] = row[key];
+        }
       }
     }
 

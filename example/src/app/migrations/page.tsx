@@ -2,7 +2,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { useAuth } from 'kitcn/react';
-import { Loader2, Play, RotateCcw, Square } from 'lucide-react';
+import { Loader2, Play, RefreshCw, RotateCcw, Square } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,19 @@ type MigrationStateRow = {
 
 const EMPTY_RUNS: MigrationRunRow[] = [];
 const EMPTY_STATES: MigrationStateRow[] = [];
+
+/**
+ * How often to re-read status *while a run is in flight*.
+ *
+ * `migrationDemo.getStatus` is declared `authMutation.mutation`, so every call
+ * is a real write transaction: the ratelimit middleware patches one per-user
+ * document and the call consumes one of the 60 mutations/minute the `free`
+ * bucket allows. An unconditional 2s poll therefore burned half the user's
+ * mutation budget on an idle tab, and two tabs burned all of it -- with
+ * `failureMode: 'closed'`, that made every other mutation in the app fail.
+ * Follow an active run, then stop.
+ */
+const ACTIVE_RUN_POLL_MS = 2000;
 
 function JsonBox({ label, value }: { label: string; value: unknown }) {
   return (
@@ -61,19 +74,33 @@ export default function MigrationsPage() {
     })
   );
   const mutateStatus = status.mutate;
+  const hasActiveRun = (canRun ? statusData?.activeRun : null) != null;
 
   useEffect(() => {
-    if (!canRun) {
+    if (canRun) {
+      mutateStatus(undefined);
+    }
+  }, [canRun, mutateStatus]);
+
+  useEffect(() => {
+    if (!(canRun && hasActiveRun)) {
       return;
     }
 
-    mutateStatus(undefined);
-    const interval = window.setInterval(() => {
-      mutateStatus(undefined);
-    }, 2000);
+    const tick = () => {
+      if (document.visibilityState === 'visible') {
+        mutateStatus(undefined);
+      }
+    };
 
-    return () => window.clearInterval(interval);
-  }, [canRun, mutateStatus]);
+    const interval = window.setInterval(tick, ACTIVE_RUN_POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [canRun, hasActiveRun, mutateStatus]);
 
   const invalidateStatus = () => {
     if (canRun) {
@@ -197,6 +224,20 @@ export default function MigrationsPage() {
                   <Square className="size-4" />
                 )}
                 Cancel
+              </Button>
+              <Button
+                className="gap-2"
+                disabled={status.isPending}
+                onClick={() => mutateStatus(undefined)}
+                size="sm"
+                variant="ghost"
+              >
+                {status.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Refresh
               </Button>
             </>
           ) : (

@@ -604,8 +604,11 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       actorId: ["actorId", "_creationTime"];
       eventType: ["eventType", "_creationTime"];
+      projectId: ["projectId", "_creationTime"];
       project_event: ["eventType", "projectId", "_creationTime"];
+      tagId: ["tagId", "_creationTime"];
       tag_event: ["eventType", "tagId", "_creationTime"];
+      todoId: ["todoId", "_creationTime"];
       todo_event: ["eventType", "todoId", "_creationTime"];
     };
     searchIndexes: {};

@@ -27,10 +27,14 @@ import {
   splitReturningSelection,
   toConvexFilter,
 } from './mutation-utils';
-import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
 import {
+  createReturningCountLoader,
+  type ReturningCountLoader,
+} from './returning-count';
+import {
   assertRlsRolesResolvable,
+  createRlsPolicyResolutionCache,
   evaluateUpdateDecision,
 } from './rls/evaluator';
 import type { ConvexTable } from './table';
@@ -111,51 +115,23 @@ export class ConvexUpdateBuilder<
   private paginateConfig?: MutationPaginateConfig;
   private executionModeOverride?: 'sync' | 'async';
 
+  private _returningCountLoader?: ReturningCountLoader;
+
+  /**
+   * One loader per statement: the table config, edge filter and aggregate-index
+   * readiness memo are invariant across the affected rows.
+   */
   private async _loadReturningCount(
     row: Record<string, unknown>,
     countSelection: Record<string, unknown>,
     ormContext: ReturnType<typeof getOrmContext>
   ): Promise<Record<string, number>> {
-    const schema = ormContext?.schema;
-    const edgeMetadata = ormContext?.edgeMetadata;
-    if (!schema || !edgeMetadata) {
-      throw new Error(
-        'returning({ _count }) requires orm.db(ctx) configured from createOrm({ schema, ... }).'
-      );
-    }
-
-    const tableName = getTableName(this.table);
-    const tableConfig = Object.values(schema).find(
-      (config) => config.name === tableName
+    this._returningCountLoader ??= createReturningCountLoader(
+      this.db,
+      this.table,
+      ormContext
     );
-    if (!tableConfig) {
-      throw new Error(`Table config for '${tableName}' is not registered.`);
-    }
-    const tableEdges = edgeMetadata.filter(
-      (edge) => edge.sourceTable === tableName
-    );
-
-    const counted = await new GelRelationalQuery(
-      schema as any,
-      tableConfig as any,
-      tableEdges as any,
-      this.db as any,
-      {
-        where: {
-          id: row._id,
-        },
-        columns: {},
-        with: {
-          _count: countSelection,
-        },
-      } as any,
-      'first',
-      edgeMetadata as any,
-      ormContext?.rls,
-      ormContext?.relationLoading
-    ).execute();
-
-    return ((counted as any)?._count ?? {}) as Record<string, number>;
+    return await this._returningCountLoader.load(row, countSelection);
   }
 
   constructor(
@@ -431,6 +407,9 @@ export class ConvexUpdateBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
+    // Every policy decision completes before the first write, so this cache is
+    // scoped to one immutable decision phase.
+    const rlsResolution = createRlsPolicyResolutionCache();
 
     const onUpdateSet: Record<string, unknown> = {};
     for (const [columnName, builder] of Object.entries(
@@ -633,6 +612,7 @@ export class ConvexUpdateBuilder<
       rows.map(async (row) => {
         const updatedRow = { ...(row as any), ...(writeSet as any) };
         const decision = await evaluateUpdateDecision({
+          cache: rlsResolution,
           table: this.table,
           existingRow: row as Record<string, unknown>,
           updatedRow,

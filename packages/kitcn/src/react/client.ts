@@ -112,6 +112,23 @@ function isConvexAction(
   return queryKey.length >= 2 && queryKey[0] === 'convexAction';
 }
 
+/**
+ * Write a subscription value into an already-resolved Query.
+ *
+ * Going through the Query skips the query-key re-hash that the key-based
+ * `getQueryData` / `setQueryData` pair pays on every push. `setQueryData`
+ * short-circuits on `undefined` and `Query.setData` does not, so the guard has
+ * to be reproduced here: without it a never-resolved subscription would flip to
+ * `status: 'success'` with `data: undefined`.
+ */
+function writeQueryData(query: TanstackQuery, value: unknown) {
+  if (value === undefined) {
+    return;
+  }
+
+  query.setData(value, { manual: true });
+}
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -269,10 +286,6 @@ export class ConvexQueryClient {
     return meta?.authType === 'required' || meta?.authType === 'optional';
   }
 
-  private isQueryDisabled(query: TanstackQuery) {
-    return query.isDisabled();
-  }
-
   private subscribeQuery(query: TanstackQuery) {
     if (this.subscriptions[query.queryHash]) {
       return;
@@ -285,7 +298,7 @@ export class ConvexQueryClient {
     if (query.getObserversCount() === 0) {
       return;
     }
-    if (this.isQueryDisabled(query)) {
+    if (query.isDisabled()) {
       return;
     }
     if (this.shouldSkipSubscription(meta?.authType)) {
@@ -514,13 +527,13 @@ export class ConvexQueryClient {
     if (result.ok) {
       // Don't overwrite hydrated data with undefined from initial subscription
       // localQueryResult() returns undefined before the server sends the first update
-      const existingData = this.queryClient.getQueryData(queryKey);
+      const existingData = query.state.data;
       const hasResultValue = result.value !== undefined;
       const hasExistingData = existingData !== undefined;
 
       if (hasResultValue || !hasExistingData) {
-        this.queryClient.setQueryData(
-          queryKey,
+        writeQueryData(
+          query,
           this.transformer.output.deserialize(result.value)
         );
       }
@@ -532,10 +545,7 @@ export class ConvexQueryClient {
 
       // skipUnauth queries should resolve to null, never surface auth errors/toasts.
       if (isUnauthorized && meta?.skipUnauth) {
-        this.queryClient.setQueryData(
-          queryKey,
-          this.transformer.output.deserialize(null)
-        );
+        writeQueryData(query, this.transformer.output.deserialize(null));
         return;
       }
 
@@ -646,7 +656,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false ↔ true)
         case 'observerOptionsUpdated': {
-          const isDisabled = this.isQueryDisabled(event.query);
+          const isDisabled = event.query.isDisabled();
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true → false: unsubscribe
