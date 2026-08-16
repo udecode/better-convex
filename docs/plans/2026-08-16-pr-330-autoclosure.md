@@ -94,7 +94,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
 - [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
@@ -121,9 +121,9 @@ Completion Gates:
 | Agent-native reviewer | complete | Run for workflow changes or N/A | N/A: no agent action surface |
 | Final lint | yes | Run `bun lint:fix` | 889 files checked; no fixes |
 | Repository check | yes | Run `bun check` | exit 0 |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
+| GitHub delivery | complete | Commit/push/open or update PR and read back | head `767c1b10`; feedback empty; CI/Vercel green; squash merged as `b78d94a5` |
 | Autoreview | yes | Resolve every accepted actionable finding | clean, correctness 0.98, no actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-pr-330-autoclosure.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-pr-330-autoclosure.md` | pending final receipt commit |
 | Agent source / generated sync | complete | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent/rule source changed |
 | Installed lock audit | complete | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill state changed |
 | Agent action discoverability | complete | Source-audit the skill/rule path an agent will read | N/A: no agent action changed |
@@ -136,8 +136,8 @@ Phase / pass table:
 | Inventory | complete | diff/owner/feedback audit | repair |
 | Repair | complete | custom-name watcher root fixed with red/green test | review |
 | Review/checks | complete | focused tests, build, changeset, deslop, lint, check, autoreview | delivery |
-| Delivery | in_progress | current-main merge and local gates complete | commit/push, resolve threads, remote checks, merge |
-| Closeout | pending | | final |
+| Delivery | complete | pushed `767c1b10`; two threads resolved; CI `31967153872` and Vercel green; merged `b78d94a5` | closeout |
+| Closeout | complete | remote read-back proves merged state | checker |
 
 Verification evidence:
 - TDD: `backend/api` initially returned only its functions directory; after
@@ -156,15 +156,17 @@ Timeline:
 - 2026-08-16T19:02:55.504Z Autoclosure plan created.
 - 2026-08-16 Repaired arbitrary nested functions-root watching and completed
   focused/package/deslop/review/lint/full-check proof.
+- 2026-08-16 Pushed `767c1b10`, resolved both review threads, passed pinned
+  remote CI/Vercel, and squash-merged PR #330 as `b78d94a5`.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, resolve threads, wait for checks, merge, read back. |
+| Where am I? | Closeout complete |
+| Where am I going? | Checker, then preserve receipt on the next batch branch. |
 | What is the goal? | Preserve path-correct watcher/codegen behavior while landing the proven CLI cost reductions. |
 | What have I learned? | The refactor is credible, but its second custom-root repair still guesses ownership from the final directory name. |
-| What have I done? | Merged 0.17.2 main, repaired the watcher defect, and passed every local gate. |
+| What have I done? | Repaired, proved, pushed, resolved feedback, passed remote gates, and merged PR #330. |
 
 Open risks:
 - Broad 26-file refactor can hide behavioral regressions; watcher roots and
