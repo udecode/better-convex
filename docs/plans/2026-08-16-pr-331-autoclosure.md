@@ -71,30 +71,30 @@ Closure matrix:
 | source behavior | yes | lifecycle/RLS regressions and changed ORM suites | 62 focused tests pass after 3 red/green repairs |
 | package/API/build | yes | kitcn typecheck/build | complete |
 | generated output | no | no generated owner intended | N/A |
-| fixtures/scenarios | yes | full check owns fixture/runtime integration | pending |
+| fixtures/scenarios | yes | full check owns fixture/runtime integration | complete |
 | docs/package skill | no | internal behavior; no public API/docs delta | N/A |
 | changeset | yes | `.changeset/*` status/content | patch status clean; RLS scope wording corrected |
 | agent workflow | no | no agent action delta | N/A |
-| cleanup/review | yes | deslop, feedback, autoreview | zero finding-count delta; final committed review pending |
-| repository check | yes | `bun check` | pending |
-| GitHub delivery | yes | push existing PR, pinned checks, merge/read-back | pending |
+| cleanup/review | yes | deslop, feedback, autoreview | complete; both threads resolved, committed review clean |
+| repository check | yes | `bun check` | complete |
+| GitHub delivery | yes | push existing PR, pinned checks, merge/read-back | merged `23c0c999` |
 
 Work Checklist:
-- [ ] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
+- [x] Intended behavior and exclusions are reconstructed from real sources.
+- [x] Each lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated (N/A).
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner (none).
+- [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors (N/A).
+- [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text (N/A).
+- [x] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
+- [x] Agent-native pack: installed skills are changed only through
       `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
+- [x] Agent-native pack: routing, required receipts, placeholder failure,
       completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -108,30 +108,30 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | Run smallest missing owning proof | pending |
-| Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
-| Package/docs/scenario closure | pending | Run every applicable local contract | pending |
-| Deslop | pending | Run bounded cleanup or N/A | pending |
-| Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
-| Repository check | yes | Run `bun check` | pending |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-pr-331-autoclosure.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Targeted behavior proof | complete | Run smallest missing owning proof | 62 focused tests pass |
+| Source/generated audit | complete | Prove correct source and regenerated mirrors | runtime source only; generated N/A |
+| Package/docs/scenario closure | complete | Run every applicable local contract | package build and full check pass |
+| Deslop | complete | Run bounded cleanup or N/A | 167 -> 167, no regression |
+| Agent-native reviewer | complete | Run for workflow changes or N/A | N/A: runtime-only change |
+| Final lint | complete | Run `bun lint:fix` | clean |
+| Repository check | complete | Run `bun check` | pass |
+| GitHub delivery | complete | Commit/push/open or update PR and read back | `66b967e9` -> merge `23c0c999` |
+| Autoreview | complete | Resolve every accepted actionable finding | final committed-head review clean |
+| Goal plan complete | complete | Run checker | checker run after final receipt update |
+| Agent source / generated sync | complete | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent source change |
+| Installed lock audit | complete | Verify expected lock entries and removed skills through CLI-managed state | N/A |
+| Agent action discoverability | complete | Source-audit the skill/rule path an agent will read | N/A |
+| Helper and template smoke | complete | Syntax-check helpers and prove incomplete failure/completed representation when applicable | N/A |
+| Agent-native review | complete | Load reviewer and close accepted findings, or record N/A | N/A: runtime-only change |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | PR diff, changeset, sources, and two review threads audited | repair |
 | Repair | complete | same-doc lifecycle, insert RLS, delete RLS red/green fixes; RLS query fix preserved | review |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Review/checks | complete | focused/package/full gates and final review pass | delivery |
+| Delivery | complete | pinned remote head, CI/Vercel, merged `23c0c999` | final audit |
+| Closeout | complete | feedback and merge read back | final |
 
 Verification evidence:
 - Lifecycle same-document before-hook regression failed on the missing raw field,
@@ -148,6 +148,8 @@ Verification evidence:
 - One structured P1 found the real multi-row RLS bypass and was fixed. A later
   branch-only review did not include the dirty repair and incorrectly claimed
   local synthesis runs with null despite explicit guards in patch and replace.
+- Final head `66b967e9` passed CI run `31968579515` and Vercel. Both review
+  threads were resolved; admin squash merge produced `23c0c999`.
 
 Timeline:
 - 2026-08-16T19:23:53.927Z Autoclosure plan created.
@@ -157,12 +159,11 @@ Timeline:
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Repair |
-| Where am I going? | TDD repair, focused/full proof, review, delivery, closeout |
+| Where am I? | Closed |
+| Where am I going? | Batch PR #333 |
 | What is the goal? | Land only the proven ORM read reduction with hook/RLS correctness intact. |
 | What have I learned? | RLS is already fixed; lifecycle after/change docs miss same-document raw before-hook writes. |
-| What have I done? | Merged current main, installed dependencies, audited sources and feedback, created this plan. |
+| What have I done? | Repaired three correctness gaps, proved the final branch, cleared feedback, and merged it. |
 
 Open risks:
-- The 17-file ORM refactor is broad enough that green generic CI is insufficient;
-  hook identity, RLS execution scope, count returns, and fanout need focused proof.
+- None for PR #331. Later ORM PRs must rebase over its new lifecycle/RLS owners.

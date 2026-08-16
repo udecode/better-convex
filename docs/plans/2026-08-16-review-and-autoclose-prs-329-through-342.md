@@ -23,6 +23,8 @@ Linked plans:
   CLI lazy startup/codegen refactor and custom-root watcher repair.
 - [PR #331 autoclosure](docs/plans/2026-08-16-pr-331-autoclosure.md) -
   ORM write-path read reduction with hook and RLS correctness repairs.
+- [PR #333 autoclosure](docs/plans/2026-08-16-pr-333-autoclosure.md) -
+  Turbo/CI input cleanup and throwable scaffold command failures.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -103,7 +105,7 @@ PR disposition ledger:
 | --- | --- | --- | --- | --- | --- |
 | #329 | Solid infinite query mounts against real Solid Query | not slop; real compact correctness fix | 0 threads | first; #339 depends on it | closed: merged/released 0.17.2, post-release CI green |
 | #330 | lazy CLI startup and bounded codegen rework | credible but broad; not slop | repaired: 1 outdated + 1 current P2 | before #337/#342 | closed: merged `b78d94a5`, remote gates green |
-| #331 | remove ORM write-path rereads without corrupting hooks/RLS | credible but oversized; not slop | 1 obsolete + 1 repaired P1; structured review found/fixed another RLS P1 | before #335/#336/#337/#342 | local repair/proof complete; final branch review/check pending |
+| #331 | remove ORM write-path rereads without corrupting hooks/RLS | credible but oversized; not slop | 1 obsolete + 1 repaired P1; structured review found/fixed another RLS P1 | before #335/#336/#337/#342 | closed: merged `23c0c999`, remote gates green |
 | #332 | preserve React queries across token rotation | credible identity fix | 1 outdated changeset thread | before #339 | verify pending |
 | #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | review pending |
 | #334 | reduce example/www client work and reads | mixed bundle, not proven | browser gap + 1 P2 thread | ride 0.18 only if fixed | repair pending |
@@ -202,6 +204,11 @@ Verification evidence:
   without regressing ordinary zero/one-read paths. Structured review also found
   statement-wide RLS caching crossed writes in multi-row insert/delete; two
   integration regressions now enforce per-row resolution for those loops.
+- #331 passed 62 focused tests, package typecheck/build, deslop, committed-head
+  autoreview, lint, full `bun check`, CI run `31968579515`, and Vercel; both
+  feedback threads are resolved and the pinned head squash-merged as `23c0c999`.
+- #330's patch changeset auto-published separately as `0.17.3` through release
+  PR #345. #331 remains an unreleased patch and can ride #332's minor trigger.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.
