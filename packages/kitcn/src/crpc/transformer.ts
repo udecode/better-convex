@@ -34,6 +34,18 @@ export interface WireCodec {
   decode(value: unknown): unknown;
   encode(value: unknown): unknown;
   isType(value: unknown): boolean;
+  /**
+   * Declares that `isType` only ever claims a value where
+   * `typeof value === 'object' && value !== null` - never a primitive, a
+   * function, `null` or `undefined`.
+   *
+   * Lets `serialize` skip codec dispatch on primitives, which are the majority
+   * of visited nodes. It is opt-in because an arbitrary predicate cannot be
+   * classified by sampling values: a codec that claims, say, one specific
+   * number would be misread as object-only and silently lose its encoding.
+   * Codecs that leave it unset keep full dispatch.
+   */
+  readonly objectsOnly?: boolean;
   readonly tag: `$${string}`;
 }
 
@@ -73,6 +85,7 @@ export const DATE_CODEC_TAG = '$date';
  */
 export const dateWireCodec: WireCodec = {
   tag: DATE_CODEC_TAG,
+  objectsOnly: true,
   isType: (value): value is Date => value instanceof Date,
   encode: (value) => (value as Date).getTime(),
   decode: (value) => {
@@ -85,7 +98,7 @@ export const dateWireCodec: WireCodec = {
 
 /**
  * One value per primitive `typeof` result, plus the values the object fast path
- * would otherwise skip. A codec that claims any of them disables the fast path.
+ * would otherwise skip.
  */
 const PRIMITIVE_PROBES: readonly unknown[] = [
   undefined,
@@ -100,20 +113,30 @@ const PRIMITIVE_PROBES: readonly unknown[] = [
 ];
 
 /**
- * Decide once, at construction, whether `serialize` may skip non-object values.
+ * Falsify an `objectsOnly` declaration against representative primitives.
  *
- * Conservative by design: a codec that throws on a probe is assumed to claim it.
+ * Sampling cannot prove a predicate object-only, so it never *infers* the
+ * capability - it only rejects the misdeclarations it can catch
+ * (`typeof value === 'bigint'`, `value === null`, ...) before they silently
+ * drop a value's wire encoding. A codec that throws on a probe owns that.
  */
-const codecsMatchNonObjects = (codecs: readonly WireCodec[]): boolean =>
-  codecs.some((codec) =>
-    PRIMITIVE_PROBES.some((probe) => {
-      try {
-        return codec.isType(probe);
-      } catch {
-        return true;
-      }
-    })
-  );
+const assertObjectsOnly = (codec: WireCodec): void => {
+  for (const probe of PRIMITIVE_PROBES) {
+    let claimed = false;
+    try {
+      claimed = codec.isType(probe);
+    } catch {
+      continue;
+    }
+    if (claimed) {
+      throw new Error(
+        `Wire codec '${codec.tag}' declares objectsOnly, but isType() claims ${
+          probe === null ? 'null' : typeof probe
+        }. Drop objectsOnly so the codec keeps receiving non-object values.`
+      );
+    }
+  }
+};
 
 /**
  * Build a recursive tagged transformer from codecs.
@@ -131,14 +154,17 @@ export const createTaggedTransformer = (
     if (codecByTag.has(codec.tag)) {
       throw new Error(`Duplicate wire codec tag '${codec.tag}'.`);
     }
+    if (codec.objectsOnly) {
+      assertObjectsOnly(codec);
+    }
     codecByTag.set(codec.tag, codec);
   }
 
-  const skipNonObjects = !codecsMatchNonObjects(codecs);
+  // Every codec has declared it ignores primitives, so `serialize` can skip
+  // dispatch on them - the overwhelming majority of visited nodes.
+  const skipNonObjects = codecs.every((codec) => codec.objectsOnly === true);
 
   const serialize = (value: unknown): unknown => {
-    // Primitives are the overwhelming majority of visited nodes and no
-    // object-shaped codec can claim them, so skip the codec loop entirely.
     if (skipNonObjects && (value === null || typeof value !== 'object')) {
       return value;
     }

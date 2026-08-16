@@ -119,6 +119,67 @@ describe('crpc transformer', () => {
     expect((custom.deserialize(encoded) as any).n).toBe(10n);
   });
 
+  test('codecs claiming one specific primitive value still encode it', () => {
+    // An arbitrary predicate can't be classified by sampling representative
+    // primitives, so an undeclared codec keeps full dispatch.
+    const custom = createTaggedTransformer([
+      {
+        tag: '$answer',
+        isType: (value) => value === 42,
+        encode: () => 'forty-two',
+        decode: () => 42,
+      },
+    ]);
+
+    const encoded = custom.serialize({ n: 42 }) as any;
+    expect(encoded).toEqual({ n: { __crpc: 1, t: '$answer', v: 'forty-two' } });
+    expect((custom.deserialize(encoded) as any).n).toBe(42);
+  });
+
+  test('objectsOnly skips primitive dispatch', () => {
+    let primitiveChecks = 0;
+    const custom = createTaggedTransformer([
+      {
+        tag: '$map',
+        objectsOnly: true,
+        isType: (value) => {
+          if (value === null || typeof value !== 'object') {
+            primitiveChecks += 1;
+          }
+          return value instanceof Map;
+        },
+        encode: (value) => [...(value as Map<string, unknown>)],
+        decode: (value) => new Map(value as [string, unknown][]),
+      },
+    ]);
+
+    // Discard the construction-time probes; only per-value dispatch counts.
+    primitiveChecks = 0;
+
+    const encoded = custom.serialize({
+      m: new Map([['a', 1]]),
+      n: 1,
+      s: 'x',
+    }) as any;
+    expect(encoded.m).toEqual({ __crpc: 1, t: '$map', v: [['a', 1]] });
+    expect(primitiveChecks).toBe(0);
+    expect((custom.deserialize(encoded) as any).m.get('a')).toBe(1);
+  });
+
+  test('objectsOnly is rejected when the codec claims a primitive', () => {
+    expect(() =>
+      createTaggedTransformer([
+        {
+          tag: '$bigint',
+          objectsOnly: true,
+          isType: (value) => typeof value === 'bigint',
+          encode: (value) => (value as bigint).toString(),
+          decode: (value) => BigInt(String(value)),
+        },
+      ])
+    ).toThrow(/objectsOnly/);
+  });
+
   test('unknown tags pass through unchanged', () => {
     const input = {
       value: { $unknown: 'x' },
