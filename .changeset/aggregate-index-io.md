@@ -7,8 +7,10 @@
 - Range-filtered `count()` and `aggregate()` now stop at `aggregateWorkBudget`
   aggregate buckets and throw `COUNT_FILTER_UNSUPPORTED` /
   `AGGREGATE_FILTER_UNSUPPORTED` naming the index, instead of reading the whole
-  equality prefix and failing on Convex's transaction read limit. Raise the
-  budget if a wide range scan is intentional.
+  equality prefix and failing on Convex's transaction read limit. One budget
+  covers a whole range scan, so an `IN` filter on the equality prefix spends it
+  once across every value instead of once per value. Raise the budget if a wide
+  range scan is intentional.
 
 ```ts
 // Before

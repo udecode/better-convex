@@ -2008,10 +2008,10 @@ describe('aggregateIndex write amplification', () => {
 });
 
 describe('aggregateIndex range scan budget', () => {
-  const seedScoredOrg = async (db: any, rowCount: number) => {
+  const seedScoredOrg = async (db: any, rowCount: number, orgId = 'org-1') => {
     for (let i = 0; i < rowCount; i += 1) {
       await db.insert('countUsers', {
-        orgId: 'org-1',
+        orgId,
         status: 'active',
         tier: 'pro',
         score: i,
@@ -2089,6 +2089,93 @@ describe('aggregateIndex range scan budget', () => {
           where: { orgId: 'org-1', score: { gte: 0 } },
         })
       ).toBe(10);
+    });
+  });
+
+  it('shares one budget across every IN prefix scan', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 20 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Ten prefixes the plan-time guard accepts (10 x 2 work units == budget)
+      // with eight `score` buckets each: every prefix fits the budget on its
+      // own, but the query as a whole covers 80 buckets.
+      const orgIds = Array.from({ length: 10 }, (_, org) => `org-${org}`);
+      for (const orgId of orgIds) {
+        await seedScoredOrg(baseCtx.db, 8, orgId);
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      const { db: countingDb, reads } = createReadCountingDb(baseCtx.db);
+      const ctx = ormClient.with({
+        db: countingDb as any,
+        scheduler: schedulerStub as any,
+      });
+
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: { in: orgIds }, score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/COUNT_FILTER_UNSUPPORTED/);
+      // One budget covers the whole fan-out: `aggregateWorkBudget + 1` buckets
+      // plus at most one trailing page per in-flight scan, not that many for
+      // each prefix.
+      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(46);
+    });
+  });
+
+  it('returns ranged counts when the combined prefixes fit the budget', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 5 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Five buckets under one of two prefixes: exactly the budget, and more
+      // than the three buckets the first round gives that prefix. Scores 3 and
+      // 4 only reach the result if the prefix resumes after its full page.
+      await seedScoredOrg(baseCtx.db, 5, 'org-1');
+      await backfillToReady(api, baseCtx.db);
+
+      const { db: countingDb, reads } = createReadCountingDb(baseCtx.db);
+      const ctx = ormClient.with({
+        db: countingDb as any,
+        scheduler: schedulerStub as any,
+      });
+
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: { in: ['org-1', 'org-2'] }, score: { gte: 0 } },
+        })
+      ).toBe(5);
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: { in: ['org-1', 'org-2'] }, score: { gte: 3 } },
+        })
+      ).toBe(2);
+      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(12);
     });
   });
 });

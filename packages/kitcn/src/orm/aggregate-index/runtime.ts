@@ -1908,24 +1908,34 @@ const getBucketByKey = async (
   );
 };
 
+/** A prefix scan, resumable from the last `keyHash` a previous page returned. */
+type PrefixScanCursor = {
+  prefixParts: unknown[];
+  start: string;
+  end: string;
+  after?: string;
+};
+
 const listBucketsByHashPrefix = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
   indexName: string,
-  prefixStart: string,
-  prefixEnd: string,
+  scan: PrefixScanCursor,
   limit: number
 ): Promise<CountBucketRow[]> =>
   (await (
     db
       .query(AGGREGATE_BUCKET_TABLE)
-      .withIndex('by_table_index_hash', (q: any) =>
-        q
-          .eq('tableKey', tableName)
-          .eq('indexName', indexName)
-          .gte('keyHash', prefixStart)
-          .lt('keyHash', prefixEnd)
-      ) as any
+      .withIndex('by_table_index_hash', (q: any) => {
+        const scoped = q.eq('tableKey', tableName).eq('indexName', indexName);
+        // Lower bound before upper bound: the index range builder only accepts
+        // them in that order.
+        const lowerBounded =
+          scan.after === undefined
+            ? scoped.gte('keyHash', scan.start)
+            : scoped.gt('keyHash', scan.after);
+        return lowerBounded.lt('keyHash', scan.end);
+      }) as any
   ).take(limit)) as CountBucketRow[];
 
 const getExtremaByValue = async (
@@ -2178,6 +2188,45 @@ const matchesKeyPrefix = (
 ): boolean =>
   prefixParts.every((value, index) => deepEquals(keyParts[index], value));
 
+/**
+ * A prefix scan only bounds the key tuple's leading equality fields, so every
+ * bucket it returns still has to clear the range predicate and any equality
+ * field that sits after the range field in the index.
+ */
+const matchesRangePlanBucket = (options: {
+  bucket: CountBucketRow;
+  prefixParts: unknown[];
+  indexFields: string[];
+  rangeFieldIndex: number;
+  comparisons: RangeComparison[];
+  postFieldSets: Record<string, Map<string, unknown>>;
+}): boolean => {
+  const { bucket, indexFields } = options;
+  if (!matchesKeyPrefix(bucket.keyParts, options.prefixParts)) {
+    return false;
+  }
+  if (
+    !matchesRangeComparisons(
+      bucket.keyParts[options.rangeFieldIndex],
+      options.comparisons
+    )
+  ) {
+    return false;
+  }
+
+  for (const [field, allowedValues] of Object.entries(options.postFieldSets)) {
+    const fieldIndex = indexFields.indexOf(field);
+    if (fieldIndex < 0) {
+      return false;
+    }
+    if (!allowedValues.has(serializeStable(bucket.keyParts[fieldIndex]))) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const readPlanBuckets = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: CountQueryPlan | AggregateQueryPlan
@@ -2219,71 +2268,80 @@ export const readPlanBuckets = async (
   ) as Record<string, Map<string, unknown>>;
 
   // The range predicate cannot be pushed into `keyHash` (JSON ordering is
-  // lexicographic), so the equality prefix is scanned and filtered in JS. Bound
-  // that scan by the configured work budget instead of collecting the whole
-  // prefix and hitting Convex's read limit.
+  // lexicographic), so the equality prefix is scanned and filtered in JS. One
+  // budget covers every prefix: what has to fit inside Convex's transaction
+  // read limit is the whole range read, not each `IN` prefix on its own.
   const workBudget =
     plan.rangeConstraint.workBudget ?? DEFAULT_AGGREGATE_WORK_BUDGET;
+  const scanLimit = workBudget + 1;
 
-  const prefixResults = await mapWithConcurrency(
-    prefixCandidates,
-    AGGREGATE_BUCKET_READ_CONCURRENCY,
-    (prefixParts) => {
-      const { start, end } = buildKeyHashPrefixBounds(prefixParts);
-      return listBucketsByHashPrefix(
-        db,
-        plan.tableName,
-        plan.indexName,
-        start,
-        end,
-        workBudget + 1
-      );
-    }
-  );
+  let pending: PrefixScanCursor[] = prefixCandidates.map((prefixParts) => ({
+    prefixParts,
+    ...buildKeyHashPrefixBounds(prefixParts),
+  }));
 
   const matchedById = new Map<string, CountBucketRow>();
-  for (let index = 0; index < prefixCandidates.length; index += 1) {
-    const prefixParts = prefixCandidates[index] as unknown[];
-    const buckets = prefixResults[index] as CountBucketRow[];
+  let scanned = 0;
 
-    if (buckets.length > workBudget) {
-      throw createError(
-        plan.rangeConstraint.filterErrorCode ??
-          AGGREGATE_ERROR.FILTER_UNSUPPORTED,
-        `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' scans more than ${workBudget} aggregate buckets on aggregateIndex '${plan.indexName}'. Narrow the equality prefix, reduce the range field's cardinality, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
-      );
-    }
+  while (pending.length > 0 && scanned < scanLimit) {
+    const batch = pending.slice(0, AGGREGATE_BUCKET_READ_CONCURRENCY);
+    // Split what is left of the shared budget across the batch, so a round can
+    // never read more than the budget however many prefixes fan out. Only the
+    // final round can overshoot, by at most one row per in-flight scan.
+    const share = Math.max(1, Math.floor((scanLimit - scanned) / batch.length));
+    const pages = await mapWithConcurrency(
+      batch,
+      AGGREGATE_BUCKET_READ_CONCURRENCY,
+      (scan) =>
+        listBucketsByHashPrefix(db, plan.tableName, plan.indexName, scan, share)
+    );
 
-    for (const bucket of buckets) {
-      if (!matchesKeyPrefix(bucket.keyParts, prefixParts)) {
-        continue;
-      }
-      const rangeValue = bucket.keyParts[rangeFieldIndex];
-      if (
-        !matchesRangeComparisons(rangeValue, plan.rangeConstraint.comparisons)
-      ) {
-        continue;
-      }
+    const next = pending.slice(batch.length);
+    for (let index = 0; index < batch.length; index += 1) {
+      const scan = batch[index] as PrefixScanCursor;
+      const page = pages[index] as CountBucketRow[];
+      scanned += page.length;
 
-      let matchesPostFields = true;
-      for (const [field, allowedValues] of Object.entries(postFieldSets)) {
-        const fieldIndex = plan.indexFields.indexOf(field);
-        if (fieldIndex < 0) {
-          matchesPostFields = false;
-          break;
+      for (const bucket of page) {
+        if (
+          matchesRangePlanBucket({
+            bucket,
+            prefixParts: scan.prefixParts,
+            indexFields: plan.indexFields,
+            rangeFieldIndex,
+            comparisons: plan.rangeConstraint.comparisons,
+            postFieldSets,
+          })
+        ) {
+          matchedById.set(String(bucket._id), bucket);
         }
-        const value = bucket.keyParts[fieldIndex];
-        if (!allowedValues.has(serializeStable(value))) {
-          matchesPostFields = false;
-          break;
-        }
-      }
-      if (!matchesPostFields) {
-        continue;
       }
 
-      matchedById.set(String(bucket._id), bucket);
+      const lastBucket = page.at(-1);
+      if (page.length < share || !lastBucket) {
+        continue;
+      }
+      // A full page may have left rows behind, so requeue the prefix after
+      // the last `keyHash` it returned. `keyHash` losslessly serializes the
+      // key tuple, so it is unique per bucket and resuming skips nothing.
+      next.push({ ...scan, after: lastBucket.keyHash });
     }
+    pending = next;
+  }
+
+  if (scanned > workBudget) {
+    // The budget is spent across the whole fan-out, so name it: with an `IN`
+    // on the equality prefix the fix is usually a shorter list, not a narrower
+    // prefix.
+    const fanOut =
+      prefixCandidates.length > 1
+        ? ` across ${prefixCandidates.length} equality-prefix combinations`
+        : '';
+    throw createError(
+      plan.rangeConstraint.filterErrorCode ??
+        AGGREGATE_ERROR.FILTER_UNSUPPORTED,
+      `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' scans more than ${workBudget} aggregate buckets${fanOut} on aggregateIndex '${plan.indexName}'. Narrow the equality prefix, shrink the IN lists it expands to, reduce the range field's cardinality, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+    );
   }
 
   return [...matchedById.values()];
