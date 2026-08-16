@@ -666,6 +666,13 @@ const usersWithPosts = await ctx.orm.query.users.findMany({
 });
 ```
 
+`limit` and `orderBy` are pushed into the relation index when the index already
+walks in that order — after the foreign key, `index('by_user').on(t.userId)`
+orders by creation time, so the query above reads five posts per user. Sorting
+by any other column reads the parent's whole child partition and sorts it in
+memory; add that column to the relation index (`index('by_user_rank').on(t.userId, t.rank)`)
+to keep the read bounded.
+
 <Callout icon={<InfoIcon />}>
 **Note**: `limit`, `orderBy`, and `where` apply to `many()` relations. If `limit` is omitted, configure `defineSchema(..., { defaults: { defaultLimit } })` or use `allowFullScan` on the parent query. Relation loading also fail-fasts when unique lookup keys exceed `defineSchema(..., { defaults: { relationFanOutMaxKeys } })` (default `1000`) unless `allowFullScan` is set. Nested `with:` works with a depth limit to prevent infinite recursion.
 </Callout>

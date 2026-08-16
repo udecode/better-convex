@@ -40,17 +40,6 @@ type AggregateParityEntry = AggregateParityDefinition & {
   probe: AggregateProbeResult;
 };
 
-type AggregateEngineProbe = {
-  id: 'aggregate' | 'countSelect' | 'relationCount';
-  label: string;
-  serialMs: number | null;
-  parallelMs: number | null;
-  parallelized: boolean | null;
-  note: string | null;
-  error: string | null;
-  errorCode: string | null;
-};
-
 type RuntimeCoverageProbe = {
   id: string;
   area: 'count' | 'aggregate' | 'relationCount';
@@ -537,225 +526,6 @@ async function collectParity(ctx: AggregateDemoCtx) {
   return { entries, summary };
 }
 
-async function collectEngineBehavior(
-  ctx: AggregateDemoCtx
-): Promise<
-  Record<'aggregate' | 'countSelect' | 'relationCount', AggregateEngineProbe>
-> {
-  const todosWhere = {
-    userId: ctx.userId,
-    deletionTime: { isNull: true as const },
-  };
-
-  const buildFailure = (
-    id: AggregateEngineProbe['id'],
-    label: AggregateEngineProbe['label'],
-    error: unknown
-  ): AggregateEngineProbe => {
-    const message = asErrorMessage(error);
-    return {
-      id,
-      label,
-      serialMs: null,
-      parallelMs: null,
-      parallelized: null,
-      note: null,
-      error: message,
-      errorCode: extractErrorCode(message),
-    };
-  };
-
-  const aggregateProbe = await (async (): Promise<AggregateEngineProbe> => {
-    try {
-      const serialRuns: Array<() => Promise<unknown>> = [
-        () =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _count: { dueDate: true },
-          }),
-        () =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _sum: { dueDate: true },
-          }),
-        () =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _avg: { dueDate: true },
-          }),
-        () =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _min: { dueDate: true },
-          }),
-        () =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _max: { dueDate: true },
-          }),
-      ];
-
-      let serialMs = 0;
-      for (const run of serialRuns) {
-        serialMs += (await measureProbe(run)).elapsedMs;
-      }
-
-      const parallelMs = (
-        await measureProbe(() =>
-          ctx.orm.query.todos.aggregate({
-            where: todosWhere,
-            _count: { dueDate: true },
-            _sum: { dueDate: true },
-            _avg: { dueDate: true },
-            _min: { dueDate: true },
-            _max: { dueDate: true },
-          })
-        )
-      ).elapsedMs;
-
-      return {
-        id: 'aggregate',
-        label: 'aggregate metric execution',
-        serialMs,
-        parallelMs,
-        parallelized: parallelMs <= serialMs,
-        note: 'serial baseline is separate metric queries',
-        error: null,
-        errorCode: null,
-      };
-    } catch (error) {
-      return buildFailure('aggregate', 'aggregate metric execution', error);
-    }
-  })();
-
-  const countSelectProbe = await (async (): Promise<AggregateEngineProbe> => {
-    try {
-      const serialRuns: Array<() => Promise<unknown>> = [
-        () =>
-          ctx.orm.query.todos.count({
-            where: todosWhere,
-            select: { dueDate: true },
-          }),
-        () =>
-          ctx.orm.query.todos.count({
-            where: todosWhere,
-            select: { priority: true },
-          }),
-      ];
-
-      let serialMs = 0;
-      for (const run of serialRuns) {
-        serialMs += (await measureProbe(run)).elapsedMs;
-      }
-
-      const parallelMs = (
-        await measureProbe(() =>
-          ctx.orm.query.todos.count({
-            where: todosWhere,
-            select: {
-              dueDate: true,
-              priority: true,
-            },
-          })
-        )
-      ).elapsedMs;
-
-      return {
-        id: 'countSelect',
-        label: 'count({ select }) field execution',
-        serialMs,
-        parallelMs,
-        parallelized: parallelMs <= serialMs,
-        note: 'serial baseline is one query per selected field',
-        error: null,
-        errorCode: null,
-      };
-    } catch (error) {
-      return buildFailure(
-        'countSelect',
-        'count({ select }) field execution',
-        error
-      );
-    }
-  })();
-
-  const relationCountProbe = await (async (): Promise<AggregateEngineProbe> => {
-    try {
-      const serialRuns: Array<() => Promise<unknown>> = [
-        () =>
-          ctx.orm.query.user.findMany({
-            where: { id: ctx.userId },
-            limit: 1,
-            with: {
-              _count: {
-                todos: {
-                  where: {
-                    completed: true,
-                    deletionTime: { isNull: true },
-                  },
-                },
-              },
-            },
-          }),
-        () =>
-          ctx.orm.query.user.findMany({
-            where: { id: ctx.userId },
-            limit: 1,
-            with: {
-              _count: {
-                ownedProjects: true,
-              },
-            },
-          }),
-      ];
-
-      let serialMs = 0;
-      for (const run of serialRuns) {
-        serialMs += (await measureProbe(run)).elapsedMs;
-      }
-
-      const parallelMs = (
-        await measureProbe(() =>
-          ctx.orm.query.user.findMany({
-            where: { id: ctx.userId },
-            limit: 1,
-            with: {
-              _count: {
-                todos: {
-                  where: {
-                    completed: true,
-                    deletionTime: { isNull: true },
-                  },
-                },
-                ownedProjects: true,
-              },
-            },
-          })
-        )
-      ).elapsedMs;
-
-      return {
-        id: 'relationCount',
-        label: 'relation _count loading',
-        serialMs,
-        parallelMs,
-        parallelized: parallelMs <= serialMs,
-        note: 'serial baseline is one relation-count query per relation',
-        error: null,
-        errorCode: null,
-      };
-    } catch (error) {
-      return buildFailure('relationCount', 'relation _count loading', error);
-    }
-  })();
-
-  return {
-    aggregate: aggregateProbe,
-    countSelect: countSelectProbe,
-    relationCount: relationCountProbe,
-  };
-}
-
 async function collectRuntimeCoverage(
   ctx: AggregateDemoCtx
 ): Promise<RuntimeCoverageProbe[]> {
@@ -965,7 +735,6 @@ async function buildSnapshot(ctx: AggregateDemoCtx) {
     replySummaries,
     metrics,
     parity,
-    engineBehavior,
     runtimeCoverage,
   ] = await Promise.all([
     ctx.orm.query.user.findFirst({
@@ -1012,7 +781,6 @@ async function buildSnapshot(ctx: AggregateDemoCtx) {
     collectReplySummaries(ctx),
     collectMetrics(ctx),
     collectParity(ctx),
-    collectEngineBehavior(ctx),
     collectRuntimeCoverage(ctx),
   ]);
 
@@ -1055,7 +823,6 @@ async function buildSnapshot(ctx: AggregateDemoCtx) {
       metrics,
     },
     parity,
-    engineBehavior,
     runtimeCoverage,
   };
 }
@@ -1295,10 +1062,7 @@ export const toggleRandomFillReset = authMutation.mutation(async ({ ctx }) => {
   if (activeRun) {
     await resetDemoData(ctx, activeRun);
 
-    return {
-      action: 'reset' as const,
-      snapshot: await buildSnapshot(ctx),
-    };
+    return { action: 'reset' as const };
   }
 
   const seed = await seedDemoData(ctx);
@@ -1306,7 +1070,6 @@ export const toggleRandomFillReset = authMutation.mutation(async ({ ctx }) => {
   return {
     action: 'seed' as const,
     seed,
-    snapshot: await buildSnapshot(ctx),
   };
 });
 
@@ -1398,7 +1161,6 @@ export const runDirectOp = authMutation
     return {
       op: input.op,
       message,
-      snapshot: await buildSnapshot(ctx),
     };
   });
 
@@ -1453,7 +1215,6 @@ export const exerciseIdempotentTrigger = authMutation.mutation(
       addedExactlyOne: afterInsert === before + 1,
       returnedToBaseline: afterSoftDelete === before,
       unsupportedFilterError: parityCheckError,
-      snapshot: await buildSnapshot(ctx),
     };
   }
 );

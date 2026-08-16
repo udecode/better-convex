@@ -1,7 +1,10 @@
-import { headers } from 'next/headers';
 import { Suspense } from 'react';
-import { crpc, getQueryClient, prefetch } from '@/lib/convex/rsc';
-import { createContext } from '@/lib/convex/server';
+import {
+  crpc,
+  getQueryClient,
+  HydrateClient,
+  prefetch,
+} from '@/lib/convex/rsc';
 
 import { HttpDemo } from './http-demo';
 
@@ -13,13 +16,14 @@ export default async function HttpPage() {
     crpc.http.todos.list.queryOptions({ searchParams: { limit: '10' } })
   );
 
-  // Server-side calls using caller
-  const ctx = await createContext({ headers: await headers() });
-  const _todos = await ctx.caller.todos.list({ limit: 10 });
-
+  // HydrateClient must be *below* the prefetches: the layout-level boundary in
+  // Providers dehydrates before this page body runs, so without this wrapper
+  // neither prefetch reaches the RSC payload and the browser refetches both.
   return (
-    <Suspense fallback={<div className="mx-auto max-w-2xl px-6 py-8" />}>
-      <HttpDemo />
-    </Suspense>
+    <HydrateClient>
+      <Suspense fallback={<div className="mx-auto max-w-2xl px-6 py-8" />}>
+        <HttpDemo />
+      </Suspense>
+    </HydrateClient>
   );
 }

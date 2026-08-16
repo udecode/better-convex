@@ -2,7 +2,27 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { getLocalResendInstallSpec } from './scaffold-utils';
+import {
+  CommandFailedError,
+  getLocalResendInstallSpec,
+  run,
+} from './scaffold-utils';
+
+test('run throws a structured error unless non-zero exit is allowed', async () => {
+  const command = [process.execPath, '-e', 'process.exit(7)'];
+
+  await expect(run(command, process.cwd())).rejects.toEqual(
+    expect.objectContaining<Partial<CommandFailedError>>({
+      command,
+      cwd: process.cwd(),
+      exitCode: 7,
+      name: 'CommandFailedError',
+    })
+  );
+  await expect(
+    run(command, process.cwd(), { allowNonZeroExit: true })
+  ).resolves.toBe(7);
+});
 
 test('getLocalResendInstallSpec packs resend with a package manifest', () => {
   const installSpec = getLocalResendInstallSpec();

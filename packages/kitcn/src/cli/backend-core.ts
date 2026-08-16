@@ -12,13 +12,6 @@ import {
   resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  multiselect as clackMultiselect,
-  select as clackSelect,
-  confirm,
-  isCancel,
-} from '@clack/prompts';
-import { parse as parseDotEnv } from 'dotenv';
 import { execa } from 'execa';
 import { getTableConfig } from '../orm/introspection.js';
 import { getSchemaRelations } from '../orm/schema.js';
@@ -31,12 +24,14 @@ import {
   type CliConfig,
   loadCliConfig,
   type MigrationConfig,
+  resolveConfiguredBackend,
 } from './config.js';
 import {
   normalizeConvexCommandResult,
   writeConvexCommandOutput,
 } from './convex-command.js';
 import { pullEnv, resolveAuthEnvState, syncEnv } from './env.js';
+import { getLocalBackendEnvVars, withLocalCodegenEnv } from './local-env.js';
 import {
   detectPackageManager,
   type PackageManager,
@@ -160,10 +155,16 @@ import {
   formatPluginView as formatPluginViewOutput,
 } from './utils/dry-run-formatter.js';
 import { highlighter } from './utils/highlighter.js';
+import { loadClackPrompts, loadDotenv } from './utils/lazy-deps.js';
 import { logger } from './utils/logger.js';
 import { createProjectJiti } from './utils/project-jiti.js';
 import { createSpinner } from './utils/spinner.js';
 import { createTypeScriptProxy } from './utils/typescript-runtime.js';
+
+// Owned by `config.ts` / `local-env.ts` so the `kitcn dev` watcher child can
+// reach them without loading this module's command graph.
+export { resolveConfiguredBackend } from './config.js';
+export { withLocalCodegenEnv } from './local-env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -736,6 +737,7 @@ function createPromptAdapter(): PromptAdapter {
         process.stdin.isTTY && process.stdout.isTTY && !isCiEnvironment()
       ),
     confirm: async (message: string, defaultValue?: boolean) => {
+      const { confirm, isCancel } = loadClackPrompts();
       const response = await confirm({
         message,
         ...(defaultValue === undefined ? {} : { initialValue: defaultValue }),
@@ -763,7 +765,7 @@ function createPromptAdapter(): PromptAdapter {
         }
         return next;
       });
-      return (await clackSelect<TValue>({
+      return (await loadClackPrompts().select<TValue>({
         message: params.message,
         options: options as any,
       })) as TValue | symbol;
@@ -788,7 +790,7 @@ function createPromptAdapter(): PromptAdapter {
         }
         return next;
       });
-      return (await clackMultiselect<TValue>({
+      return (await loadClackPrompts().multiselect<TValue>({
         message: params.message,
         options: options as any,
         initialValues: params.initialValues as TValue[] | undefined,
@@ -898,7 +900,7 @@ function readConvexTargetEnvFile(
     return null;
   }
 
-  return parseDotEnv(fs.readFileSync(envFilePath, 'utf8'));
+  return loadDotenv().parse(fs.readFileSync(envFilePath, 'utf8'));
 }
 
 function resolveRemoteConvexDeploymentKey(
@@ -919,79 +921,6 @@ function resolveRemoteConvexDeploymentKey(
   }
 
   return 'remote-env';
-}
-
-function getLocalParseEnvVars(
-  sharedDir: string | undefined,
-  backend: CliBackend
-): Record<string, string> {
-  const { functionsDir } = getConvexConfig(sharedDir);
-  const rootEnvPath = join(process.cwd(), '.env');
-  const backendEnvPath = join(functionsDir, '..', '.env');
-  const envPaths =
-    backend === 'concave'
-      ? [backendEnvPath, rootEnvPath]
-      : [rootEnvPath, backendEnvPath];
-
-  const mergedEnv: Record<string, string> = {};
-  for (const envPath of envPaths) {
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    Object.assign(mergedEnv, parseDotEnv(fs.readFileSync(envPath, 'utf8')));
-  }
-
-  return mergedEnv;
-}
-
-function getLocalBackendEnvVars(
-  sharedDir: string | undefined,
-  backend: CliBackend
-): Record<string, string> {
-  const { functionsDir } = getConvexConfig(sharedDir);
-  const rootEnvPath = join(process.cwd(), '.env');
-  const backendEnvPath = join(functionsDir, '..', '.env');
-  const envPaths =
-    backend === 'concave' ? [backendEnvPath, rootEnvPath] : [backendEnvPath];
-
-  const mergedEnv: Record<string, string> = {};
-  for (const envPath of envPaths) {
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    Object.assign(mergedEnv, parseDotEnv(fs.readFileSync(envPath, 'utf8')));
-  }
-
-  return mergedEnv;
-}
-
-export async function withLocalCodegenEnv<T>(
-  sharedDir: string | undefined,
-  backend: CliBackend,
-  fn: () => Promise<T>
-): Promise<T> {
-  const envVars = getLocalParseEnvVars(sharedDir, backend);
-  if (Object.keys(envVars).length === 0) {
-    return fn();
-  }
-
-  const previousValues = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(envVars)) {
-    previousValues.set(key, process.env[key]);
-    process.env[key] = value;
-  }
-
-  try {
-    return await fn();
-  } finally {
-    for (const [key, value] of previousValues.entries()) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
 }
 
 function parseAddCommandArgs(args: string[]): AddCommandArgs {
@@ -4466,13 +4395,6 @@ type BackendAdapter = {
   command: string;
   argsPrefix: string[];
 };
-
-export function resolveConfiguredBackend(params: {
-  backendArg?: CliBackend;
-  config?: Pick<CliConfig, 'backend'>;
-}): CliBackend {
-  return params.backendArg ?? params.config?.backend ?? 'convex';
-}
 
 function findConcavePkgPath() {
   // Module resolution cannot locate the package root across published

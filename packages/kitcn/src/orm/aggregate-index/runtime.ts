@@ -3,7 +3,7 @@ import type {
   GenericDatabaseWriter,
 } from 'convex/server';
 import type { GenericId, Value } from 'convex/values';
-import { mapWithConcurrency } from '../concurrency';
+import { mapWithConcurrency } from '../write-fanout';
 import { normalizeTemporalComparableValue } from '../mutation-utils';
 import { Columns } from '../symbols';
 import {
