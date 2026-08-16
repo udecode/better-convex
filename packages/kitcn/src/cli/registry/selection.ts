@@ -1,5 +1,4 @@
 import { join, relative } from 'node:path';
-import { isCancel } from '@clack/prompts';
 import type {
   PlanSelectionSource,
   PluginDescriptor,
@@ -8,6 +7,7 @@ import type {
   ScaffoldTemplate,
   SupportedPlugin,
 } from '../types.js';
+import { loadClackPrompts } from '../utils/lazy-deps.js';
 import { getPluginCatalogEntry } from './index.js';
 import { normalizePath, normalizeRelativePathOrThrow } from './path-utils.js';
 
@@ -57,7 +57,7 @@ export const resolvePluginPreset = async (
         hint: profile.description,
       })),
     });
-    if (isCancel(selected)) {
+    if (loadClackPrompts().isCancel(selected)) {
       throw new Error('Preset selection cancelled.');
     }
     return selected as string;
@@ -87,7 +87,7 @@ export const promptForPluginSelection = async (
     message,
     options,
   });
-  if (isCancel(selected)) {
+  if (loadClackPrompts().isCancel(selected)) {
     throw new Error('Plugin selection cancelled.');
   }
   return selected as SupportedPlugin;
@@ -385,7 +385,7 @@ export const promptForScaffoldTemplateSelection = async (
     required: true,
   });
 
-  if (isCancel(selected)) {
+  if (loadClackPrompts().isCancel(selected)) {
     throw new Error('Scaffold file selection cancelled.');
   }
 
