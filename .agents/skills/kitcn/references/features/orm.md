@@ -254,6 +254,13 @@ Rules:
 - `one()` with `to: ...id` → uses `db.get()` (no extra index)
 - Missing index throws unless `allowFullScan` on parent query
 
+Relation `limit`/`orderBy` are pushed into the relation index when the index
+already walks in that order. After the FK, `index('by_user').on(t.userId)`
+orders by creation time, so `with: { posts: { limit: 5, orderBy: { createdAt:
+'desc' } } }` reads 5 posts per parent. Sorting by any other column reads the
+parent's whole child partition and sorts in memory — put the sort column in the
+relation index (`index('by_user_rank').on(t.userId, t.rank)`) to stay bounded.
+
 ## Schema Definition
 
 ```ts
@@ -713,7 +720,7 @@ const filtered = results.filter((a) => a.publishedAt >= startDate);
 
 ### Performance
 
-1. **Index first** — constrain leading index fields. Compound indexes follow prefix rules.
+1. **Index first** — constrain leading index fields. Compound indexes follow prefix rules. Put the `orderBy` column right after the constrained prefix so the scan is already sorted and `limit` bounds the read.
 2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only).
 3. **Limit results** — always use `limit` or cursor pagination.
 4. **Cursor stability** — keep same `where`/`orderBy` between page requests.
