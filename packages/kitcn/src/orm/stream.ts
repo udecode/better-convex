@@ -1162,9 +1162,7 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
           },
           async return() {
             await Promise.all(
-              iterators.map(async (iterator) => {
-                await iterator.return?.();
-              })
+              iterators.map((iterator) => iterator.return?.())
             );
             return { done: true as const, value: undefined };
           },
