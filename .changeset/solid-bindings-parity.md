@@ -4,8 +4,8 @@
 
 ## Breaking changes
 
-- `kitcn/solid` honors a function-form `enabled` instead of discarding it. A
-  predicate now gates both the fetch and the Convex subscription, so a query you
+- Support a function-form `enabled` in `kitcn/solid` instead of discarding it. A
+  predicate gates both the fetch and the Convex subscription, so a query you
   disabled that way stops fetching and stops holding a live subscription.
 
 ```tsx
@@ -17,9 +17,10 @@ const posts = useQuery(() =>
 // After  — disabled: no fetch, no subscription
 ```
 
-- `kitcn/solid` action queries on an `auth: 'required'` function fail with
+- Fix `kitcn/solid` action queries on an `auth: 'required'` function reaching the
+  server while unauthenticated. They fail with
   `CRPCClientError({ code: 'UNAUTHORIZED' })` and call `onQueryUnauthorized`
-  before reaching the server, matching queries and the React bindings.
+  before any request is sent, matching queries and the React bindings.
 
 ```tsx
 const report = useQuery(() => crpc.ai.summarize.queryOptions({}));
@@ -28,8 +29,8 @@ const report = useQuery(() => crpc.ai.summarize.queryOptions({}));
 // After  — CRPCClientError({ code: 'UNAUTHORIZED' }), no request sent
 ```
 
-- Signing in, signing up, and signing out with `kitcn/solid` clear every
-  auth-bound query from the cache.
+- Drop every auth-bound query from the cache when signing in, signing up, or
+  signing out with `kitcn/solid`.
 
 ```tsx
 await signIn.mutateAsync({ email, password });
@@ -54,3 +55,17 @@ const todos = useQuery(() => crpc.todos.list.queryOptions({}));
 - Fix `kitcn/solid` re-authenticating Convex on every JWT write. Signing in
   authenticates once instead of three times, and a scheduled token refresh no
   longer pauses the socket and re-runs every live subscription.
+- Fix `kitcn/solid` ignoring a `useAuth` that returns a new `fetchAccessToken`.
+  Convex is rebound to the current fetcher instead of refreshing through the one
+  captured for the previous session.
+- Fix an account transition leaving the previous account's rows in queries the
+  new account never refetches. Signing in or out clears auth-bound entries
+  outright, so a query that is disabled, unobserved, or non-subscribed cannot
+  keep serving them, and one that is mounted reads as pending until the new
+  account's data arrives.
+- Fix a paginated list restoring the previous account's cursors after signing
+  in or out. An auth-bound list starts again from its first page instead of
+  paging from cursors that point into another account's results.
+- Fix an auth-bound query refetching everything on every scheduled token
+  refresh. A refreshed JWT for the same account leaves the cache alone; only an
+  actual account change clears it.
