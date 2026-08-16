@@ -83,7 +83,7 @@ Closure matrix:
 | agent workflow | no | N/A: no agent surface | complete |
 | cleanup/review | yes | slop delta and autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | merge/release/read-back | pending |
+| GitHub delivery | yes | merge/release/read-back | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -91,7 +91,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
 - [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
@@ -117,9 +117,9 @@ Completion Gates:
 | Agent-native reviewer | complete | Run for workflow changes or N/A | N/A: no agent action surface |
 | Final lint | yes | Run `bun lint:fix` | 884 files checked; no fixes |
 | Repository check | yes | Run `bun check` | exit 0 after merge with current main |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
+| GitHub delivery | complete | Commit/push/open or update PR and read back | PR #329 merged `c8531153`; release PR #344 merged `7728ed62` |
 | Autoreview | yes | Resolve every accepted actionable finding | clean, correctness 0.97, no actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-pr-329-autoclosure.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-pr-329-autoclosure.md` | complete at final audit |
 | Agent source / generated sync | complete | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | N/A: no agent/rule source changed |
 | Installed lock audit | complete | Verify expected lock entries and removed skills through CLI-managed state | N/A: no installed skill state changed |
 | Agent action discoverability | complete | Source-audit the skill/rule path an agent will read | N/A: no agent action changed |
@@ -132,8 +132,8 @@ Phase / pass table:
 | Inventory | complete | four-file owner/source audit; zero feedback threads | review |
 | Repair | complete | no code repair needed; merged current main cleanly | review |
 | Review/checks | complete | focused tests, build, changeset, deslop, lint, check, autoreview | delivery |
-| Delivery | in_progress | current-main merge committed locally | push, remote checks, merge |
-| Closeout | pending | | final |
+| Delivery | complete | PR #329, release PR #344, npm, GitHub release, and post-release CI receipts | final audit |
+| Closeout | complete | every applicable row closed | final |
 
 Verification evidence:
 - TanStack Solid Query's `useQueries` stores the combined value and later calls
@@ -148,19 +148,23 @@ Verification evidence:
 - Autoreview: clean, no accepted/actionable findings, correctness 0.97.
 - `bun lint:fix`: 884 files checked, no fixes. `bun check`: exit 0, including
   1098 Bun tests, 729 Vitest tests, fixture parity, verify, and runtime lanes.
+- PR #329 merged at `c853115311cc`; release PR #344 merged at `7728ed62cb75`.
+- `kitcn@0.17.2` and `@kitcn/resend@0.17.2` are live on npm; GitHub release
+  `v0.17.2` targets `7728ed62cb75`; post-release CI run `31966196360` passed.
 
 Timeline:
 - 2026-08-16T18:36:44.977Z Autoclosure plan created.
+- 2026-08-16 PR #329 and release PR #344 merged; 0.17.2 npm/GitHub release
+  and post-release CI verified.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Complete |
+| Where am I going? | Closed; #330 owns the next batch step. |
 | What is the goal? | Prove PR #329 is a real minimal correctness fix, then merge and verify its isolated release. |
 | What have I learned? | The PR has four files, no feedback, and is the dependency root for #339. |
-| What have I done? | Frozen the scope and classified every closeout lane before checkout. |
+| What have I done? | Proved, merged, released, and remotely verified the Solid fix. |
 
 Open risks:
-- The implementation replaces a mocked hook path with a lower-level
-  `QueriesObserver`; cleanup must not weaken Solid reactivity or disposal.
+- None inside #329's frozen scope.

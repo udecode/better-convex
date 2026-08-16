@@ -80,6 +80,8 @@ type ProcedureNameEntry = {
 
 type ProcedureNameLookup = Record<string, ProcedureNameEntry[]>;
 
+type ProjectJiti = ReturnType<typeof createProjectJiti>;
+
 export type CodegenScope = 'all' | 'auth' | 'orm';
 
 const CODEGEN_SCOPES = new Set<CodegenScope>(['all', 'auth', 'orm']);
@@ -149,7 +151,12 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
 
 function listFilesRecursive(cwd: string, relDir = ''): string[] {
   const absDir = path.join(cwd, relDir);
-  const entries = fs.readdirSync(absDir, { withFileTypes: true });
+  // Sorted by name: emitted api and procedure-lookup ordering derives from
+  // this walk, and readdir order differs between filesystems. Names within a
+  // directory are unique, so the comparison never ties.
+  const entries = fs
+    .readdirSync(absDir, { withFileTypes: true })
+    .sort((a, b) => (a.name > b.name ? 1 : -1));
 
   const files: string[] = [];
   for (const entry of entries) {
@@ -776,7 +783,8 @@ function listGeneratedRuntimeFiles(functionsDir: string): string[] {
 
 async function resolveSchemaMetadataForCodegen(
   functionsDir: string,
-  debug: boolean
+  debug: boolean,
+  createJitiInstance: () => ProjectJiti = createProjectJiti
 ): Promise<{
   hasOrmSchema: boolean;
   hasRelations: boolean;
@@ -791,7 +799,7 @@ async function resolveSchemaMetadataForCodegen(
     };
   }
 
-  const jitiInstance = createProjectJiti();
+  const jitiInstance = createJitiInstance();
 
   try {
     const schemaModule = await jitiInstance.import(schemaPath);
@@ -1740,7 +1748,8 @@ function isCRPCHttpRouter(value: unknown): value is {
  */
 async function parseModuleRuntime(
   filePath: string,
-  jitiInstance: ReturnType<typeof createProjectJiti>
+  jitiInstance: ProjectJiti,
+  serverShimSpecifier: string
 ): Promise<{
   meta: ModuleMeta | null;
   httpRoutes: HttpRoutes;
@@ -1753,9 +1762,7 @@ async function parseModuleRuntime(
   // bunx-kitcn-self-resolution-must-not-break-scaffold-codegen-20260407.md.
   const rewrittenSource = source.replaceAll(
     /from\s+(['"])kitcn\/server\1/g,
-    `from ${JSON.stringify(
-      normalizeImportPath(getProjectServerParserShimPath())
-    )}`
+    `from ${JSON.stringify(serverShimSpecifier)}`
   );
   const result: ModuleMeta = {};
   const httpRoutes: HttpRoutes = {};
@@ -1915,9 +1922,15 @@ export async function generateMeta(
   const hasAuthFile = fs.existsSync(authFilePath);
   const hasAuthDefaultExport = hasDefaultExport(authFilePath);
   const authContract = { hasAuthFile, hasAuthDefaultExport };
+  // One jiti instance per run: the alias map, the tsconfig parse and the parse
+  // shim I/O are rebuilt on every construction.
+  let sharedJitiInstance: ProjectJiti | undefined;
+  const getSharedJitiInstance = () =>
+    (sharedJitiInstance ??= createProjectJiti());
   const schemaMetadata = await resolveSchemaMetadataForCodegen(
     functionsDir,
-    debug
+    debug,
+    getSharedJitiInstance
   );
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
@@ -1962,8 +1975,11 @@ export async function generateMeta(
     (globalThis as Record<string, unknown>).__KITCN_CODEGEN__ = true;
 
     try {
-      // Create jiti instance for importing TypeScript files
-      const jitiInstance = createProjectJiti();
+      const jitiInstance = getSharedJitiInstance();
+      // Resolved once instead of once per parsed module.
+      const serverShimSpecifier = normalizeImportPath(
+        getProjectServerParserShimPath()
+      );
 
       const files = listFilesRecursive(functionsDir).filter(
         (file) => file.endsWith('.ts') && isValidConvexFile(file)
@@ -2004,7 +2020,11 @@ export async function generateMeta(
             meta: moduleMeta,
             httpRoutes,
             procedures,
-          } = await parseModuleRuntime(filePath, jitiInstance);
+          } = await parseModuleRuntime(
+            filePath,
+            jitiInstance,
+            serverShimSpecifier
+          );
 
           if (moduleMeta) {
             meta[moduleName] = moduleMeta;

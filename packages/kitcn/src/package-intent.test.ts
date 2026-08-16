@@ -249,7 +249,7 @@ describe('package intent metadata', () => {
     }
   });
 
-  test('packed backend-core keeps the direct kitcn/server parse shim rewrite', () => {
+  test('packed CLI keeps the direct kitcn/server parse shim rewrite', () => {
     const packDir = mkdtempSync(path.join(os.tmpdir(), 'kitcn-pack-'));
 
     try {
@@ -283,15 +283,16 @@ describe('package intent metadata', () => {
 
       expect(list.exitCode).toBe(0);
 
-      const backendCorePath = new TextDecoder()
+      // Chunk names are a bundler detail; assert on the CLI output as a whole.
+      const cliChunkPaths = new TextDecoder()
         .decode(list.stdout)
         .split('\n')
-        .find((entry) => /^package\/dist\/backend-core-.*\.mjs$/.test(entry));
+        .filter((entry) => /^package\/dist\/[^/]+\.mjs$/.test(entry));
 
-      expect(backendCorePath).toBeDefined();
+      expect(cliChunkPaths.length).toBeGreaterThan(0);
 
       const extract = Bun.spawnSync({
-        cmd: ['tar', '-xOf', tarballPath, backendCorePath!],
+        cmd: ['tar', '-xOf', tarballPath, ...cliChunkPaths],
         cwd: packageDir,
         stdout: 'pipe',
         stderr: 'pipe',
@@ -300,12 +301,12 @@ describe('package intent metadata', () => {
 
       expect(extract.exitCode).toBe(0);
 
-      const backendCoreSource = new TextDecoder().decode(extract.stdout);
+      const cliSource = new TextDecoder().decode(extract.stdout);
 
-      expect(backendCoreSource).toContain('getProjectServerParserShimPath');
-      expect(backendCoreSource).toContain('evalModule');
-      expect(backendCoreSource).toContain('kitcn/server');
-      expect(backendCoreSource).toContain('tryNative: false');
+      expect(cliSource).toContain('getProjectServerParserShimPath');
+      expect(cliSource).toContain('evalModule');
+      expect(cliSource).toContain('kitcn/server');
+      expect(cliSource).toContain('tryNative: false');
     } finally {
       rmSync(packDir, { force: true, recursive: true });
     }
