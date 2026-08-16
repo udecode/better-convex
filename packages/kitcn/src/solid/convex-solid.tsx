@@ -77,18 +77,25 @@ export function ConvexProviderWithAuth(
   const [isConvexLoading, setIsConvexLoading] = createSignal(true);
   const [isConvexAuthenticated, setIsConvexAuthenticated] = createSignal(false);
 
-  // The provider's contract with `useAuth` is two booleans plus a stable
-  // fetcher. Memoize the booleans so a token write that does not flip either
-  // one stops here, and run the body through `on` so the synchronous
-  // `fetchAccessToken` call inside `setAuth` cannot add its own reads (the
-  // JWT and its expiry) as dependencies. Both leaks re-enter `setAuth`, and
-  // each re-entry pauses the socket and bumps the Convex identity version,
-  // which re-executes every live subscription server-side.
+  // The provider's contract with `useAuth` is two booleans plus a fetcher.
+  // Memoize each so a token write that changes none of them stops here, and run
+  // the body through `on` so the synchronous `fetchAccessToken` call inside
+  // `setAuth` cannot add its own reads (the JWT and its expiry) as
+  // dependencies. Both leaks re-enter `setAuth`, and each re-entry pauses the
+  // socket and bumps the Convex identity version, which re-executes every live
+  // subscription server-side.
+  //
+  // `fetchAccessToken` is a source, not just a value read in the body: a custom
+  // `useAuth` may hand back a new fetcher when its session state changes, and
+  // Convex would otherwise keep refreshing through the fetcher bound to the
+  // previous account. Memo equality is referential, so a fetcher that stays the
+  // same function across a token write still stops here.
   const isAuthLoading = createMemo(() => props.useAuth().isLoading);
   const isAuthenticated = createMemo(() => props.useAuth().isAuthenticated);
+  const fetchAccessToken = createMemo(() => props.useAuth().fetchAccessToken);
 
   createEffect(
-    on([isAuthLoading, isAuthenticated], () => {
+    on([isAuthLoading, isAuthenticated, fetchAccessToken], () => {
       if (isAuthLoading()) return;
 
       if (!isAuthenticated()) {
@@ -98,7 +105,7 @@ export function ConvexProviderWithAuth(
         return;
       }
 
-      client.setAuth(props.useAuth().fetchAccessToken, (isAuth: boolean) => {
+      client.setAuth(fetchAccessToken(), (isAuth: boolean) => {
         setIsConvexLoading(false);
         setIsConvexAuthenticated(isAuth);
       });
