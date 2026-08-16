@@ -63,10 +63,7 @@ Type runtime refs from the app's generated Convex API surface instead of the
 source module export:
 
 ```ts
-import type {
-  api as generatedApi,
-  internal as generatedInternal,
-} from "../_generated/api";
+import type { api as generatedApi } from "../_generated/api";
 
 createGeneratedFunctionReference<
   "query",
