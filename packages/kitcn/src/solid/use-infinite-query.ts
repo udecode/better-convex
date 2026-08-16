@@ -1,7 +1,7 @@
+import type { QueryObserverResult } from '@tanstack/query-core';
 import {
   type DefaultError,
   type SolidQueryOptions,
-  useQueries,
   useQueryClient,
 } from '@tanstack/solid-query';
 import type {
@@ -15,7 +15,14 @@ import {
   getFunctionName,
   type PaginationResult,
 } from 'convex/server';
-import { createEffect, createMemo, createSignal, on } from 'solid-js';
+import {
+  createEffect,
+  createMemo,
+  createRenderEffect,
+  createSignal,
+  on,
+} from 'solid-js';
+import { createStore } from 'solid-js/store';
 
 import { CRPCClientError, isCRPCClientError } from '../crpc/error';
 import { convexQuery } from '../crpc/query-options';
@@ -24,6 +31,7 @@ import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useMeta } from './auth';
 import { useAuthValue, useSafeConvexAuth } from './auth-store';
+import { createQueriesResults } from './create-queries-results';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
 
 /** Reserved options controlled by infinite query hooks */
@@ -140,6 +148,93 @@ type PageState = {
   endCursor?: string | null; // For page splitting - the cursor where this page ends
 };
 
+/** Aggregate of every page query, derived from the raw observer results */
+type CombinedPages<TItem> = {
+  data: TItem[];
+  dataUpdatedAt: number;
+  error: Error | null;
+  failureReason: Error | null;
+  isError: boolean;
+  isFetchNextPageError: boolean;
+  isFetching: boolean;
+  isLoading: boolean;
+  isPlaceholderData: boolean;
+  isRefetching: boolean;
+  lastPage: PaginationResult<TItem> | undefined;
+  pages: TItem[][];
+  status: PaginationStatus;
+};
+
+/** Read the identity of a Convex document, tolerating `id` and `_id` shapes */
+const getItemId = (item: unknown): string | undefined => {
+  const doc = item as { _id?: string; id?: string } | null | undefined;
+  return doc?._id || doc?.id;
+};
+
+/**
+ * Fold the per-page observer results into one pagination-shaped aggregate.
+ * Pure: same inputs always produce the same output, so it is safe to re-run
+ * inside a reactive derivation.
+ */
+const aggregatePages = <TItem>(
+  results: QueryObserverResult[],
+  hasPlaceholderData: boolean
+): CombinedPages<TItem> => {
+  // Aggregate pages with deduplication
+  const allItems: TItem[] = [];
+  const pages: TItem[][] = [];
+  const seenIds = new Set<string>();
+  let lastPage: PaginationResult<TItem> | undefined;
+  let status: PaginationStatus = 'LoadingFirstPage';
+
+  for (let i = 0; i < results.length; i++) {
+    const pageQuery = results[i];
+    if (pageQuery.isLoading || pageQuery.data === undefined) {
+      status = i === 0 ? 'LoadingFirstPage' : 'LoadingMore';
+      break;
+    }
+    const page = pageQuery.data as PaginationResult<TItem>;
+    lastPage = page;
+    pages.push(page.page);
+    for (const item of page.page) {
+      const id = getItemId(item);
+      if (id && seenIds.has(id)) continue;
+      if (id) seenIds.add(id);
+      allItems.push(item);
+    }
+    status = page.isDone ? 'Exhausted' : 'CanLoadMore';
+  }
+
+  // Computed values for overrides
+  const firstPage = results.length > 0 ? results[0] : undefined;
+  const isPlaceholderData = firstPage
+    ? firstPage.isPlaceholderData
+    : hasPlaceholderData;
+  const isFetching = results.some((r) => r.isFetching);
+  // Aggregate errors across all pages
+  const error = (results.find((r) => r.isError)?.error ?? null) as Error | null;
+
+  return {
+    data: allItems,
+    // Use latest dataUpdatedAt across all pages
+    dataUpdatedAt: Math.max(...results.map((r) => r.dataUpdatedAt)),
+    error,
+    failureReason: error,
+    isError: results.some((r) => r.isError),
+    isFetchNextPageError:
+      results.length > 1 && (results.at(-1)?.isError ?? false),
+    // Aggregate fetching across all pages
+    isFetching,
+    isLoading: status === 'LoadingFirstPage',
+    // Override with placeholder-aware values
+    isPlaceholderData,
+    isRefetching: isFetching && allItems.length > 0 && !isPlaceholderData,
+    lastPage,
+    pages,
+    status,
+  };
+};
+
 /** Build a unique key for recovery attempt detection */
 const buildRecoveryKey = (
   pageKeys: number[],
@@ -147,20 +242,23 @@ const buildRecoveryKey = (
   page0UpdatedAt: number
 ): string => JSON.stringify({ pageKeys, page0Cursor, page0UpdatedAt });
 
+/** Minimal shape the effects need from a raw page result */
+type PageResult = {
+  data?: unknown;
+  dataUpdatedAt?: number;
+  isError?: boolean;
+  isFetching?: boolean;
+};
+
 type UseStaleCursorRecoveryOptions = {
   argsObject: () => Record<string, unknown>;
   combined: {
-    _rawResults: Array<{
-      data?: unknown;
-      dataUpdatedAt?: number;
-      isError?: boolean;
-      isFetching?: boolean;
-      refetch: () => void;
-    }>;
     isFetchNextPageError: boolean;
     status: string;
   };
   limit?: number;
+  /** Raw per-page observer results, fresh identity on every update */
+  pageResults: () => PageResult[];
   setState: (
     updater: PaginationState | ((prev: PaginationState) => PaginationState)
   ) => void;
@@ -180,6 +278,7 @@ const useStaleCursorRecovery = ({
   argsObject,
   combined,
   limit,
+  pageResults,
   setState,
   state,
 }: UseStaleCursorRecoveryOptions): void => {
@@ -189,7 +288,7 @@ const useStaleCursorRecovery = ({
     on(
       [
         () => combined.isFetchNextPageError,
-        () => combined._rawResults,
+        pageResults,
         () => state().pageKeys,
         () => state().queries,
         () => state().autoRecoveryAttempted,
@@ -198,14 +297,15 @@ const useStaleCursorRecovery = ({
       () => {
         if (!combined.isFetchNextPageError) return;
 
-        const page0Result = combined._rawResults[0];
+        const results = pageResults();
+        const page0Result = results[0];
         const page0Data = page0Result?.data as
           | PaginationResult<unknown>
           | undefined;
         const page0UpdatedAt = page0Result?.dataUpdatedAt ?? 0;
 
         const hasPage0Data = page0Data !== undefined && !page0Result?.isError;
-        const hasSubsequentErrors = combined._rawResults
+        const hasSubsequentErrors = results
           .slice(1)
           .some((q) => q?.isError && !q?.isFetching);
 
@@ -222,7 +322,7 @@ const useStaleCursorRecovery = ({
         if (currentState.autoRecoveryAttempted === recoveryKey) return;
 
         const erroredPageKeys = currentState.pageKeys.filter(
-          (_, i) => i > 0 && combined._rawResults[i]?.isError
+          (_, i) => i > 0 && results[i]?.isError
         );
         const itemsToRecover = erroredPageKeys.reduce((sum, key) => {
           const pageLimit =
@@ -484,93 +584,24 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     })
   );
 
-  // Use combine to aggregate all page states in one place
-  // In solid-query, useQueries takes an Accessor (function)
-  // Cast needed because solid-query doesn't infer combine return type from accessor
-  const combined = (useQueries as any)(() => ({
-    queries: tanstackQueries() as any,
-    combine: (results: any[]) => {
-      // Aggregate pages with deduplication
-      const allItems: PaginatedQueryItem<Query>[] = [];
-      const pages: PaginatedQueryItem<Query>[][] = [];
-      const seenIds = new Set<string>();
-      let lastPage: PaginationResult<PaginatedQueryItem<Query>> | undefined;
-      let paginationStatus: PaginationStatus = 'LoadingFirstPage';
+  // Subscribe every page and keep the raw observer results.
+  const pageResults = createQueriesResults(() => tanstackQueries() as any);
 
-      for (let i = 0; i < results.length; i++) {
-        const pageQuery = results[i];
-        if (pageQuery.isLoading || pageQuery.data === undefined) {
-          paginationStatus = i === 0 ? 'LoadingFirstPage' : 'LoadingMore';
-          break;
-        }
-        const page = pageQuery.data as PaginationResult<
-          PaginatedQueryItem<Query>
-        >;
-        lastPage = page;
-        pages.push(page.page);
-        for (const item of page.page) {
-          const id =
-            (item as { _id?: string })._id || (item as { id?: string }).id;
-          if (id && seenIds.has(id)) continue;
-          if (id) seenIds.add(id);
-          allItems.push(item);
-        }
-        paginationStatus = page.isDone ? 'Exhausted' : 'CanLoadMore';
-      }
-
-      // Computed values for overrides
-      const isPlaceholderData =
-        results[0]?.isPlaceholderData ?? !!placeholderData;
-      const isFetching = results.some((r: any) => r.isFetching);
-      // Use latest dataUpdatedAt across all pages
-      const dataUpdatedAt = Math.max(
-        ...results.map((r: any) => r.dataUpdatedAt ?? 0)
-      );
-
-      return {
-        data: allItems,
-        dataUpdatedAt,
-        lastPage,
-        pages,
-        status: paginationStatus,
-        // Aggregate errors across all pages
-        error: results.find((r: any) => r.isError)?.error ?? null,
-        isError: results.some((r: any) => r.isError),
-        // Aggregate fetching across all pages
-        isFetching,
-        isFetchNextPageError:
-          results.length > 1 && (results.at(-1)?.isError ?? false),
-        // Override with placeholder-aware values
-        isPlaceholderData,
-        isRefetching: isFetching && allItems.length > 0 && !isPlaceholderData,
-        isLoading: paginationStatus === 'LoadingFirstPage',
-        failureReason: results.find((r: any) => r.isError)?.error ?? null,
-        // Keep raw results for effects (InvalidCursor detection, page splitting)
-        _rawResults: results,
-      };
-    },
-  })) as {
-    data: PaginatedQueryItem<Query>[];
-    dataUpdatedAt: number;
-    lastPage: PaginationResult<PaginatedQueryItem<Query>> | undefined;
-    pages: PaginatedQueryItem<Query>[][];
-    status: PaginationStatus;
-    error: Error | null;
-    isError: boolean;
-    isFetching: boolean;
-    isFetchNextPageError: boolean;
-    isPlaceholderData: boolean;
-    isRefetching: boolean;
-    isLoading: boolean;
-    failureReason: Error | null;
-    _rawResults: any[];
-  };
+  // Aggregate the pages into a store so each property notifies independently:
+  // a consumer reading only `status` is untouched when only `data` changes.
+  const derive = (): CombinedPages<PaginatedQueryItem<Query>> =>
+    aggregatePages<PaginatedQueryItem<Query>>(pageResults(), !!placeholderData);
+  const [combined, setCombined] = createStore<
+    CombinedPages<PaginatedQueryItem<Query>>
+  >(derive());
+  createRenderEffect(() => setCombined(derive()));
 
   // Auto-recovery from stale cursors after WebSocket reconnection
   useStaleCursorRecovery({
     argsObject,
     combined,
     limit,
+    pageResults,
     setState,
     state,
   });
@@ -578,15 +609,11 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   // Split when Convex requests it or a reactive page outgrows its target size.
   createEffect(
     on(
-      [
-        () => combined._rawResults,
-        () => state().pageKeys,
-        () => state().queries,
-        argsObject,
-      ],
+      [pageResults, () => state().pageKeys, () => state().queries, argsObject],
       () => {
-        for (let i = 0; i < combined._rawResults.length; i++) {
-          const pageQuery = combined._rawResults[i];
+        const results = pageResults();
+        for (let i = 0; i < results.length; i++) {
+          const pageQuery = results[i];
           if (pageQuery.data) {
             const page = pageQuery.data as PaginationResult<
               PaginatedQueryItem<Query>
