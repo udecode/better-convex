@@ -1,5 +1,6 @@
 import type * as tsType from 'typescript';
 import { createTypeScriptProxy } from '../utils/typescript-runtime.js';
+import { parseSchemaSource } from './schema-parse.js';
 
 const ts = createTypeScriptProxy();
 
@@ -20,15 +21,6 @@ export type SchemaChain = {
   /** Index just past the `)` that closes `defineSchema(...)`. */
   defineSchemaEnd: number;
 };
-
-const parse = (source: string) =>
-  ts.createSourceFile(
-    'schema.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
 
 const isDefineSchemaCall = (
   node: tsType.Node
@@ -72,7 +64,7 @@ const findDefineSchemaCall = (
  * of comments and string literals that merely mention `defineSchema(`.
  */
 export const findDefineSchemaChain = (source: string): SchemaChain | null => {
-  const sourceFile = parse(source);
+  const sourceFile = parseSchemaSource(source);
   const defineSchemaCall = findDefineSchemaCall(sourceFile);
   if (!defineSchemaCall) {
     return null;
@@ -114,7 +106,7 @@ export const findDefineSchemaChain = (source: string): SchemaChain | null => {
  * string literals.
  */
 export const hasCallExpression = (source: string, name: string): boolean => {
-  const sourceFile = parse(source);
+  const sourceFile = parseSchemaSource(source);
   let found = false;
 
   const visit = (node: tsType.Node) => {

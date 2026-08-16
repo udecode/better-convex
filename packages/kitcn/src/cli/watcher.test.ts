@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -12,12 +12,51 @@ import {
 const CLI_TS_RE = /\/cli\.ts$/;
 
 describe('cli/watcher', () => {
-  test('getWatchRoots includes the functions dir and sibling routers dir', () => {
-    const functionsDir = '/repo/convex';
+  test('getWatchRoots includes the shared roots codegen reads from', () => {
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'convex', 'functions');
     expect(getWatchRoots(functionsDir)).toEqual([
       functionsDir,
-      path.join('/repo', 'routers'),
+      path.join(projectDir, 'convex', 'routers'),
+      path.join(projectDir, 'convex', 'lib'),
+      path.join(projectDir, 'convex', 'shared'),
     ]);
+  });
+
+  test('getWatchRoots stays inside the functions dir when it is the convex root', () => {
+    const functionsDir = path.join(process.cwd(), 'convex');
+    expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
+  });
+
+  test('getWatchRoots keeps the shared roots for a convex root that is not named convex', () => {
+    // convex.json `functions` accepts any path, so the Convex root comes from
+    // the functions dir itself, never from its parent's name.
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'backend', 'functions');
+    expect(getWatchRoots(functionsDir)).toEqual([
+      functionsDir,
+      path.join(projectDir, 'backend', 'routers'),
+      path.join(projectDir, 'backend', 'lib'),
+      path.join(projectDir, 'backend', 'shared'),
+    ]);
+  });
+
+  test('getWatchRoots keeps sibling roots when the functions dir has a custom name', () => {
+    const projectDir = process.cwd();
+    const functionsDir = path.join(projectDir, 'backend', 'api');
+    expect(getWatchRoots(functionsDir)).toEqual([
+      functionsDir,
+      path.join(projectDir, 'backend', 'routers'),
+      path.join(projectDir, 'backend', 'lib'),
+      path.join(projectDir, 'backend', 'shared'),
+    ]);
+  });
+
+  test('getWatchRoots never watches project-root siblings', () => {
+    // `functions: "backend"` has no Convex root above it, so /repo/routers and
+    // friends are unrelated project directories.
+    const functionsDir = path.join(process.cwd(), 'backend');
+    expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
   });
 
   test('shouldIgnoreWatchPath excludes kitcn outputs', () => {
@@ -71,6 +110,17 @@ describe('cli/watcher', () => {
     ).toBe(false);
   });
 
+  test('watcher entry stays off the backend-core command graph', async () => {
+    // `kitcn dev` keeps this child alive for the whole session. Importing
+    // backend-core pulls execa, the analyzer and the prompt stack in with it.
+    const source = await readFile(
+      new URL('./watcher.ts', import.meta.url),
+      'utf8'
+    );
+
+    expect(source).not.toContain("from './backend-core");
+  });
+
   test('runWatcherCodegen uses full codegen flow for concave backend', async () => {
     const generateMetaStub = mock(async () => {});
     const execaStub = mock(async () => ({
@@ -98,13 +148,9 @@ describe('cli/watcher', () => {
         trimSegments: ['plugins', 'generated'],
       },
       {
-        resolveRunDeps: () =>
-          ({
-            execa: execaStub as never,
-            generateMeta: generateMetaStub as never,
-            loadCliConfig: loadCliConfigStub as never,
-            syncEnv: mock(async () => {}) as never,
-          }) as never,
+        execa: execaStub as never,
+        generateMeta: generateMetaStub as never,
+        loadCliConfig: loadCliConfigStub as never,
         resolveConfiguredBackendFn: (() => 'concave') as never,
       }
     );
@@ -160,13 +206,9 @@ describe('cli/watcher', () => {
         trimSegments: ['plugins', 'generated'],
       },
       {
-        resolveRunDeps: () =>
-          ({
-            execa: execaStub as never,
-            generateMeta: generateMetaStub as never,
-            loadCliConfig: loadCliConfigStub as never,
-            syncEnv: mock(async () => {}) as never,
-          }) as never,
+        execa: execaStub as never,
+        generateMeta: generateMetaStub as never,
+        loadCliConfig: loadCliConfigStub as never,
         resolveConfiguredBackendFn: (() => 'convex') as never,
       }
     );
@@ -225,13 +267,9 @@ describe('cli/watcher', () => {
           scope: 'all',
         },
         {
-          resolveRunDeps: () =>
-            ({
-              execa: execaStub as never,
-              generateMeta: generateMetaStub as never,
-              loadCliConfig: loadCliConfigStub as never,
-              syncEnv: mock(async () => {}) as never,
-            }) as never,
+          execa: execaStub as never,
+          generateMeta: generateMetaStub as never,
+          loadCliConfig: loadCliConfigStub as never,
           resolveConfiguredBackendFn: (() => 'convex') as never,
         }
       );
