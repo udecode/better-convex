@@ -19,9 +19,17 @@ import {
   selectReturningRowWithHydration,
   splitReturningSelection,
 } from './mutation-utils';
-import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { canInsertRow, evaluateUpdateDecision } from './rls/evaluator';
+import {
+  createReturningCountLoader,
+  type ReturningCountLoader,
+} from './returning-count';
+import {
+  canInsertRow,
+  createRlsPolicyResolutionCache,
+  evaluateUpdateDecision,
+  type RlsPolicyResolutionCache,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   InsertValue,
@@ -75,51 +83,23 @@ export class ConvexInsertBuilder<
   private conflictConfig?: InsertConflictConfig<TTable>;
   private allowFullScanFlag = false;
 
+  private _returningCountLoader?: ReturningCountLoader;
+
+  /**
+   * One loader per statement: the table config, edge filter and aggregate-index
+   * readiness memo are invariant across the affected rows.
+   */
   private async _loadReturningCount(
     row: Record<string, unknown>,
     countSelection: Record<string, unknown>,
     ormContext: ReturnType<typeof getOrmContext>
   ): Promise<Record<string, number>> {
-    const schema = ormContext?.schema;
-    const edgeMetadata = ormContext?.edgeMetadata;
-    if (!schema || !edgeMetadata) {
-      throw new Error(
-        'returning({ _count }) requires orm.db(ctx) configured from createOrm({ schema, ... }).'
-      );
-    }
-
-    const tableName = getTableName(this.table);
-    const tableConfig = Object.values(schema).find(
-      (config) => config.name === tableName
+    this._returningCountLoader ??= createReturningCountLoader(
+      this.db,
+      this.table,
+      ormContext
     );
-    if (!tableConfig) {
-      throw new Error(`Table config for '${tableName}' is not registered.`);
-    }
-    const tableEdges = edgeMetadata.filter(
-      (edge) => edge.sourceTable === tableName
-    );
-
-    const counted = await new GelRelationalQuery(
-      schema as any,
-      tableConfig as any,
-      tableEdges as any,
-      this.db as any,
-      {
-        where: {
-          id: row._id,
-        },
-        columns: {},
-        with: {
-          _count: countSelection,
-        },
-      } as any,
-      'first',
-      edgeMetadata as any,
-      ormContext?.rls,
-      ormContext?.relationLoading
-    ).execute();
-
-    return ((counted as any)?._count ?? {}) as Record<string, number>;
+    return await this._returningCountLoader.load(row, countSelection);
   }
 
   constructor(
@@ -201,9 +181,13 @@ export class ConvexInsertBuilder<
       enforcePolymorphicWrite(this.table, preparedValue as any);
       const rls = ormContext?.rls;
       const tableName = getTableName(this.table);
+      // Each iteration can write before the next policy check. Keep one cache
+      // across this row's insert/conflict decision, never across rows.
+      const rlsResolution = createRlsPolicyResolutionCache();
 
       if (
         !(await canInsertRow({
+          cache: rlsResolution,
           table: this.table,
           row: preparedValue as any,
           rls,
@@ -214,7 +198,10 @@ export class ConvexInsertBuilder<
         );
       }
 
-      const conflictResult = await this.handleConflict(preparedValue);
+      const conflictResult = await this.handleConflict(
+        preparedValue,
+        rlsResolution
+      );
 
       if (conflictResult?.status === 'skip') {
         continue;
@@ -290,7 +277,10 @@ export class ConvexInsertBuilder<
     return selected;
   }
 
-  private async handleConflict(value: InsertValue<TTable>): Promise<
+  private async handleConflict(
+    value: InsertValue<TTable>,
+    rlsResolution: RlsPolicyResolutionCache
+  ): Promise<
     | {
         status: 'skip';
       }
@@ -395,6 +385,7 @@ export class ConvexInsertBuilder<
     const writeSet = normalizeDateFieldsForWrite(this.table, effectiveSet);
 
     const updateDecision = await evaluateUpdateDecision({
+      cache: rlsResolution,
       table: this.table,
       existingRow: existing as any,
       updatedRow: { ...(existing as any), ...(writeSet as any) },

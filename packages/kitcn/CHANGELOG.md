@@ -1,5 +1,84 @@
 # kitcn
 
+## 0.17.3
+
+### Patch Changes
+
+- [#330](https://github.com/udecode/kitcn/pull/330) [`b78d94a`](https://github.com/udecode/kitcn/commit/b78d94a53d2f044816944317acea0ee9973739d8) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Start the CLI faster. esbuild, Babel, jiti, dotenv and the interactive prompt
+    stack are loaded the first time a command needs them instead of on every
+    invocation, so `kitcn --version`, `kitcn --help` and `--json` calls no longer
+    pay for tooling they never use.
+  - Run `kitcn codegen` with less repeated work: one module loader per run instead
+    of two, and the parse shim resolved once instead of once per Convex module.
+  - Speed up `kitcn add`, `kitcn view` and `kitcn info` on large schemas by
+    parsing each schema revision once instead of once per managed table.
+  - Speed up `kitcn init` and `kitcn add` file comparison, which no longer copies
+    and serializes both syntax trees before comparing them.
+  - Fix `kitcn dev` ignoring edits to shared routers, builders and contracts that
+    sit next to the functions directory. Changing one regenerates the api like
+    changing a function file does, for any functions path configured in
+    `convex.json`.
+  - Generate api and procedure metadata in a stable order regardless of the
+    filesystem's directory listing order.
+  - Shrink the `kitcn dev` file watcher, which no longer loads the rest of the CLI
+    into the background process it keeps alive for the session.
+
+## 0.17.2
+
+### Patch Changes
+
+- [#329](https://github.com/udecode/kitcn/pull/329) [`c853115`](https://github.com/udecode/kitcn/commit/c853115311cc6b2645c47736db529731af3fc2c6) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `useInfiniteQuery` from `kitcn/solid` crashing with `state.map is not a function` on every mount.
+  - Update Solid infinite query results field by field, so a component reading `status` is not re-run when only `data` changes.
+
+## 0.17.1
+
+### Patch Changes
+
+- [#324](https://github.com/udecode/kitcn/pull/324) [`0536f17`](https://github.com/udecode/kitcn/commit/0536f17bbd22f11d325c26c5e64bed160825a908) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `kitcn codegen` emitting both the `api` and `internal` type imports into
+    generated runtime files that only reference one of them. A module whose
+    procedures are all internal, or all public, no longer carries an unused import
+    that editors grey out and that `tsc` rejects with `TS6196` when
+    `noUnusedLocals` is enabled. Each generated runtime now imports only the api
+    roots its procedures reference.
+
+- [#326](https://github.com/udecode/kitcn/pull/326) [`6196625`](https://github.com/udecode/kitcn/commit/6196625d8ce3e9bd08f25373a7e536a43718b167) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `CRPCError` reaching the client as a bare `Error` with the message
+    redacted to `Server Error` and `error.data` undefined. Errors converted by
+    cRPC — a procedure calling another procedure through a caller, an ORM
+    not-found, a Better Auth `APIError`, or any error wrapped by
+    `getCRPCErrorFromUnknown` — now arrive as a `ConvexError` carrying the
+    original `code`, `message`, and custom `data`.
+
+    ```ts
+    // convex/functions/payment.ts — internal procedure
+    throw new CRPCError({
+      code: "BAD_REQUEST",
+      message: "Declined: INSUFFICIENT_FUNDS",
+      data: { processorCode },
+    });
+
+    // Before — the public procedure delegating to it lost the reason
+    onError: (error) => {
+      error.data; // undefined
+    };
+
+    // After
+    onError: (error) => {
+      error.data; // { code: 'BAD_REQUEST', message: 'Declined: …', processorCode }
+    };
+    ```
+
+  - Fix converted errors losing every source-mapped frame in Convex dashboard
+    logs. Traces carry frames again; the original throw site stays on
+    `error.cause`.
+
 ## 0.17.0
 
 ### Minor Changes

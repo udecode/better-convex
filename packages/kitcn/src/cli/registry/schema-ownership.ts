@@ -8,6 +8,7 @@ import type {
 } from '../types.js';
 import { createTypeScriptProxy } from '../utils/typescript-runtime.js';
 import { findDefineSchemaChain } from './schema-chain.js';
+import { parseSchemaSource } from './schema-parse.js';
 
 export type RootSchemaTableUnit = {
   declaration: string;
@@ -76,15 +77,6 @@ const normalizePathForMessage = (path: string) => {
 
 const stripLegacyManagedComments = (source: string) =>
   source.replace(LEGACY_MANAGED_COMMENT_RE, '').replace(/\n{3,}/g, '\n\n');
-
-const parseSource = (source: string) =>
-  ts.createSourceFile(
-    'schema.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
 
 const indentBlock = (value: string, indent: string) =>
   value
@@ -162,7 +154,7 @@ const renderArrayLiteral = (baseIndent: string, entries: readonly string[]) => {
 };
 
 const findTablesObject = (source: string): TablesObjectInfo | null => {
-  const sourceFile = parseSource(source);
+  const sourceFile = parseSchemaSource(source);
 
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) {
@@ -216,7 +208,7 @@ const findTablesObject = (source: string): TablesObjectInfo | null => {
 };
 
 const findRelationsCall = (source: string): RelationsChainInfo | null => {
-  const sourceFile = parseSource(source);
+  const sourceFile = parseSchemaSource(source);
   let result: RelationsChainInfo | null = null;
 
   const visit = (node: tsType.Node) => {
@@ -247,7 +239,7 @@ const findRelationsCall = (source: string): RelationsChainInfo | null => {
 };
 
 const hasStandaloneDefineRelations = (source: string) => {
-  const sourceFile = parseSource(source);
+  const sourceFile = parseSchemaSource(source);
   let found = false;
 
   const visit = (node: tsType.Node) => {
@@ -285,7 +277,7 @@ const readTableDeclarationInfo = (
   source: string,
   tableKey: string
 ): TableDeclarationInfo | null => {
-  const sourceFile = parseSource(source);
+  const sourceFile = parseSchemaSource(source);
 
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) {
@@ -364,7 +356,7 @@ const parseUnitTableDeclaration = (unit: RootSchemaTableUnit) => {
 
 const readPropertyObject = (source: string, expectedKey?: string) => {
   const wrapped = `const object = {${source.trim()}};`;
-  const sourceFile = parseSource(wrapped);
+  const sourceFile = parseSchemaSource(wrapped);
   const statement = sourceFile.statements[0];
   if (!statement || !ts.isVariableStatement(statement)) {
     return null;
@@ -1073,7 +1065,7 @@ const updateRelationsObject = (
 
 const printCanonicalObjectEntry = (content: string) => {
   const source = `const object = {\n${content.trim()}\n};`;
-  const sourceFile = parseSource(source);
+  const sourceFile = parseSchemaSource(source);
   const statement = sourceFile.statements[0];
   if (!statement || !ts.isVariableStatement(statement)) {
     return content.trim();
@@ -1193,7 +1185,7 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
   }
 
   const requiredNames = new Set(importNames);
-  const initialSourceFile = parseSource(source);
+  const initialSourceFile = parseSchemaSource(source);
   const typeOnlyReplacements = initialSourceFile.statements.flatMap(
     (statement) => {
       if (
@@ -1254,7 +1246,7 @@ const mergeOrmImports = (source: string, importNames: readonly string[]) => {
     );
   }
 
-  const sourceFile = parseSource(workingSource);
+  const sourceFile = parseSchemaSource(workingSource);
   // Only a named *value* import can host the generated declarations' bindings.
   // Rewriting `import type {...}` would drop the `type` modifier and duplicate
   // identifiers; rewriting `import * as orm` would drop the namespace.
