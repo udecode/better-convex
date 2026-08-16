@@ -116,6 +116,8 @@ const page = await db.query.users
 
 When the scan budget is hit, you'll get a partial page plus `pageStatus` and `splitCursor` hints.
 
+`where: { id: { in: [...] } }` pages in the order the ids are given, at one document read per row returned. `maxScan` caps that too. Adding `orderBy` switches the read to a scan, so the order has to be one a scan produces: a single field that an index leads with, with no `withIndex(...)` pinned. `orderBy: { createdAt }` reads every id in the list to sort it, so it cannot be capped at all.
+
 `allowFullScan` does not apply in cursor mode.
 If cursor pagination needs a scan-fallback plan and:
 - `strict: true`: missing `maxScan` throws.
@@ -215,6 +217,7 @@ These combinations are rejected:
 
 - `endCursor` without cursor mode (`cursor + limit`).
 - `maxScan` without cursor mode.
+- `maxScan` with `where: { id: { in: [...] } }` and an `orderBy` no scan produces: `createdAt`, more than one field, a field without a leading index, or a pinned `withIndex(...)`.
 - `pageByKey` with `cursor`, `offset`, `search`, `vectorSearch`, or `select()` composition.
 
 ## Stream-to-ORM Mapping

@@ -40,7 +40,8 @@ await ctx.orm.query.posts
   to return at all.
 - Fix `.distinct({ fields })` over `.union(...).interleaveBy(...)` slowing down
   sharply as the number of returned rows grows.
-- Support `maxScan` on paginated `where: { id: { in: [...] } }` reads.
+- Support `maxScan` on paginated `where: { id: { in: [...] } }` reads, including
+  reads ordered by a single indexed field.
 - Improve paginated reads to register fewer Convex queries per page, and to
   release the ones they opened when a page stops early.
 - Improve the per-row cost of every stream-backed read.

@@ -714,7 +714,7 @@ const filtered = results.filter((a) => a.publishedAt >= startDate);
 ### Performance
 
 1. **Index first** — constrain leading index fields. Compound indexes follow prefix rules.
-2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only).
+2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only). With `where: { id: { in: [...] } }`, `maxScan` needs either no `orderBy` or a single `orderBy` field that an index leads with.
 3. **Limit results** — always use `limit` or cursor pagination.
 4. **Cursor stability** — keep same `where`/`orderBy` between page requests.
 5. **`allowFullScan`** — non-cursor only. Cursor mode uses `maxScan` instead.
