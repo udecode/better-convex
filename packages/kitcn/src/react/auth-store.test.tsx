@@ -7,13 +7,13 @@ import {
 } from '@testing-library/react';
 import * as convexReact from 'convex/react';
 import { type ReactNode, useState } from 'react';
+import { decodeJwtIdentity } from '../internal/jwt';
 import {
   Authenticated,
   AuthProvider,
   ConvexAuthBridge,
   ConvexProviderWithAuth,
   decodeJwtExp,
-  decodeJwtIdentity,
   MaybeAuthenticated,
   MaybeUnauthenticated,
   Unauthenticated,

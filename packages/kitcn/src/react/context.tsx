@@ -18,11 +18,11 @@ import {
 import type { HttpClientError } from '../crpc/http-types';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import type { FnMeta, Meta } from '../crpc/types';
+import { decodeJwtIdentity } from '../internal/jwt';
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import { buildMetaIndex } from '../shared/meta-utils';
 import {
   decodeJwtExp,
-  decodeJwtIdentity,
   useAuthStore,
   useAuthValue,
   useFetchAccessToken,

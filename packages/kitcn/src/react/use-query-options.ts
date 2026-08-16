@@ -43,6 +43,7 @@ import { resolveEnabled } from '../internal/enabled';
 import { createHashFn } from '../internal/hash';
 import { isRecord, isShallowEqual } from '../internal/shallow';
 import type { DistributiveOmit } from '../internal/types';
+import { useStableIdentity } from '../internal/use-stable-identity';
 import { useAuthGuard } from './auth-store';
 import { useFnMeta, useMeta } from './context';
 import type {
@@ -51,7 +52,6 @@ import type {
   ConvexQueryOptions,
   InfiniteQueryOptsParam,
 } from './crpc-types';
-import { useStableIdentity } from './use-stable-identity';
 
 // Reserved options that we control - users cannot override these
 type ReservedQueryOptions = 'queryKey' | 'queryFn' | 'staleTime';

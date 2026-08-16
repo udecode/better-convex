@@ -286,10 +286,6 @@ export class ConvexQueryClient {
     return meta?.authType === 'required' || meta?.authType === 'optional';
   }
 
-  private isQueryDisabled(query: TanstackQuery) {
-    return query.isDisabled();
-  }
-
   private subscribeQuery(query: TanstackQuery) {
     if (this.subscriptions[query.queryHash]) {
       return;
@@ -302,7 +298,7 @@ export class ConvexQueryClient {
     if (query.getObserversCount() === 0) {
       return;
     }
-    if (this.isQueryDisabled(query)) {
+    if (query.isDisabled()) {
       return;
     }
     if (this.shouldSkipSubscription(meta?.authType)) {
@@ -660,7 +656,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false ↔ true)
         case 'observerOptionsUpdated': {
-          const isDisabled = this.isQueryDisabled(event.query);
+          const isDisabled = event.query.isDisabled();
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true → false: unsubscribe

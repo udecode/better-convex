@@ -26,10 +26,10 @@ import { type ExtractPaginatedItem, FUNC_REF_SYMBOL } from '../crpc/types';
 import { resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
+import { useStableIdentity } from '../internal/use-stable-identity';
 import { useAuthValue, useSafeConvexAuth } from './auth-store';
 import { useMeta } from './context';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
-import { useStableIdentity } from './use-stable-identity';
 
 /** Reserved options controlled by infinite query hooks */
 type ReservedInfiniteOptions =

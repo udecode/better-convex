@@ -2,13 +2,6 @@
 "kitcn": patch
 ---
 
-## Features
-
-- Add `decodeJwtIdentity` to compare Convex JWTs by their identity claims rather
-  than by token string. It returns a stable signature of every claim except the
-  volatile ones (`exp`, `iat`, `jti`, `nbf`), and `null` for anything that is not
-  a JWT.
-
 ## Patches
 
 - Fix auth-bound queries being reset every time Convex refreshes the access

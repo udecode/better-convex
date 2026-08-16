@@ -24,6 +24,9 @@ import {
 
 import { CRPCClientError, defaultIsUnauthorized } from '../crpc/error';
 
+// biome-ignore lint/performance/noBarrelFile: preserve the established React export while JWT policy stays internal
+export { decodeJwtExp } from '../internal/jwt';
+
 // ============================================================================
 // FetchAccessToken Context - Eliminates race condition by passing through context
 // ============================================================================
@@ -229,93 +232,6 @@ export const isSessionSyncGraceActive = (
 ) =>
   typeof sessionSyncGraceUntil === 'number' &&
   sessionSyncGraceUntil > Date.now();
-
-/** Decode a JWT payload, or null when the token is not a JWT. */
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const segment = token.split('.')[1];
-    if (!segment) {
-      return null;
-    }
-
-    // JWT segments are base64url; atob only accepts the standard alphabet.
-    const binary = atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
-    const payload = JSON.parse(
-      new TextDecoder().decode(
-        Uint8Array.from(binary, (char) => char.charCodeAt(0))
-      )
-    );
-
-    return typeof payload === 'object' && payload !== null ? payload : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Decode JWT expiration (ms timestamp) from token */
-export function decodeJwtExp(token: string): number | null {
-  const payload = decodeJwtPayload(token);
-  if (!payload) {
-    return null;
-  }
-
-  return payload.exp ? Number(payload.exp) * 1000 : null;
-}
-
-/**
- * Claims that change on every mint without changing who the caller is.
- * Convex rotates the access token roughly every 15 minutes, and kitcn stamps a
- * fresh `iat` into every payload, so the raw token string is useless as an
- * identity signal.
- */
-const VOLATILE_JWT_CLAIMS = new Set(['exp', 'iat', 'jti', 'nbf']);
-
-/** Deterministic JSON: object keys sorted so claim order can never matter. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, claim]) => claim !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : 1));
-
-  return `{${entries
-    .map(([key, claim]) => `${JSON.stringify(key)}:${stableStringify(claim)}`)
-    .join(',')}}`;
-}
-
-/**
- * Stable signature of every non-volatile claim in a Convex JWT.
- *
- * Compare this instead of the raw token to tell a real identity change (login,
- * logout, organization switch, role change, session rotation) apart from a
- * routine token refresh. Every claim except the volatile ones is included:
- * `definePayload` is user-controlled and its contents are readable server-side
- * through `ctx.auth.getUserIdentity()`, so narrowing to `sub` would let
- * previous-context data survive a switch.
- *
- * Returns null for anything that is not a JWT, including the opaque Better Auth
- * session token the SSR path parks in the same slot.
- */
-export function decodeJwtIdentity(token: string): string | null {
-  const payload = decodeJwtPayload(token);
-  if (!payload) {
-    return null;
-  }
-
-  const claims: Record<string, unknown> = {};
-  for (const [key, claim] of Object.entries(payload)) {
-    if (!VOLATILE_JWT_CLAIMS.has(key)) {
-      claims[key] = claim;
-    }
-  }
-
-  return stableStringify(claims);
-}
 
 export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
   createAtomStore(
