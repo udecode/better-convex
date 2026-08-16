@@ -19,26 +19,33 @@ const at = c.query
 // After:  { at: { __crpc: 1, t: '$date', v: 1704067200000 } }
 ```
 
-- `zCustomQuery`, `zCustomMutation` and `zCustomAction` treat `returns` as the
-  declaration of the Convex returns validator and of the return type. The
-  Convex backend enforces it; the Zod schema is no longer re-run in JS. Use
-  `.output()` on a cRPC procedure, or parse in your handler, when you want a
-  Zod parse.
+## Features
+
+- `zCustomQuery`, `zCustomMutation` and `zCustomAction` accept
+  `skipZodReturnsValidation`, so `returns` can declare the Convex validator and
+  the return type without also parsing the response in JS. The handler is then
+  typed as the schema's output, since that value reaches Convex unchanged.
 
 ```ts
-// Before — the schema was parsed again in JS on every response
 zCustomQuery(query, customCtx(withUser))({
   args: { id: z.string() },
   returns: z.object({ name: z.string() }),
+  skipZodReturnsValidation: true,
   handler,
 });
+```
 
-// After — parse it yourself if you need Zod semantics on the response
-zCustomQuery(query, customCtx(withUser))({
-  args: { id: z.string() },
-  returns: z.object({ name: z.string() }),
-  handler: async (ctx, args) => Result.parse(await handler(ctx, args)),
-});
+- Wire codecs accept `objectsOnly`, declaring that `isType` never claims a
+  primitive. `serialize` then skips codec dispatch on primitive values.
+
+```ts
+const mapCodec: WireCodec = {
+  tag: '$map',
+  objectsOnly: true,
+  isType: (value) => value instanceof Map,
+  encode: (value) => [...value],
+  decode: (value) => new Map(value),
+};
 ```
 
 ## Patches
@@ -50,9 +57,9 @@ zCustomQuery(query, customCtx(withUser))({
 - Resolve the multi-`.input()` merge plan when the procedure is defined.
   Declaring a key that `.paginated()` also declares no longer clones a schema
   on every request.
-- Skip codec dispatch on primitive values while encoding payloads, and stop
-  walking a payload twice per direction when a transformer is passed to a
-  server-side caller.
+- Skip codec dispatch on primitive values while encoding the built-in `Date`
+  payloads, and stop walking a payload twice per direction when a transformer
+  is passed to a server-side caller.
 - Resolve HTTP `searchParams` coercion per route instead of per request, and
   read the query string in a single pass.
 - Convert an `.input()` shape to its Convex validator once per procedure
