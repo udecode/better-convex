@@ -37,24 +37,48 @@ type WatcherCodegenDeps = {
   resolveConfiguredBackendFn?: typeof resolveConfiguredBackend;
 };
 
+/**
+ * Convex root that owns a functions dir, using the same rule the init tsconfig
+ * scaffold applies: a dir named `functions` is nested inside the Convex root,
+ * anything else is the Convex root itself.
+ */
+function getConvexRoot(functionsDir: string): string {
+  return path.basename(functionsDir) === 'functions'
+    ? path.dirname(functionsDir)
+    : functionsDir;
+}
+
 export function getWatchRoots(functionsDir: string): string[] {
   // Watch the real roots. chokidar v5 dropped glob support.
-  const convexDir = path.dirname(functionsDir);
-  // Convex modules import their builders from `lib/` and their contracts from
-  // `shared/`, so an edit there changes emitted meta just as much as an edit
-  // to a function file. Only reachable when the functions dir is nested inside
-  // the Convex root — otherwise these resolve to unrelated project-root
-  // directories.
-  if (path.basename(convexDir) !== 'convex') {
-    return [functionsDir];
-  }
-
-  return [
-    functionsDir,
-    path.join(convexDir, 'routers'),
-    path.join(convexDir, 'lib'),
-    path.join(convexDir, 'shared'),
+  //
+  // Codegen jiti-imports every module under the functions dir, so an edit under
+  // a directory those modules import from changes emitted meta just as much as
+  // an edit to a function file. Convex modules import their builders from
+  // `lib/`, their contracts from `shared/` and their routes from `routers/`,
+  // all siblings of the functions dir inside the Convex root.
+  //
+  // Deriving them from the Convex root rather than the functions dir's parent
+  // name keeps them correct for any configured `convex.json` functions path.
+  // When the functions dir *is* the Convex root the siblings live inside it, so
+  // the containment filter collapses them back to a single root instead of
+  // watching unrelated project-root directories.
+  //
+  // Roots that do not exist yet are kept on purpose: chokidar v5 picks them up
+  // when they are created.
+  const functions = path.resolve(functionsDir);
+  const convexRoot = getConvexRoot(functions);
+  const roots = [
+    functions,
+    path.join(convexRoot, 'routers'),
+    path.join(convexRoot, 'lib'),
+    path.join(convexRoot, 'shared'),
   ];
+
+  return roots.filter(
+    (root, index) =>
+      roots.indexOf(root) === index &&
+      !roots.some((other) => root.startsWith(`${other}${path.sep}`))
+  );
 }
 
 function parseWatcherBackendEnv(

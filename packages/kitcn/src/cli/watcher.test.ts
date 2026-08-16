@@ -27,6 +27,25 @@ describe('cli/watcher', () => {
     expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
   });
 
+  test('getWatchRoots keeps the shared roots for a convex root that is not named convex', () => {
+    // convex.json `functions` accepts any path, so the Convex root comes from
+    // the functions dir itself, never from its parent's name.
+    const functionsDir = path.join('/repo', 'backend', 'functions');
+    expect(getWatchRoots(functionsDir)).toEqual([
+      functionsDir,
+      path.join('/repo', 'backend', 'routers'),
+      path.join('/repo', 'backend', 'lib'),
+      path.join('/repo', 'backend', 'shared'),
+    ]);
+  });
+
+  test('getWatchRoots never watches project-root siblings', () => {
+    // `functions: "backend"` has no Convex root above it, so /repo/routers and
+    // friends are unrelated project directories.
+    const functionsDir = path.join('/repo', 'backend');
+    expect(getWatchRoots(functionsDir)).toEqual([functionsDir]);
+  });
+
   test('shouldIgnoreWatchPath excludes kitcn outputs', () => {
     const functionsDir = '/repo/convex';
     const outputFile = '/repo/out/api.ts';
