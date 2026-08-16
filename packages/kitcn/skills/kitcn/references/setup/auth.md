@@ -331,14 +331,9 @@ Again: printed payload only. You still need to set the env manually.
 After non-auth baseline is green, replace `convex/lib/crpc.ts` with this auth-aware variant:
 
 ```ts
-import { getHeaders, getSession } from "kitcn/auth";
+import { getSession } from "kitcn/auth";
 import { CRPCError } from "kitcn/server";
 
-// `getAuth` pulls your whole Better Auth definition and every plugin into the
-// static import closure of every module that imports this file, and Convex has
-// no dynamic `import()` to escape it. Only `authAction` below needs it, because
-// actions have no `ctx.db`. Delete both if your app has no authed actions.
-import { getAuth } from "../functions/generated/auth";
 import { initCRPC, type QueryCtx } from "../functions/generated/server";
 
 const c = initCRPC
@@ -422,17 +417,6 @@ export const authMutation = c.mutation
   })
   .use(roleMiddleware);
 
-export const authAction = c.action
-  .meta({ auth: "required" })
-  .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
-    const user = requireAuth(session?.user ?? null);
-    return next({ ctx: { ...ctx, user, userId: user.id } });
-  });
-
 export const publicRoute = c.httpAction;
 export const authRoute = c.httpAction.use(async ({ ctx, next }) => {
   const identity = await ctx.auth.getUserIdentity();
@@ -469,6 +453,42 @@ export const optionalAuthRoute = c.httpAction.use(async ({ ctx, next }) => {
 });
 export const router = c.router;
 ```
+
+### 6.9.1 Authenticated action builders
+
+Authenticated actions live in their own module. Actions have no `ctx.db`, so they resolve the
+session through `auth.api.getSession` instead of `getSession(ctx)`. `getAuth` carries the whole
+Better Auth definition and every plugin into the static import closure of whatever imports it, and
+Convex has no dynamic `import()`, so it stays out of `convex/lib/crpc.ts` — the module every
+procedure imports.
+
+Skip this file if the app has no authenticated actions.
+
+**Create:** `convex/lib/crpc-action.ts`
+
+```ts
+import { getHeaders } from "kitcn/auth";
+import { CRPCError } from "kitcn/server";
+
+import { getAuth } from "../functions/generated/auth";
+import { publicAction } from "./crpc";
+
+export const authAction = publicAction
+  .meta({ auth: "required" })
+  .use(async ({ ctx, next }) => {
+    const auth = getAuth(ctx);
+    const session = await auth.api.getSession({
+      headers: await getHeaders(ctx),
+    });
+    const user = session?.user;
+    if (!user) {
+      throw new CRPCError({ code: "UNAUTHORIZED", message: "Not authenticated" });
+    }
+    return next({ ctx: { ...ctx, user, userId: user.id } });
+  });
+```
+
+Import `authAction` from `../lib/crpc-action`. Every other builder comes from `../lib/crpc`.
 
 ### 6.10 Auth sign-in gate (required before Section 7+ and all optional modules/plugins)
 

@@ -438,9 +438,9 @@ export const updateOrganization = authMutation
   });
 ```
 
-Use an `authAction` instead of an `authMutation` for any Better Auth endpoint
-that can run external plugin work such as Stripe, Polar, or email delivery.
-Convex mutations cannot call those SDKs.
+Use an `authAction` (from `../lib/crpc-action`) instead of an `authMutation` for
+any Better Auth endpoint that can run external plugin work such as Stripe,
+Polar, or email delivery. Convex mutations cannot call those SDKs.
 
 ### Delete Organization
 

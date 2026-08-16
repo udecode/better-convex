@@ -216,7 +216,7 @@ export const authMutation = c.mutation
 
 Builder rules that matter:
 
-1. Build `public`, `optional`, `auth`, and `private` procedure families once in `convex/lib/crpc.ts`.
+1. Build `public`, `optional`, `auth`, and `private` procedure families once in `convex/lib/crpc.ts`. Authenticated action builders live in `convex/lib/crpc-action.ts`, the only builder module that imports `getAuth`.
 2. `.meta(...)` is client-visible via generated API metadata. Never put secrets there.
 3. Middleware receives server-only `procedure` info. When procedures are built from your app `generated/server` helper, standard `export const` queries, mutations, and actions infer `module:function` automatically from file path + export name. Use `.name("module:function")` only to override or cover unusual export shapes.
 4. Resolve session/user once in middleware. Do not re-fetch auth state in every procedure.
@@ -224,7 +224,7 @@ Builder rules that matter:
    directly. Keep `getAuth(ctx)` out of `convex/lib/crpc.ts`: it pulls the whole Better Auth
    definition and every auth plugin into the static import closure of every procedure module, and
    Convex has no dynamic `import()` to escape it. Import `getAuth` only in the modules that call
-   `auth.api.*` — actions, HTTP routes, and organization/admin mutations.
+   `auth.api.*` — `convex/lib/crpc-action.ts`, HTTP routes, and organization/admin mutations.
 5. Shared `c.middleware()` chains preserve mutation writer types on mutation procedures. If the middleware itself performs writes, type it as mutation-only with `c.middleware<MutationCtx>(...)`.
 6. Keep deeper auth/runtime edge cases in `references/setup/server.md` and `references/features/auth*.md`.
 

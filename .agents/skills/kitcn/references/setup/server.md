@@ -175,7 +175,8 @@ export const router = c.router;
 Phase ordering rule:
 
 1. Keep this non-auth baseline until Section 11.2 fully passes.
-2. Only then replace this file with the auth-aware variant in Section 6.9.
+2. Only then replace this file with the auth-aware variant in Section 6.9, and add
+   `convex/lib/crpc-action.ts` from Section 6.9.1 if the app has authenticated actions.
 
 ### 5.4 Shared API/type helpers (generated)
 

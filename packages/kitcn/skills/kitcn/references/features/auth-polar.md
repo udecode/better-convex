@@ -435,7 +435,8 @@ export const updateUserPolarCustomerId = privateMutation
 import '../lib/polar-polyfills';
 import { CRPCError } from 'kitcn/server';
 import { z } from 'zod';
-import { authAction, privateMutation, privateQuery } from '../lib/crpc';
+import { privateMutation, privateQuery } from '../lib/crpc';
+import { authAction } from '../lib/crpc-action';
 import { getPolarClient } from '../lib/polar-client';
 import { createPolarSubscriptionCaller } from './generated/polarSubscription.runtime';
 
