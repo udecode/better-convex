@@ -73,7 +73,7 @@ Closure matrix:
 | agent workflow | no | no rule/helper/workflow behavior | N/A |
 | cleanup/review | yes | deslop and autoreview | complete; final P1 review clean |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, pinned checks, merge/release | pending |
+| GitHub delivery | yes | feedback, pinned checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -81,7 +81,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated, or N/A.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 - [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
 - [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text, or N/A is recorded.
@@ -111,9 +111,9 @@ Completion Gates:
 | Agent-native reviewer | complete | docs/skill mirror audit | capability map passes; no workflow action delta |
 | Final lint | complete | `bun lint:fix` | 904 files clean |
 | Repository check | complete | `bun check` | exit 0 |
-| GitHub delivery | pending | push, feedback, pinned checks, merge/release | pending |
+| GitHub delivery | complete | exact-head checks, merge, release, npm, post-release CI | #335 `9b3494de`; #350 `f5669e95`; #349 `07dcff62`; v0.18.0 live |
 | Autoreview | complete | final committed-head review | P1 clean; patch correct (0.82) |
-| Goal plan complete | yes | run checker | pending |
+| Goal plan complete | yes | run checker | complete |
 | Agent source / generated sync | complete | regenerate/audit `.agents` mirror | sync command and byte comparison pass |
 | Installed lock audit | N/A | no skill lock delta | N/A |
 | Agent action discoverability | complete | package skill contains current ORM behavior | core links `references/features/orm.md` |
@@ -126,8 +126,8 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback, released main | repair |
 | Repair | complete | all three P1 paths repaired and focused green | review/checks |
 | Review/checks | complete | focused tests, package/docs/skill/deslop/lint/full check, P1 autoreview | delivery |
-| Delivery | in_progress | final local commit `ad85021c` | push, feedback, pinned checks |
-| Closeout | pending | | final |
+| Delivery | complete | exact head `88011728` merged; release correction and release merged | closeout |
+| Closeout | complete | npm/GitHub v0.18.0 and post-release CI read back | final |
 
 Verification evidence:
 - The contributor branch contains substantial source-backed optimizer work and
@@ -180,19 +180,28 @@ Verification evidence:
   `createdAt`, which the ORM forbids. The source changeset now recommends
   `index('by_type').on(t.type)`, whose fully pinned partition is natively ordered
   by the implicit creation-time suffix.
+- PR #335 exact head `88011728` passed CI `31977140952` and Vercel, then
+  squash-merged as `9b3494de`. All three GitHub P1 threads were resolved.
+- Source-owned release correction PR #350 passed its full CI/Vercel gates and
+  merged as `f5669e95`; changesets regenerated #349 with the valid narrower
+  index migration.
+- Release PR #349 passed Convex Matrix `31978121819` and Vercel, merged as
+  `07dcff62`, and published `kitcn@0.18.0`, `@kitcn/resend@0.18.0`, and GitHub
+  `v0.18.0`. Post-release CI `31978889907` passed on the release commit.
 
 Timeline:
 - 2026-08-17 PR #335 merged released v0.17.5 main; confirmed third P1.
+- 2026-08-17 PR #335, its source release correction, and v0.18.0 closed with
+  exact remote, npm, GitHub release, and post-release CI receipts.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Feedback, pinned remote checks, merge, release |
+| Where am I? | Closeout complete |
+| Where am I going? | PR #336 |
 | What is the goal? | Ship only proven bounded ORM reads and correct ordering. |
 | What have I learned? | Real work, but two advertised planner paths were unsafe or absent. |
-| What have I done? | Repaired four real P1 paths, rejected one false review finding, and passed focused/package/docs/skill/deslop gates. |
+| What have I done? | Repaired four real P1 paths, rejected one false finding, merged #335/#350/#349, and published v0.18.0. |
 
 Open risks:
-- Broad query optimizer diff can hide a second silent bound/correctness defect;
-  focused proof and committed-head review must cover the final merged branch.
+- None inside #335; later ORM PRs still require fresh released-main proof.

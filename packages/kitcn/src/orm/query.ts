@@ -282,6 +282,65 @@ class BufferedQueryStream<
   }
 }
 
+const ID_LIST_POSITION_FIELD = '__kitcn_id_list_position';
+
+/**
+ * Reads an `id` / `id in [...]` where one document at a time, in the order the
+ * ids were given.
+ *
+ * The index key is the position in the de-duplicated id list, so a cursor names
+ * a position and `narrow` drops entries without reading them. A page reads only
+ * the listed positions it visits, not every id in the list on every page.
+ */
+class LazyIdListQueryStream<
+  T extends NonNullable<unknown>,
+> extends QueryStream<T> {
+  constructor(
+    private readonly readId: (id: unknown) => Promise<T | null>,
+    /** `[position in the id list, id]`, in emission order. */
+    private readonly entries: readonly (readonly [number, unknown])[],
+    private readonly order: 'asc' | 'desc'
+  ) {
+    super();
+  }
+
+  iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
+    const entries = this.entries;
+    const readId = this.readId;
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const [position, id] of entries) {
+          // An id that resolves to nothing still yields, so it counts towards
+          // maxScan and advances the cursor like any other skipped row.
+          yield [await readId(id), [position]] as [T | null, IndexKey];
+        }
+      },
+    };
+  }
+
+  narrow(indexBounds: IndexBounds): QueryStream<T> {
+    return new LazyIdListQueryStream<T>(
+      this.readId,
+      this.entries.filter(([position]) =>
+        indexKeyWithinBounds([position], indexBounds)
+      ),
+      this.order
+    );
+  }
+
+  getOrder(): 'asc' | 'desc' {
+    return this.order;
+  }
+
+  getIndexFields(): string[] {
+    return [ID_LIST_POSITION_FIELD];
+  }
+
+  getEqualityIndexFilter(): any[] {
+    return [];
+  }
+}
+
 const PIPELINE_LIMIT_ORDINAL_FIELD = '__kitcn_limit_ordinal';
 
 /** Cap a stream at its first `limit` matching documents without eager reads. */
@@ -2570,9 +2629,12 @@ export class GelRelationalQuery<
    * The where-clause compiler is built from declared indexes only, and `_id` is
    * never one of them, so an `id` filter can never be index-selected: it lands
    * in the post-filters and the stream walks the creation-time index until it
-   * happens on the row. `db.get()` reads exactly the rows asked for, so the ids
-   * are fetched directly and replayed as a creation-time-ordered stream — the
-   * order the scan would have produced, so stage order and cursors are the same.
+   * happens on the row. `db.get()` reads exactly the rows asked for.
+   *
+   * Rows come back in the order the ids were given, one read at a time. Missing
+   * or policy-filtered ids still cost a read, but a page does not reread the
+   * complete list. An `orderBy` on creation time is the exception: an id carries
+   * no creation time, so every id must be read before the first row is placed.
    *
    * Returns null when something else already owns the read: a pinned index, an
    * index the compiler did select, a `where(predicate)`, or an `orderBy` that
@@ -2615,9 +2677,21 @@ export class GelRelationalQuery<
           )
         : [idLookup.id];
 
-    const fetched = await this._mapWithConcurrency(ids, async (id) => {
-      return this._getById(this.tableConfig.name, id);
-    });
+    const readId = (id: unknown) => this._getById(this.tableConfig.name, id);
+
+    if (!primaryOrder) {
+      const entries = ids.map(
+        (id, position) => [position, id] as readonly [number, unknown]
+      );
+      if (order === 'desc') {
+        entries.reverse();
+      }
+      return new LazyIdListQueryStream<any>(readId, entries, order);
+    }
+
+    // Creation order is not derivable from an id, so an explicit orderBy has to
+    // read the whole list before it can place the first row.
+    const fetched = await this._mapWithConcurrency(ids, readId);
     const rows = fetched.filter((row): row is any => !!row);
 
     rows.sort(
@@ -2642,6 +2716,18 @@ export class GelRelationalQuery<
       order,
       [INTERNAL_CREATION_TIME_FIELD, INTERNAL_ID_FIELD],
       []
+    );
+  }
+
+  /**
+   * The declared index a stream read can walk to emit `field` in order.
+   *
+   * A stream orders by the index it scans, so only an index that leads with
+   * the field produces that order.
+   */
+  private _findStreamOrderIndex(field: string) {
+    return getIndexes(this.tableConfig.table).find(
+      (index) => index.fields[0] === field
     );
   }
 
@@ -2679,10 +2765,11 @@ export class GelRelationalQuery<
         configuredIndex.name as any,
         configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
       );
-    } else if (primaryOrder && primaryOrder.field !== '_creationTime') {
-      const orderIndex = getIndexes(this.tableConfig.table).find(
-        (idx) => idx.fields[0] === primaryOrder.field
-      );
+    } else if (
+      primaryOrder &&
+      primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD
+    ) {
+      const orderIndex = this._findStreamOrderIndex(primaryOrder.field);
       if (orderIndex) {
         streamQuery = streamQuery.withIndex(
           orderIndex.name as any,
@@ -5633,14 +5720,33 @@ export class GelRelationalQuery<
           );
         }
       } else {
-        if (
-          isCursorPaginated &&
-          maxScan !== undefined &&
-          idLookup?.kind === 'in'
-        ) {
-          throw new Error(
-            'An id IN pipeline cannot use maxScan because creation-order replay requires reading the complete ID list.'
-          );
+        const orderedIdList =
+          isCursorPaginated && maxScan !== undefined && idLookup?.kind === 'in'
+            ? queryConfig.order?.[0]
+            : undefined;
+        if (orderedIdList) {
+          // `maxScan` bounds a scan, so it only holds for an order a scan can
+          // deliver. Creation order is not one: an id carries no creation
+          // time, so `_buildIdLookupStream` reads the whole list up front.
+          if (orderedIdList.field === INTERNAL_CREATION_TIME_FIELD) {
+            throw new Error(
+              'An id IN pipeline cannot combine orderBy on createdAt with maxScan, because ordering an id list by creation time requires reading every id in the list. Drop maxScan, or drop orderBy to page in id-list order at one read per row.'
+            );
+          }
+          // Any other order is served by walking an index, which `maxScan`
+          // does bound — but only the index the scan actually walks orders
+          // the rows, so the order has to be a single field that an index
+          // leads with and no other index may be pinned.
+          if (
+            queryConfig.order?.length !== 1 ||
+            configuredIndex?.name ||
+            queryConfig.index ||
+            !this._findStreamOrderIndex(orderedIdList.field)
+          ) {
+            throw new Error(
+              `An id IN pipeline cannot combine orderBy on ${this._toPublicFilterFieldName(orderedIdList.field)} with maxScan, because the scan cannot produce that order. It needs a single orderBy field that an index leads with, and no index pinned by withIndex().`
+            );
+          }
         }
         streamQuery =
           (await this._buildIdLookupStream({

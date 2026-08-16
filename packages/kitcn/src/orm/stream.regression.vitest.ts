@@ -3,8 +3,8 @@ import { defineSchema, defineTable } from 'convex/server';
 import { convexToJson, v } from 'convex/values';
 import { describe, expect, test } from 'vitest';
 import { convexTest } from '../../../../convex/setup.testing';
-import type { IndexKey } from './stream';
-import { mergedStream, stream, streamIndexRange } from './stream';
+import type { IndexBounds, IndexKey } from './stream';
+import { mergedStream, QueryStream, stream, streamIndexRange } from './stream';
 
 const schema = defineSchema({
   foo: defineTable({
@@ -40,6 +40,60 @@ function dropAndStripSystemFields(
       ? [stripSystemFields(item.value[0]), dropSystemFields(item.value[1])]
       : undefined,
   };
+}
+
+class ReturnTrackingStream extends QueryStream<{ value: number }> {
+  constructor(
+    private readonly value: number,
+    readonly returns = { count: 0 }
+  ) {
+    super();
+  }
+
+  iterWithKeys() {
+    const returns = this.returns;
+    const value = this.value;
+    return {
+      [Symbol.asyncIterator]() {
+        let emitted = false;
+        return {
+          async next() {
+            if (emitted) {
+              return { done: true as const, value: undefined };
+            }
+            emitted = true;
+            return {
+              done: false as const,
+              value: [{ value }, [value, value, `id-${value}`]] as [
+                { value: number },
+                IndexKey,
+              ],
+            };
+          },
+          async return() {
+            returns.count += 1;
+            return { done: true as const, value: undefined };
+          },
+        };
+      },
+    };
+  }
+
+  getOrder() {
+    return 'asc' as const;
+  }
+
+  getEqualityIndexFilter() {
+    return [];
+  }
+
+  getIndexFields() {
+    return ['value', '_creationTime', '_id'];
+  }
+
+  narrow(_bounds: IndexBounds) {
+    return new ReturnTrackingStream(this.value, this.returns);
+  }
 }
 
 describe('stream reflection', () => {
@@ -656,6 +710,251 @@ describe('stream regression', () => {
       expect(page1.page.map(stripSystemFields)).toEqual([
         { a: 'undefined', b: 2 },
       ]);
+    });
+  });
+});
+
+describe('stream read amplification', () => {
+  /** Count index queries issued against `ctx.db`, i.e. index ranges opened. */
+  function countIndexQueries(ctx: { db: any }) {
+    const counted = { queries: 0 };
+    const baseQuery = ctx.db.query.bind(ctx.db);
+    ctx.db.query = (table: string) => {
+      counted.queries += 1;
+      return baseQuery(table);
+    };
+    return counted;
+  }
+
+  test('mapped streams close their source on an early page stop', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    await source.map(async (doc) => doc).take(1);
+
+    expect(source.returns.count).toBe(1);
+  });
+
+  test('direct stream iteration closes the source on an early stop', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    for await (const _doc of source) {
+      break;
+    }
+
+    expect(source.returns.count).toBe(1);
+  });
+
+  test('merged streams close every opened source on an early page stop', async () => {
+    const first = new ReturnTrackingStream(1);
+    const second = new ReturnTrackingStream(2);
+
+    await mergedStream([first, second], ['value']).take(1);
+
+    expect(first.returns.count).toBe(1);
+    expect(second.returns.count).toBe(1);
+  });
+
+  test('distinct streams close superseded and active source iterators', async () => {
+    const source = new ReturnTrackingStream(1);
+
+    await source.distinct(['value']).take(1);
+
+    expect(source.returns.count).toBe(2);
+  });
+
+  test('distinct on two fields opens a linear number of index ranges', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 40; i += 1) {
+        await ctx.db.insert('foo', { a: 1, b: i, c: i });
+      }
+      const counted = countIndexQueries(ctx);
+
+      const page = await stream(ctx.db, schema)
+        .query('foo')
+        .withIndex('abc', (q) => q.eq('a', 1))
+        .order('asc')
+        .distinct(['b', 'c'])
+        .paginate({ cursor: null, limit: 12 });
+
+      expect(page.page).toHaveLength(12);
+      // Narrowing the previously narrowed stream made this 8191 index ranges
+      // for the same 12 rows.
+      expect(counted.queries).toBeLessThanOrEqual(30);
+    });
+  });
+
+  test.each([
+    { order: 'asc' as const },
+    { order: 'desc' as const },
+  ])('distinct on two fields pages the rows it collects', async ({ order }) => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      for (const value of [
+        { a: 1, b: 2, c: 3 },
+        { a: 1, b: 2, c: 5 },
+        { a: 1, b: 3, c: 7 },
+        { a: 1, b: 3, c: 7 },
+        { a: 1, b: 4, c: 9 },
+        { a: 2, b: 9, c: 9 },
+      ]) {
+        await ctx.db.insert('foo', value);
+      }
+
+      const build = () =>
+        stream(ctx.db, schema)
+          .query('foo')
+          .withIndex('abc', (q) => q.eq('a', 1))
+          .order(order)
+          .distinct(['b', 'c']);
+
+      const collected = (await build().collect()).map(stripSystemFields);
+      expect(collected).toHaveLength(4);
+
+      const walked: unknown[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const result = await build().paginate({ cursor, limit: 2 });
+        walked.push(...result.page.map(stripSystemFields));
+        cursor = result.continueCursor;
+        if (result.isDone) {
+          break;
+        }
+      }
+
+      expect(walked).toEqual(collected);
+    });
+  });
+
+  test('distinct after flatMap pages the rows it collects', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      for (const value of [
+        { a: 1, b: 2, c: 3 },
+        { a: 1, b: 2, c: 4 },
+        { a: 1, b: 3, c: 5 },
+        { a: 1, b: 4, c: 6 },
+      ]) {
+        await ctx.db.insert('foo', value);
+      }
+      await ctx.db.insert('bar', { c: 3, d: 1, e: 2 });
+      await ctx.db.insert('bar', { c: 3, d: 4, e: 5 });
+      await ctx.db.insert('bar', { c: 5, d: 2, e: 3 });
+
+      const build = () =>
+        stream(ctx.db, schema)
+          .query('foo')
+          .withIndex('abc', (q) => q.eq('a', 1))
+          .flatMap(
+            async (doc) =>
+              stream(ctx.db, schema)
+                .query('bar')
+                .withIndex('cde', (q) => q.eq('c', doc.c)),
+            ['c', 'd', 'e']
+          )
+          .distinct(['b']);
+
+      const collected = (await build().collect()).map(stripSystemFields);
+      expect(collected).toHaveLength(2);
+
+      const walked: unknown[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const result = await build().paginate({ cursor, limit: 1 });
+        walked.push(...result.page.map(stripSystemFields));
+        cursor = result.continueCursor;
+        if (result.isDone) {
+          break;
+        }
+      }
+
+      expect(walked).toEqual(collected);
+    });
+  });
+
+  test('distinct over a merged stream skips past duplicate sources', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('foo', { a: 1, b: 2, c: 3 });
+      await ctx.db.insert('foo', { a: 1, b: 3, c: 4 });
+      await ctx.db.insert('foo', { a: 1, b: 4, c: 5 });
+
+      const build = () =>
+        mergedStream(
+          [
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 1)),
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 1)),
+          ],
+          ['b', 'c']
+        );
+
+      // Identical sources: every row is emitted twice, lowest source first.
+      expect((await build().collect()).map(stripSystemFields)).toEqual([
+        { a: 1, b: 2, c: 3 },
+        { a: 1, b: 2, c: 3 },
+        { a: 1, b: 3, c: 4 },
+        { a: 1, b: 3, c: 4 },
+        { a: 1, b: 4, c: 5 },
+        { a: 1, b: 4, c: 5 },
+      ]);
+
+      const distinct = await build().distinct(['b']).collect();
+      expect(distinct.map(stripSystemFields)).toEqual([
+        { a: 1, b: 2, c: 3 },
+        { a: 1, b: 3, c: 4 },
+        { a: 1, b: 4, c: 5 },
+      ]);
+    });
+  });
+
+  test('merged stream ordering fields are not mutated', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('foo', { a: 1, b: 2, c: 3 });
+      const orderByIndexFields = ['b', 'c'];
+      mergedStream(
+        [
+          stream(ctx.db, schema)
+            .query('foo')
+            .withIndex('abc', (q) => q.eq('a', 1)),
+        ],
+        orderByIndexFields
+      );
+      expect(orderByIndexFields).toEqual(['b', 'c']);
+    });
+  });
+
+  test('concat substreams are opened only as they are reached', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('foo', { a: 1, b: 2, c: 4 });
+      await ctx.db.insert('foo', { a: 1, b: 3, c: 0 });
+      const counted = countIndexQueries(ctx);
+
+      const ranged = streamIndexRange(
+        ctx.db,
+        schema,
+        'foo',
+        'abc',
+        {
+          lowerBound: [1, 2, 3],
+          lowerBoundInclusive: false,
+          upperBound: [1],
+          upperBoundInclusive: true,
+        },
+        'asc'
+      );
+
+      for await (const _entry of ranged.iterWithKeys()) {
+        break;
+      }
+
+      // The bounds split into two index ranges; the second is never reached.
+      expect(counted.queries).toBe(1);
     });
   });
 });

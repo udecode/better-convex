@@ -721,7 +721,7 @@ const filtered = results.filter((a) => a.publishedAt >= startDate);
 ### Performance
 
 1. **Index first** — constrain leading index fields. Compound indexes follow prefix rules. Put the `orderBy` column right after the constrained prefix so the scan is already sorted and `limit` bounds the read.
-2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only).
+2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only). A `.select()` ID-list query with `orderBy` needs a single field that an index leads with.
 3. **Limit results** — always use `limit` or cursor pagination.
 4. **Cursor stability** — keep same `where`/`orderBy` between page requests.
 5. **`allowFullScan`** — non-cursor only. Cursor mode uses `maxScan` instead.

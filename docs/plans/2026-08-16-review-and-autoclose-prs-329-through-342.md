@@ -31,6 +31,8 @@ Linked plans:
   React identity stability and auth token rotation.
 - [PR #335 autoclosure](docs/plans/2026-08-17-pr-335-autoclosure.md) -
   ORM limit/order pushdown and relation index selection.
+- [PR #336 autoclosure](docs/plans/2026-08-17-pr-336-autoclosure.md) -
+  ORM stream amplification and ID-list pagination.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -115,8 +117,8 @@ PR disposition ledger:
 | #332 | preserve React queries across token rotation | credible but overstuffed; accidental public API and stale release story were slop and removed | thread resolved | before #339 | closed: merged `2609245d`, released v0.17.5 |
 | #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | closed: merged `413d4068`, remote gates green |
 | #334 | reduce example/www client work and reads | mixed but mostly real; three proof/owner defects were slop and repaired | both threads resolved | codegen fix released in 0.17.4 | closed: merged `6bc8d1ca`, released 0.17.4 |
-| #335 | push ORM limit/order into indexes | valuable but high-risk; advertised index preference was missing | 3 GitHub P1s plus 2 accepted local P1s repaired; 1 local P1 rejected with owner proof; threads pending | before #336/#337/#342 | focused/package/docs/skill/deslop green |
-| #336 | bound streams and id-list pagination | credible, breaking | 2 P2 threads | after #335 | repair pending |
+| #335 | push ORM limit/order into indexes | valuable but high-risk; advertised index preference was missing | 3 GitHub P1s plus 2 accepted local P1s repaired; 1 local P1 rejected with owner proof | before #336/#337/#342 | closed: merged `9b3494de`, released v0.18.0, post-release CI green |
+| #336 | bound streams and id-list pagination | credible, not slop; release/docs claims overstated and iterator cleanup incomplete | first P2 repaired upstream; second accepted locally; four local cleanup regressions repaired | after #335 | local focused/package/docs/skill/deslop/full/review gates green; delivery pending |
 | #337 | bound aggregate reads and clearing | valuable but high-risk | 2 P1 threads | before #342 | repair pending |
 | #338 | cache auth schema and repair session restore | credible, breaking | 3 P1 threads | after #337 by release plan | repair pending |
 | #339 | restore Solid/React parity | credible but broad | 4 outdated threads | after #329/#332 | verify/repair pending |
@@ -253,6 +255,16 @@ Verification evidence:
   skill parity, doc-sync quality gates, agent-native map, and zero-net slop
   delta pass. Final `bun check` also passes after both configured-index repairs,
   including fresh fixtures and runtime scenarios.
+- #335 exact head `88011728` passed CI `31977140952` and merged as `9b3494de`.
+  Source correction #350 merged as `f5669e95`; regenerated release #349 passed
+  Convex Matrix `31978121819`, merged as `07dcff62`, and published both npm
+  packages plus GitHub `v0.18.0`. Post-release CI `31978889907` passed.
+- #336 merged released v0.18.0 main source-first. The docs/package skill now
+  scope input-order and bounded read claims to `.select()` and count missing or
+  policy-filtered IDs honestly. Four red iterator-return tests proved that
+  mapped, merged, distinct, and direct early exits did not propagate cleanup;
+  the repaired wrappers pass 61 focused tests, package typecheck/build, skill
+  mirror/intent gates, zero-net slop delta, full `bun check`, and P1 autoreview.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.
