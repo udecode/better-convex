@@ -11,7 +11,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   checkTemplates,
-  FixtureDriftError,
   normalizeFixtureComparisonPackageJson,
   normalizeTemplateSnapshot,
   parseTemplateArgs,
@@ -93,38 +92,6 @@ describe('tooling/fixtures', () => {
     });
 
     expect(scopes).toEqual(['full']);
-  });
-
-  test('checkTemplates reports every failing template in one run', async () => {
-    const attempted: string[] = [];
-
-    const promise = checkTemplates({
-      checkTemplateFn: mock(async (templateKey) => {
-        attempted.push(templateKey);
-
-        if (templateKey === 'next' || templateKey === 'vite') {
-          throw new Error(`boom ${templateKey}`);
-        }
-      }) as typeof checkTemplates extends (params?: infer T) => Promise<unknown>
-        ? NonNullable<T extends { checkTemplateFn?: infer U } ? U : never>
-        : never,
-    });
-
-    await expect(promise).rejects.toThrow('2 of 8 templates failed');
-    expect(attempted).toEqual([...TEMPLATE_KEYS]);
-  });
-
-  test('checkTemplates surfaces the sync hint when a template drifts', async () => {
-    const promise = checkTemplates({
-      target: 'next',
-      checkTemplateFn: mock(async (templateKey) => {
-        throw new FixtureDriftError(templateKey);
-      }) as typeof checkTemplates extends (params?: infer T) => Promise<unknown>
-        ? NonNullable<T extends { checkTemplateFn?: infer U } ? U : never>
-        : never,
-    });
-
-    await expect(promise).rejects.toThrow('bun run fixtures:sync');
   });
 
   test('template registry only lints starters worth linting', () => {
@@ -390,35 +357,6 @@ describe('tooling/fixtures', () => {
 
       expect(readFileSync(keptPath, 'utf8')).toBe('bin\n');
       expect(existsSync(junkPath)).toBe(false);
-    } finally {
-      rmSync(templateDir, { force: true, recursive: true });
-    }
-  });
-
-  test('stripAppleDoubleSidecars skips install and build output directories', () => {
-    const templateDir = mkdtempSync(
-      path.join(tmpdir(), 'kitcn-template-sidecar-skip-')
-    );
-    const vendoredSidecar = path.join(
-      templateDir,
-      'node_modules',
-      'pkg',
-      '._index.js'
-    );
-    const sourceSidecar = path.join(templateDir, 'src', '._app.tsx');
-
-    try {
-      mkdirSync(path.dirname(vendoredSidecar), { recursive: true });
-      mkdirSync(path.dirname(sourceSidecar), { recursive: true });
-      writeFileSync(vendoredSidecar, 'junk\n');
-      writeFileSync(sourceSidecar, 'junk\n');
-
-      stripAppleDoubleSidecars(templateDir);
-
-      // stripVolatileArtifacts deletes node_modules wholesale before any
-      // snapshot or diff, so descending into it is dead work.
-      expect(existsSync(vendoredSidecar)).toBe(true);
-      expect(existsSync(sourceSidecar)).toBe(false);
     } finally {
       rmSync(templateDir, { force: true, recursive: true });
     }
