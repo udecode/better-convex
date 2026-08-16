@@ -1,5 +1,14 @@
 # kitcn
 
+## 0.17.2
+
+### Patch Changes
+
+- [#329](https://github.com/udecode/kitcn/pull/329) [`c853115`](https://github.com/udecode/kitcn/commit/c853115311cc6b2645c47736db529731af3fc2c6) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `useInfiniteQuery` from `kitcn/solid` crashing with `state.map is not a function` on every mount.
+  - Update Solid infinite query results field by field, so a component reading `status` is not re-run when only `data` changes.
+
 ## 0.17.1
 
 ### Patch Changes
