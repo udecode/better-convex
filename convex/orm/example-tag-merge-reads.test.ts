@@ -1,4 +1,6 @@
+import type { OrmWriter } from 'kitcn/orm';
 import { expect, test } from 'vitest';
+import { mergeTags } from '../../example/convex/functions/_helpers/tag_merge';
 import schema, {
   tagsTable,
   todosTable,
@@ -40,7 +42,9 @@ const withExampleEnv = async (run: () => Promise<void>) => {
 
 const TARGET_TAG_TODOS = 40;
 
-const seedUser = async (ctx: any, email: string) => {
+type ExampleCtx = { orm: OrmWriter<typeof schema> };
+
+const seedUser = async (ctx: ExampleCtx, email: string) => {
   const [user] = await ctx.orm
     .insert(userTable)
     .values({
@@ -55,7 +59,7 @@ const seedUser = async (ctx: any, email: string) => {
   return user.id as string;
 };
 
-const seedTag = async (ctx: any, userId: string, name: string) => {
+const seedTag = async (ctx: ExampleCtx, userId: string, name: string) => {
   const [tag] = await ctx.orm
     .insert(tagsTable)
     .values({ color: '#fff', name, createdBy: userId })
@@ -64,7 +68,7 @@ const seedTag = async (ctx: any, userId: string, name: string) => {
   return tag.id as string;
 };
 
-const seedTodo = async (ctx: any, userId: string, title: string) => {
+const seedTodo = async (ctx: ExampleCtx, userId: string, title: string) => {
   const [todo] = await ctx.orm
     .insert(todosTable)
     .values({ title, completed: false, userId })
@@ -107,21 +111,29 @@ test('merge cost does not track the target tag size', async () => {
 
       const reads = countDocumentReads(ctx);
 
-      const joins = await ctx.orm.query.todoTags.findMany({
-        where: { tagId: sourceTagId },
-        limit: 1001,
-        columns: { id: true, todoId: true },
+      await mergeTags(ctx, userId, {
+        sourceTagId,
+        targetTagId,
       });
-      const existing = await ctx.orm.query.todoTags.findFirst({
-        where: { todoId: sourceTodoId, tagId: targetTagId },
-        columns: { id: true },
-      });
+      const mergeReads = reads.documents;
 
-      expect(joins).toHaveLength(1);
-      expect(existing).toBeNull();
-      // One source row plus one indexed probe. Materializing the target read
-      // TARGET_TAG_TODOS rows here.
-      expect(reads.documents).toBeLessThanOrEqual(2);
+      const [sourceTag, targetJoins] = await Promise.all([
+        ctx.orm.query.tags.findFirst({ where: { id: sourceTagId } }),
+        ctx.orm.query.todoTags.findMany({
+          where: { tagId: targetTagId },
+          limit: TARGET_TAG_TODOS + 1,
+          columns: { todoId: true },
+        }),
+      ]);
+
+      expect(sourceTag).toBeNull();
+      expect(targetJoins).toHaveLength(TARGET_TAG_TODOS + 1);
+      expect(targetJoins.some((join) => join.todoId === sourceTodoId)).toBe(
+        true
+      );
+      // The merge reads its two tags, one source join, one indexed target
+      // probe, and aggregate bookkeeping. It never materializes 40 target rows.
+      expect(mergeReads).toBeLessThanOrEqual(12);
     });
   });
 });
@@ -151,14 +163,25 @@ test('merge probe finds a target row the source todo already carries', async () 
 
       const reads = countDocumentReads(ctx);
 
-      const existing = await ctx.orm.query.todoTags.findFirst({
-        where: { todoId: sharedTodoId, tagId: targetTagId },
-        columns: { id: true },
+      await mergeTags(ctx, userId, {
+        sourceTagId,
+        targetTagId,
       });
 
-      expect(existing).toBeDefined();
-      // The probe is index-backed: it must not scan the target's other rows.
-      expect(reads.documents).toBeLessThanOrEqual(2);
+      const [sourceTag, targetJoins] = await Promise.all([
+        ctx.orm.query.tags.findFirst({ where: { id: sourceTagId } }),
+        ctx.orm.query.todoTags.findMany({
+          where: { todoId: sharedTodoId, tagId: targetTagId },
+          limit: 2,
+          columns: { id: true },
+        }),
+      ]);
+
+      expect(sourceTag).toBeNull();
+      expect(targetJoins).toHaveLength(1);
+      // The probe is index-backed: the merge must not scan the target's other
+      // rows or insert a duplicate for the shared todo.
+      expect(reads.documents).toBeLessThanOrEqual(20);
     });
   });
 });

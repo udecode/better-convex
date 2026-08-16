@@ -3697,23 +3697,43 @@ export default createHttpRouter({}, router({}));
         const c = initCRPC.meta<{}>().create();
 
         export const publicRoute = c.httpAction;
+        export const router = c.router;
         `.trim()
       );
       writeFile(
         path.join(dir, 'convex', 'routes.ts'),
         `
-        import { publicRoute } from './lib/crpc';
+        import { publicRoute, router } from './lib/crpc';
 
         export const authRoute = publicRoute
           .use(async ({ next }) => next())
           .post('/api/auth/demo')
           .mutation(async () => ({ ok: true }));
+
+        export const authRouter = router({ demo: authRoute });
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'http.ts'),
+        `
+        import { router } from './lib/crpc';
+        import { authRouter } from './routes';
+
+        export const httpRouter = router({ auth: authRouter });
         `.trim()
       );
 
       await expect(generateMeta(undefined, { silent: true })).resolves.toBe(
         undefined
       );
+
+      const generated = await import(
+        pathToFileURL(getConvexConfig().outputFile).href
+      );
+      expect(generated.api._http['auth.demo']).toEqual({
+        method: 'POST',
+        path: '/api/auth/demo',
+      });
     } finally {
       process.chdir(oldCwd);
     }

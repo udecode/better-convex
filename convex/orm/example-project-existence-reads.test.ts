@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import { hasAnyProject } from '../../example/convex/functions/_helpers/project_existence';
 import schema, {
   projectMembersTable,
   projectsTable,
@@ -46,9 +47,10 @@ const OTHER_USER_PROJECTS = 40;
  * and post-filters owner-or-member in JS, so a user with zero projects drains
  * the whole table and every scanned row joins the subscription's read set.
  *
- * `projects.listForDropdown` answers the same non-archived owner-or-member
- * question off `projects.ownerId` and `projectMembers.userId`. These tests pin
- * that both legs stay index-backed: the read count must not track table size.
+ * `projects.hasAny` answers the same non-archived owner-or-member question off
+ * `projects.ownerId` and `projectMembers.userId`. These tests call its exact
+ * source owner and pin that both legs stay index-backed: the read count must not
+ * track table size.
  */
 test('project existence check does not scan projects owned by other users', async () => {
   await withExampleEnv(async () => {
@@ -86,19 +88,7 @@ test('project existence check does not scan projects owned by other users', asyn
 
       const reads = countDocumentReads(ctx);
 
-      const owned = await ctx.orm.query.projects.findMany({
-        where: { ownerId: viewer.id, archived: false },
-        limit: 1000,
-        columns: { id: true, name: true },
-      });
-      const memberRows = await ctx.orm.query.projectMembers.findMany({
-        where: { userId: viewer.id },
-        limit: 1000,
-        columns: { projectId: true },
-      });
-
-      expect(owned).toEqual([]);
-      expect(memberRows).toEqual([]);
+      await expect(hasAnyProject(ctx, viewer.id)).resolves.toBe(false);
       // Both legs hit an index range that is empty for this user. The
       // unindexed read model reported OTHER_USER_PROJECTS reads here.
       expect(reads.documents).toBeLessThanOrEqual(2);
@@ -157,20 +147,9 @@ test('project existence check reads only the viewer own and member rows', async 
 
       const reads = countDocumentReads(ctx);
 
-      const owned = await ctx.orm.query.projects.findMany({
-        where: { ownerId: viewer.id, archived: false },
-        limit: 1000,
-        columns: { id: true, name: true },
-      });
-      const memberRows = await ctx.orm.query.projectMembers.findMany({
-        where: { userId: viewer.id },
-        limit: 1000,
-        columns: { projectId: true },
-      });
-
-      expect(owned).toEqual([]);
-      expect(memberRows.map((row) => row.projectId)).toEqual([shared.id]);
-      // One membership row. Nothing proportional to OTHER_USER_PROJECTS.
+      await expect(hasAnyProject(ctx, viewer.id)).resolves.toBe(true);
+      // One membership and one related project row. Nothing proportional to
+      // OTHER_USER_PROJECTS.
       expect(reads.documents).toBeLessThanOrEqual(3);
     });
   });

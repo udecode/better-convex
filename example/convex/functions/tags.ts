@@ -2,18 +2,8 @@ import { eq } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
 import { z } from 'zod';
 import { authMutation, authQuery } from '../lib/crpc';
-import { tagsTable, todoTagsTable } from './schema';
-
-/**
- * Largest number of todoTags rows `merge` will move in one transaction.
- *
- * Counts the *source* tag's rows only, because those are the ones the loop
- * writes: every insert and delete read-modify-writes the `by_tag` aggregate
- * bucket document for its tag, so the loop is ~6-8 sequential db ops per row
- * against two hot documents. Above this budget the merge is refused instead of
- * silently truncated.
- */
-const MERGE_MAX_JOINS = 1000;
+import { mergeTags } from './_helpers/tag_merge';
+import { tagsTable } from './schema';
 
 // List user's tags with usage count
 export const list = authQuery
@@ -148,76 +138,7 @@ export const merge = authMutation
   )
 
   .mutation(async ({ ctx, input }) => {
-    if (input.sourceTagId === input.targetTagId) {
-      throw new CRPCError({
-        code: 'BAD_REQUEST',
-        message: 'Cannot merge a tag with itself',
-      });
-    }
-
-    await Promise.all([
-      ctx.orm.query.tags.findFirstOrThrow({
-        where: { id: input.sourceTagId, createdBy: ctx.userId },
-      }),
-      ctx.orm.query.tags.findFirstOrThrow({
-        where: { id: input.targetTagId, createdBy: ctx.userId },
-      }),
-    ]);
-
-    // This read must be complete or the merge corrupts data, so take one row
-    // past the budget and refuse rather than truncate. An unsized read here
-    // resolved to the schema-wide defaultLimit (1000) and silently dropped the
-    // excess: those todos lost the source tag (cascaded away by the delete
-    // below) without ever gaining the target tag. Convex mutations are atomic,
-    // so throwing before any write leaves both tags untouched.
-    const joins = await ctx.orm.query.todoTags.findMany({
-      where: { tagId: input.sourceTagId },
-      limit: MERGE_MAX_JOINS + 1,
-      columns: { id: true, todoId: true },
-    });
-
-    if (joins.length > MERGE_MAX_JOINS) {
-      throw new CRPCError({
-        code: 'BAD_REQUEST',
-        message: `Cannot merge a tag applied to more than ${MERGE_MAX_JOINS} todos in a single transaction`,
-      });
-    }
-
-    // The target's rows are deliberately never materialized. They drive no
-    // writes, so budgeting on them would refuse a two-row merge purely because
-    // the destination is popular -- and the destination is exactly the tag a
-    // user merges duplicates into. `todoId_tagId` is a plain index, not a
-    // unique constraint, so each source row probes it directly instead: one
-    // indexed read, bounded by the source, and a dedupe that cannot go stale
-    // the way a truncated snapshot of the target would.
-    const linkedTodoIds = new Set<string>();
-
-    // Keep this loop sequential. Promise.all here would interleave
-    // read-modify-writes of the same `by_tag` bucket document (lost updates in
-    // the `_count` that tags.list reads) and would race the probe below,
-    // inserting duplicate join rows.
-    for (const join of joins) {
-      if (!linkedTodoIds.has(join.todoId)) {
-        const existing = await ctx.orm.query.todoTags.findFirst({
-          where: { todoId: join.todoId, tagId: input.targetTagId },
-          columns: { id: true },
-        });
-
-        if (!existing) {
-          await ctx.orm.insert(todoTagsTable).values({
-            todoId: join.todoId,
-            tagId: input.targetTagId,
-          });
-        }
-
-        linkedTodoIds.add(join.todoId);
-      }
-
-      await ctx.orm.delete(todoTagsTable).where(eq(todoTagsTable.id, join.id));
-    }
-
-    // Delete source tag
-    await ctx.orm.delete(tagsTable).where(eq(tagsTable.id, input.sourceTagId));
+    await mergeTags(ctx, ctx.userId, input);
   });
 
 // Get most popular tags across all users
