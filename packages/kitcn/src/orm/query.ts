@@ -2591,6 +2591,18 @@ export class GelRelationalQuery<
     );
   }
 
+  /**
+   * The declared index a stream read can walk to emit `field` in order.
+   *
+   * A stream orders by the index it scans, so only an index that leads with
+   * the field produces that order.
+   */
+  private _findStreamOrderIndex(field: string) {
+    return getIndexes(this.tableConfig.table).find(
+      (index) => index.fields[0] === field
+    );
+  }
+
   private _buildBasePipelineStream(
     queryConfig: {
       index?: { name: string; filters: FilterExpression<boolean>[] };
@@ -2625,10 +2637,11 @@ export class GelRelationalQuery<
         configuredIndex.name as any,
         configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
       );
-    } else if (primaryOrder && primaryOrder.field !== '_creationTime') {
-      const orderIndex = getIndexes(this.tableConfig.table).find(
-        (idx) => idx.fields[0] === primaryOrder.field
-      );
+    } else if (
+      primaryOrder &&
+      primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD
+    ) {
+      const orderIndex = this._findStreamOrderIndex(primaryOrder.field);
       if (orderIndex) {
         streamQuery = streamQuery.withIndex(
           orderIndex.name as any,
@@ -5547,15 +5560,33 @@ export class GelRelationalQuery<
           );
         }
       } else {
-        if (
-          isCursorPaginated &&
-          maxScan !== undefined &&
-          idLookup?.kind === 'in' &&
-          queryConfig.order?.[0] !== undefined
-        ) {
-          throw new Error(
-            'An id IN pipeline cannot combine orderBy with maxScan, because ordering an id list by creation time requires reading every id in the list.'
-          );
+        const orderedIdList =
+          isCursorPaginated && maxScan !== undefined && idLookup?.kind === 'in'
+            ? queryConfig.order?.[0]
+            : undefined;
+        if (orderedIdList) {
+          // `maxScan` bounds a scan, so it only holds for an order a scan can
+          // deliver. Creation order is not one: an id carries no creation
+          // time, so `_buildIdLookupStream` reads the whole list up front.
+          if (orderedIdList.field === INTERNAL_CREATION_TIME_FIELD) {
+            throw new Error(
+              'An id IN pipeline cannot combine orderBy on createdAt with maxScan, because ordering an id list by creation time requires reading every id in the list. Drop maxScan, or drop orderBy to page in id-list order at one read per row.'
+            );
+          }
+          // Any other order is served by walking an index, which `maxScan`
+          // does bound — but only the index the scan actually walks orders
+          // the rows, so the order has to be a single field that an index
+          // leads with and no other index may be pinned.
+          if (
+            queryConfig.order?.length !== 1 ||
+            configuredIndex?.name ||
+            queryConfig.index ||
+            !this._findStreamOrderIndex(orderedIdList.field)
+          ) {
+            throw new Error(
+              `An id IN pipeline cannot combine orderBy on ${this._toPublicFilterFieldName(orderedIdList.field)} with maxScan, because the scan cannot produce that order. It needs a single orderBy field that an index leads with, and no index pinned by withIndex().`
+            );
+          }
         }
         streamQuery =
           (await this._buildIdLookupStream({

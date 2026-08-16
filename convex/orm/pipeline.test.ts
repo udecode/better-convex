@@ -888,6 +888,115 @@ test('select() honors maxScan on id-list pagination', async () => {
   });
 });
 
+test('select() honors maxScan on an id list ordered by an index', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+  // Titles run against creation order, so a creation-time walk cannot pass.
+  const titles = ['title-e', 'title-d', 'title-c', 'title-b', 'title-a'];
+
+  await t.run(async (baseCtx) => {
+    for (const [i, title] of titles.entries()) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+          title,
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const perPageReads: number[] = [];
+    const walked: string[] = [];
+    let cursor: string | null = null;
+
+    for (let page = 0; page < 6; page += 1) {
+      const reads = countDocumentReads(baseCtx);
+      const result = await ctx.orm.query.posts
+        .select()
+        .where({ id: { in: [ids[0], ids[2], ids[4]] as string[] } })
+        .orderBy({ title: 'asc' })
+        .map((row) => ({ onlyTitle: row.title }))
+        .paginate({ cursor, limit: 2, maxScan: 2 });
+      perPageReads.push(reads.documents);
+      walked.push(...result.page.map((row) => row.onlyTitle as string));
+      cursor = result.continueCursor;
+      if (result.isDone) {
+        break;
+      }
+    }
+
+    expect(walked).toEqual(['title-a', 'title-c', 'title-e']);
+    for (const documents of perPageReads) {
+      expect(documents).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+test('select() rejects maxScan on an id list ordered by createdAt', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 3; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: 0,
+          type: 'text',
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    await expect(
+      ctx.orm.query.posts
+        .select()
+        .where({ id: { in: ids } })
+        .orderBy({ createdAt: 'asc' })
+        .map((row) => row)
+        .paginate({ cursor: null, limit: 1, maxScan: 1 })
+    ).rejects.toThrow(/orderBy on createdAt with maxScan/);
+  });
+});
+
+test('select() rejects maxScan on an id list ordered without an index', async () => {
+  const t = convexTest(schema);
+  const ids: string[] = [];
+
+  await t.run(async (baseCtx) => {
+    for (let i = 0; i < 3; i += 1) {
+      ids.push(
+        await baseCtx.db.insert('posts', {
+          text: `t${i}`,
+          numLikes: i,
+          type: 'text',
+        })
+      );
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    // No index leads with numLikes, so the scan cannot emit that order.
+    await expect(
+      ctx.orm.query.posts
+        .select()
+        .where({ id: { in: ids } })
+        .orderBy({ numLikes: 'asc' })
+        .map((row) => row)
+        .paginate({ cursor: null, limit: 1, maxScan: 1 })
+    ).rejects.toThrow(/cannot produce that order/);
+  });
+});
+
 test('select() flatMap runs off an id-only where without scanning', async () => {
   const t = convexTest(schema);
   let authorId = '';
