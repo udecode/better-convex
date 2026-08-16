@@ -398,10 +398,6 @@ export class ConvexDeleteBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
-    // Scoped to this statement: policy expressions are row-invariant, but they
-    // can embed state a later write in this same transaction invalidates.
-    const rlsResolution = createRlsPolicyResolutionCache();
-
     let rows: Record<string, unknown>[];
     let continueCursor: string | null = null;
     let isDone = true;
@@ -591,6 +587,9 @@ export class ConvexDeleteBuilder<
     const fkBatchSize = isPaginated ? pagination.limit : batchSize;
 
     for (const row of rows) {
+      // Each iteration deletes before the next policy check, so stateful
+      // policies need a fresh resolution for every row.
+      const rlsResolution = createRlsPolicyResolutionCache();
       if (
         !(await canDeleteRow({
           cache: rlsResolution,

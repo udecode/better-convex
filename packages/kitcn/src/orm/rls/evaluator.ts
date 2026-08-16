@@ -30,8 +30,9 @@ type EvaluatePolicyInput = {
  *
  * SECURITY: a resolved expression embeds the calling identity from `rls.ctx`,
  * and inside a mutation it can embed state a later write invalidates. Scope one
- * cache to a single query execution or a single mutation statement — never to a
- * table, a module, an `RlsPolicy`, or the request-scoped ORM context.
+ * cache to a single query execution or write-free mutation decision phase —
+ * never across writes, or on a table, module, `RlsPolicy`, or request-scoped
+ * ORM context.
  */
 export type RlsPolicyResolutionCache = {
   applicable: WeakMap<ConvexTable<any>, Map<RlsOperation, RlsPolicy[]>>;

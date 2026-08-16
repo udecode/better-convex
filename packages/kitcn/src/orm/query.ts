@@ -5190,7 +5190,7 @@ export class GelRelationalQuery<
     // resolved before an intervening write must not decide visibility after it.
     // Claiming the instance synchronously also isolates concurrent awaits.
     if (this._executionClaimed) {
-      return await this._forExecution().execute();
+      return this._forExecution().execute();
     }
     this._executionClaimed = true;
 
@@ -7102,15 +7102,11 @@ export class GelRelationalQuery<
     }
   }
 
-  private async _mapWithConcurrency<T, R>(
+  private _mapWithConcurrency<T, R>(
     items: T[],
     worker: (item: T, index: number) => Promise<R>
   ): Promise<R[]> {
-    return await mapWithConcurrency(
-      items,
-      this._getRelationConcurrency(),
-      worker
-    );
+    return mapWithConcurrency(items, this._getRelationConcurrency(), worker);
   }
 
   /**

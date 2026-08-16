@@ -391,6 +391,13 @@ function writerWithHooks(
           value,
           hookCtx
         );
+        // A before hook can write this document through `innerDb`. Re-read
+        // only in that case so after/change hooks derive from the actual
+        // pre-patch document instead of erasing those raw writes locally.
+        const currentDoc =
+          needsDocuments && tableHooks.update?.before
+            ? await innerDb.get(tableName as any, id as any)
+            : oldDoc;
 
         await innerDb.patch(tableName as any, id as any, updatePayload as any);
 
@@ -399,7 +406,7 @@ function writerWithHooks(
         }
 
         const newDoc = applyPatchLocally(
-          oldDoc as AnyRecord,
+          (currentDoc ?? oldDoc) as AnyRecord,
           updatePayload as AnyRecord
         );
         const oldDocWithId = withPublicIdAlias(oldDoc as AnyRecord, id as any);

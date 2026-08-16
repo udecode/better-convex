@@ -12,9 +12,9 @@
   bounded pool instead of one round trip at a time. Tables with hooks keep
   their strict write order.
 - Improve read throughput on row-level-security tables. Policy `using` /
-  `withCheck` callbacks now run once per query or mutation statement instead of
-  once per row, so an `async` policy that reads the database no longer issues
-  one read per returned row.
+  `withCheck` callbacks run once per query execution or write-free mutation
+  decision batch instead of once per returned row. Multi-row insert and delete
+  re-resolve stateful policies after each write.
 - Fix row-level-security visibility when one query object is awaited more than
   once. Every await re-resolves the table's policies, so a policy that reads
   the database sees writes made between the two awaits.

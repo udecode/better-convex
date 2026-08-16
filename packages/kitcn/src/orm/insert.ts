@@ -173,9 +173,6 @@ export class ConvexInsertBuilder<
           )
         : undefined;
     const results: Record<string, unknown>[] = [];
-    // Scoped to this statement: policy expressions are row-invariant, but they
-    // can embed state a later write in this same transaction invalidates.
-    const rlsResolution = createRlsPolicyResolutionCache();
     for (const value of this.valuesList) {
       const preparedValue = normalizeDateFieldsForWrite(
         this.table,
@@ -184,6 +181,9 @@ export class ConvexInsertBuilder<
       enforcePolymorphicWrite(this.table, preparedValue as any);
       const rls = ormContext?.rls;
       const tableName = getTableName(this.table);
+      // Each iteration can write before the next policy check. Keep one cache
+      // across this row's insert/conflict decision, never across rows.
+      const rlsResolution = createRlsPolicyResolutionCache();
 
       if (
         !(await canInsertRow({

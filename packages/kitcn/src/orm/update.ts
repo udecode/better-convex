@@ -407,8 +407,8 @@ export class ConvexUpdateBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'update', rls });
-    // Scoped to this statement: policy expressions are row-invariant, but they
-    // can embed state a later write in this same transaction invalidates.
+    // Every policy decision completes before the first write, so this cache is
+    // scoped to one immutable decision phase.
     const rlsResolution = createRlsPolicyResolutionCache();
 
     const onUpdateSet: Record<string, unknown> = {};

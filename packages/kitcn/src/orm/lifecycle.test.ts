@@ -378,6 +378,61 @@ describe('orm lifecycle hooks', () => {
     });
   });
 
+  test('update hooks include same-document writes from before hooks', async () => {
+    const tableName = 'users_lifecycle_before_update_inner_write_test';
+    let id = '';
+    const observed: Record<string, unknown>[] = [];
+    const { schema } = createUsersSchema(
+      tableName,
+      {
+        name: text().notNull(),
+        touched: text(),
+      },
+      {
+        update: {
+          before: async (
+            _data: Record<string, unknown>,
+            hookCtx: Record<string, unknown>
+          ) => {
+            await (hookCtx.innerDb as GenericDatabaseWriter<any>).patch(
+              tableName as any,
+              id as any,
+              { touched: 'from-before' } as any
+            );
+          },
+          after: async (doc: Record<string, unknown>) => {
+            observed.push(doc);
+          },
+        },
+        change: async (change: { newDoc: Record<string, unknown> | null }) => {
+          if (change.newDoc) {
+            observed.push(change.newDoc);
+          }
+        },
+      }
+    );
+
+    const orm = createOrm({ schema });
+    const { writer } = createWriter();
+    const ctx = orm.with({ db: writer } as any);
+
+    id = await ctx.db.insert(tableName, { name: 'Ada' } as any);
+    observed.length = 0;
+    await ctx.db.patch(tableName, id as any, { name: 'Grace' } as any);
+
+    expect(observed).toHaveLength(2);
+    expect(observed[0]).toMatchObject({
+      _id: id,
+      name: 'Grace',
+      touched: 'from-before',
+    });
+    expect(observed[1]).toMatchObject({
+      _id: id,
+      name: 'Grace',
+      touched: 'from-before',
+    });
+  });
+
   test('create.before can cancel writes by returning false', async () => {
     const { schema } = createUsersSchema(
       'users_lifecycle_before_create_cancel_test',
