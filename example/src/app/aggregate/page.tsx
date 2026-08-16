@@ -63,17 +63,6 @@ type RuntimeCoverageEntry = {
   probe: ProbeResult;
 };
 
-type EngineProbe = {
-  id: string;
-  label: string;
-  serialMs: number | null;
-  parallelMs: number | null;
-  parallelized: boolean | null;
-  note: string | null;
-  error: string | null;
-  errorCode: string | null;
-};
-
 function JsonBox({
   label,
   value,
@@ -236,11 +225,6 @@ export default function AggregatePage() {
     blocked: 0,
     missing: 0,
   };
-  const engineProbes = Object.values(
-    (snapshot?.engineBehavior as
-      | Record<'aggregate' | 'countSelect' | 'relationCount', EngineProbe>
-      | undefined) ?? {}
-  );
   const runtimeCoverage = (snapshot?.runtimeCoverage ??
     []) as RuntimeCoverageEntry[];
 
@@ -559,47 +543,6 @@ export default function AggregatePage() {
             );
           })}
         </div>
-
-        <div className="mt-6 grid @2xl:grid-cols-3 gap-3">
-          {engineProbes.map((probe) => (
-            <div
-              className="rounded-xl border border-border/60 bg-secondary/20 p-4"
-              key={probe.id}
-            >
-              <p className="font-medium text-sm">{probe.label}</p>
-              <div className="mt-2 space-y-1 text-xs">
-                <p className="text-muted-foreground">
-                  serial baseline:{' '}
-                  <span className="font-mono">{formatMs(probe.serialMs)}</span>
-                </p>
-                <p className="text-muted-foreground">
-                  combined query:{' '}
-                  <span className="font-mono">
-                    {formatMs(probe.parallelMs)}
-                  </span>
-                </p>
-                <p>
-                  parallelized:{' '}
-                  <span className="font-mono">
-                    {probe.parallelized === null
-                      ? 'n/a'
-                      : probe.parallelized
-                        ? 'yes'
-                        : 'no'}
-                  </span>
-                </p>
-                {probe.note ? (
-                  <p className="text-muted-foreground">{probe.note}</p>
-                ) : null}
-                {probe.error ? (
-                  <p className="font-mono text-destructive text-xs">
-                    {probe.error}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="mb-8 snap-start rounded-3xl border border-border/60 bg-background p-6 shadow-sm">
@@ -729,10 +672,6 @@ export default function AggregatePage() {
           <JsonBox
             label="parity summary"
             value={snapshot?.parity?.summary ?? {}}
-          />
-          <JsonBox
-            label="engine behavior"
-            value={snapshot?.engineBehavior ?? {}}
           />
         </div>
 

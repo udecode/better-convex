@@ -90,6 +90,7 @@ import {
   findSearchIndexByName,
   findVectorIndexByName,
   getIndexes,
+  resolveIndexOrderPushdown,
 } from './index-utils';
 import {
   getOrmContext,
@@ -102,6 +103,7 @@ import { QueryPromise } from './query-promise';
 import type { RelationsFieldFilter, RelationsFilter } from './relations';
 import {
   assertRlsRolesResolvable,
+  createRlsPolicyResolutionCache,
   filterSelectRows,
   isRlsEnabled,
 } from './rls/evaluator';
@@ -147,6 +149,7 @@ import {
   type IndexStrategy,
   WhereClauseCompiler,
 } from './where-clause-compiler';
+import { mapWithConcurrency } from './write-fanout';
 
 /**
  * Operators that Convex's `.filter()` cannot express, so `_toConvexExpression`
@@ -168,6 +171,13 @@ const POST_FETCH_ONLY_OPERATORS = new Set([
 ]);
 
 const DEFAULT_RELATION_FAN_OUT_MAX_KEYS = 1000;
+/**
+ * How many child rows the bounded relation stream filters at a time. Batching
+ * lets the sub-relation loader de-duplicate foreign keys and run its reads
+ * concurrently; the cost is reading at most `chunk - 1` rows past the one that
+ * satisfies the limit.
+ */
+const RELATION_FILTER_STREAM_CHUNK = 32;
 const DEFAULT_AGGREGATE_CARTESIAN_MAX_KEYS = 4096;
 const DEFAULT_AGGREGATE_WORK_BUDGET = 16_384;
 const PUBLIC_ID_FIELD = 'id';
@@ -177,6 +187,27 @@ const RELATION_COUNT_ERROR = {
   NOT_INDEXED: 'RELATION_COUNT_NOT_INDEXED',
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
+
+/**
+ * Physical-table-name lookup, keyed on schema identity. The schema is a
+ * module-level immutable, so the index outlives any single request.
+ */
+const tableConfigByDbNameCache = new WeakMap<
+  object,
+  Map<string, TableRelationalConfig>
+>();
+
+/**
+ * Read memos shared by every row of one `with._count` relation. Both are keyed
+ * on data that is constant for that relation, so a hit is always the answer the
+ * row would have computed for itself.
+ */
+type RelationCountCaches = {
+  /** Aggregate bucket documents, deduped across rows resolving to one bucket. */
+  buckets: PlanBucketReadCache;
+  /** Target key -> does that target satisfy the count's `where`. */
+  throughTargetMatches: Map<string, Promise<boolean>>;
+};
 
 /** A `where` that filters on nothing but the primary key. */
 type IdOnlyWhere = { kind: 'eq'; id: unknown } | { kind: 'in'; ids: unknown[] };
@@ -462,6 +493,61 @@ export class GelRankQuery<
   }
 }
 
+type ConfiguredIndexRangeOperation = {
+  field: string;
+  operator: 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
+};
+
+const CONFIGURED_INDEX_RANGE_OPERATORS = new Set<
+  ConfiguredIndexRangeOperation['operator']
+>(['eq', 'gt', 'gte', 'lt', 'lte']);
+
+const observeConfiguredIndexRange = (
+  builder: any,
+  operations: ConfiguredIndexRangeOperation[]
+): any =>
+  new Proxy(builder, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (
+        typeof property === 'string' &&
+        CONFIGURED_INDEX_RANGE_OPERATORS.has(
+          property as ConfiguredIndexRangeOperation['operator']
+        ) &&
+        typeof value === 'function'
+      ) {
+        return (field: string, ...args: unknown[]) => {
+          operations.push({
+            field,
+            operator: property as ConfiguredIndexRangeOperation['operator'],
+          });
+          return observeConfiguredIndexRange(
+            Reflect.apply(value, target, [field, ...args]),
+            operations
+          );
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+const countConfiguredIndexEqPrefix = (
+  indexFields: readonly string[] | null | undefined,
+  operations: readonly ConfiguredIndexRangeOperation[]
+) => {
+  if (!indexFields) {
+    return 0;
+  }
+  let count = 0;
+  for (const operation of operations) {
+    if (operation.operator !== 'eq' || operation.field !== indexFields[count]) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+};
+
 /**
  * Relational query builder with promise-based execution
  *
@@ -483,11 +569,34 @@ export class GelRelationalQuery<
     readonly result: TResult;
   };
   private allowFullScan: boolean;
-  private readonly _countIndexReadinessByKey = new Map<string, Promise<void>>();
-  private readonly _aggregateIndexReadinessByKey = new Map<
-    string,
-    Promise<void>
-  >();
+  /**
+   * Set synchronously by the first `execute()`. Later executions run on a fresh
+   * instance instead, which is what keeps execution-scoped state from leaking
+   * between two awaits of the same query object.
+   */
+  private _executionClaimed = false;
+  /**
+   * Scoped to one execution, because `_executionClaimed` diverts every later
+   * execution to its own instance. Within a run, every `_applyRlsSelectFilter`
+   * call shares it, including the streaming sites that pass a single row at a
+   * time — those would otherwise re-resolve the whole policy set per row.
+   *
+   * SECURITY: a resolved policy expression can embed database state that a
+   * later write invalidates, so it must never outlive the execution that
+   * resolved it.
+   */
+  private readonly _rlsPolicyResolution = createRlsPolicyResolutionCache();
+  /**
+   * Assigned in the constructor so callers that run many short-lived query
+   * instances against the same tables (mutation `returning({ _count })`) can
+   * share one readiness memo instead of re-probing per instance.
+   */
+  private readonly _countIndexReadinessByKey: Map<string, Promise<void>>;
+  /**
+   * Index readiness is a probe memo, not execution state, so `_forExecution`
+   * hands it to the next run rather than re-probing.
+   */
+  private _aggregateIndexReadinessByKey = new Map<string, Promise<void>>();
 
   constructor(
     private schema: TSchema,
@@ -511,10 +620,12 @@ export class GelRelationalQuery<
     private rls?: RlsContext,
     private relationLoading?: { concurrency?: number },
     private vectorSearchProvider?: VectorSearchProvider,
-    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
+    private configuredIndex?: PredicateWhereIndexConfig<TTableConfig>,
+    countIndexReadiness?: Map<string, Promise<void>>
   ) {
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
+    this._countIndexReadinessByKey = countIndexReadiness ?? new Map();
   }
 
   private _usesSystemCreatedAtAlias(
@@ -664,6 +775,7 @@ export class GelRelationalQuery<
     // Empty result sets still reach `filterSelectRows` so policy configuration
     // is validated independently of what the table currently stores.
     return await filterSelectRows({
+      cache: this._rlsPolicyResolution,
       table: tableConfig.table as any,
       rows,
       rls: this.rls,
@@ -801,11 +913,27 @@ export class GelRelationalQuery<
     return 0;
   }
 
+  /**
+   * Physical table name to relational config. Called once per row on the
+   * relation-count path, so the linear schema scan is indexed once per schema
+   * object rather than repeated. The schema is fixed for the process lifetime.
+   */
   private _getTableConfigByDbName(
     dbName: string
   ): TableRelationalConfig | undefined {
-    const tables = Object.values(this.schema) as TableRelationalConfig[];
-    return tables.find((table) => table.name === dbName);
+    let byDbName = tableConfigByDbNameCache.get(this.schema as object);
+    if (!byDbName) {
+      byDbName = new Map<string, TableRelationalConfig>();
+      for (const table of Object.values(
+        this.schema
+      ) as TableRelationalConfig[]) {
+        if (table?.name && !byDbName.has(table.name)) {
+          byDbName.set(table.name, table);
+        }
+      }
+      tableConfigByDbNameCache.set(this.schema as object, byDbName);
+    }
+    return byDbName.get(dbName);
   }
 
   private _matchLike(
@@ -5217,10 +5345,42 @@ export class GelRelationalQuery<
   }
 
   /**
+   * A second instance of the same query: identical configuration, its own
+   * execution-scoped state, the same index-readiness memos.
+   */
+  private _forExecution(): GelRelationalQuery<TSchema, TTableConfig, TResult> {
+    const next = new GelRelationalQuery<TSchema, TTableConfig, TResult>(
+      this.schema,
+      this.tableConfig,
+      this.edgeMetadata,
+      this.db,
+      this.config,
+      this.mode,
+      this._allEdges,
+      this.rls,
+      this.relationLoading,
+      this.vectorSearchProvider,
+      this.configuredIndex,
+      this._countIndexReadinessByKey
+    );
+    next._aggregateIndexReadinessByKey = this._aggregateIndexReadinessByKey;
+    return next;
+  }
+
+  /**
    * Execute the query and return results
    * Phase 4 implementation with WhereClauseCompiler integration
    */
   async execute(): Promise<TResult> {
+    // `QueryPromise.then()` calls this on every await, so one query object can
+    // run many times. Each run needs its own RLS policy resolution: a policy
+    // resolved before an intervening write must not decide visibility after it.
+    // Claiming the instance synchronously also isolates concurrent awaits.
+    if (this._executionClaimed) {
+      return this._forExecution().execute();
+    }
+    this._executionClaimed = true;
+
     const config = this.config as any;
     if (this.mode === 'count') {
       return (await this._executeCount(config)) as TResult;
@@ -5912,31 +6072,43 @@ export class GelRelationalQuery<
 
       // Check if orderBy field matches WHERE index
       if (primaryOrder) {
-        const orderField = primaryOrder.field;
-        const indexFields = queryConfig.index.filters.map(
-          (f: any) => (f as any).operands[0].fieldName
-        );
-        // _creationTime is always available as index ordering suffix in Convex.
-        // If ordering by same field as index (or _creationTime), apply .order().
-        if (
-          indexFields.includes(orderField) ||
-          orderField === '_creationTime'
-        ) {
-          query = query.order(primaryOrder.direction);
+        const pushdownDirection = resolveIndexOrderPushdown({
+          indexFields: indexConfig.fields,
+          pinnedEqCount: this._indexEqPrefixCount(queryConfig),
+          orderSpecs: [primaryOrder],
+        });
+        if (pushdownDirection) {
+          query = query.order(pushdownDirection);
         } else {
           // Different field - need post-fetch sort
           needsPostFetchSortForPrimary = true;
         }
       }
     } else if (configuredIndex?.name) {
+      const configuredIndexFields = getIndexes(this.tableConfig.table).find(
+        (idx) => idx.name === configuredIndex.name
+      )?.fields;
+      const rangeOperations: ConfiguredIndexRangeOperation[] = [];
+      const configuredRange = configuredIndex.range;
       query = query.withIndex(
         configuredIndex.name as any,
-        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
+        configuredRange
+          ? (q: any) =>
+              configuredRange(observeConfiguredIndexRange(q, rangeOperations))
+          : (q: any) => q
       );
 
       if (primaryOrder) {
-        if (primaryOrder.field === '_creationTime') {
-          query = query.order(primaryOrder.direction);
+        const pushdownDirection = resolveIndexOrderPushdown({
+          indexFields: configuredIndexFields,
+          pinnedEqCount: countConfiguredIndexEqPrefix(
+            configuredIndexFields,
+            rangeOperations
+          ),
+          orderSpecs: [primaryOrder],
+        });
+        if (pushdownDirection) {
+          query = query.order(pushdownDirection);
         } else {
           needsPostFetchSortForPrimary = true;
         }
@@ -6121,6 +6293,58 @@ export class GelRelationalQuery<
       queryConfig.index &&
       !isCursorPaginated
     ) {
+      const probeOffset = config.offset ?? 0;
+      if (typeof probeOffset !== 'number') {
+        throw new Error('Only numeric offset is supported in kitcn ORM.');
+      }
+      const probeLimit = this._resolveNonPaginatedLimit(config);
+      // Convex counts `.filter()` matches towards `take`, but only for the
+      // filters it can actually carry; a residual one runs in JavaScript later
+      // and would make the bound size unfiltered rows. A residual expression
+      // also compiles to a `true` placeholder, which a surrounding `NOT` would
+      // turn into a predicate matching nothing, so it must not reach Convex at
+      // all — the JavaScript pass below applies the real thing.
+      const convexProbeFilters = queryConfig.postFilters.filter((filter) =>
+        this._isConvexEnforceableFilter(filter)
+      );
+      const probeHasResidualFilter =
+        convexProbeFilters.length !== queryConfig.postFilters.length;
+      // RLS and relation `where` run after the union is assembled and can drop
+      // rows, so a per-probe bound would under-fill the page. `mode: 'skip'`
+      // drops nothing and must not cost the bound.
+      //
+      // Only RELATION keys cost the bound. The plain-column part of `where` is
+      // already compiled into the probes and `postFilters`, and `postFilters`
+      // reaching Convex as `.filter()` is what `probeHasResidualFilter` above
+      // guarantees — so `take()` counts matching rows, not scanned ones.
+      // Testing `Boolean(whereFilter)` here would disable the bound for every
+      // `in`/`ne`/`notIn` query, since those only exist inside a `where`.
+      const probeHasPostFetchMembership =
+        this._hasSearchDisallowedRelationFilter(
+          whereFilter,
+          this.tableConfig
+        ) ||
+        (this.rls?.mode !== 'skip' &&
+          isRlsEnabled(this.tableConfig.table as any));
+      // Each probe is read in its own index order. Truncating one is only sound
+      // when that order is the requested order, so the global top-k is
+      // guaranteed to live inside the union of the per-probe top-k.
+      const probeOrderDirection = primaryOrder
+        ? resolveIndexOrderPushdown({
+            indexFields: queryConfig.index.fields,
+            pinnedEqCount: this._indexEqPrefixCount(queryConfig),
+            orderSpecs: [primaryOrder],
+          })
+        : null;
+      const probeBound =
+        probeLimit !== undefined &&
+        !probeHasResidualFilter &&
+        !probeHasPostFetchMembership &&
+        (postFetchOrders.length === 0 ||
+          (probeOrderDirection !== null && !hasSecondaryOrders))
+          ? probeOffset + probeLimit
+          : undefined;
+
       const probeRows = await Promise.all(
         queryConfig.probeFilters.map(async (probeFilters) => {
           let probeQuery: any = this.db
@@ -6133,10 +6357,14 @@ export class GelRelationalQuery<
               return indexQuery;
             });
 
-          if (queryConfig.postFilters.length > 0) {
+          if (probeBound !== undefined && probeOrderDirection) {
+            probeQuery = probeQuery.order(probeOrderDirection);
+          }
+
+          if (convexProbeFilters.length > 0) {
             probeQuery = probeQuery.filter((q: any) => {
               let result: any | null = null;
-              for (const filter of queryConfig.postFilters) {
+              for (const filter of convexProbeFilters) {
                 const filterFn = this._toConvexExpression(filter);
                 const expr = filterFn(q);
                 result = result ? q.and(result, expr) : expr;
@@ -6145,7 +6373,9 @@ export class GelRelationalQuery<
             });
           }
 
-          return await probeQuery.collect();
+          return probeBound === undefined
+            ? await probeQuery.collect()
+            : await probeQuery.take(probeBound);
         })
       );
 
@@ -6178,25 +6408,19 @@ export class GelRelationalQuery<
       }
 
       // Each probe is read in its own index order and the results are then
-      // concatenated, so the union has no meaningful global order: `.order()`
-      // on the discarded single query never applied. Always sort here, or
-      // `limit` slices an arbitrary window out of probe #1.
+      // concatenated, so the union has no meaningful global order. Always sort
+      // here, or `limit` slices an arbitrary window out of probe #1.
       if (postFetchOrders.length > 0) {
         rows = rows.sort((a: any, b: any) =>
           this._compareByOrderSpecs(a, b, postFetchOrders)
         );
       }
 
-      const offset = config.offset ?? 0;
-      if (typeof offset !== 'number') {
-        throw new Error('Only numeric offset is supported in kitcn ORM.');
+      if (probeOffset > 0) {
+        rows = rows.slice(probeOffset);
       }
-      const limit = this._resolveNonPaginatedLimit(config);
-      if (offset > 0) {
-        rows = rows.slice(offset);
-      }
-      if (limit !== undefined) {
-        rows = rows.slice(0, limit);
+      if (probeLimit !== undefined) {
+        rows = rows.slice(0, probeLimit);
       }
 
       const selectedRows = await this._finalizeRows(rows);
@@ -6571,6 +6795,16 @@ export class GelRelationalQuery<
     );
     const hasResidualPostFilter =
       convexPostFilters.length !== queryConfig.postFilters.length;
+    // RLS and relation `where` run in JavaScript after the read and can drop
+    // rows, so a `take()` sized on scanned rows under-fills the page: three
+    // hidden rows first and `limit: 3` returns nothing. Same reasoning as the
+    // multi-probe bound above, and the same test for it — a plain-column
+    // `where` is already in the index scan and `.filter()`, and `mode: 'skip'`
+    // drops nothing.
+    const hasPostFetchMembership =
+      this._hasSearchDisallowedRelationFilter(whereFilter, this.tableConfig) ||
+      (this.rls?.mode !== 'skip' &&
+        isRlsEnabled(this.tableConfig.table as any));
     if (convexPostFilters.length > 0) {
       query = query.filter((q: any) => {
         // Combine all post-filters with AND logic
@@ -6597,11 +6831,12 @@ export class GelRelationalQuery<
 
     // A residual filter runs in JavaScript, so `query.take(limit)` would spend
     // the whole budget on unfiltered rows and return mostly (often entirely)
-    // non-matching ones. Offset has the same problem: it must skip matches, not
-    // scanned rows. So when a residual filter is present, sizing moves after the
-    // JavaScript pass.
+    // non-matching ones. RLS and relation `where` are the same shape of
+    // problem. Offset too: it must skip matches, not scanned rows. So whenever
+    // anything survives into JavaScript, sizing moves after that pass.
     const sizeAfterPostFilter =
-      hasResidualPostFilter && !paginateAfterPostFetchSort;
+      (hasResidualPostFilter || hasPostFetchMembership) &&
+      !paginateAfterPostFetchSort;
 
     // Read through a stream when we can: `filterWith` runs the predicate as rows
     // are pulled, so `take` still stops early but counts matches rather than
@@ -6626,7 +6861,8 @@ export class GelRelationalQuery<
     } else if (
       limit === undefined ||
       paginateAfterPostFetchSort ||
-      hasResidualPostFilter
+      hasResidualPostFilter ||
+      hasPostFetchMembership
     ) {
       // No stream available (no defineSchema()) or no limit to push down.
       // Correctness wins over the read bound: scan, then size below.
@@ -6712,7 +6948,11 @@ export class GelRelationalQuery<
   ): {
     table: string;
     strategy: IndexStrategy;
-    index?: { name: string; filters: FilterExpression<boolean>[] };
+    index?: {
+      name: string;
+      fields: string[];
+      filters: FilterExpression<boolean>[];
+    };
     probeFilters: FilterExpression<boolean>[][];
     postFilters: FilterExpression<boolean>[];
     order?: { direction: 'asc' | 'desc'; field: string }[];
@@ -6730,6 +6970,18 @@ export class GelRelationalQuery<
       tableIndexes
     );
 
+    // Resolved before index selection: which index is cheapest depends on
+    // whether it can also supply the requested order.
+    let orderSpecs: { direction: 'asc' | 'desc'; field: string }[] = [];
+    if (config.orderBy) {
+      const orderByValue =
+        typeof config.orderBy === 'function'
+          ? config.orderBy(this.tableConfig.table as any, { asc, desc })
+          : config.orderBy;
+
+      orderSpecs = this._orderBySpecs(orderByValue);
+    }
+
     // Compile where clause to FilterExpression (if present)
     let whereExpression: FilterExpression<boolean> | undefined =
       whereExpressionOverride;
@@ -6745,7 +6997,9 @@ export class GelRelationalQuery<
     }
 
     // Use compiler to split filters and select index
-    const planned = compiler.compile(whereExpression);
+    const planned = compiler.compile(whereExpression, {
+      orderFields: orderSpecs.map((spec) => spec.field),
+    });
     const plannedUsesIndex =
       !!planned.selectedIndex &&
       (planned.indexFilters.length > 0 || planned.probeFilters.length > 0);
@@ -6774,7 +7028,11 @@ export class GelRelationalQuery<
     const result: {
       table: string;
       strategy: IndexStrategy;
-      index?: { name: string; filters: FilterExpression<boolean>[] };
+      index?: {
+        name: string;
+        fields: string[];
+        filters: FilterExpression<boolean>[];
+      };
       probeFilters: FilterExpression<boolean>[][];
       postFilters: FilterExpression<boolean>[];
       order?: { direction: 'asc' | 'desc'; field: string }[];
@@ -6792,21 +7050,17 @@ export class GelRelationalQuery<
     ) {
       result.index = {
         name: compiled.selectedIndex.indexName,
+        // The index *shape* decides whether the scan is already in the
+        // requested order. Deriving it from the filters instead only ever sees
+        // the pinned prefix, which hides the suffix field Convex sorts by for
+        // free.
+        fields: compiled.selectedIndex.indexFields,
         filters: compiled.indexFilters,
       };
     }
 
-    // Compile orderBy (M5 implementation)
-    if (config.orderBy) {
-      const orderByValue =
-        typeof config.orderBy === 'function'
-          ? config.orderBy(this.tableConfig.table as any, { asc, desc })
-          : config.orderBy;
-
-      const orderSpecs = this._orderBySpecs(orderByValue);
-      if (orderSpecs.length > 0) {
-        result.order = orderSpecs;
-      }
+    if (orderSpecs.length > 0) {
+      result.order = orderSpecs;
     }
 
     return result;
@@ -6819,6 +7073,43 @@ export class GelRelationalQuery<
       return null;
     }
     return JSON.stringify(values);
+  }
+
+  /**
+   * How many leading fields of the scanned index are pinned to a single value.
+   *
+   * `splitFilters` emits index filters in index-key order — a run of `eq`, then
+   * at most one range on the first unpinned field — so the leading `eq` run is
+   * the prefix Convex holds constant. A multi-probe plan carries no index
+   * filters; each probe supplies its own bound instead, and the union is only
+   * as pinned as its least pinned probe.
+   */
+  private _indexEqPrefixCount(queryConfig: {
+    index?: { filters: FilterExpression<boolean>[] };
+    probeFilters: FilterExpression<boolean>[][];
+  }): number {
+    const countEqPrefix = (filters: FilterExpression<boolean>[]): number => {
+      let count = 0;
+      for (const filter of filters) {
+        if (filter.type !== 'binary' || filter.operator !== 'eq') {
+          break;
+        }
+        count += 1;
+      }
+      return count;
+    };
+
+    if (queryConfig.index && queryConfig.index.filters.length > 0) {
+      return countEqPrefix(queryConfig.index.filters);
+    }
+    if (queryConfig.probeFilters.length === 0) {
+      return 0;
+    }
+    let pinned = Number.POSITIVE_INFINITY;
+    for (const probe of queryConfig.probeFilters) {
+      pinned = Math.min(pinned, countEqPrefix(probe));
+    }
+    return Number.isFinite(pinned) ? pinned : 0;
   }
 
   private _buildIndexPredicate(
@@ -7148,31 +7439,11 @@ export class GelRelationalQuery<
     }
   }
 
-  private async _mapWithConcurrency<T, R>(
+  private _mapWithConcurrency<T, R>(
     items: T[],
     worker: (item: T, index: number) => Promise<R>
   ): Promise<R[]> {
-    if (items.length === 0) {
-      return [];
-    }
-    const limit = Math.min(this._getRelationConcurrency(), items.length);
-    const results = new Array<R>(items.length);
-    let nextIndex = 0;
-
-    const runWorker = async () => {
-      while (true) {
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= items.length) {
-          return;
-        }
-        results[index] = await worker(items[index], index);
-      }
-    };
-
-    await Promise.all(Array.from({ length: limit }, () => runWorker()));
-
-    return results;
+    return mapWithConcurrency(items, this._getRelationConcurrency(), worker);
   }
 
   /**
@@ -7341,25 +7612,6 @@ export class GelRelationalQuery<
     return record.where;
   }
 
-  private _normalizeRelationCountCacheValue(value: unknown): unknown {
-    if (Array.isArray(value)) {
-      return value.map((entry) =>
-        this._normalizeRelationCountCacheValue(entry)
-      );
-    }
-    if (value && typeof value === 'object') {
-      const normalized: Record<string, unknown> = {};
-      const entries = Object.entries(value as Record<string, unknown>).sort(
-        ([left], [right]) => left.localeCompare(right)
-      );
-      for (const [key, entry] of entries) {
-        normalized[key] = this._normalizeRelationCountCacheValue(entry);
-      }
-      return normalized;
-    }
-    return value;
-  }
-
   private _getRelationCountParentKey(
     row: any,
     edge: EdgeMetadata
@@ -7378,22 +7630,11 @@ export class GelRelationalQuery<
     return JSON.stringify(values);
   }
 
-  private _buildRelationCountExecutionKey(
-    relationName: string,
-    where: unknown,
-    parentKey: string
-  ): string {
-    return JSON.stringify({
-      relationName,
-      where: this._normalizeRelationCountCacheValue(where ?? null),
-      parentKey,
-    });
-  }
-
   private async _readIndexedRelationCount(
     tableConfig: TableRelationalConfig,
     where: Record<string, unknown>,
-    relationPath: string
+    relationPath: string,
+    bucketCache?: PlanBucketReadCache
   ): Promise<number> {
     ensureCountAllowedForRls(tableConfig, this.rls?.mode as any);
     try {
@@ -7402,7 +7643,7 @@ export class GelRelationalQuery<
         return 0;
       }
       await this._ensureCountIndexReadyOnce(plan.tableName, plan.indexName);
-      return await readCountFromBuckets(this.db as any, plan);
+      return await readCountFromBuckets(this.db as any, plan, bucketCache);
     } catch (error) {
       throw this._remapRelationCountError(error, relationPath);
     }
@@ -7413,9 +7654,11 @@ export class GelRelationalQuery<
     relationName: string,
     edge: EdgeMetadata,
     where: unknown,
-    tableConfig: TableRelationalConfig
+    tableConfig: TableRelationalConfig,
+    caches?: RelationCountCaches
   ): Promise<number> {
     const relationPath = `${tableConfig.name}.${relationName}`;
+    const bucketCache = caches?.buckets;
 
     if (edge.through) {
       const throughTableConfig = this._getTableConfigByDbName(
@@ -7450,7 +7693,8 @@ export class GelRelationalQuery<
         return await this._readIndexedRelationCount(
           throughTableConfig,
           throughWhere,
-          relationPath
+          relationPath,
+          bucketCache
         );
       }
 
@@ -7537,32 +7781,54 @@ export class GelRelationalQuery<
             this.allowFullScan
           );
 
-      const targetEntries = Array.from(targetKeyCounts.values());
+      const resolveTargetMatch = async (
+        values: unknown[]
+      ): Promise<boolean> => {
+        let target: any | null = null;
+        if (useGetById) {
+          target = await this._getById(edge.targetTable, values[0]);
+        } else {
+          const query = this._queryByFields(
+            this.db.query(edge.targetTable),
+            targetFields,
+            values,
+            targetIndexName
+          );
+          target = await query.first();
+        }
+        if (!target) {
+          return false;
+        }
+        return this._evaluateTableFilter(
+          target,
+          targetTableConfig,
+          whereRecord
+        );
+      };
+
+      // Parents routinely share targets — every member of a team resolves the
+      // same team document. The predicate is a pure function of the target and
+      // the relation's `where`, both fixed for this cache's lifetime, so each
+      // distinct target is read and evaluated once for the whole page.
+      const targetMatchCache = caches?.throughTargetMatches;
+      const targetEntries = Array.from(targetKeyCounts.entries());
       const matchedCounts = await this._mapWithConcurrency(
         targetEntries,
-        async ({ values, occurrences }) => {
-          let target: any | null = null;
-          if (useGetById) {
-            target = await this._getById(edge.targetTable, values[0]);
-          } else {
-            const query = this._queryByFields(
-              this.db.query(edge.targetTable),
-              targetFields,
-              values,
-              targetIndexName
-            );
-            target = await query.first();
+        async ([targetKey, { values, occurrences }]) => {
+          if (!targetMatchCache) {
+            return (await resolveTargetMatch(values)) ? occurrences : 0;
           }
-          if (!target) {
-            return 0;
+          let pending = targetMatchCache.get(targetKey);
+          if (!pending) {
+            pending = resolveTargetMatch(values);
+            targetMatchCache.set(targetKey, pending);
           }
-          return this._evaluateTableFilter(
-            target,
-            targetTableConfig,
-            whereRecord
-          )
-            ? occurrences
-            : 0;
+          try {
+            return (await pending) ? occurrences : 0;
+          } catch (error) {
+            targetMatchCache.delete(targetKey);
+            throw error;
+          }
         }
       );
 
@@ -7603,7 +7869,8 @@ export class GelRelationalQuery<
     return await this._readIndexedRelationCount(
       targetTableConfig,
       mergedWhere,
-      relationPath
+      relationPath,
+      bucketCache
     );
   }
 
@@ -7659,7 +7926,15 @@ export class GelRelationalQuery<
           relationName,
           relationSelection
         );
+        // `relationName` and `where` are fixed for this map's whole lifetime,
+        // so the parent key alone identifies an entry.
         const relationCountExecutionCache = new Map<string, Promise<number>>();
+        // Scoped to one relation of one read, where the relation's `where` and
+        // target table are constant, which is what makes both entries sound.
+        const caches: RelationCountCaches = {
+          buckets: new Map(),
+          throughTargetMatches: new Map(),
+        };
 
         const counts = await this._mapWithConcurrency(rows, async (row) => {
           const parentKey = this._getRelationCountParentKey(row, edge);
@@ -7667,12 +7942,7 @@ export class GelRelationalQuery<
             return 0;
           }
 
-          const executionKey = this._buildRelationCountExecutionKey(
-            relationName,
-            where,
-            parentKey
-          );
-          const existing = relationCountExecutionCache.get(executionKey);
+          const existing = relationCountExecutionCache.get(parentKey);
           if (existing) {
             return await existing;
           }
@@ -7682,13 +7952,14 @@ export class GelRelationalQuery<
             relationName,
             edge,
             where,
-            tableConfig
+            tableConfig,
+            caches
           );
-          relationCountExecutionCache.set(executionKey, pending);
+          relationCountExecutionCache.set(parentKey, pending);
           try {
             return await pending;
           } catch (error) {
-            relationCountExecutionCache.delete(executionKey);
+            relationCountExecutionCache.delete(parentKey);
             throw error;
           }
         });
@@ -7892,6 +8163,196 @@ export class GelRelationalQuery<
         ? (selectedTargetsByKey.get(rowKey) ?? null)
         : null;
     }
+  }
+
+  /**
+   * Junction links per parent, stopped once each parent holds `fetchLimit`
+   * links whose target actually reaches the page.
+   *
+   * A link only contributes if its target exists and survives target RLS and
+   * the relation `where` — all of which run after the junction read. Sizing the
+   * read on links alone therefore under-fills: three dangling or filtered links
+   * first and `{ limit: 3 }` returns nothing. So the read is refilled in rounds,
+   * each round resolving only the targets it newly needs and asking again for
+   * whatever the survivors did not cover.
+   *
+   * Rounds are the unit rather than single links because both the target fetch
+   * and the relation `where` de-duplicate and batch their own reads across the
+   * parents in the round.
+   */
+  private async _readBoundedThroughLinks(params: {
+    /** `[sourceKey, sourceFieldValues]` for every distinct parent. */
+    entries: [string, unknown[]][];
+    edge: EdgeMetadata;
+    throughTableConfig: TableRelationalConfig;
+    throughIndexName: string | null;
+    /** Fields the target is keyed by, matching `edge.through.targetFields`. */
+    targetFields: string[];
+    fetchTargets: (
+      keyEntries: [string, unknown[]][]
+    ) => Promise<{ key: string; target: any }[]>;
+    applyTargetFilters: (targets: any[]) => Promise<any[]>;
+    /** Per-parent `offset + limit`, in surviving links. */
+    fetchLimit: number;
+    enforceTargetKeyCap: (keyCount: number) => void;
+  }): Promise<{ linksBySourceKey: Map<string, any[]>; targets: any[] }> {
+    const {
+      applyTargetFilters,
+      edge,
+      enforceTargetKeyCap,
+      entries,
+      fetchLimit,
+      fetchTargets,
+      targetFields,
+      throughIndexName,
+      throughTableConfig,
+    } = params;
+    const throughTargetFields = edge.through!.targetFields;
+
+    const cursors = entries.map(([key, values]) => ({
+      /** Visible links pulled but not yet classified. Never dropped. */
+      buffered: [] as any[],
+      exhausted: false,
+      iterator: this._queryByFields(
+        this.db.query(edge.through!.table),
+        edge.through!.sourceFields,
+        values,
+        throughIndexName
+      )[Symbol.asyncIterator]() as AsyncIterator<any>,
+      key,
+      /** Links whose target reached the page, in junction order. */
+      links: [] as any[],
+    }));
+    type LinkCursor = (typeof cursors)[number];
+
+    // Junction-table RLS also drops rows after the read, so the buffer counts
+    // visible links rather than scanned ones.
+    const bufferVisibleLinks = async (cursor: LinkCursor, count: number) => {
+      let batch: any[] = [];
+      const drain = async () => {
+        const visible = await this._applyRlsSelectFilter(
+          batch,
+          throughTableConfig
+        );
+        batch = [];
+        cursor.buffered.push(...visible);
+      };
+      while (
+        !cursor.exhausted &&
+        cursor.buffered.length + batch.length < count
+      ) {
+        const next = await cursor.iterator.next();
+        if (next.done) {
+          cursor.exhausted = true;
+          break;
+        }
+        batch.push(next.value);
+        if (batch.length >= RELATION_FILTER_STREAM_CHUNK) {
+          await drain();
+        }
+      }
+      // Runs even for an empty batch: that is also what validates policy
+      // configuration on an empty partition, matching the unbounded read.
+      await drain();
+    };
+
+    /** Target key -> the surviving document, absent when it did not survive. */
+    const survivorByKey = new Map<string, any>();
+    const resolvedKeys = new Set<string>();
+    const survivors: any[] = [];
+
+    while (true) {
+      const active = cursors.filter(
+        (cursor) =>
+          cursor.links.length < fetchLimit &&
+          !(cursor.exhausted && cursor.buffered.length === 0)
+      );
+      if (active.length === 0) {
+        break;
+      }
+
+      const candidatesPerCursor = await this._mapWithConcurrency(
+        active,
+        async (cursor) => {
+          const need = fetchLimit - cursor.links.length;
+          await bufferVisibleLinks(cursor, need);
+          return cursor.buffered.splice(0, need);
+        }
+      );
+
+      const newKeys = new Map<string, unknown[]>();
+      for (const candidates of candidatesPerCursor) {
+        for (const link of candidates) {
+          const values = throughTargetFields.map((field) => link[field]);
+          if (values.some((value) => value === null || value === undefined)) {
+            continue;
+          }
+          const key = JSON.stringify(values);
+          if (resolvedKeys.has(key) || newKeys.has(key)) {
+            continue;
+          }
+          newKeys.set(key, values);
+        }
+      }
+
+      if (newKeys.size > 0) {
+        enforceTargetKeyCap(resolvedKeys.size + newKeys.size);
+        const fetched = await fetchTargets(Array.from(newKeys.entries()));
+        for (const key of newKeys.keys()) {
+          resolvedKeys.add(key);
+        }
+        const surviving = await applyTargetFilters(
+          fetched
+            .map((entry) => entry.target)
+            .filter((target): target is any => !!target)
+        );
+        for (const target of surviving) {
+          const key = this._buildRelationKey(target, targetFields);
+          if (!key || survivorByKey.has(key)) {
+            continue;
+          }
+          survivorByKey.set(key, target);
+          survivors.push(target);
+        }
+      }
+
+      for (let i = 0; i < active.length; i += 1) {
+        const cursor = active[i];
+        for (const link of candidatesPerCursor[i]) {
+          if (cursor.links.length >= fetchLimit) {
+            break;
+          }
+          const key = this._buildRelationKey(link, throughTargetFields);
+          if (!key || !survivorByKey.has(key)) {
+            continue;
+          }
+          cursor.links.push(link);
+        }
+      }
+    }
+
+    const linksBySourceKey = new Map<string, any[]>();
+    const usedKeys = new Set<string>();
+    for (const cursor of cursors) {
+      linksBySourceKey.set(cursor.key, cursor.links);
+      for (const link of cursor.links) {
+        const key = this._buildRelationKey(link, throughTargetFields);
+        if (key) {
+          usedKeys.add(key);
+        }
+      }
+    }
+
+    // A round can survive more targets than the parents that triggered it end
+    // up keeping. Dropping the leftovers here keeps the nested `with` and the
+    // next fan-out level sized to the page.
+    return {
+      linksBySourceKey,
+      targets: survivors.filter((target) => {
+        const key = this._buildRelationKey(target, targetFields);
+        return key !== null && usedKeys.has(key);
+      }),
+    };
   }
 
   /**
@@ -8105,82 +8566,128 @@ export class GelRelationalQuery<
       );
 
       const entries = Array.from(sourceKeyMap.entries());
-      const throughRowsPerSource = await this._mapWithConcurrency(
-        entries,
-        async ([key, values]) => {
-          const query = this._queryByFields(
-            this.db.query(edge.through!.table),
-            edge.through!.sourceFields,
-            values,
-            throughIndexName
-          );
-          const throughRows = await this._applyRlsSelectFilter(
-            await query.collect(),
-            throughTableConfig
-          );
-          return { key, rows: throughRows };
+      const enforceTargetKeyCap = (keyCount: number) =>
+        this._enforceRelationFanOutKeyCap({
+          tableConfig,
+          relationName,
+          keyCount,
+          scope: 'through-target',
+        });
+
+      // Resolved on first use so an empty junction partition still costs
+      // nothing and never reports a missing target index.
+      let targetLookup: {
+        useGetById: boolean;
+        indexName: string | null;
+      } | null = null;
+      const fetchThroughTargets = async (
+        keyEntries: [string, unknown[]][]
+      ): Promise<{ key: string; target: any }[]> => {
+        if (!targetLookup) {
+          const useGetById =
+            targetFields.length === 1 && targetFields[0] === '_id';
+          targetLookup = {
+            useGetById,
+            indexName: useGetById
+              ? null
+              : findRelationIndex(
+                  targetTableConfig.table as any,
+                  targetFields,
+                  `${tableConfig.name}.${relationName}`,
+                  edge.targetTable,
+                  strict,
+                  this.allowFullScan
+                ),
+          };
         }
-      );
-
-      throughBySourceKey = new Map<string, any[]>();
-      const targetKeyMap = new Map<string, unknown[]>();
-      for (const entry of throughRowsPerSource) {
-        throughBySourceKey.set(entry.key, entry.rows);
-        for (const row of entry.rows) {
-          const values = edge.through!.targetFields.map((field) => row[field]);
-          if (values.some((value) => value === null || value === undefined)) {
-            continue;
-          }
-          const key = JSON.stringify(values);
-          if (!targetKeyMap.has(key)) {
-            targetKeyMap.set(key, values);
-          }
-        }
-      }
-      this._enforceRelationFanOutKeyCap({
-        tableConfig,
-        relationName,
-        keyCount: targetKeyMap.size,
-        scope: 'through-target',
-      });
-
-      if (targetKeyMap.size > 0) {
-        const useGetById =
-          targetFields.length === 1 && targetFields[0] === '_id';
-        const targetIndexName = useGetById
-          ? null
-          : findRelationIndex(
-              targetTableConfig.table as any,
-              targetFields,
-              `${tableConfig.name}.${relationName}`,
-              edge.targetTable,
-              strict,
-              this.allowFullScan
-            );
-
-        const targetEntries = Array.from(targetKeyMap.entries());
-        const fetchedTargets = await this._mapWithConcurrency(
-          targetEntries,
+        const { useGetById, indexName } = targetLookup;
+        return await this._mapWithConcurrency(
+          keyEntries,
           async ([key, values]) => {
             let target: any | null = null;
             if (useGetById) {
               target = await this._getById(edge.targetTable, values[0]);
             } else {
-              const query = this._queryByFields(
+              target = await this._queryByFields(
                 this.db.query(edge.targetTable),
                 targetFields,
                 values,
-                targetIndexName
-              );
-              target = await query.first();
+                indexName
+              ).first();
             }
             return { key, target };
           }
         );
+      };
 
-        targets = fetchedTargets
-          .map((entry) => entry.target)
-          .filter((value): value is any => !!value);
+      // `orderBy` on a through relation sorts by *target* columns, which the
+      // junction index knows nothing about, so that case still needs the whole
+      // partition. Every other shape can stop at the page the caller asked for
+      // instead of reading every link of every parent.
+      const boundJunctionRead =
+        orderSpecs.length === 0 && effectivePerParentLimit !== undefined;
+
+      if (boundJunctionRead) {
+        const bounded = await this._readBoundedThroughLinks({
+          applyTargetFilters: applyPostFetchTargetFilters,
+          edge,
+          enforceTargetKeyCap,
+          entries,
+          fetchLimit:
+            Math.max(perParentOffset ?? 0, 0) + effectivePerParentLimit!,
+          fetchTargets: fetchThroughTargets,
+          targetFields,
+          throughIndexName,
+          throughTableConfig,
+        });
+        throughBySourceKey = bounded.linksBySourceKey;
+        targets = bounded.targets;
+        targetFiltersApplied = true;
+      } else {
+        const throughRowsPerSource = await this._mapWithConcurrency(
+          entries,
+          async ([key, values]) => {
+            const query = this._queryByFields(
+              this.db.query(edge.through!.table),
+              edge.through!.sourceFields,
+              values,
+              throughIndexName
+            );
+            const throughRows = await this._applyRlsSelectFilter(
+              await query.collect(),
+              throughTableConfig
+            );
+            return { key, rows: throughRows };
+          }
+        );
+
+        throughBySourceKey = new Map<string, any[]>();
+        const targetKeyMap = new Map<string, unknown[]>();
+        for (const entry of throughRowsPerSource) {
+          throughBySourceKey.set(entry.key, entry.rows);
+          for (const row of entry.rows) {
+            const values = edge.through!.targetFields.map(
+              (field) => row[field]
+            );
+            if (values.some((value) => value === null || value === undefined)) {
+              continue;
+            }
+            const key = JSON.stringify(values);
+            if (!targetKeyMap.has(key)) {
+              targetKeyMap.set(key, values);
+            }
+          }
+        }
+        enforceTargetKeyCap(targetKeyMap.size);
+
+        if (targetKeyMap.size > 0) {
+          const fetchedTargets = await fetchThroughTargets(
+            Array.from(targetKeyMap.entries())
+          );
+          targets = fetchedTargets
+            .map((entry) => entry.target)
+            .filter((value): value is any => !!value);
+        }
       }
     } else {
       const indexName = findRelationIndex(
@@ -8189,12 +8696,30 @@ export class GelRelationalQuery<
         `${tableConfig.name}.${relationName}`,
         edge.targetTable,
         strict,
-        this.allowFullScan
+        this.allowFullScan,
+        orderSpecs
       );
 
       const entries = Array.from(sourceKeyMap.entries());
+      // The FK is pinned by `eq`, so the rest of the index key is the child
+      // order Convex already walks. Resolved once for the whole relation, not
+      // per group: a per-group answer would make the global sort below unsound.
+      const orderPushdownDirection = resolveIndexOrderPushdown({
+        indexFields: indexName
+          ? (getIndexes(targetTableConfig.table as any).find(
+              (idx) => idx.name === indexName
+            )?.fields ?? null)
+          : null,
+        pinnedEqCount: targetFields.length,
+        orderSpecs,
+      });
+      const orderServedByIndex =
+        orderSpecs.length === 0 || orderPushdownDirection !== null;
+      const applyPushdownOrder = (query: any) =>
+        orderPushdownDirection ? query.order(orderPushdownDirection) : query;
+
       const streamPostFetchTargetFilters =
-        orderSpecs.length === 0 &&
+        orderServedByIndex &&
         hasPostFetchTargetFilter &&
         effectivePerParentLimit !== undefined;
       targetFiltersApplied = streamPostFetchTargetFilters;
@@ -8209,13 +8734,13 @@ export class GelRelationalQuery<
           );
 
           if (
-            orderSpecs.length === 0 &&
+            orderServedByIndex &&
             !hasPostFetchTargetFilter &&
             effectivePerParentLimit !== undefined
           ) {
             const fetchLimit =
               (perParentOffset ?? 0) + (effectivePerParentLimit ?? 0);
-            return await query.take(fetchLimit);
+            return await applyPushdownOrder(query).take(fetchLimit);
           }
 
           if (streamPostFetchTargetFilters) {
@@ -8223,12 +8748,33 @@ export class GelRelationalQuery<
             const fetchLimit =
               Math.max(perParentOffset ?? 0, 0) +
               (effectivePerParentLimit ?? 0);
-            for await (const target of query) {
-              const filtered = await applyPostFetchTargetFilters([target]);
-              if (filtered.length > 0) {
-                visibleTargets.push(filtered[0]);
-                if (visibleTargets.length >= fetchLimit) break;
+            let batch: any[] = [];
+            // Filtering one row at a time defeats the batching and foreign-key
+            // de-duplication `_applyRelationsFilterToRows` does, so drain the
+            // cursor in chunks. The chunk is never larger than the number of
+            // rows still needed, which keeps the read bound as tight as the
+            // one-at-a-time version while still letting the sub-reads batch.
+            const drain = async () => {
+              if (batch.length === 0) return;
+              const filtered = await applyPostFetchTargetFilters(batch);
+              batch = [];
+              for (const row of filtered) {
+                if (visibleTargets.length >= fetchLimit) return;
+                visibleTargets.push(row);
               }
+            };
+            for await (const target of applyPushdownOrder(query)) {
+              batch.push(target);
+              const chunk = Math.min(
+                RELATION_FILTER_STREAM_CHUNK,
+                fetchLimit - visibleTargets.length
+              );
+              if (batch.length < chunk) continue;
+              await drain();
+              if (visibleTargets.length >= fetchLimit) break;
+            }
+            if (visibleTargets.length < fetchLimit) {
+              await drain();
             }
             return visibleTargets;
           }
@@ -8246,6 +8792,40 @@ export class GelRelationalQuery<
 
     if (orderSpecs.length > 0) {
       targets.sort((a, b) => this._compareByOrderSpecs(a, b, orderSpecs));
+    }
+
+    // Trim to the per-parent page before the nested `with`, extras and column
+    // selection run. A child that is about to be sliced away should not pay for
+    // its own grandchild queries, and — because the surviving children are the
+    // next level's source keys — should not consume the fan-out budget either.
+    // Filtering and sorting must both have happened first, so this is the only
+    // sound insertion point.
+    //
+    // Through relations build their per-parent lists from junction rows further
+    // down instead, so grouping their globally deduped targets here would trim
+    // the wrong thing.
+    if (
+      !edge.through &&
+      (perParentOffset !== undefined || effectivePerParentLimit !== undefined)
+    ) {
+      const groupedTargets = new Map<string, any[]>();
+      for (const target of targets) {
+        const parentKey = this._buildRelationKey(target, targetFields);
+        if (!parentKey) continue;
+        const group = groupedTargets.get(parentKey);
+        if (group) {
+          group.push(target);
+        } else {
+          groupedTargets.set(parentKey, [target]);
+        }
+      }
+      const trimmed: any[] = [];
+      for (const children of groupedTargets.values()) {
+        for (const child of applyOffsetAndLimit(children)) {
+          trimmed.push(child);
+        }
+      }
+      targets = trimmed;
     }
 
     if (
@@ -8344,15 +8924,7 @@ export class GelRelationalQuery<
         byParentKey.get(parentKey)!.push(mappedTarget);
       }
 
-      // M6.5 Phase 3: Apply per-parent offset/limit
-      if (
-        perParentOffset !== undefined ||
-        effectivePerParentLimit !== undefined
-      ) {
-        for (const [parentKey, children] of byParentKey.entries()) {
-          byParentKey.set(parentKey, applyOffsetAndLimit(children));
-        }
-      }
+      // Offset/limit already applied above, before the nested loads.
 
       // Map relations back to parent rows
       for (const row of rows) {
@@ -8402,11 +8974,20 @@ export class GelRelationalQuery<
     }
 
     for (const row of rows) {
+      // Hydrate at most once per row and mirror each computed extra onto the
+      // public copy, so later extras still observe earlier ones without paying
+      // a fresh reshape per extra.
+      let publicRow: any;
       for (const [key, definition] of entries) {
-        row[key] =
-          typeof definition === 'function'
-            ? definition(this._toPublicRow(row, tableConfig))
-            : definition;
+        if (typeof definition === 'function') {
+          publicRow ??= this._toPublicRow(row, tableConfig);
+          row[key] = definition(publicRow);
+        } else {
+          row[key] = definition;
+        }
+        if (publicRow) {
+          publicRow[key] = row[key];
+        }
       }
     }
 

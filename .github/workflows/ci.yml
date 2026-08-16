@@ -43,19 +43,16 @@ jobs:
         with:
           generate: "true"
 
-      - name: ♻️ Setup Next.js cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/www/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/bun.lock') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
-          restore-keys: |
-            ${{ runner.os }}-nextjs-${{ hashFiles('**/bun.lock') }}-
-
       - name: 🧠 Validate Skills
         run: bun run intent:validate
 
       - name: 📦 Build Packages
         run: bun build:pkg
 
+      # KITCN_SKIP_LOCAL_BUILD is load-bearing on step order: it is only sound
+      # because "📦 Build Packages" runs immediately above. Keep it on this step
+      # and never job-wide.
       - name: 🔬 Run PR gate
         run: bun run check:ci
+        env:
+          KITCN_SKIP_LOCAL_BUILD: "1"

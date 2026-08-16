@@ -1,13 +1,14 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { execa } from 'execa';
 import { PARSE_SNAPSHOT_SUFFIX } from '../shared/meta-utils.js';
-import {
-  resolveConfiguredBackend,
-  resolveRunDeps,
-  withLocalCodegenEnv,
-} from './backend-core.js';
 import { generateMeta, getConvexConfig } from './codegen.js';
-import type { CliBackend } from './config.js';
+import {
+  type CliBackend,
+  loadCliConfig,
+  resolveConfiguredBackend,
+} from './config.js';
+import { withLocalCodegenEnv } from './local-env.js';
 import { logger } from './utils/logger.js';
 
 type WatcherLike = {
@@ -30,14 +31,55 @@ type WatcherCodegenParams = {
 };
 
 type WatcherCodegenDeps = {
+  execa?: typeof execa;
+  generateMeta?: typeof generateMeta;
+  loadCliConfig?: typeof loadCliConfig;
   resolveConfiguredBackendFn?: typeof resolveConfiguredBackend;
-  resolveRunDeps?: typeof resolveRunDeps;
 };
+
+function getConvexRoot(functionsDir: string): string {
+  const projectDir = path.resolve(process.cwd());
+  const relativeFunctionsDir = path.relative(projectDir, functionsDir);
+  const isNestedProjectPath =
+    relativeFunctionsDir.includes(path.sep) &&
+    relativeFunctionsDir !== '..' &&
+    !relativeFunctionsDir.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativeFunctionsDir);
+
+  return isNestedProjectPath ? path.dirname(functionsDir) : functionsDir;
+}
 
 export function getWatchRoots(functionsDir: string): string[] {
   // Watch the real roots. chokidar v5 dropped glob support.
-  const convexDir = path.dirname(functionsDir);
-  return [functionsDir, path.join(convexDir, 'routers')];
+  //
+  // Codegen jiti-imports every module under the functions dir, so an edit under
+  // a directory those modules import from changes emitted meta just as much as
+  // an edit to a function file. Convex modules import their builders from
+  // `lib/`, their contracts from `shared/` and their routes from `routers/`,
+  // all siblings of the functions dir inside the Convex root.
+  //
+  // Deriving them from the Convex root rather than the functions dir's parent
+  // name keeps them correct for any configured `convex.json` functions path.
+  // When the functions dir *is* the Convex root the siblings live inside it, so
+  // the containment filter collapses them back to a single root instead of
+  // watching unrelated project-root directories.
+  //
+  // Roots that do not exist yet are kept on purpose: chokidar v5 picks them up
+  // when they are created.
+  const functions = path.resolve(functionsDir);
+  const convexRoot = getConvexRoot(functions);
+  const roots = [
+    functions,
+    path.join(convexRoot, 'routers'),
+    path.join(convexRoot, 'lib'),
+    path.join(convexRoot, 'shared'),
+  ];
+
+  return roots.filter(
+    (root, index) =>
+      roots.indexOf(root) === index &&
+      !roots.some((other) => root.startsWith(`${other}${path.sep}`))
+  );
 }
 
 function parseWatcherBackendEnv(
@@ -143,14 +185,10 @@ export async function runWatcherCodegen(
   params: WatcherCodegenParams,
   deps: WatcherCodegenDeps = {}
 ) {
-  const resolveRunDepsFn = deps.resolveRunDeps ?? resolveRunDeps;
   const resolveConfiguredBackendFn =
     deps.resolveConfiguredBackendFn ?? resolveConfiguredBackend;
-  const {
-    execa: execaFn,
-    generateMeta: generateMetaFn,
-    loadCliConfig: loadCliConfigFn,
-  } = resolveRunDepsFn();
+  const generateMetaFn = deps.generateMeta ?? generateMeta;
+  const loadCliConfigFn = deps.loadCliConfig ?? loadCliConfig;
   const config = loadCliConfigFn(params.configPath);
   const backend = resolveConfiguredBackendFn({
     backendArg: params.backendArg,
@@ -188,6 +226,9 @@ export async function runWatcherCodegen(
     args.push('--debug');
   }
 
+  // Only the concave path shells out, so execa stays off the watcher's
+  // startup graph.
+  const execaFn = deps.execa ?? (await import('execa')).execa;
   const result = await execaFn(runtime, args, {
     cwd: process.cwd(),
     reject: false,

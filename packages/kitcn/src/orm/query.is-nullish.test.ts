@@ -8,7 +8,7 @@ import { integer } from './builders/number';
 import { text } from './builders/text';
 import { textEnum } from './builders/text-enum';
 import { timestamp } from './builders/timestamp';
-import { fieldRef, isNotNull, isNull } from './filter-expression';
+import { eq, fieldRef, isNotNull, isNull } from './filter-expression';
 import { aggregateIndex } from './indexes';
 import { GelRelationalQuery } from './query';
 import { OrmContext } from './symbols';
@@ -226,7 +226,15 @@ describe('GelRelationalQuery nullish filter compilation', () => {
     expect(row).not.toHaveProperty('_creationTime');
   });
 
-  it('allows cursor pagination ordering by _creationTime when a where index is used', async () => {
+  // Whether `_creationTime` order is servable depends on the index SHAPE, not
+  // on the field name. Convex appends `_creationTime` as the implicit trailing
+  // key, so scanning an index yields creation order only once every declared
+  // field ahead of it is pinned to a single value by `eq`.
+  const createCursorQuery = (index: {
+    name: string;
+    fields?: string[];
+    filters: unknown[];
+  }) => {
     const paginate = async () => ({
       page: [],
       continueCursor: null,
@@ -235,7 +243,7 @@ describe('GelRelationalQuery nullish filter compilation', () => {
 
     const queryBuilder: any = {
       withIndex: (_indexName: string, apply: (q: any) => any) => {
-        apply({});
+        apply({ eq: () => ({}) });
         return queryBuilder;
       },
       order: (_direction: 'asc' | 'desc') => queryBuilder,
@@ -260,13 +268,22 @@ describe('GelRelationalQuery nullish filter compilation', () => {
     (query as any)._toConvexQuery = () => ({
       table: users.tableName,
       strategy: 'singleIndex',
-      index: {
-        name: 'by_name',
-        filters: [],
-      },
+      index,
       probeFilters: [],
       postFilters: [],
       order: [{ field: '_creationTime', direction: 'desc' }],
+    });
+
+    return query;
+  };
+
+  it('allows cursor pagination ordering by _creationTime when the index prefix is fully eq-pinned', async () => {
+    // `by_name(name)` with `name` pinned leaves only the implicit
+    // `_creationTime` suffix to walk, so `.order('desc')` is servable.
+    const query = createCursorQuery({
+      name: 'by_name',
+      fields: ['name'],
+      filters: [eq(users.name, 'Alice')],
     });
 
     await expect(query.execute()).resolves.toMatchObject({
@@ -274,6 +291,19 @@ describe('GelRelationalQuery nullish filter compilation', () => {
       continueCursor: null,
       isDone: true,
     });
+  });
+
+  it('rejects cursor pagination ordering by _creationTime when the index prefix is unpinned', async () => {
+    // Scanning `by_name(name)` with nothing pinned yields name order, not
+    // creation order, so the sort needs a post-fetch pass that cursor
+    // pagination cannot serve.
+    const query = createCursorQuery({
+      name: 'by_name',
+      fields: ['name'],
+      filters: [],
+    });
+
+    await expect(query.execute()).rejects.toThrow();
   });
 
   it('keeps count cursor bounds on public createdAt alias', () => {

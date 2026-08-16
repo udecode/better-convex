@@ -152,6 +152,36 @@ export function isFieldReference(value: any): value is FieldReference<any> {
 // ============================================================================
 
 /**
+ * The pattern is the same for every row of a scan while the value is not, so
+ * only the value genuinely has to be split per call. A small bounded cache
+ * keeps the split pattern across rows without unbounded growth on
+ * caller-supplied patterns; a query with a handful of LIKE filters still hits
+ * on every row.
+ */
+const LIKE_PATTERN_CACHE_MAX = 16;
+const likePatternCache = new Map<string, string[]>();
+
+function likePatternCodePoints(
+  pattern: string,
+  caseInsensitive: boolean
+): string[] {
+  const key = caseInsensitive ? `i:${pattern}` : `s:${pattern}`;
+  const cached = likePatternCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const source = Array.from(caseInsensitive ? pattern.toLowerCase() : pattern);
+  if (likePatternCache.size >= LIKE_PATTERN_CACHE_MAX) {
+    for (const oldest of likePatternCache.keys()) {
+      likePatternCache.delete(oldest);
+      break;
+    }
+  }
+  likePatternCache.set(key, source);
+  return source;
+}
+
+/**
  * SQL `LIKE` semantics: `%` matches any run of characters, `_` matches exactly
  * one, everything else is literal. Wildcards work anywhere in the pattern, not
  * only at the ends.
@@ -169,7 +199,7 @@ export function matchLikePattern(
   caseInsensitive: boolean
 ): boolean {
   const target = Array.from(caseInsensitive ? value.toLowerCase() : value);
-  const source = Array.from(caseInsensitive ? pattern.toLowerCase() : pattern);
+  const source = likePatternCodePoints(pattern, caseInsensitive);
 
   let valueIndex = 0;
   let patternIndex = 0;

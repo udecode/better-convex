@@ -10,7 +10,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  checkTemplate,
   checkTemplates,
+  FixtureDriftError,
   normalizeFixtureComparisonPackageJson,
   normalizeTemplateSnapshot,
   parseTemplateArgs,
@@ -404,5 +406,30 @@ describe('tooling/fixtures', () => {
     } finally {
       rmSync(templateDir, { force: true, recursive: true });
     }
+  });
+
+  test('checkTemplate reports drift without leaking the scaffolded temp tree', async () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'kitcn-drift-check-'));
+    const generatedAppDir = path.join(tempRoot, 'app');
+    mkdirSync(generatedAppDir, { recursive: true });
+
+    await expect(
+      checkTemplate('next', {
+        generateTemplateFn: mock(async () => ({
+          generatedAppDir,
+          tempRoot,
+        })) as never,
+        installLocalPackageFn: mock(async () => 'file:kitcn.tgz') as never,
+        normalizeTemplateFn: mock(() => {}) as never,
+        packLocalPackageFn: mock(() => 'file:kitcn.tgz') as never,
+        // Non-zero only for `git diff --no-index`, which is how drift reports.
+        runCommand: mock(async (cmd: string[]) =>
+          cmd[0] === 'git' ? 1 : 0
+        ) as never,
+        validateAppFn: mock(async () => {}) as never,
+      })
+    ).rejects.toThrow(FixtureDriftError);
+
+    expect(existsSync(tempRoot)).toBe(false);
   });
 });
