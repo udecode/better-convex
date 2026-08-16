@@ -165,7 +165,7 @@ Start Gates:
 | `docs/solutions` checked for non-trivial existing-code work | yes | read Convex 1.42 ownership, release-audit, and type-test workflow notes |
 | TDD decision before behavior change or bug fix | yes | vertical runtime tests first; dedicated type contract for future union drift |
 | Branch decision for code-changing task | yes | dedicated `codex/issue-328-convex-compatibility` from `origin/main` |
-| Release artifact decision | yes | published compatibility behavior requires one `kitcn` patch changeset |
+| Release artifact decision | yes | published compatibility behavior requires patch releases for `kitcn` and `@kitcn/resend` |
 | Browser tool decision for browser surface | no | N/A: no browser behavior |
 | Commit / PR expectation decision | yes | commit entire checkout, push, create PR, wait for required checks |
 | Task-style PR body decision | yes | use PR #270 emoji contract and verify remote body |
@@ -175,7 +175,7 @@ Start Gates:
 | Public surface or package boundary identified | yes | `kitcn` Convex peer/runtime/type compatibility contract |
 | Convex entry/import graph impact identified | yes | validator/Zod conversion changes must remain local; audit imports after diff |
 | CLI/scaffold/generated impact identified | yes | dependency pin generation may change; fixtures only if scaffold source changes |
-| Release artifact path selected | yes | one `.changeset/*.md` for `kitcn` patch |
+| Release artifact path selected | yes | one `.changeset/*.md` covering both affected packages |
 | `changeset` skill loaded when `.changeset` is required | yes | loaded before creating `.changeset/convex-commit-timestamps.md` |
 | Package build / fixture impact decision recorded | yes | package build required; fixture sync/check only if owned scaffold output changes |
 
@@ -270,7 +270,7 @@ Completion Gates:
 | Browser final proof | no | N/A | no rendered behavior |
 | UI walkthrough | no | N/A | no UI or rendered output changed |
 | Scaffold or fixture output changed | yes | Regenerate/check | eight fixture variants synced and match fresh output |
-| Package behavior or public API changed | yes | Add changeset | `.changeset/convex-commit-timestamps.md` |
+| Package behavior or public API changed | yes | Add changeset | `.changeset/convex-commit-timestamps.md` covers `kitcn` and `@kitcn/resend` |
 | Docs and kitcn skill sync changed | no | N/A | no public guidance changed |
 | Docs or content changed | yes | Verify incidental plan | issue/VISION/upstream evidence recorded in this plan |
 | High-risk mini gate | yes | Prove compatibility ends | strict packed consumers pass on Convex 1.42.3 and 1.44.0 |
@@ -290,8 +290,8 @@ Completion Gates:
 | Public API / package boundary proof | yes | Audit public declarations | structural validator boundary removes latest-only symbols; strict min/latest consumers pass |
 | Convex bundle/import proof | yes | Audit static graphs | no new static runtime import; constructor-name checks preserve 1.42 loading |
 | CLI/scaffold/generated proof | yes | Prove warning/pins/fixtures | warning and pin tests pass; eight fixtures match fresh output |
-| Release artifact classification | yes | Classify delta | published `kitcn` runtime/types/CLI compatibility patch |
-| Published package changeset | yes | Add changeset | patch changeset added after loading changeset skill |
+| Release artifact classification | yes | Classify delta | published `kitcn` runtime/types/CLI and `@kitcn/resend` peer-contract patches |
+| Published package changeset | yes | Add changeset | one patch changeset explicitly names both affected packages |
 | No release artifact | no | N/A | published behavior changed, so changeset applies |
 | Package typecheck/build/test | yes | Run owning proof | typecheck, build, focused suites, and `bun check` pass |
 | Fixture/scaffold generation | yes | Sync/check | all eight variants pass sync/check |
@@ -351,7 +351,8 @@ Review fixes:
 - Self-review tightened the structural validator contract with stable
   `fieldPaths` and `isConvexValidator` markers so fake validator-like objects do
   not gain the old public overload accidentally.
-- Final structured autoreview reported no accepted/actionable findings.
+- Final code and release-artifact autoreviews reported no accepted/actionable
+  findings.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -374,7 +375,7 @@ Verification evidence:
   checks, eight fresh fixture comparisons, package verification, and runtime
   scenarios.
 - Final `./.agents/skills/autoreview/scripts/autoreview --mode local` exits 0:
-  clean, no accepted/actionable findings, 0.98 correctness.
+  code bundle clean at 0.98 correctness; release-artifact closeout clean at 0.99.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |

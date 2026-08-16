@@ -1,5 +1,6 @@
 ---
 "kitcn": patch
+"@kitcn/resend": patch
 ---
 
 ## Patches
