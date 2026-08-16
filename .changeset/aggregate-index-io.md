@@ -5,12 +5,12 @@
 ## Breaking changes
 
 - Range-filtered `count()` and `aggregate()` now stop at `aggregateWorkBudget`
-  aggregate buckets and throw `COUNT_FILTER_UNSUPPORTED` /
+  work units and throw `COUNT_FILTER_UNSUPPORTED` /
   `AGGREGATE_FILTER_UNSUPPORTED` naming the index, instead of reading the whole
-  equality prefix and failing on Convex's transaction read limit. One budget
-  covers a whole range scan, so an `IN` filter on the equality prefix spends it
-  once across every value instead of once per value. Raise the budget if a wide
-  range scan is intentional.
+  equality prefix and failing on Convex's transaction read limit. Bucket scans
+  cost one unit; `_min` and `_max` also reserve one extrema read per matching
+  bucket. One budget covers every `IN` prefix and extrema metric sharing the
+  range plan. Raise it cautiously if a wide range scan is intentional.
 
 ```ts
 // Before
@@ -19,7 +19,8 @@ export default defineSchema({ runs });
 // After
 export default defineSchema(
   { runs },
-  { defaults: { aggregateWorkBudget: 32_768 } }
+  // Keep headroom below Convex's 32,000-document transaction ceiling.
+  { defaults: { aggregateWorkBudget: 20_000 } }
 );
 ```
 

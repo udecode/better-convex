@@ -3,7 +3,6 @@ import type {
   GenericDatabaseWriter,
 } from 'convex/server';
 import type { GenericId, Value } from 'convex/values';
-import { mapWithConcurrency } from '../write-fanout';
 import { normalizeTemporalComparableValue } from '../mutation-utils';
 import { Columns } from '../symbols';
 import {
@@ -12,6 +11,7 @@ import {
   usesSystemCreatedAtAlias,
 } from '../timestamp-mode';
 import type { TableRelationalConfig, TablesRelationalConfig } from '../types';
+import { mapWithConcurrency } from '../write-fanout';
 import {
   AGGREGATE_BUCKET_TABLE,
   AGGREGATE_EXTREMA_TABLE,
@@ -150,6 +150,17 @@ type CountBucketRow = {
   count: number;
   sumValues: Record<string, number>;
   nonNullCountValues: Record<string, number>;
+};
+
+const RANGE_WORK_STATE = Symbol('aggregateRangeWorkState');
+
+type RangeWorkState = {
+  scannedBuckets: number;
+  reservedExtremaReads: number;
+};
+
+type CountBucketRows = CountBucketRow[] & {
+  [RANGE_WORK_STATE]?: RangeWorkState;
 };
 
 type CountExtremaRow = {
@@ -2344,7 +2355,12 @@ export const readPlanBuckets = async (
     );
   }
 
-  return [...matchedById.values()];
+  const buckets = [...matchedById.values()] as CountBucketRows;
+  buckets[RANGE_WORK_STATE] = {
+    scannedBuckets: scanned,
+    reservedExtremaReads: 0,
+  };
+  return buckets;
 };
 
 const sortFieldValueRecord = (
@@ -2529,6 +2545,22 @@ export const readExtremaFromBuckets = async (
 
   const buckets = await readPlanBucketsWithCache(db, plan, bucketCache);
   const metric = plan.metric;
+  const rangeWork = (buckets as CountBucketRows)[RANGE_WORK_STATE];
+  if (rangeWork && plan.rangeConstraint) {
+    const workBudget =
+      plan.rangeConstraint.workBudget ?? DEFAULT_AGGREGATE_WORK_BUDGET;
+    const requestedWork = buckets.length;
+    const totalWork =
+      rangeWork.scannedBuckets + rangeWork.reservedExtremaReads + requestedWork;
+    if (totalWork > workBudget) {
+      throw createError(
+        plan.rangeConstraint.filterErrorCode ??
+          AGGREGATE_ERROR.FILTER_UNSUPPORTED,
+        `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' needs ${totalWork} aggregate work units (${rangeWork.scannedBuckets} bucket reads and ${rangeWork.reservedExtremaReads + requestedWork} extrema reads), exceeding aggregateWorkBudget (${workBudget}) on aggregateIndex '${plan.indexName}'. Narrow the range, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+      );
+    }
+    rangeWork.reservedExtremaReads += requestedWork;
+  }
   // One indexed read per matched bucket, issued through a bounded pool. The
   // fold below is order-independent, so results stay deterministic.
   const values = await mapWithConcurrency(

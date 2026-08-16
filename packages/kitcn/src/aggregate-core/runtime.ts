@@ -545,7 +545,7 @@ export class Aggregate<
    * across several mutations instead of walking them all in one.
    */
   async deleteTrees(ctx: RunMutationCtx, limit: number): Promise<boolean> {
-    return await deleteTreesHandler(
+    return deleteTreesHandler(
       { db: ctx.db },
       { aggregateName: this.aggregateName, limit }
     );

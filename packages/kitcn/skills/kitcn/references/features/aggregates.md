@@ -54,7 +54,7 @@ Windowed count: `count({ where, orderBy, skip, take, cursor })` counts rows with
 | Error                      | Cause                                        |
 | -------------------------- | -------------------------------------------- |
 | `COUNT_NOT_INDEXED`        | No `aggregateIndex` matches the filter shape |
-| `COUNT_FILTER_UNSUPPORTED` | Unsupported operators, or a range filter over `aggregateWorkBudget` buckets |
+| `COUNT_FILTER_UNSUPPORTED` | Unsupported operators, or a range count/aggregate over `aggregateWorkBudget` work units |
 | `COUNT_INDEX_BUILDING`     | Index still backfilling                      |
 | `COUNT_RLS_UNSUPPORTED`    | Called in RLS-restricted context             |
 
