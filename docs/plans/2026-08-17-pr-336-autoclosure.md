@@ -62,52 +62,55 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | ORM query/stream owners and read-count/result tests | focused baseline green after main merge |
-| package/API/build | yes | package typecheck/build | baseline complete |
+| source behavior | yes | ORM query/stream owners and read-count/result tests | 61 focused tests complete |
+| package/API/build | yes | package typecheck/build | complete |
 | generated output | yes | package skill source and `.agents` mirror | merge conflict regenerated from source |
-| fixtures/scenarios | yes | full check/runtime | pending |
-| docs/package skill | yes | pagination docs plus ORM package skill | repair pending |
-| changeset | yes | `.changeset/lucky-donuts-repeat.md` | audit pending |
+| fixtures/scenarios | yes | full check/runtime | complete |
+| docs/package skill | yes | pagination docs plus ORM package skill | complete |
+| changeset | yes | `.changeset/lucky-donuts-repeat.md` | complete |
 | agent workflow | no | no rule/helper/workflow behavior | N/A |
-| cleanup/review | yes | deslop and autoreview | pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop and autoreview | complete |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | feedback, pinned checks, merge/release | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
+- [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] Residual blocker/waiver has exact evidence and next owner.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
 | Released-main merge conflicted in source and generated ORM guide | 1 | resolve package source with both proven intents, then regenerate mirror | resolved; 57 focused tests and package typecheck/build pass |
+| Release/docs claimed one read per returned ID and all cursor queries | 1 | trace the literal advanced-path owner and count missing/policy-filtered IDs | fixed; claim scoped to `.select()` and listed positions visited |
+| Early stop did not propagate iterator cleanup through wrappers | 1 | add return-tracking streams for mapped, direct, merged, and distinct exits | four red tests fixed; all 33 stream tests pass |
+| First full check found one formatter-only line | 1 | run owning formatter, then restart full check and review | fixed; full check and fresh review pass |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | prove results, reads, cleanup, and cursors | baseline 57 tests pass; adversarial audit pending |
-| Source/generated audit | pending | audit query/stream/docs and generated mirror | pending |
-| Package/docs/scenario closure | pending | typecheck/build/full check | package baseline passes; full pending |
-| Deslop | pending | bounded changed-file cleanup | pending |
-| Agent-native reviewer | yes | docs/skill mirror audit | pending |
-| Final lint | yes | run `bun lint:fix` | pending |
-| Repository check | yes | run `bun check` | pending |
+| Targeted behavior proof | complete | prove results, reads, cleanup, and cursors | 61 focused tests pass |
+| Source/generated audit | complete | audit query/stream/docs and generated mirror | source/mirror byte-equal; intent/docs gates pass |
+| Package/docs/scenario closure | complete | typecheck/build/full check | all pass |
+| Deslop | complete | bounded changed-file cleanup | 167 -> 167; score unchanged; async noise simplified |
+| Agent-native reviewer | yes | docs/skill mirror audit | capability map passes; no workflow action delta |
+| Final lint | yes | run `bun lint:fix` | 904 files clean |
+| Repository check | yes | run `bun check` | exit 0 after released-main merge |
 | GitHub delivery | pending | push, feedback, pinned checks, merge/release | pending |
-| Autoreview | yes | final committed-head review | pending |
+| Autoreview | yes | final branch review | P1 clean; patch correct (0.82) |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback, released main | repair |
-| Repair | in_progress | source-owned merge conflict resolved | adversarial proof |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
+| Repair | complete | docs scope and iterator cleanup repaired | review/checks |
+| Review/checks | complete | focused/package/docs/skill/deslop/lint/full/review green | delivery |
+| Delivery | in_progress | final local branch ready | push, feedback, pinned checks |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -122,20 +125,41 @@ Verification evidence:
 - P2 feedback correctly identifies stale prose: the one-read-per-returned-row
   guarantee currently belongs only to the advanced stream path, not every
   plain `findMany` cursor request.
+- The release text, pagination docs, package skill, and source comments now
+  scope the behavior to `.select()` and say what is actually bounded: listed
+  positions visited, including missing or policy-filtered IDs.
+- Four red return-tracking regressions showed the new `ConcatStreams.return()`
+  could not reach mapped, merged, distinct, or direct source iterators. Cleanup
+  now propagates through `QueryStream`, `FlatMapStream`, `MergedStream`,
+  `OrderByStream`, and `DistinctStream`; all four regressions are green.
+- The complete focused owner surface passes: 33 stream plus 28 pipeline tests,
+  with package typecheck/build green.
+- Docs/skill agent-native map passes: user action -> `kitcn` skill -> package
+  ORM reference -> generated `.agents` mirror and www pagination docs -> focused
+  tests and full check. Mirrors are byte-equal; intent validation/staleness and
+  docs quality gates pass.
+- Deslop is zero-net (167 -> 167, score 495.27 unchanged); one new async wrapper
+  was simplified and the remaining line-shifted hits are existing owners.
+- `bun lint:fix` leaves 904 files clean. Full `bun check` passes against released
+  v0.18.0 main, including fresh fixtures and runtime scenarios.
+- Fresh branch P1 autoreview is clean with no accepted/actionable findings;
+  patch-correct confidence is 0.82 and its parallel 61-test lane passed.
 
 Timeline:
 - 2026-08-17 PR #336 merged current main, resolved source/generated docs, and
   passed its first focused/package baseline.
+- 2026-08-17 Repaired claim scope and iterator cleanup; all local closure gates
+  pass against released v0.18.0 main.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Repair |
-| Where am I going? | Adversarial proof, review/checks, delivery, release |
+| Where am I? | Delivery |
+| Where am I going? | Push, feedback, pinned checks, merge, release |
 | What is the goal? | Ship only proven bounded stream and ID-list behavior. |
 | What have I learned? | The stream fixes are credible; the docs overstate the lazy path. |
-| What have I done? | Merged main source-first and passed baseline owner gates. |
+| What have I done? | Repaired two claim gaps and four cleanup paths; all local gates pass. |
 
 Open risks:
-- Lazy ID-list iteration may leak or miscount around missing IDs, residual
-  filters, early return, descending cursors, or plain non-select pagination.
+- Remote exact-head checks, merge, release publication, and post-release CI
+  remain unproven until delivery completes.
