@@ -2,7 +2,8 @@ import { eq } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
 import { z } from 'zod';
 import { authMutation, authQuery } from '../lib/crpc';
-import { tagsTable, todoTagsTable } from './schema';
+import { mergeTags } from './_helpers/tag_merge';
+import { tagsTable } from './schema';
 
 // List user's tags with usage count
 export const list = authQuery
@@ -137,47 +138,7 @@ export const merge = authMutation
   )
 
   .mutation(async ({ ctx, input }) => {
-    if (input.sourceTagId === input.targetTagId) {
-      throw new CRPCError({
-        code: 'BAD_REQUEST',
-        message: 'Cannot merge a tag with itself',
-      });
-    }
-
-    await Promise.all([
-      ctx.orm.query.tags.findFirstOrThrow({
-        where: { id: input.sourceTagId, createdBy: ctx.userId },
-      }),
-      ctx.orm.query.tags.findFirstOrThrow({
-        where: { id: input.targetTagId, createdBy: ctx.userId },
-      }),
-    ]);
-
-    const joins = await ctx.orm.query.todoTags.findMany({
-      where: { tagId: input.sourceTagId },
-    });
-
-    const targetJoins = await ctx.orm.query.todoTags.findMany({
-      where: { tagId: input.targetTagId },
-      limit: 1000,
-      columns: { todoId: true },
-    });
-    const targetTodoIds = new Set(targetJoins.map((j) => j.todoId));
-
-    for (const join of joins) {
-      if (!targetTodoIds.has(join.todoId)) {
-        await ctx.orm.insert(todoTagsTable).values({
-          todoId: join.todoId,
-          tagId: input.targetTagId,
-        });
-        targetTodoIds.add(join.todoId);
-      }
-
-      await ctx.orm.delete(todoTagsTable).where(eq(todoTagsTable.id, join.id));
-    }
-
-    // Delete source tag
-    await ctx.orm.delete(tagsTable).where(eq(tagsTable.id, input.sourceTagId));
+    await mergeTags(ctx, ctx.userId, input);
   });
 
 // Get most popular tags across all users

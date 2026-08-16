@@ -25,9 +25,16 @@ import {
   splitReturningSelection,
   toConvexFilter,
 } from './mutation-utils';
-import { GelRelationalQuery } from './query';
 import { QueryPromise } from './query-promise';
-import { assertRlsRolesResolvable, canDeleteRow } from './rls/evaluator';
+import {
+  createReturningCountLoader,
+  type ReturningCountLoader,
+} from './returning-count';
+import {
+  assertRlsRolesResolvable,
+  canDeleteRow,
+  createRlsPolicyResolutionCache,
+} from './rls/evaluator';
 import type { ConvexTable } from './table';
 import type {
   MutationExecuteConfig,
@@ -106,51 +113,23 @@ export class ConvexDeleteBuilder<
   private executionModeOverride?: 'sync' | 'async';
   private paginateConfig?: MutationPaginateConfig;
 
+  private _returningCountLoader?: ReturningCountLoader;
+
+  /**
+   * One loader per statement: the table config, edge filter and aggregate-index
+   * readiness memo are invariant across the affected rows.
+   */
   private async _loadReturningCount(
     row: Record<string, unknown>,
     countSelection: Record<string, unknown>,
     ormContext: ReturnType<typeof getOrmContext>
   ): Promise<Record<string, number>> {
-    const schema = ormContext?.schema;
-    const edgeMetadata = ormContext?.edgeMetadata;
-    if (!schema || !edgeMetadata) {
-      throw new Error(
-        'returning({ _count }) requires orm.db(ctx) configured from createOrm({ schema, ... }).'
-      );
-    }
-
-    const tableName = getTableName(this.table);
-    const tableConfig = Object.values(schema).find(
-      (config) => config.name === tableName
+    this._returningCountLoader ??= createReturningCountLoader(
+      this.db,
+      this.table,
+      ormContext
     );
-    if (!tableConfig) {
-      throw new Error(`Table config for '${tableName}' is not registered.`);
-    }
-    const tableEdges = edgeMetadata.filter(
-      (edge) => edge.sourceTable === tableName
-    );
-
-    const counted = await new GelRelationalQuery(
-      schema as any,
-      tableConfig as any,
-      tableEdges as any,
-      this.db as any,
-      {
-        where: {
-          id: row._id,
-        },
-        columns: {},
-        with: {
-          _count: countSelection,
-        },
-      } as any,
-      'first',
-      edgeMetadata as any,
-      ormContext?.rls,
-      ormContext?.relationLoading
-    ).execute();
-
-    return ((counted as any)?._count ?? {}) as Record<string, number>;
+    return await this._returningCountLoader.load(row, countSelection);
   }
 
   constructor(
@@ -419,7 +398,6 @@ export class ConvexDeleteBuilder<
     // Policy configuration must fail before any candidate-row reads so the
     // error is independent of table size and mutation collection limits.
     assertRlsRolesResolvable({ table: this.table, operation: 'delete', rls });
-
     let rows: Record<string, unknown>[];
     let continueCursor: string | null = null;
     let isDone = true;
@@ -609,8 +587,12 @@ export class ConvexDeleteBuilder<
     const fkBatchSize = isPaginated ? pagination.limit : batchSize;
 
     for (const row of rows) {
+      // Each iteration deletes before the next policy check, so stateful
+      // policies need a fresh resolution for every row.
+      const rlsResolution = createRlsPolicyResolutionCache();
       if (
         !(await canDeleteRow({
+          cache: rlsResolution,
           table: this.table,
           row: row as Record<string, unknown>,
           rls,
