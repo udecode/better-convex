@@ -35,6 +35,10 @@ const database = authClient.adapter(ctx);
   up to ten `/get-session` requests. A live token is recovered with one immediate
   request, a server-confirmed missing session stops after one, and only transport
   failures retry.
-- Fix a dropped `/get-session` request signing the user out. Recovery keeps the
-  persisted token when every attempt fails in transport, and retries on the next
-  mount.
+- Fix a dropped `/get-session` request signing the user out. Transport failures
+  retry with backoff for the rest of the session-sync grace window, so a session
+  is restored in the same mount once connectivity returns.
+- Fix an outage during session recovery leaving the app stuck on `isLoading`.
+  When the grace window closes with no answer, auth resolves to unauthenticated
+  instead of holding a token no request ever confirmed. The persisted token is
+  kept so the next mount can retry it.
