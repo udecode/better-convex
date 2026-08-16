@@ -201,8 +201,102 @@ describe('useInfiniteQuery', () => {
     expect(useQueriesCalls.length).toBeGreaterThan(0);
     const firstCall = useQueriesCalls[0];
     expect(firstCall.queries).toHaveLength(1);
-    expect((firstCall.queries[0] as any).initialData).toBe(prefetched);
+    // The page reads the prefetch straight out of the cache — it is keyed
+    // exactly like the server wrote it. Forwarding it as `initialData` would
+    // additionally freeze it into the query's `initialState`, which an account
+    // transition brings back.
+    expect((firstCall.queries[0] as any).queryKey).toEqual(options.queryKey);
+    expect((firstCall.queries[0] as any).initialData).toBeUndefined();
     expect((firstCall.queries[0] as any).enabled).toBe(false);
+  });
+
+  test('rebuilds an auth-bound list from its first page after an account transition', () => {
+    let authEpoch = 0;
+    useAuthValueSpy.mockImplementation((key: any) => {
+      if (key === 'authEpoch') return authEpoch as any;
+      return (() => {}) as any;
+    });
+    useQueriesSpy.mockImplementation((arg: UseQueriesArg) => {
+      useQueriesCalls.push(arg);
+      return makeCombined({
+        status: 'CanLoadMore',
+        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
+      }) as any;
+    });
+
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+    const options = createOptions({ limit: 2 });
+
+    const { result, rerender } = renderHook(() => useInfiniteQuery(options), {
+      wrapper,
+    });
+
+    expect((useQueriesCalls.at(-1) as any).queries).toHaveLength(1);
+
+    act(() => {
+      result.current.fetchNextPage();
+    });
+    const loaded = (useQueriesCalls.at(-1) as any).queries;
+    expect(loaded).toHaveLength(2);
+    expect(loaded[1].queryKey[2].cursor).toBe('cursor-a');
+
+    authEpoch = 1;
+    act(() => {
+      rerender();
+    });
+
+    // 'cursor-a' indexes into the previous account's result set. Restoring the
+    // chain would page from a cursor that no longer describes this list.
+    const rebuilt = (useQueriesCalls.at(-1) as any).queries;
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0].queryKey[2].cursor).toBeNull();
+  });
+
+  test('keeps a list with no auth binding paged across an account transition', () => {
+    let authEpoch = 0;
+    useAuthValueSpy.mockImplementation((key: any) => {
+      if (key === 'authEpoch') return authEpoch as any;
+      return (() => {}) as any;
+    });
+    useQueriesSpy.mockImplementation((arg: UseQueriesArg) => {
+      useQueriesCalls.push(arg);
+      return makeCombined({
+        status: 'CanLoadMore',
+        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
+      }) as any;
+    });
+
+    const publicFn = makeFunctionReference<'query'>('posts:feed');
+    const publicOptions = convexInfiniteQueryOptions(
+      publicFn,
+      { tag: 'x' },
+      { limit: 2 },
+      { posts: { feed: {} } } as any
+    ) as any;
+    publicOptions[FUNC_REF_SYMBOL] = publicFn;
+
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    const { result, rerender } = renderHook(
+      () => useInfiniteQuery(publicOptions),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.fetchNextPage();
+    });
+    expect((useQueriesCalls.at(-1) as any).queries).toHaveLength(2);
+
+    authEpoch = 1;
+    act(() => {
+      rerender();
+    });
+
+    // Nothing about a public list is scoped to an account, so signing in must
+    // not throw away how far the reader scrolled.
+    expect((useQueriesCalls.at(-1) as any).queries).toHaveLength(2);
   });
 
   test('does not split a native Convex page solely because it has a split cursor', () => {

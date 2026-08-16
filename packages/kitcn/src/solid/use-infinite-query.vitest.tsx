@@ -263,10 +263,117 @@ describe('useInfiniteQuery', () => {
     expect(useQueriesCalls.length).toBeGreaterThan(0);
     const firstCall = useQueriesCalls[0];
     expect(firstCall.queries).toHaveLength(1);
-    expect((firstCall.queries[0] as any).initialData).toBe(prefetched);
+    // The page reads the prefetch straight out of the cache — it is keyed
+    // exactly like the server wrote it. Forwarding it as `initialData` would
+    // additionally freeze it into the query's `initialState`, which an account
+    // transition brings back.
+    expect((firstCall.queries[0] as any).queryKey).toEqual(options.queryKey);
+    expect((firstCall.queries[0] as any).initialData).toBeUndefined();
     // Hydrates from the prefetch, but the page gate still blocks network work
     // until auth settles.
     expect((firstCall.queries[0] as any).enabled).toBe(false);
+  });
+
+  test('rebuilds an auth-bound list from its first page after an account transition', () => {
+    const [authState, setAuthState] = createStore({ authEpoch: 0 });
+    const useAuthStoreSpy = vi
+      .spyOn(authStoreModule, 'useAuthStore')
+      .mockImplementation(
+        () =>
+          ({
+            get: (key: string) => (authState as any)[key],
+            set: () => {},
+            store: authState,
+          }) as any
+      );
+
+    mockUseQueries.mockImplementation((accessor: any) => {
+      createComputed(() => {
+        useQueriesCalls.push(
+          typeof accessor === 'function' ? accessor() : accessor
+        );
+      });
+      return makeCombined({
+        status: 'CanLoadMore',
+        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
+      }) as any;
+    });
+
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+    const options = createOptions({ limit: 2 });
+
+    const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
+
+    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(1);
+
+    result.fetchNextPage();
+    const loaded = useQueriesCalls.at(-1)?.queries ?? [];
+    expect(loaded).toHaveLength(2);
+    expect(loaded[1].queryKey[2].cursor).toBe('cursor-a');
+
+    setAuthState('authEpoch', 1);
+
+    // 'cursor-a' indexes into the previous account's result set. Restoring the
+    // chain would page from a cursor that no longer describes this list.
+    const rebuilt = useQueriesCalls.at(-1)?.queries ?? [];
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0].queryKey[2].cursor).toBeNull();
+
+    useAuthStoreSpy.mockRestore();
+  });
+
+  test('keeps a list with no auth binding paged across an account transition', () => {
+    const [authState, setAuthState] = createStore({ authEpoch: 0 });
+    const useAuthStoreSpy = vi
+      .spyOn(authStoreModule, 'useAuthStore')
+      .mockImplementation(
+        () =>
+          ({
+            get: (key: string) => (authState as any)[key],
+            set: () => {},
+            store: authState,
+          }) as any
+      );
+
+    mockUseQueries.mockImplementation((accessor: any) => {
+      createComputed(() => {
+        useQueriesCalls.push(
+          typeof accessor === 'function' ? accessor() : accessor
+        );
+      });
+      return makeCombined({
+        status: 'CanLoadMore',
+        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
+      }) as any;
+    });
+
+    const publicFn = makeFunctionReference<'query'>('posts:feed');
+    const publicOptions = convexInfiniteQueryOptions(
+      publicFn,
+      { tag: 'x' },
+      { limit: 2 },
+      { posts: { feed: {} } } as any
+    ) as any;
+    publicOptions[FUNC_REF_SYMBOL] = publicFn;
+
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(() => useInfiniteQuery(publicOptions), {
+      wrapper,
+    });
+
+    result.fetchNextPage();
+    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(2);
+
+    setAuthState('authEpoch', 1);
+
+    // Nothing about a public list is scoped to an account, so signing in must
+    // not throw away how far the reader scrolled.
+    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(2);
+
+    useAuthStoreSpy.mockRestore();
   });
 
   test('does not split a native Convex page solely because it has a split cursor', () => {

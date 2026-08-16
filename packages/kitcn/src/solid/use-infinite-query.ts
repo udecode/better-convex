@@ -24,7 +24,7 @@ import { type EnabledFn, resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useMeta } from './auth';
-import { useAuthValue, useSafeConvexAuth } from './auth-store';
+import { useAuthStore, useAuthValue, useSafeConvexAuth } from './auth-store';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
 
 /** Reserved options controlled by infinite query hooks */
@@ -40,6 +40,8 @@ type ReservedInfiniteOptions =
 /** Base options for infinite query internal hook */
 type InfiniteQueryOptions<TItem> = {
   limit?: number;
+  /** Auth binding of the paginated function, from the caller's cRPC meta. */
+  authType?: 'optional' | 'required';
   /**
    * Accessor, not a value: the gate is re-read inside the hook's memos so auth
    * transitions and a caller predicate both keep working after mount.
@@ -295,13 +297,20 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   options: InfiniteQueryOptions<PaginatedQueryItem<Query>>
 ): UseInfiniteQueryResult<PaginatedQueryItem<Query>> => {
   // Extract our custom options, the rest are TanStack Query options for page queries
-  const { limit, enabled, placeholderData, ...queryOptions } = options;
+  const { limit, authType, enabled, placeholderData, ...queryOptions } =
+    options;
 
   const safeAuth = useSafeConvexAuth();
+  const authStore = useAuthStore();
   const meta = useMeta();
   const queryClient = useQueryClient();
 
-  // Look up server-prefetched data using server-compatible queryKey
+  // Look up server-prefetched data using server-compatible queryKey.
+  // This is a mount-time gate only ("did the server give us page 0?"), never
+  // page 0's `initialData`: the prefetch is written under page 0's own query
+  // key, so TanStack already serves it, while `initialData` would additionally
+  // freeze it into the query's `initialState` — where an identity transition
+  // resurrects the previous account's page.
   const prefetchedFirstPage = createMemo(() => {
     const serverQueryKey = [
       'convexQuery',
@@ -340,9 +349,17 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     () => (skip() ? {} : args) as Record<string, unknown>
   );
 
-  // Stable store key for pagination ID persistence across mounts
+  // Stable store key for pagination ID persistence across mounts.
+  // Cursors index into one account's result set, so an auth-bound list carries
+  // the account generation: a transition re-keys it, which routes the hook
+  // through its existing "args changed" reset instead of restoring the previous
+  // account's page chain and paging from its cursors.
   const storeKey = createMemo(() =>
-    JSON.stringify({ query: getFunctionName(query), args: argsObject() })
+    JSON.stringify({
+      query: getFunctionName(query),
+      args: argsObject(),
+      ...(authType ? { authEpoch: authStore.get('authEpoch') } : {}),
+    })
   );
 
   // Helper to create initial state
@@ -476,10 +493,6 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
         structuralSharing: false,
         // Apply TanStack Query options to all pages
         ...(queryOptions ?? {}),
-        // Use server-prefetched data for first page (hydration)
-        ...(index === 0 && prefetchedFirstPage()
-          ? { initialData: prefetchedFirstPage() }
-          : {}),
         // Use placeholder data for first page (wrapped in pagination format)
         ...(index === 0 && placeholderData
           ? {
@@ -817,6 +830,7 @@ export function useInfiniteQuery<
   });
 
   const result = useInfiniteQueryInternal(query as any, args as any, {
+    authType,
     limit,
     ...(queryOptions as any),
     // Internal hook handles prefetch detection and will bypass skip if data
