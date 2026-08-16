@@ -99,6 +99,7 @@ Error attempts:
 | Configured compound index was treated as native creation order | 1 | add a real configured-index ordering regression and require proven pushdown | fixed; `[90, 70]` became `[70, 20]` |
 | P1 review claimed through relations skipped offset/limit | 1 | trace the final relation assignment and add ordered/bounded offset+limit tests | rejected; `applyOffsetAndLimit` owns the final slice and both tests pass |
 | First configured-index repair rejected every ranged creation-order cursor | 1 | observe the real range builder and distinguish full equality prefixes from partial/range prefixes | fixed; full `by_name` equality cursor works while compound partial pin still sorts after fetch |
+| Release migration snippet tried to index system `createdAt` | 1 | replace it at the changeset source with the narrower declared index whose implicit suffix is creation time | correction PR required before release #349 |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -175,6 +176,10 @@ Verification evidence:
 - Final committed-head P1 autoreview is clean: no accepted/actionable finding,
   `patch is correct` at 0.82 confidence. The accepted cursor finding converged
   in the second review-triggered repair cycle.
+- Release PR #349 exposed stale migration advice that indexed system
+  `createdAt`, which the ORM forbids. The source changeset now recommends
+  `index('by_type').on(t.type)`, whose fully pinned partition is natively ordered
+  by the implicit creation-time suffix.
 
 Timeline:
 - 2026-08-17 PR #335 merged released v0.17.5 main; confirmed third P1.
