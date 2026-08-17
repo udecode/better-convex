@@ -299,7 +299,6 @@ export function createAuthMutations(
 
   const useSignInSocialMutationOptions = ((options) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
 
     return {
       ...options,
@@ -319,7 +318,6 @@ export function createAuthMutations(
         await hydrateReturnedSession(authClient, res);
         await ensureAuth(authStoreApi);
         authStoreApi.set('isAuthenticated', true);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };
@@ -327,7 +325,6 @@ export function createAuthMutations(
 
   const useSignInMutationOptions = ((options) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
     const { signInMethod = 'email', ...mutationOptions } = options ?? {};
 
     return {
@@ -348,7 +345,6 @@ export function createAuthMutations(
         await hydrateReturnedSession(authClient, res);
         await ensureAuth(authStoreApi);
         authStoreApi.set('isAuthenticated', true);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };
@@ -356,7 +352,6 @@ export function createAuthMutations(
 
   const useSignUpMutationOptions = ((options) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
 
     return {
       ...options,
@@ -376,7 +371,6 @@ export function createAuthMutations(
         await hydrateReturnedSession(authClient, res);
         await ensureAuth(authStoreApi);
         authStoreApi.set('isAuthenticated', true);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };

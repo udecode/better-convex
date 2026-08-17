@@ -5,12 +5,19 @@ import { render, renderHook, waitFor } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
 import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { useAuthStore, useFetchAccessToken } from './auth-store';
+import {
+  useAuthStore,
+  useFetchAccessToken,
+  useSafeConvexAuth,
+} from './auth-store';
 import { ConvexAuthProvider } from './convex-auth-provider';
 
-const makeJwt = (expSecondsFromNow: number) => {
+const makeJwt = (
+  expSecondsFromNow: number,
+  claims: Record<string, unknown> = {}
+) => {
   const exp = Math.floor(Date.now() / 1000) + expSecondsFromNow;
-  const payload = btoa(JSON.stringify({ exp }));
+  const payload = btoa(JSON.stringify({ ...claims, exp }));
   return `x.${payload}.z`;
 };
 
@@ -73,6 +80,65 @@ describe('ConvexAuthProvider', () => {
 
     expect(fetched).toBe(initialToken);
     expect(convexToken).toHaveBeenCalledTimes(0);
+  });
+
+  test('does not assign an unowned SSR token to the hydrated session', async () => {
+    const ssrToken = makeJwt(3600, { sub: 'user-1' });
+    const hydratedToken = makeJwt(7200, { sub: 'user-2' });
+    let resolveHydratedToken!: (value: { data: { token: string } }) => void;
+    const convexToken = vi.fn(
+      () =>
+        new Promise<{ data: { token: string } }>((resolve) => {
+          resolveHydratedToken = resolve;
+        })
+    );
+    const client = {
+      setAuth: (
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>,
+        onChange: (isAuthenticated: boolean) => void
+      ) => {
+        void fetchToken({ forceRefreshToken: false }).then(() =>
+          onChange(true)
+        );
+      },
+      clearAuth: () => {},
+    };
+    const authClient = {
+      useSession: () =>
+        makeSessionAccessor({ session: { id: 'session-2' } }, false),
+      convex: { token: convexToken },
+      getSession: async () => null,
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthProvider
+        authClient={authClient as any}
+        client={client as any}
+        initialToken={ssrToken}
+      >
+        {props.children}
+      </ConvexAuthProvider>
+    );
+    const { result } = renderHook(
+      () => ({ auth: useSafeConvexAuth(), store: useAuthStore() }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(convexToken).toHaveBeenCalledTimes(1);
+    });
+    expect(result.auth.identity).toBeNull();
+
+    resolveHydratedToken({ data: { token: hydratedToken } });
+
+    await waitFor(() => {
+      expect(result.store.get('token')).toBe(hydratedToken);
+    });
+    await waitFor(() => {
+      expect(result.auth.identity).toBe('session-2');
+    });
+    expect(convexToken).toHaveBeenCalledTimes(1);
   });
 
   test('passes throw=false when fetching a fresh token', async () => {
@@ -200,6 +266,138 @@ describe('ConvexAuthProvider', () => {
     ]);
     expect(tokens).toEqual([jwt, jwt]);
     expect(convexToken).toHaveBeenCalledTimes(1);
+  });
+
+  test('reauthenticates for identity claims, not routine token rotation', async () => {
+    const sessionOneJwt = makeJwt(7200, { sub: 'user-1' });
+    const sessionTwoJwt = makeJwt(7200, { sub: 'user-2' });
+    const convexToken = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { token: sessionOneJwt } })
+      .mockResolvedValue({ data: { token: sessionTwoJwt } });
+
+    const setAuthCalls: string[] = [];
+    const client = {
+      setAuth: (
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
+      ) => {
+        setAuthCalls.push('setAuth');
+        // Convex's AuthenticationManager.setConfig invokes fetchToken
+        // synchronously; the reads it performs must not become effect deps.
+        void fetchToken({ forceRefreshToken: false });
+      },
+      clearAuth: () => {},
+    };
+
+    const [session, setSession] = createSignal({
+      data: { session: { id: 'session-1' } },
+      isPending: false,
+    });
+    const authClient = {
+      useSession: () => session,
+      convex: { token: convexToken },
+      getSession: async () => null,
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {props.children}
+      </ConvexAuthProvider>
+    );
+
+    const { result } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.get('token')).toBe(sessionOneJwt);
+    });
+
+    // The fetch wrote token and expiresAt. Neither flips isLoading or
+    // isAuthenticated, so Convex must not be re-authenticated: every extra
+    // setAuth pauses the socket and bumps the identity version, re-running
+    // every live subscription server-side.
+    expect(setAuthCalls).toHaveLength(1);
+    expect(convexToken).toHaveBeenCalledTimes(1);
+
+    result.set('token', makeJwt(9000, { sub: 'user-1' }));
+    result.set('expiresAt', Date.now() + 9_000_000);
+
+    expect(setAuthCalls).toHaveLength(1);
+
+    result.set('token', makeJwt(9000, { role: 'admin', sub: 'user-1' }));
+
+    expect(setAuthCalls).toHaveLength(2);
+
+    setSession({
+      data: { session: { id: 'session-2' } },
+      isPending: false,
+    });
+
+    await waitFor(() => {
+      expect(result.get('token')).toBe(sessionTwoJwt);
+    });
+    expect(setAuthCalls).toHaveLength(3);
+    expect(convexToken).toHaveBeenCalledTimes(2);
+  });
+
+  test('does not reuse an in-flight token request across sessions', async () => {
+    const sessionOneJwt = makeJwt(7200, { sub: 'user-1' });
+    const sessionTwoJwt = makeJwt(7200, { sub: 'user-2' });
+    let resolveSessionOne!: (value: { data: { token: string } }) => void;
+    const sessionOneRequest = new Promise<{ data: { token: string } }>(
+      (resolve) => {
+        resolveSessionOne = resolve;
+      }
+    );
+    const convexToken = vi
+      .fn()
+      .mockImplementationOnce(() => sessionOneRequest)
+      .mockResolvedValue({ data: { token: sessionTwoJwt } });
+    const client = {
+      setAuth: (
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
+      ) => {
+        void fetchToken({ forceRefreshToken: false });
+      },
+      clearAuth: () => {},
+    };
+    const [session, setSession] = createSignal({
+      data: { session: { id: 'session-1' } },
+      isPending: false,
+    });
+    const authClient = {
+      useSession: () => session,
+      convex: { token: convexToken },
+      getSession: async () => null,
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {props.children}
+      </ConvexAuthProvider>
+    );
+    const { result } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => {
+      expect(convexToken).toHaveBeenCalledTimes(1);
+    });
+
+    setSession({
+      data: { session: { id: 'session-2' } },
+      isPending: false,
+    });
+
+    await waitFor(() => {
+      expect(convexToken).toHaveBeenCalledTimes(2);
+    });
+
+    resolveSessionOne({ data: { token: sessionOneJwt } });
+
+    await waitFor(() => {
+      expect(result.get('token')).toBe(sessionTwoJwt);
+    });
   });
 
   test('treats empty session payload as unauthenticated', async () => {

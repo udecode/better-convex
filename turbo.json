@@ -1,15 +1,13 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [
+    "tsconfig.json",
+    "tooling/global.d.ts",
+    "packages/kitcn/src/**"
+  ],
   "tasks": {
     "typecheck": {
       "dependsOn": ["^typecheck"],
-      "outputs": []
-    },
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**"]
-    },
-    "lint": {
       "outputs": []
     }
   }

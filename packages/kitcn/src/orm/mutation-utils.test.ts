@@ -463,6 +463,48 @@ describe('mutation-utils', () => {
     expect(hydrated).not.toHaveProperty('_creationTime');
   });
 
+  test('hydrateDateFieldsForRead allocates once and never leaves a deleted slot', () => {
+    const doc = {
+      _id: 'u1',
+      _creationTime: 1_700_000_000_000,
+      name: 'Alice',
+      age: 30,
+    };
+    const hydrated = hydrateDateFieldsForRead(users, doc) as any;
+
+    // Exact key set: no `_id` / `_creationTime` residue, no `undefined` holes.
+    expect(Object.keys(hydrated)).toEqual(['name', 'age', 'id', 'createdAt']);
+    expect(hydrated).not.toBe(doc);
+    expect(doc).toHaveProperty('_id');
+  });
+
+  test('hydrateDateFieldsForRead handles a table with zero temporal columns', () => {
+    const plain = convexTable('plain_rows', {
+      label: text().notNull(),
+    });
+    const hydrated = hydrateDateFieldsForRead(plain, {
+      _id: 'p1',
+      _creationTime: 1_700_000_000_000,
+      label: 'x',
+    }) as any;
+
+    expect(hydrated).toEqual({
+      label: 'x',
+      id: 'p1',
+      createdAt: 1_700_000_000_000,
+    });
+  });
+
+  test('hydrateDateFieldsForRead keeps a user createdAt when _creationTime is absent', () => {
+    const hydrated = hydrateDateFieldsForRead(usersWithCreatedAt, {
+      _id: 'u1',
+      name: 'Alice',
+      createdAt: 123,
+    }) as any;
+
+    expect(hydrated).toEqual({ name: 'Alice', createdAt: 123, id: 'u1' });
+  });
+
   test('selectReturningRowWithHydration hydrates date-like selections', () => {
     const selected = selectReturningRowWithHydration(
       users,
@@ -532,9 +574,11 @@ describe('mutation-utils', () => {
 
     const runAfterCalls: unknown[] = [];
     const deleted: string[] = [];
+    const deletedTables: string[] = [];
 
     const db = {
-      delete: async (id: string) => {
+      delete: async (table: string, id: string) => {
+        deletedTables.push(table);
         deleted.push(id);
       },
       patch: async () => {
@@ -614,6 +658,12 @@ describe('mutation-utils', () => {
     );
 
     expect(deleted.sort()).toEqual(['a1', 'a2', 'b1']);
+    // Hard delete must name the table so the lifecycle writer never has to
+    // recover it with per-hooked-table `normalizeId` probes.
+    expect([...new Set(deletedTables)].sort()).toEqual([
+      'cascade_child_a',
+      'cascade_child_b',
+    ]);
     expect(runAfterCalls).toHaveLength(1);
     expect(runAfterCalls[0]).toMatchObject({
       workType: 'cascade-delete',

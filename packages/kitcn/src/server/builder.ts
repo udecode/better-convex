@@ -30,7 +30,6 @@ import {
   zCustomMutation,
   zCustomQuery,
   zodOutputToConvex,
-  zodToConvex,
   zodToConvexFields,
 } from '../internal/upstream/server/zod4';
 import { toCRPCError } from './error';
@@ -545,34 +544,28 @@ const replaceUnencodableInputTypes = (schema: z.ZodTypeAny): z.ZodTypeAny => {
  * unchanged) but carries no checks, transforms, or defaults. cRPC's own
  * `.input()` parse stays the single authoritative one, so refinements and
  * transforms never run twice.
+ *
+ * Throws when the shape has no Convex equivalent, which is also the
+ * feasibility test `resolveConvexArgsShape` steps down its fallback ladder on.
  */
 const toWireShape = (
   shape: Record<string, z.ZodTypeAny>
-): Record<string, z.ZodTypeAny> => {
-  try {
-    return convexToZodFields(zodToConvexFields(shape)) as Record<
-      string,
-      z.ZodTypeAny
-    >;
-  } catch {
-    return shape;
-  }
-};
+): Record<string, z.ZodTypeAny> =>
+  convexToZodFields(zodToConvexFields(shape)) as Record<string, z.ZodTypeAny>;
 
 const resolveConvexArgsShape = (
   inputShape?: Record<string, z.ZodTypeAny>
 ): Record<string, z.ZodTypeAny> | undefined => {
   if (!inputShape) return;
 
-  const rawSchema = z.object(inputShape);
   try {
-    zodToConvex(rawSchema as any);
     return toWireShape(inputShape);
   } catch {
-    const compatibleSchema = replaceUnencodableInputTypes(rawSchema);
+    const compatibleSchema = replaceUnencodableInputTypes(
+      z.object(inputShape)
+    ) as z.ZodObject<any>;
     try {
-      zodToConvex(compatibleSchema as any);
-      return toWireShape((compatibleSchema as z.ZodObject<any>).shape);
+      return toWireShape(compatibleSchema.shape);
     } catch {
       const permissiveShape = Object.fromEntries(
         Object.keys(inputShape).map((key) => [key, z.any()])
@@ -606,6 +599,63 @@ const relaxSupersededKeys = (
 };
 
 /**
+ * One `.input()` schema plus everything derivable from the schema list.
+ *
+ * `keys`, `superseded`, `owned` and the relaxed `scoped` schema are pure
+ * functions of the (immutable) schema list, so they are resolved once per
+ * procedure instead of once per request. Reusing `scoped` also keeps zod's
+ * per-instance parse memo warm for the isolate's lifetime.
+ */
+type InputPlanEntry = {
+  keys: string[];
+  owned: string[];
+  scoped: z.ZodObject<any>;
+  superseded: Set<string>;
+};
+
+/** Precomputed `parseInput` plan, in original `.input()` declaration order. */
+type InputPlan = {
+  entries: InputPlanEntry[];
+  /** Single-schema procedures parse straight through - the common case. */
+  single?: z.ZodObject<any>;
+};
+
+const buildInputPlan = (inputSchemas: z.ZodObject<any>[]): InputPlan => {
+  if (inputSchemas.length === 1) {
+    return { entries: [], single: inputSchemas[0] };
+  }
+
+  const ownerOf = new Map<string, number>();
+  inputSchemas.forEach((schema, index) => {
+    for (const key of Object.keys(schema.shape)) {
+      ownerOf.set(key, index);
+    }
+  });
+
+  const entries = inputSchemas.map((schema, index) => {
+    const keys = Object.keys(schema.shape);
+    const owned: string[] = [];
+    const superseded = new Set<string>();
+    for (const key of keys) {
+      if (ownerOf.get(key) === index) {
+        owned.push(key);
+      } else {
+        superseded.add(key);
+      }
+    }
+
+    return {
+      keys,
+      owned,
+      scoped: relaxSupersededKeys(schema, [...superseded]),
+      superseded,
+    };
+  });
+
+  return { entries };
+};
+
+/**
  * Parse the wire payload through every `.input()` schema.
  *
  * Each schema parses only the keys it owns - the last `.input()` to declare a
@@ -613,34 +663,20 @@ const relaxSupersededKeys = (
  * so object-level checks run against the shape they were written for without an
  * earlier, superseded declaration vetoing the payload.
  */
-const parseInput = (
-  inputSchemas: z.ZodObject<any>[],
-  value: unknown
-): unknown => {
+const parseInput = (plan: InputPlan, value: unknown): unknown => {
   try {
-    if (inputSchemas.length === 1) {
-      return inputSchemas[0].parse(value);
+    if (plan.single) {
+      return plan.single.parse(value);
     }
 
-    const ownerOf = new Map<string, number>();
-    inputSchemas.forEach((schema, index) => {
-      for (const key of Object.keys(schema.shape)) {
-        ownerOf.set(key, index);
-      }
-    });
-
+    const { entries } = plan;
     const source = isPlainObject(value) ? value : {};
     const parsed: Record<string, unknown> = {};
 
     // Walk owners first, so a schema holding a superseded key can read the
     // value its owner produced.
-    for (let index = inputSchemas.length - 1; index >= 0; index -= 1) {
-      const schema = inputSchemas[index];
-      const keys = Object.keys(schema.shape);
-      const superseded = new Set(
-        keys.filter((key) => ownerOf.get(key) !== index)
-      );
-      const scoped = relaxSupersededKeys(schema, [...superseded]);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const { keys, owned, scoped, superseded } = entries[index];
 
       const narrowed: Record<string, unknown> = {};
       for (const key of keys) {
@@ -653,8 +689,8 @@ const parseInput = (
       }
 
       const result = scoped.parse(narrowed) as Record<string, unknown>;
-      for (const key of keys) {
-        if (ownerOf.get(key) === index && key in result) {
+      for (const key of owned) {
+        if (key in result) {
           parsed[key] = result[key];
         }
       }
@@ -805,6 +841,9 @@ export class ProcedureBuilder<
       | Record<string, z.ZodTypeAny>
       | undefined;
     const convexArgs = resolveConvexArgsShape(mergedInput);
+    // `inputSchemas` is frozen once the builder chain ends, so the whole
+    // ownership/relaxation plan is a definition-time constant.
+    const inputPlan = buildInputPlan(inputSchemas);
 
     // Use customCtx for initial context transformation only
     const customFunction = customFn(
@@ -822,21 +861,25 @@ export class ProcedureBuilder<
     >
       ? TShape
       : Record<string, never>;
-    const shouldValidateOutputWithZod =
-      !!outputSchema && returnsSchema !== outputSchema;
     const resolvedProcedureName =
       procedureName ?? inferProcedureNameFromCallsite();
 
     let fn!: Record<string, unknown>;
     fn = customFunction({
       args: typedArgs,
-      ...(typedReturnsSchema ? { returns: typedReturnsSchema } : {}),
+      // The schema is here to generate the Convex `returns` validator only.
+      // cRPC parses `.output()` itself, below, against the value the handler
+      // returned; letting the zod layer parse again would re-run transforms on
+      // the already-encoded payload.
+      ...(typedReturnsSchema
+        ? { returns: typedReturnsSchema, skipZodReturnsValidation: true }
+        : {}),
       handler: async (ctx: any, rawInput: any) => {
         const decodedInput =
           functionConfig.transformer.input.deserialize(rawInput);
         const parsedInput =
           inputSchemas.length > 0
-            ? parseInput(inputSchemas, decodedInput)
+            ? parseInput(inputPlan, decodedInput)
             : decodedInput;
         // Create getRawInput function for middleware
         const getRawInput: GetRawInputFn = async () => parsedInput;
@@ -870,8 +913,12 @@ export class ProcedureBuilder<
             }
           );
 
-          const validatedOutput = shouldValidateOutputWithZod
-            ? outputSchema.parse(result.output)
+          // The single output validation, on the value the handler returned
+          // rather than its wire encoding. `returnsSchema` only exists to
+          // generate the Convex `returns` validator, which the backend
+          // enforces against the serialized payload.
+          const validatedOutput = outputSchema
+            ? await outputSchema.parseAsync(result.output)
             : result.output;
           return functionConfig.transformer.output.serialize(validatedOutput);
         } catch (cause) {
@@ -1069,7 +1116,7 @@ export class QueryProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1080,7 +1127,7 @@ export class QueryProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TClientInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 
@@ -1224,7 +1271,7 @@ export class MutationProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1235,7 +1282,7 @@ export class MutationProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 
@@ -1374,7 +1421,7 @@ export class ActionProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1385,7 +1432,7 @@ export class ActionProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 

@@ -1,5 +1,522 @@
 # kitcn
 
+## 0.23.0
+
+### Minor Changes
+
+- [#340](https://github.com/udecode/kitcn/pull/340) [`13fbae3`](https://github.com/udecode/kitcn/commit/13fbae321d73801c90423c8f9025fef5f958553d) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - `.output()` is now validated once, against the value your handler returned,
+    instead of against its wire encoding. Schemas that transform a value into a
+    `Date` (or into any type a custom wire codec owns) now encode correctly
+    instead of being rejected, and `.output()` schemas using async refinements
+    work. Procedure handlers return the schema input type; generated clients
+    receive its output type.
+
+  ```ts
+  const at = c.query
+    .output(z.object({ at: z.string().transform((s) => new Date(s)) }))
+    .query(async () => ({ at: "2024-01-01T00:00:00.000Z" }));
+
+  // Before: the schema ran after encoding, so the Date left the server raw
+  // After:  { at: { __crpc: 1, t: '$date', v: 1704067200000 } }
+  ```
+
+  ## Features
+
+  - `zCustomQuery`, `zCustomMutation` and `zCustomAction` accept
+    `skipZodReturnsValidation`, so `returns` can declare the Convex validator and
+    the return type without also parsing the response in JS. The handler is then
+    typed as the schema's output, since that value reaches Convex unchanged.
+
+  ```ts
+  zCustomQuery(
+    query,
+    customCtx(withUser)
+  )({
+    args: { id: z.string() },
+    returns: z.object({ name: z.string() }),
+    skipZodReturnsValidation: true,
+    handler,
+  });
+  ```
+
+  - Wire codecs accept `objectsOnly`, declaring that `isType` never claims a
+    primitive. `serialize` then skips codec dispatch on primitive values.
+
+  ```ts
+  const mapCodec: WireCodec = {
+    tag: "$map",
+    objectsOnly: true,
+    isType: (value) => value instanceof Map,
+    encode: (value) => [...value],
+    decode: (value) => new Map(value),
+  };
+  ```
+
+  ## Patches
+
+  - Cut one full traversal of every response with an `.output()` or
+    `.paginated()` declaration.
+  - Reuse the argument schema and its parse cache across requests instead of
+    rebuilding them on every procedure call.
+  - Resolve the multi-`.input()` merge plan when the procedure is defined.
+    Declaring a key that `.paginated()` also declares no longer clones a schema
+    on every request.
+  - Skip codec dispatch on primitive values while encoding the built-in `Date`
+    payloads, and stop walking a payload twice per direction when a transformer
+    is passed to a server-side caller.
+  - Resolve HTTP `searchParams` coercion per route instead of per request, and
+    read the query string in a single pass.
+  - Convert an `.input()` shape to its Convex validator once per procedure
+    instead of three times.
+
+## 0.22.1
+
+### Patch Changes
+
+- [#356](https://github.com/udecode/kitcn/pull/356) [`f5d9edd`](https://github.com/udecode/kitcn/commit/f5d9edd62670ce098bb18d7f4987ec1f3b3365aa) Thanks [@zbeyens](https://github.com/zbeyens)! - Fix prefetched optional React pagination remaining disabled after authentication
+  settles.
+
+## 0.22.0
+
+### Minor Changes
+
+- [#339](https://github.com/udecode/kitcn/pull/339) [`ed72944`](https://github.com/udecode/kitcn/commit/ed72944a45e7cae642bd33c7b20dff2968c70508) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Features
+
+  - Support stable identity values from custom Solid auth providers.
+
+  ## Patches
+
+  - Fix function-form `enabled` predicates in `kitcn/solid` query options so
+    they gate both requests and live subscriptions.
+  - Fix unauthenticated `auth: "required"` Solid action queries to reject locally with
+    `CRPCClientError`, matching the React bindings.
+  - Fix auth-bound cached data crossing identity transitions. Unobserved entries are
+    removed; mounted entries are rebuilt without their previous `initialData`,
+    return to pending without prior-account placeholder data, and refetch for the
+    new account.
+
+  - Fix `kitcn/solid` paginated lists on an `auth: 'required'` function never
+    issuing a query. Auth state is tracked, so a list mounted before sign-in loads
+    once auth settles instead of showing a permanent loading state, and logging
+    out stops its page subscriptions.
+  - Fix `kitcn/solid` tearing down a Convex subscription that another mounted
+    component still needs when two components share a query key and one passes
+    `enabled: false`. The remaining component keeps receiving real-time updates.
+  - Fix `skipUnauth` being ignored by `kitcn/solid`. Queries marked
+    `skipUnauth: true` resolve to `null` on an unauthorized result instead of
+    sticking in an error state.
+  - Fix `kitcn/solid` re-authenticating Convex on every JWT write. Signing in
+    authenticates once instead of three times, and a scheduled token refresh no
+    longer pauses the socket and re-runs every live subscription.
+  - Fix `kitcn/solid` ignoring a `useAuth` that returns a new `fetchAccessToken`.
+    Convex is rebound to the current fetcher instead of refreshing through the one
+    captured for the previous session.
+  - Fix provider-driven identity transitions retaining the previous account's
+    auth-bound cache or Convex binding. `ConvexProviderWithAuth` accepts an
+    optional stable `identity`; providers that omit it retain the safe legacy
+    behavior of rebinding on reactive auth changes. Replacing a Better Auth
+    session also invalidates its cached JWT and abandons in-flight token requests
+    owned by the previous session before authenticating the new one. SSR tokens
+    remain hydration fallbacks only until a client session is confirmed and
+    cannot seed that session's cache identity. The first settled client identity
+    clears auth-bound hydration state when its ownership cannot be proven.
+  - Fix an account transition leaving the previous account's rows in disabled,
+    unobserved, or non-subscribed queries.
+  - Fix a paginated list restoring the previous account's cursors after signing
+    in or out. An auth-bound list starts again from its first page instead of
+    paging from cursors that point into another account's results.
+  - Fix an auth-bound query refetching everything on every scheduled token
+    refresh. A refreshed JWT for the same account leaves the cache alone; only an
+    authorization identity change clears it, including tenant or role claims
+    changing inside the same Better Auth session.
+  - Fix sign-in and sign-up mutations clearing auth-bound queries before Convex
+    adopts the new identity. The provider clears previous-account data while the
+    binding changes, holds mounted observers idle, then restores and refetches
+    only after Convex reports the transition as settled. Sign-out follows the
+    same provider-owned transition.
+  - Fix custom Solid Convex auth being replaced by the fallback Better Auth
+    store. Query subscriptions follow the custom provider, settled identity and
+    account epoch instead of remaining blocked or reusing another account's
+    pagination state.
+  - Fix account transitions retaining obsolete pagination ID entries. Pagination
+    state in the QueryClient remains the persistence owner without a second
+    process-wide key map.
+  - Fix prefetched optional pagination queries fetching while authentication is
+    loading. Hydrated data remains readable, but its observer stays disabled
+    until the auth binding settles.
+  - Fix overlapping auth transitions restoring stale observer options or letting
+    an older settlement refetch during a newer identity change. Only the latest
+    transition can restore and refetch, and option updates made while observers
+    are suspended remain authoritative.
+  - Keep auth-bound queries mounted during a Solid identity transition disabled
+    until Convex confirms the new identity. Both one-shot requests and live
+    subscriptions wait behind the same client-owned settlement barrier.
+  - Ignore Convex auth-settlement callbacks from superseded bindings. A late
+    callback from an older account cannot republish that identity or reopen the
+    query barrier during a newer transition.
+
+## 0.21.0
+
+### Minor Changes
+
+- [#338](https://github.com/udecode/kitcn/pull/338) [`7163710`](https://github.com/udecode/kitcn/commit/7163710aea8ec3758af04128836027aca8bf724b) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - `createClient` now takes a `getBetterAuthSchema` thunk and its `adapter(ctx)`
+    takes only the context. The Better Auth table schema is derived once for the
+    isolate and shared, instead of every adapter re-deriving it. `dbAdapter` drops
+    its options-getter argument for the same reason.
+
+  ```ts
+  // Before
+  const authClient = createClient({ authFunctions, schema });
+  const database = authClient.adapter(ctx, getAuthOptions);
+
+  // After
+  const authClient = createClient({
+    authFunctions,
+    getBetterAuthSchema,
+    schema,
+  });
+  const database = authClient.adapter(ctx);
+  ```
+
+  ## Patches
+
+  - Improve authenticated request latency: `getAuth(ctx)` evaluates your
+    `defineAuth` callback once per request instead of twice.
+  - Improve `admin.listUsers` and other counted reads: totals no longer hold every
+    matching row in memory while paginating.
+  - Improve Better Auth record updates: an update is one Convex call that reads
+    the row once, instead of a separate pre-check call that read it again. The
+    "expected exactly 1 match" error now comes from the write itself, so it can no
+    longer be invalidated by a concurrent insert or delete.
+  - Improve auth request CPU: the Convex auth plugin reuses its OIDC provider, and
+    unique-field lookups no longer rescan the auth schema on every read and write.
+  - Fix session recovery from a persisted token issuing a fixed 250ms delay plus
+    up to ten `/get-session` requests. A live token is recovered with one immediate
+    request, a server-confirmed missing session stops after one, and only transport
+    failures retry.
+  - Fix a dropped `/get-session` request signing the user out. Transport failures
+    retry with backoff for the rest of the session-sync grace window, so a session
+    is restored in the same mount once connectivity returns.
+  - Fix an outage during session recovery leaving the app stuck on `isLoading`.
+    When the grace window closes with no answer, auth resolves to unauthenticated
+    instead of holding a token no request ever confirmed. The persisted token is
+    kept so the next mount can retry it.
+
+## 0.20.0
+
+### Minor Changes
+
+- [#337](https://github.com/udecode/kitcn/pull/337) [`5d3172b`](https://github.com/udecode/kitcn/commit/5d3172b260bba6d44ba06b5639c22711c0d58f79) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Range-filtered `count()` and `aggregate()` now stop at `aggregateWorkBudget`
+    work units and throw `COUNT_FILTER_UNSUPPORTED` /
+    `AGGREGATE_FILTER_UNSUPPORTED` naming the index, instead of reading the whole
+    equality prefix and failing on Convex's transaction read limit. Bucket scans
+    cost one unit; `_min` and `_max` also reserve one extrema read per matching
+    bucket. One budget covers every `IN` prefix and extrema metric sharing the
+    range plan. Raise it cautiously if a wide range scan is intentional.
+
+  ```ts
+  // Before
+  export default defineSchema({ runs });
+
+  // After
+  export default defineSchema(
+    { runs },
+    // Keep headroom below Convex's 32,000-document transaction ceiling.
+    { defaults: { aggregateWorkBudget: 20_000 } }
+  );
+  ```
+
+  ## Features
+
+  - `kitcn aggregate rebuild` and index pruning clear stored aggregate state in
+    scheduled batches, so rebuilding or dropping an `aggregateIndex` / `rankIndex`
+    on a large table no longer has to fit in a single Convex mutation. Indexes
+    report a `CLEARING` status while draining, and `kitcn aggregate prune` reports
+    how many removed indexes are still being cleared in the background.
+  - ORM writes targeting a declared index in `CLEARING` fail before the document
+    write. Retry after the index advances to `BUILDING` or `READY`; this prevents
+    concurrent writes from being erased by a multi-mutation clear.
+  - Automatic pruning follows canonical aggregate lifecycle state instead of
+    reverse-scanning every distinct backing-table index. Exact `tableName` and
+    `indexName` handler arguments retain bounded recovery for state-less storage.
+
+  ## Patches
+
+  - Reduce database reads per rank-index write: the btree descent no longer
+    re-queries the tree document at every node, re-reads nodes it just wrote, or
+    re-reads the child it descends into.
+  - Reduce database reads for `rank().min()`, `rank().max()` and `rank().random()`
+    by dropping a redundant count scan per call.
+  - Reduce document writes during aggregate backfill: a page of rows sharing a key
+    tuple now writes its bucket once instead of once per row.
+  - Stop writing `aggregate_member` rows when a mutation changes no aggregated
+    field.
+  - Improve `count()` and `aggregate()` latency for multi-value `IN` filters and
+    for `_min` / `_max` by issuing independent bucket reads through a bounded pool.
+  - Keep a partially cleared index in `CLEARING` when an error interrupts a
+    rebuild, so a retry resumes clearing instead of building over stale buckets.
+
+## 0.19.0
+
+### Minor Changes
+
+- [#336](https://github.com/udecode/kitcn/pull/336) [`aba33f5`](https://github.com/udecode/kitcn/commit/aba33f55f1eacacdf36c8408391068a7e3868132) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Read `.select().where({ id: { in: [...] } })` in the order the ids are given
+    instead of creation order. Each page reads only the listed positions it
+    visits rather than the complete ID list; missing or policy-filtered ids still
+    count as reads. Add `orderBy` to keep creation order. Cursors issued by the
+    previous behavior are not portable.
+
+  ```ts
+  // Before — creation order, and every page read the whole id list
+  await ctx.orm.query.posts
+    .select()
+    .where({ id: { in: ids } })
+    .map((row) => row)
+    .paginate({ cursor, limit: 10 });
+
+  // After — same call, rows come back in the order `ids` lists them
+  await ctx.orm.query.posts
+    .select()
+    .where({ id: { in: ids } })
+    .map((row) => row)
+    .paginate({ cursor, limit: 10 });
+
+  // After — creation order, which still reads every id in the list
+  await ctx.orm.query.posts
+    .select()
+    .where({ id: { in: ids } })
+    .orderBy({ createdAt: "asc" })
+    .map((row) => row)
+    .paginate({ cursor, limit: 10 });
+  ```
+
+  ## Patches
+
+  - Fix `.distinct({ fields })` on more than one field growing exponentially more
+    expensive with each row returned, which made pages of about twenty rows fail
+    to return at all.
+  - Fix `.distinct({ fields })` over `.union(...).interleaveBy(...)` slowing down
+    sharply as the number of returned rows grows.
+  - Support `maxScan` on paginated `where: { id: { in: [...] } }` reads, including
+    reads ordered by a single indexed field.
+  - Improve paginated reads to register fewer Convex queries per page, and to
+    release the ones they opened when a page stops early.
+  - Improve the per-row cost of every stream-backed read.
+
+## 0.18.0
+
+### Minor Changes
+
+- [#335](https://github.com/udecode/kitcn/pull/335) [`9b3494d`](https://github.com/udecode/kitcn/commit/9b3494de4a057612b718b8c522d99c012926832f) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Fix `orderBy` returning the wrong rows when the `where` pins only part of a
+    compound index. Ordering by `createdAt` under `where: { type: 'a' }` on an
+    index of `(type, numLikes)` used to hand back the rows sorted by `numLikes`.
+    It now returns creation order. Queries in that shape return different rows
+    than before, and under `cursor` pagination with `strict` they now report that
+    the field has no usable index instead of paginating in the wrong order.
+
+  ```ts
+  // Schema: index('numLikesAndType').on(t.type, t.numLikes)
+
+  // Before — returned the two most-liked posts
+  // After  — returns the two newest posts, as asked
+  await ctx.orm.query.posts.findMany({
+    where: { type: "a" },
+    orderBy: { createdAt: "desc" },
+    limit: 2,
+  });
+
+  // Pinning the narrower index leaves creation time as the implicit next key
+  index("by_type").on(t.type);
+  ```
+
+  - Change which rows a `.through()` relation returns for a given `limit`. Each
+    parent now gets its own first `limit` links instead of a window over the
+    order in which targets happened to be discovered across the whole page.
+    `orderBy` on a through relation is unaffected.
+
+  ## Patches
+
+  - Push `limit` and `orderBy` on a `many()` relation into the relation index.
+    `with: { posts: { limit: 5, orderBy: { createdAt: 'desc' } } }` reads five
+    posts per parent instead of every post of every parent.
+  - Bound `.through()` relation reads by the requested `limit` instead of reading
+    every junction row of every parent. Links whose target is missing or is
+    dropped by RLS or the relation `where` do not consume a slot, so the page
+    still comes back full.
+  - Fill `limit` with rows that survive RLS and relation `where` instead of
+    filtering after the read. `findMany({ where: { ownerId }, limit: 3 })` on a
+    table with a select policy used to return only whichever of the first three
+    stored rows happened to be visible — often none.
+  - Push `limit` into `in`, `notIn`, `ne` and `isNotNull` reads, which previously
+    read every matching row and sliced afterwards.
+  - Use an index for `in` combined with another filter — `where: { status: { in:
+[...] }, name: { contains: 'x' } }` scanned the whole table.
+  - Order by a field the `where` does not pin without reading the whole bucket,
+    as long as the index sorts by it next.
+  - Prefer an index that also supplies the requested order, so a compound
+    `(tenantId, createdAt)` is chosen over a narrow `(tenantId)` for a
+    tenant-scoped feed.
+  - Serve `orderBy` on the leading field of a pinned `.withIndex()` from the
+    index instead of scanning the table.
+  - Stop loading nested `with:` data, extras and column selection for relation
+    rows that the per-parent `limit` or `offset` then discards. Deeply nested
+    reads that previously failed the relation fan-out guard now succeed.
+  - Read each shared target once when counting a `.through()` relation with a
+    `where`, instead of once per parent row.
+  - Reuse aggregate bucket reads across rows of a `with._count`.
+  - Build the ORM once per request instead of twice; the RLS bypass client is
+    now created only when it is used.
+  - Reduce per-row work on filtered reads, relation counts, and query planning.
+
+## 0.17.5
+
+### Patch Changes
+
+- [#332](https://github.com/udecode/kitcn/pull/332) [`2609245`](https://github.com/udecode/kitcn/commit/2609245de4e468715e4691f9a159c88a659d4f75) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix auth-bound queries being reset every time Convex refreshes the access
+    token. Convex rotates the token roughly every 15 minutes and on every socket
+    reauth, and each mint carried a new timestamp, so the whole page flashed back
+    to its loading state and every query ran twice against the backend. Queries now
+    keep their data and their live subscriptions across a refresh, and still reset
+    on a real identity change — sign in, sign out, session rotation, or an
+    organization/role switch.
+  - Fix `fetchNextPage` from `useInfiniteQuery` getting a new identity on every
+    render, which re-registered any effect keyed on it — including the
+    infinite-scroll observer pattern the docs recommend. It is now stable for the
+    life of the hook.
+  - Improve `useInfiniteQuery` to reuse its page queries and aggregation across
+    unrelated re-renders, instead of re-hashing arguments once per loaded page and
+    re-scanning every loaded item.
+  - Improve `queryOptions()` to keep its result referentially stable when nothing
+    changed, including the two-argument form with inline options.
+  - Fix query options losing referential stability entirely on pages that hold more
+    than 500 distinct sets of query arguments.
+  - Improve `useCRPC()` and `useCRPCClient()` to return the same value across
+    renders, so they are safe to place in a dependency array.
+  - Improve real-time updates to skip a redundant query-key hash per pushed query.
+
+## 0.17.4
+
+### Patch Changes
+
+- [#331](https://github.com/udecode/kitcn/pull/331) [`23c0c99`](https://github.com/udecode/kitcn/commit/23c0c999adda8aab66d4d4f88806368fbcff8d2f) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Improve mutation latency on tables with triggers, `aggregateIndex()` or
+    `rankIndex()`. Writes no longer re-read the document after patching or
+    replacing it, and no longer read it at all when no hook consumes it.
+  - Improve `update()` and `delete()` cascade latency: `set null`, `set default`
+    and cascade-update fan-out now apply their patches concurrently with a
+    bounded pool instead of one round trip at a time. Tables with hooks keep
+    their strict write order.
+  - Improve read throughput on row-level-security tables. Policy `using` /
+    `withCheck` callbacks run once per query execution or write-free mutation
+    decision batch instead of once per returned row. Multi-row insert and delete
+    re-resolve stateful policies after each write.
+  - Fix row-level-security visibility when one query object is awaited more than
+    once. Every await re-resolves the table's policies, so a policy that reads
+    the database sees writes made between the two awaits.
+  - Improve CPU cost of every ORM read and every `returning()` row by reshaping
+    documents in a single pass.
+  - Improve `returning({ _count })` on multi-row mutations: the aggregate-index
+    readiness check now runs once per index instead of once per row.
+  - Improve cascade delete throughput on schemas with many triggered or
+    aggregate-indexed tables by removing per-row table-name probing.
+  - Improve mutations that issue concurrent writes to a hooked table: the
+    internal write lock now hands off to one waiter instead of waking all of
+    them.
+  - Fix `kitcn codegen` dropping nested cRPC HTTP routes when parsing projects
+    through generated server placeholders.
+
+## 0.17.3
+
+### Patch Changes
+
+- [#330](https://github.com/udecode/kitcn/pull/330) [`b78d94a`](https://github.com/udecode/kitcn/commit/b78d94a53d2f044816944317acea0ee9973739d8) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Start the CLI faster. esbuild, Babel, jiti, dotenv and the interactive prompt
+    stack are loaded the first time a command needs them instead of on every
+    invocation, so `kitcn --version`, `kitcn --help` and `--json` calls no longer
+    pay for tooling they never use.
+  - Run `kitcn codegen` with less repeated work: one module loader per run instead
+    of two, and the parse shim resolved once instead of once per Convex module.
+  - Speed up `kitcn add`, `kitcn view` and `kitcn info` on large schemas by
+    parsing each schema revision once instead of once per managed table.
+  - Speed up `kitcn init` and `kitcn add` file comparison, which no longer copies
+    and serializes both syntax trees before comparing them.
+  - Fix `kitcn dev` ignoring edits to shared routers, builders and contracts that
+    sit next to the functions directory. Changing one regenerates the api like
+    changing a function file does, for any functions path configured in
+    `convex.json`.
+  - Generate api and procedure metadata in a stable order regardless of the
+    filesystem's directory listing order.
+  - Shrink the `kitcn dev` file watcher, which no longer loads the rest of the CLI
+    into the background process it keeps alive for the session.
+
+## 0.17.2
+
+### Patch Changes
+
+- [#329](https://github.com/udecode/kitcn/pull/329) [`c853115`](https://github.com/udecode/kitcn/commit/c853115311cc6b2645c47736db529731af3fc2c6) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `useInfiniteQuery` from `kitcn/solid` crashing with `state.map is not a function` on every mount.
+  - Update Solid infinite query results field by field, so a component reading `status` is not re-run when only `data` changes.
+
+## 0.17.1
+
+### Patch Changes
+
+- [#324](https://github.com/udecode/kitcn/pull/324) [`0536f17`](https://github.com/udecode/kitcn/commit/0536f17bbd22f11d325c26c5e64bed160825a908) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `kitcn codegen` emitting both the `api` and `internal` type imports into
+    generated runtime files that only reference one of them. A module whose
+    procedures are all internal, or all public, no longer carries an unused import
+    that editors grey out and that `tsc` rejects with `TS6196` when
+    `noUnusedLocals` is enabled. Each generated runtime now imports only the api
+    roots its procedures reference.
+
+- [#326](https://github.com/udecode/kitcn/pull/326) [`6196625`](https://github.com/udecode/kitcn/commit/6196625d8ce3e9bd08f25373a7e536a43718b167) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `CRPCError` reaching the client as a bare `Error` with the message
+    redacted to `Server Error` and `error.data` undefined. Errors converted by
+    cRPC — a procedure calling another procedure through a caller, an ORM
+    not-found, a Better Auth `APIError`, or any error wrapped by
+    `getCRPCErrorFromUnknown` — now arrive as a `ConvexError` carrying the
+    original `code`, `message`, and custom `data`.
+
+    ```ts
+    // convex/functions/payment.ts — internal procedure
+    throw new CRPCError({
+      code: "BAD_REQUEST",
+      message: "Declined: INSUFFICIENT_FUNDS",
+      data: { processorCode },
+    });
+
+    // Before — the public procedure delegating to it lost the reason
+    onError: (error) => {
+      error.data; // undefined
+    };
+
+    // After
+    onError: (error) => {
+      error.data; // { code: 'BAD_REQUEST', message: 'Declined: …', processorCode }
+    };
+    ```
+
+  - Fix converted errors losing every source-mapped frame in Convex dashboard
+    logs. Traces carry frames again; the original throw site stays on
+    `error.cause`.
+
 ## 0.17.0
 
 ### Minor Changes

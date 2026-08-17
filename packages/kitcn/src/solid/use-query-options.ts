@@ -35,6 +35,7 @@ import type {
   ConvexQueryMeta,
   InfiniteQueryInput,
 } from '../crpc/types';
+import { resolveEnabled } from '../internal/enabled';
 import type { DistributiveOmit } from '../internal/types';
 import { useAuthSkip, useFnMeta, useMeta } from './auth';
 import { useAuthGuard } from './auth-store';
@@ -101,15 +102,21 @@ export function useConvexQueryOptions<T extends FunctionReference<'query'>>(
   );
 
   // Extract ConvexQueryHookOptions from merged options
-  const { skipUnauth: _, subscribe, ...queryOptions } = options ?? {};
+  const {
+    enabled: userEnabled,
+    skipUnauth,
+    subscribe,
+    ...queryOptions
+  } = options ?? {};
 
   return {
     ...baseOptions,
     ...queryOptions, // Spread user options
-    enabled: isSkipped ? false : !authSkip.shouldSkip,
+    enabled: resolveEnabled(!(isSkipped || authSkip.shouldSkip), userEnabled),
     meta: {
       ...baseOptions.meta,
       authType: authSkip.authType,
+      skipUnauth,
       subscribe: subscribe !== false,
     },
   };
@@ -159,18 +166,22 @@ export function useConvexInfiniteQueryOptions<
     skipUnauth: opts.skipUnauth,
   });
 
-  // Determine final enabled state
-  const enabled = isSkipped || authSkip.shouldSkip ? false : enabledOpt;
-
   const baseOptions = convexInfiniteQueryOptions(
     funcRef,
     isSkipped ? ({} as InfiniteQueryInput<FunctionArgs<T>>) : args,
-    { ...opts, enabled },
+    { ...opts, enabled: undefined },
     meta
   );
 
   return {
     ...baseOptions,
+    // `useInfiniteQuery` takes a plain object rather than an accessor, so a
+    // baked boolean would freeze `enabled` at whatever auth was on mount —
+    // and auth starts `isLoading: true`. The getter re-reads auth on access,
+    // inside the caller's tracking scope, and keeps a predicate intact.
+    get enabled() {
+      return resolveEnabled(!(isSkipped || authSkip.shouldSkip), opts.enabled);
+    },
     meta: {
       ...baseOptions.meta,
       authType: authSkip.authType,
@@ -206,7 +217,7 @@ export function useConvexActionQueryOptions<
     SolidQueryOptions<FunctionReturnType<Action>, DefaultError>,
     ReservedQueryOptions
   >
-): ConvexActionOptions<Action> {
+): ConvexActionOptions<Action> & { meta: ConvexQueryMeta } {
   const isSkipped = args === skipToken;
 
   // Convert enabled to boolean (TanStack Query allows function)
@@ -224,12 +235,20 @@ export function useConvexActionQueryOptions<
   );
 
   // Extract skipUnauth from options before spreading
-  const { skipUnauth: _, ...queryOptions } = options ?? {};
+  const { enabled: userEnabled, skipUnauth, ...queryOptions } = options ?? {};
 
   return {
     ...baseOptions,
     ...queryOptions,
-    enabled: isSkipped ? false : !authSkip.shouldSkip,
+    enabled: resolveEnabled(!(isSkipped || authSkip.shouldSkip), userEnabled),
+    // Explicit meta after the spread: the client needs `authType` for the
+    // pre-flight UNAUTHORIZED short-circuit and `skipUnauth` to resolve to
+    // null, and a user-supplied `meta` must not drop `subscribe: false`.
+    meta: {
+      ...baseOptions.meta,
+      authType: authSkip.authType,
+      skipUnauth,
+    },
   };
 }
 

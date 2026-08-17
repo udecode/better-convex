@@ -107,13 +107,35 @@ export const log = (message: string) => {
   process.stdout.write(`${message}\n`);
 };
 
+export class CommandFailedError extends Error {
+  readonly command: readonly string[];
+  readonly cwd: string;
+  readonly exitCode: number;
+
+  constructor(params: {
+    command: readonly string[];
+    cwd: string;
+    exitCode: number;
+  }) {
+    super(
+      `Command failed with exit code ${params.exitCode}: ${params.command.join(' ')}`
+    );
+    this.name = 'CommandFailedError';
+    this.command = params.command;
+    this.cwd = params.cwd;
+    this.exitCode = params.exitCode;
+  }
+}
+
+export type RunOptions = {
+  allowNonZeroExit?: boolean;
+  env?: Record<string, string | undefined>;
+};
+
 export const run = async (
   cmd: string[],
   cwd: string,
-  options: {
-    allowNonZeroExit?: boolean;
-    env?: Record<string, string | undefined>;
-  } = {}
+  options: RunOptions = {}
 ): Promise<number> => {
   const child = Bun.spawn({
     cmd,
@@ -126,19 +148,28 @@ export const run = async (
   });
   const exitCode = await child.exited;
 
-  if (options.allowNonZeroExit) {
-    return exitCode;
-  }
-
-  if (exitCode !== 0) {
-    process.exit(exitCode);
+  if (!options.allowNonZeroExit && exitCode !== 0) {
+    throw new CommandFailedError({ command: cmd, cwd, exitCode });
   }
 
   return exitCode;
 };
 
+const SKIP_LOCAL_BUILD_ENV = 'KITCN_SKIP_LOCAL_BUILD';
+
 const ensureLocalPackageBuild = (packageDir = LOCAL_PACKAGE_DIR) => {
   if (BUILT_LOCAL_PACKAGE_DIRS.has(packageDir)) {
+    return;
+  }
+
+  if (process.env[SKIP_LOCAL_BUILD_ENV]) {
+    if (!existsSync(path.join(packageDir, 'dist'))) {
+      throw new Error(
+        `${SKIP_LOCAL_BUILD_ENV} is set but ${path.relative(PROJECT_ROOT, packageDir)}/dist is missing. Run \`bun build:pkg\` first.`
+      );
+    }
+
+    BUILT_LOCAL_PACKAGE_DIRS.add(packageDir);
     return;
   }
 
@@ -177,15 +208,23 @@ export const buildLocalCliCommand = (
   ];
 };
 
+/**
+ * Install-spec tarballs outlive the process that packs them: `kitcn add` writes
+ * the returned `file:` spec straight into the scaffolded app's `package.json`,
+ * and `scenario:prepare` leaves that app on disk for manual runs. Deleting these
+ * directories on exit would leave prepared apps unable to reinstall.
+ */
+const createInstallSpecDir = (prefix: string) =>
+  mkdtempSync(path.join(tmpdir(), prefix));
+
 export const getLocalInstallSpec = () => {
   if (localInstallSpec) {
     return localInstallSpec;
   }
 
-  const outputDir = mkdtempSync(
-    path.join(tmpdir(), 'kitcn-local-install-spec-')
+  localInstallSpec = packLocalPackage(
+    createInstallSpecDir('kitcn-local-install-spec-')
   );
-  localInstallSpec = packLocalPackage(outputDir);
   return localInstallSpec;
 };
 
@@ -225,9 +264,7 @@ export const getLocalResendInstallSpec = () => {
     return localResendInstallSpec;
   }
 
-  const outputDir = mkdtempSync(
-    path.join(tmpdir(), 'kitcn-local-resend-install-spec-')
-  );
+  const outputDir = createInstallSpecDir('kitcn-local-resend-install-spec-');
   const packageDir = createPackableLocalResendPackageDir();
   localResendInstallSpec = packLocalPackage(outputDir, packageDir, {
     skipBuild: true,
@@ -403,6 +440,16 @@ export const stripVolatileArtifacts = (directory: string) => {
   }
 };
 
+/**
+ * Removes `._*` AppleDouble sidecars from a scaffolded app before lint and
+ * typecheck see them.
+ *
+ * Directories in `VOLATILE_ENTRY_NAMES` are skipped: `stripVolatileArtifacts`
+ * deletes them wholesale before any snapshot or diff, so descending into them
+ * (notably the fully hoisted `node_modules`, ~10k directories) is dead work.
+ * `VOLATILE_ENTRY_PATTERNS` is deliberately not consulted here — it contains
+ * `/^\._/`, and treating that as a skip rule would no-op this function.
+ */
 export const stripAppleDoubleSidecars = (directory: string) => {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) {
     return;
@@ -416,7 +463,7 @@ export const stripAppleDoubleSidecars = (directory: string) => {
       continue;
     }
 
-    if (entry.isDirectory()) {
+    if (entry.isDirectory() && !VOLATILE_ENTRY_NAMES.has(entry.name)) {
       stripAppleDoubleSidecars(entryPath);
     }
   }

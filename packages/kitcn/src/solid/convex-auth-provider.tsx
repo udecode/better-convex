@@ -11,6 +11,7 @@ import type { ConvexClient } from 'convex/browser';
 import { createEffect, type JSX, onMount, type ParentProps } from 'solid-js';
 
 import { CRPCClientError, defaultIsUnauthorized } from '../crpc/error';
+import { decodeJwtIdentity } from '../internal/jwt';
 import {
   AuthProvider,
   decodeJwtExp,
@@ -55,6 +56,18 @@ const hasActiveSessionData = (session: unknown) => {
     return false;
   }
   return Boolean((session as { session?: unknown }).session);
+};
+
+const getSessionId = (sessionData: unknown): string | undefined => {
+  if (!sessionData || typeof sessionData !== 'object') {
+    return;
+  }
+  const session = (sessionData as { session?: unknown }).session;
+  if (!session || typeof session !== 'object') {
+    return;
+  }
+  const id = (session as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
 };
 
 /**
@@ -108,17 +121,37 @@ function ConvexAuthProviderInner(
 
   // Stable ref for pending token promise (no re-renders in Solid)
   let pendingTokenPromise: Promise<string | null> | null = null;
+  let pendingTokenSessionId: string | undefined;
+  let authIdentity: string | null = null;
+  let identityClaims: string | null = null;
+  let identityInitialized = false;
+  let identitySessionId: string | undefined;
+  let tokenSessionId: string | undefined;
+  let tokenSessionInitialized = false;
 
   // Clear token when session becomes null (logout)
   createEffect(() => {
     const sessionState = sessionAccessor();
     const session = sessionState.data;
     const isPending = sessionState.isPending;
+    const sessionId = getSessionId(session);
 
     if (!hasActiveSessionData(session) && !isPending) {
       authStore.set('token', null);
       authStore.set('expiresAt', null);
       authStore.set('isAuthenticated', false);
+      tokenSessionId = undefined;
+      tokenSessionInitialized = false;
+    } else if (hasActiveSessionData(session)) {
+      if (
+        (!tokenSessionInitialized && authStore.get('token') !== null) ||
+        (tokenSessionInitialized && sessionId !== tokenSessionId)
+      ) {
+        authStore.set('token', null);
+        authStore.set('expiresAt', null);
+      }
+      tokenSessionId = sessionId;
+      tokenSessionInitialized = true;
     }
   });
 
@@ -132,6 +165,7 @@ function ConvexAuthProviderInner(
     const currentSession = sessionState.data;
     const currentIsPending = sessionState.isPending;
     const hasSession = hasActiveSessionData(currentSession);
+    const currentSessionId = getSessionId(currentSession);
 
     // If no session:
     // - If still pending (hydration), return cached token from SSR
@@ -154,12 +188,17 @@ function ConvexAuthProviderInner(
       !forceRefreshToken &&
       cachedToken &&
       expiresAt &&
+      currentSessionId === tokenSessionId &&
       timeRemaining >= 60_000
     ) {
       return cachedToken;
     }
 
-    if (!forceRefreshToken && pendingTokenPromise) {
+    if (
+      !forceRefreshToken &&
+      pendingTokenPromise &&
+      pendingTokenSessionId === currentSessionId
+    ) {
       return pendingTokenPromise;
     }
 
@@ -171,17 +210,34 @@ function ConvexAuthProviderInner(
     } = {
       throw: false,
     };
-    if (cachedToken && decodeJwtExp(cachedToken) === null) {
+    if (
+      cachedToken &&
+      currentSessionId === tokenSessionId &&
+      decodeJwtExp(cachedToken) === null
+    ) {
       fetchOptions.headers = {
         Authorization: `Bearer ${cachedToken}`,
       };
     }
 
+    const sessionStillOwnsRequest = () => {
+      const latestSession = sessionAccessor().data;
+      return (
+        hasActiveSessionData(latestSession) &&
+        getSessionId(latestSession) === currentSessionId
+      );
+    };
+
     // Fetch fresh JWT
+    let tokenPromise!: Promise<string | null>;
     // biome-ignore lint/suspicious/noExplicitAny: convex plugin type
-    pendingTokenPromise = (props.authClient as any).convex
+    tokenPromise = (props.authClient as any).convex
       .token({ fetchOptions })
       .then((result: { data?: { token?: string | null } | null }) => {
+        if (!sessionStillOwnsRequest()) {
+          return null;
+        }
+
         const jwt = result.data?.token || null;
 
         if (jwt) {
@@ -196,16 +252,26 @@ function ConvexAuthProviderInner(
         return null;
       })
       .catch((error: unknown) => {
+        if (!sessionStillOwnsRequest()) {
+          return null;
+        }
+
         authStore.set('token', null);
         authStore.set('expiresAt', null);
         console.error('[fetchAccessToken] error', error);
         return null;
       })
       .finally(() => {
-        pendingTokenPromise = null;
+        if (pendingTokenPromise === tokenPromise) {
+          pendingTokenPromise = null;
+          pendingTokenSessionId = undefined;
+        }
       });
 
-    return pendingTokenPromise;
+    pendingTokenPromise = tokenPromise;
+    pendingTokenSessionId = currentSessionId;
+
+    return tokenPromise;
   };
 
   // Create useAuth function for ConvexProviderWithAuth
@@ -215,8 +281,37 @@ function ConvexAuthProviderInner(
     const hasSession = hasActiveSessionData(sessionState.data);
     const sessionMissing = !hasSession && !sessionState.isPending;
     const token = authStore.get('token');
+    const sessionId = getSessionId(sessionState.data);
+    const claims =
+      token && tokenSessionInitialized && sessionId === tokenSessionId
+        ? decodeJwtIdentity(token)
+        : null;
+
+    const sessionChanged =
+      identityInitialized && sessionId !== identitySessionId;
+
+    if (!identityInitialized || sessionChanged) {
+      identityInitialized = true;
+      identitySessionId = sessionId;
+      // A token still in the store during a session transition belongs to the
+      // previous session. Bind the transition to the new session ID and adopt
+      // claims only after that session's token request completes.
+      identityClaims = sessionChanged ? null : claims;
+      authIdentity =
+        !sessionChanged && claims
+          ? JSON.stringify({ claims, sessionId: sessionId ?? null })
+          : (sessionId ?? null);
+    } else if (claims && identityClaims === null) {
+      // The first token arrives through the setAuth call already in flight.
+      // Record its claims without pausing and restarting the same auth attempt.
+      identityClaims = claims;
+    } else if (claims && claims !== identityClaims) {
+      identityClaims = claims;
+      authIdentity = JSON.stringify({ claims, sessionId: sessionId ?? null });
+    }
 
     return {
+      identity: authIdentity,
       isLoading: sessionState.isPending && !token,
       // If Better Auth confirms no session, stale JWT should not keep auth=true.
       isAuthenticated: sessionMissing ? false : hasSession || token !== null,

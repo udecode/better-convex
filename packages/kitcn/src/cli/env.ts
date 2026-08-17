@@ -2,12 +2,12 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parse } from 'dotenv';
 import { getConvexConfig } from './codegen.js';
 import {
   formatConvexCommandFailure,
   runLocalConvexCommand,
 } from './convex-command.js';
+import { loadDotenv } from './utils/lazy-deps.js';
 import { logger } from './utils/logger.js';
 
 export interface PushOptions {
@@ -144,7 +144,7 @@ const readEnvSource = (params: { cwd: string; fromFilePath?: string }) => {
   return {
     content,
     path: filePath,
-    vars: parse(content),
+    vars: loadDotenv().parse(content),
   };
 };
 
@@ -159,7 +159,7 @@ const readLocalEnvFile = (envPath: string) => {
   const content = fs.readFileSync(envPath, 'utf8');
   return {
     content,
-    vars: parse(content),
+    vars: loadDotenv().parse(content),
   };
 };
 
@@ -234,7 +234,7 @@ const resolvePushSource = (params: {
   if (typeof params.sourceContent === 'string') {
     return {
       content: params.sourceContent,
-      vars: parse(params.sourceContent),
+      vars: loadDotenv().parse(params.sourceContent),
     };
   }
 

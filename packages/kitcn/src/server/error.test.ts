@@ -75,7 +75,7 @@ describe('server/error', () => {
     expect(err.message).toBe('UNAUTHORIZED');
   });
 
-  test('getCRPCErrorFromUnknown wraps unknowns and preserves stack when possible', () => {
+  test('getCRPCErrorFromUnknown wraps unknowns and keeps the original stack on cause', () => {
     const cause = new Error('nope');
     cause.stack = 'STACK';
     const err = getCRPCErrorFromUnknown(cause);
@@ -83,7 +83,47 @@ describe('server/error', () => {
     expect(err).toBeInstanceOf(CRPCError);
     expect(err.code).toBe('INTERNAL_SERVER_ERROR');
     expect(err.cause?.message).toBe('nope');
-    expect(err.stack).toBe('STACK');
+    expect(err.cause?.stack).toBe('STACK');
+  });
+
+  // Overwriting `.stack` suppresses Convex's `prepareStackTrace` hook, which is
+  // what writes the `__frameData` the backend requires before it forwards
+  // `data`. See the note above `toCRPCError`, and `error.vitest.ts` for the
+  // V8-level regression test.
+  test.each([
+    [
+      'ConvexError carrying cRPC data',
+      () =>
+        acrossConvexSyscall(
+          new CRPCError({ code: 'NOT_FOUND', message: 'Todo not found' })
+        ),
+    ],
+    [
+      'OrmNotFoundError',
+      () =>
+        Object.assign(new Error('User not found'), {
+          name: 'OrmNotFoundError',
+        }),
+    ],
+    [
+      'APIError',
+      () =>
+        Object.assign(new Error('Nope'), {
+          body: { message: 'Nope' },
+          name: 'APIError',
+          status: 'UNAUTHORIZED',
+          statusCode: 401,
+        }),
+    ],
+  ])('toCRPCError does not copy the %s stack onto the CRPCError', (_, build) => {
+    const cause = build();
+    cause.stack = 'CAUSE STACK';
+
+    const err = toCRPCError(cause);
+
+    expect(err).toBeInstanceOf(CRPCError);
+    expect(err?.stack).not.toBe('CAUSE STACK');
+    expect((err?.cause as Error | undefined)?.stack).toBe('CAUSE STACK');
   });
 
   test('toCRPCError maps OrmNotFoundError-like errors to NOT_FOUND', () => {

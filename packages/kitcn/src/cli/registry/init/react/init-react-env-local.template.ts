@@ -1,4 +1,4 @@
-import { parse } from 'dotenv';
+import { loadDotenv } from '../../../utils/lazy-deps.js';
 
 const INIT_REACT_ENV_LOCAL_DEFAULTS = {
   VITE_CONVEX_URL: 'http://127.0.0.1:3210',
@@ -7,7 +7,7 @@ const INIT_REACT_ENV_LOCAL_DEFAULTS = {
 } as const;
 
 export function renderInitReactEnvLocalTemplate(source?: string): string {
-  const existing = source ? parse(source) : {};
+  const existing = source ? loadDotenv().parse(source) : {};
   const lines = Object.entries(INIT_REACT_ENV_LOCAL_DEFAULTS).map(
     ([key, value]) => `${key}=${existing[key] ?? value}`
   );

@@ -386,7 +386,7 @@ Extras are computed in JavaScript after fetching documents (and after `with:` re
 |---|---|
 | `where` callback fails | Return a filter expression: `where: (table, { eq }) => eq(table.field, value)` |
 | `eq(field, null)` | Use `{ isNull: true }` |
-| Slow ordering | Add an index on the primary `orderBy` field |
+| Slow ordering | Put the primary `orderBy` field in an index, immediately after the fields the `where` pins |
 | `columns` doesn't reduce reads | Projection is post-fetch |
 | Relations not loading | Ensure relations are defined on both sides (or explicit `from`/`to`) |
 

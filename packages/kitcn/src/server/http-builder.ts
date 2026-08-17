@@ -128,60 +128,85 @@ function getBaseSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
   return schema;
 }
 
-// Helper to check if schema expects array
-function isArraySchema(schema: z.ZodTypeAny): boolean {
-  return getBaseSchema(schema) instanceof z.ZodArray;
-}
+/** How a declared query field is coerced from its raw string value(s). */
+type QueryCoercion = 'array' | 'boolean' | 'number';
 
-// Helper to check if schema expects number
-function isNumberSchema(schema: z.ZodTypeAny): boolean {
-  return getBaseSchema(schema) instanceof z.ZodNumber;
-}
+/** Field name -> coercion kind. Absent keys stay raw string(s). */
+type QueryCoercionMap = Map<string, QueryCoercion>;
 
-// Helper to check if schema expects boolean
-function isBooleanSchema(schema: z.ZodTypeAny): boolean {
-  return getBaseSchema(schema) instanceof z.ZodBoolean;
+/**
+ * Resolve each field's coercion kind from the query schema, once.
+ *
+ * The kind is a static property of the schema, but zod 4 overrides
+ * `Symbol.hasInstance`, so leaving it in the request path pays a `Set.has`
+ * per unwrap step per field per request.
+ *
+ * Fields absent from the map fall through to the raw string(s) branch, which
+ * is also where a non-`ZodObject` query schema lands (it has no readable
+ * shape, so it gets no coercion at all).
+ */
+function buildQueryCoercion(schema?: z.ZodTypeAny): QueryCoercionMap {
+  const coercion: QueryCoercionMap = new Map();
+  if (!(schema instanceof z.ZodObject)) return coercion;
+
+  for (const [key, fieldSchema] of Object.entries(
+    schema.shape as Record<string, z.ZodTypeAny>
+  )) {
+    const base = getBaseSchema(fieldSchema);
+    if (base instanceof z.ZodArray) {
+      coercion.set(key, 'array');
+    } else if (base instanceof z.ZodNumber) {
+      coercion.set(key, 'number');
+    } else if (base instanceof z.ZodBoolean) {
+      coercion.set(key, 'boolean');
+    }
+  }
+
+  return coercion;
 }
 
 // Parse query parameters from URL
 // Auto-coerces values based on schema: arrays, numbers, booleans
 function parseQueryParams(
   url: URL,
-  schema?: z.ZodTypeAny
+  coercion: QueryCoercionMap
 ): Record<string, string | string[] | number | boolean> {
   const params: Record<string, string | string[] | number | boolean> = {};
-  const keys = new Set(url.searchParams.keys());
 
-  // Get shape from schema if it's a ZodObject
-  const shape =
-    schema instanceof z.ZodObject
-      ? (schema.shape as Record<string, z.ZodTypeAny>)
-      : {};
+  // One pass over the parameter list: `getAll` per key rescans it every time.
+  const collected = new Map<string, string[]>();
+  for (const [key, value] of url.searchParams) {
+    const existing = collected.get(key);
+    if (existing) {
+      existing.push(value);
+    } else {
+      collected.set(key, [value]);
+    }
+  }
 
-  for (const key of keys) {
-    const values = url.searchParams.getAll(key);
-    const fieldSchema = shape[key];
-
-    if (fieldSchema) {
-      if (isArraySchema(fieldSchema)) {
+  for (const [key, values] of collected) {
+    switch (coercion.get(key)) {
+      case 'array':
         // Always return array for array schemas
         params[key] = values;
-      } else if (isNumberSchema(fieldSchema)) {
+        break;
+      case 'number':
         // Coerce to number
         params[key] = Number(values[0]);
-      } else if (isBooleanSchema(fieldSchema)) {
+        break;
+      case 'boolean': {
         // Coerce to boolean (handle "true"/"false"/"1"/"0")
         const val = values[0].toLowerCase();
         params[key] = val === 'true' || val === '1';
-      } else {
+        break;
+      }
+      default:
         // Single value: return string, multiple: return array
         params[key] = values.length === 1 ? values[0] : values;
-      }
-    } else {
-      // No schema info - return raw string(s)
-      params[key] = values.length === 1 ? values[0] : values;
+        break;
     }
   }
+
   return params;
 }
 
@@ -527,6 +552,7 @@ function createProcedure(
   }
 
   const middlewareProcedure = resolveHttpProcedureInfo(def);
+  const queryCoercion = buildQueryCoercion(def.querySchema);
 
   /**
    * Hono-compatible handler function.
@@ -586,7 +612,7 @@ function createProcedure(
           // Parse query params - pass schema for array coercion
           let parsedQuery: unknown;
           if (def.querySchema) {
-            const queryParams = parseQueryParams(url, def.querySchema);
+            const queryParams = parseQueryParams(url, queryCoercion);
             try {
               parsedQuery = def.querySchema.parse(queryParams as any);
             } catch (error) {

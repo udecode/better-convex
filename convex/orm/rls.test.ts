@@ -95,6 +95,23 @@ const excludedSecrets = convexTable(
   ]
 );
 
+const boundedDocs = convexTable(
+  'rls_bounded_docs',
+  {
+    value: text().notNull(),
+    label: text().notNull(),
+    ownerId: id('rls_users').notNull(),
+  },
+  (t) => [
+    index('by_owner').on(t.ownerId),
+    index('by_owner_and_label').on(t.ownerId, t.label),
+    rlsPolicy('bounded_read', {
+      for: 'select',
+      using: () => eq(t.value, 'allowed'),
+    }),
+  ]
+);
+
 const orgs = convexTable('rls_orgs', {
   name: text().notNull(),
 });
@@ -206,6 +223,7 @@ const tables = {
   rls_secrets: secrets,
   rls_nullable_secrets: nullableSecrets,
   rls_excluded_secrets: excludedSecrets,
+  rls_bounded_docs: boundedDocs,
   rls_orgs: orgs,
   rls_memberships: memberships,
   rls_tasks: tasks,
@@ -225,6 +243,7 @@ const relations = defineRelations(tables, (r) => ({
   rls_secrets: {},
   rls_nullable_secrets: {},
   rls_excluded_secrets: {},
+  rls_bounded_docs: {},
   rls_orgs: {
     users: r.many.rls_users({
       from: r.rls_orgs.id.through(r.rls_memberships.orgId),
@@ -300,6 +319,71 @@ describe('RLS', () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0].ownerId).toEqual(viewerId);
+  });
+
+  it('fills a limit past rows the policy hides', async ({ ctx }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+
+    for (let i = 0; i < 40; i += 1) {
+      await ctx.db.insert('rls_bounded_docs', {
+        value: i < 6 ? 'denied' : 'allowed',
+        label: `label-${String(i).padStart(2, '0')}`,
+        ownerId: viewerId,
+      });
+    }
+
+    ctx.viewerId = viewerId;
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.query.rls_bounded_docs.findMany({
+      where: { ownerId: viewerId },
+      limit: 3,
+    });
+
+    // `take(3)` off the index spends the whole budget on rows the policy is
+    // about to drop, so the bound has to count visible survivors.
+    expect(rows.map((row: any) => row.label)).toEqual([
+      'label-06',
+      'label-07',
+      'label-08',
+    ]);
+    // Counting survivors is not the same as giving up the bound: the scan
+    // stops at the ninth row, it does not collect all 40.
+    expect(reads.documents).toBeLessThanOrEqual(15);
+  });
+
+  it('fills a limit past hidden rows when an index serves orderBy', async ({
+    ctx,
+  }) => {
+    const viewerId = await ctx.db.insert('rls_users', { name: 'Viewer' });
+
+    for (let i = 39; i >= 0; i -= 1) {
+      await ctx.db.insert('rls_bounded_docs', {
+        value: i < 6 ? 'denied' : 'allowed',
+        label: `label-${String(i).padStart(2, '0')}`,
+        ownerId: viewerId,
+      });
+    }
+
+    ctx.viewerId = viewerId;
+
+    const reads = countDocumentReads(ctx);
+    const rows = await ctx.orm.query.rls_bounded_docs.findMany({
+      where: { ownerId: viewerId },
+      orderBy: { label: 'asc' },
+      limit: 3,
+    });
+
+    // `by_owner_and_label` pins ownerId and sorts by label, so the order is
+    // pushed into the scan and no post-fetch sort re-sizes the page. The
+    // bounded read is then the only thing standing between the policy and a
+    // short page.
+    expect(rows.map((row: any) => row.label)).toEqual([
+      'label-06',
+      'label-07',
+      'label-08',
+    ]);
+    expect(reads.documents).toBeLessThanOrEqual(15);
   });
 
   it('filters id-only pipeline rows before user callbacks', async ({ ctx }) => {

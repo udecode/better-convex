@@ -7,6 +7,7 @@ import {
   defineSchema,
   index,
   integer,
+  rankIndex,
   requireSchemaRelations,
   text,
 } from 'kitcn/orm';
@@ -149,7 +150,11 @@ const buildCountIndexedFixtures = (options?: {
     { countUsers, countPosts },
     options?.defaults ? { defaults: options.defaults } : undefined
   );
-  const relations = defineRelations({ countUsers, countPosts }, (r) => ({
+  // Build relations from `schema`, not the bare tables object: schema-level
+  // `defaults` ride on the defineSchema result, and dropping them here means
+  // every table config reports the built-in budget instead of the configured
+  // one.
+  const relations = defineRelations(schema, (r) => ({
     countUsers: {
       posts: r.many.countPosts({
         from: r.countUsers.orgId,
@@ -1319,7 +1324,7 @@ describe('ORM count() with aggregateIndex', () => {
     });
   });
 
-  it('resume kickoff prunes removed aggregate index rows even without state', async () => {
+  it('exact prune recovers removed aggregate index rows without state', async () => {
     const { schema } = buildCountIndexedFixtures({
       includeOrgStatusIndex: true,
     });
@@ -1375,10 +1380,14 @@ describe('ORM count() with aggregateIndex', () => {
 
       const result = await (prunedApi as any).aggregateBackfill.handler(
         { db: baseCtx.db, scheduler: schedulerStub },
-        {}
+        {
+          mode: 'prune',
+          tableName: 'countUsers',
+          indexName: 'by_org_status',
+        }
       );
       expect(result).toMatchObject({
-        mode: 'resume',
+        mode: 'prune',
         pruned: 1,
       });
 
@@ -1521,6 +1530,28 @@ describe('ORM count() with aggregateIndex', () => {
         count: 1,
         updatedAt: 0,
       });
+      for (const [kind, tableKey, indexName] of [
+        [METRIC_STATE_KIND, 'countUsers', 'by_org_status'],
+        [METRIC_STATE_KIND, 'countPosts', 'by_removed_x'],
+        [METRIC_STATE_KIND, 'countPosts', 'by_removed_y'],
+        [RANK_STATE_KIND, 'countUsers', 'by_rank_removed_a'],
+        [RANK_STATE_KIND, 'countUsers', 'by_rank_removed_b'],
+      ]) {
+        await baseCtx.db.insert('aggregate_state', {
+          kind,
+          tableKey,
+          indexName,
+          keyDefinitionHash: '',
+          metricDefinitionHash: '',
+          status: 'READY',
+          cursor: null,
+          processed: 0,
+          startedAt: 0,
+          updatedAt: 0,
+          completedAt: 0,
+          lastError: null,
+        });
+      }
 
       const prunedOrmClient = createOrm({
         schema: relationsWithoutOrgStatus,
@@ -1608,7 +1639,7 @@ describe('ORM count() with aggregateIndex', () => {
     });
   });
 
-  it('resume kickoff reads a bounded number of aggregate rows regardless of member table size', async () => {
+  it('resume kickoff does not scan aggregate backing rows', async () => {
     const { schema, relations } = buildCountIndexedFixtures();
     const t = convexTest(schema);
 
@@ -1690,12 +1721,9 @@ describe('ORM count() with aggregateIndex', () => {
       );
 
       expect(result).toMatchObject({ mode: 'resume', status: 'ok' });
-      expect(reads.get('aggregate_member') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_member') ?? 0).toBeLessThan(20);
-      expect(reads.get('aggregate_bucket') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThan(20);
-      expect(reads.get('aggregate_extrema') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_extrema') ?? 0).toBeLessThan(20);
+      expect(reads.get('aggregate_member') ?? 0).toBe(0);
+      expect(reads.get('aggregate_bucket') ?? 0).toBe(0);
+      expect(reads.get('aggregate_extrema') ?? 0).toBe(0);
       expect(reads.get('#db.get') ?? 0).toBeLessThan(20);
     });
   });
@@ -1812,6 +1840,659 @@ describe('ORM count() with aggregateIndex', () => {
       expect(buckets[0]?.keyParts[1]).toEqual({
         __kitcnUndefined: true,
       });
+    });
+  });
+});
+
+const trackWrites = (db: any) => {
+  const inserted: string[] = [];
+  const touched: string[] = [];
+  const originalInsert = db.insert.bind(db);
+  const originalPatch = db.patch.bind(db);
+  const originalReplace = db.replace.bind(db);
+  const originalDelete = db.delete.bind(db);
+  let recording = false;
+
+  db.insert = (...args: any[]) => {
+    if (recording) {
+      inserted.push(String(args[0]));
+    }
+    return originalInsert(...args);
+  };
+  const recordTouched = (args: any[]) => {
+    if (!recording) {
+      return;
+    }
+    for (const arg of args) {
+      if (typeof arg === 'string') {
+        touched.push(arg);
+      }
+    }
+  };
+  db.patch = (...args: any[]) => {
+    recordTouched(args);
+    return originalPatch(...args);
+  };
+  db.replace = (...args: any[]) => {
+    recordTouched(args);
+    return originalReplace(...args);
+  };
+  db.delete = (...args: any[]) => {
+    recordTouched(args);
+    return originalDelete(...args);
+  };
+
+  return {
+    start: () => {
+      recording = true;
+      inserted.length = 0;
+      touched.length = 0;
+    },
+    stop: () => {
+      recording = false;
+    },
+    insertsInto: (table: string) =>
+      inserted.filter((entry) => entry === table).length,
+    // `patch`/`delete` are called with either (table, id, ...) or (id, ...), so
+    // count every string argument that matches a known document id or table.
+    writesTouching: (ids: Set<string>) =>
+      touched.filter((entry) => ids.has(entry)).length,
+  };
+};
+
+const idsIn = async (db: any, table: string): Promise<Set<string>> =>
+  new Set((await db.query(table).collect()).map((row: any) => String(row._id)));
+
+const backfillToReady = async (api: any, db: any) => {
+  await (api as any).aggregateBackfill.handler(
+    { db, scheduler: schedulerStub },
+    {}
+  );
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const states = await (api as any).aggregateBackfillStatus.handler(
+      { db, scheduler: schedulerStub },
+      {}
+    );
+    if (states.every((entry: any) => entry.status === 'READY')) {
+      return;
+    }
+    await (api as any).aggregateBackfillChunk.handler(
+      { db, scheduler: schedulerStub },
+      {}
+    );
+  }
+  throw new Error('backfill did not reach READY');
+};
+
+describe('aggregateIndex write amplification', () => {
+  it('writes nothing when an update touches no aggregated field', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await backfillToReady(api, baseCtx.db);
+
+      const id = await ctx.db.insert('countPosts', {
+        orgId: 'org-1',
+        title: 'first',
+      });
+
+      const aggregateIds = new Set([
+        ...(await idsIn(baseCtx.db, 'aggregate_member')),
+        ...(await idsIn(baseCtx.db, 'aggregate_bucket')),
+        ...(await idsIn(baseCtx.db, 'aggregate_extrema')),
+      ]);
+
+      const writes = trackWrites(baseCtx.db);
+
+      // `title` is not part of any aggregateIndex.
+      writes.start();
+      await ctx.db.patch(id as any, { title: 'second' });
+      writes.stop();
+
+      expect(writes.writesTouching(aggregateIds)).toBe(0);
+      expect(writes.insertsInto('aggregate_member')).toBe(0);
+      expect(writes.insertsInto('aggregate_bucket')).toBe(0);
+
+      // Control: changing the indexed field still reconciles.
+      writes.start();
+      await ctx.db.patch(id as any, { orgId: 'org-2' });
+      writes.stop();
+
+      expect(writes.writesTouching(aggregateIds)).toBeGreaterThan(0);
+
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-2' } })
+      ).toBe(1);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-1' } })
+      ).toBe(0);
+    });
+  });
+
+  it('writes one bucket per distinct key tuple per backfill chunk', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Seed through the raw db so no lifecycle hook pre-populates buckets.
+      const distinctOrgs = 3;
+      const rowCount = 30;
+      for (let i = 0; i < rowCount; i += 1) {
+        await baseCtx.db.insert('countPosts', {
+          orgId: `org-${i % distinctOrgs}`,
+          title: `post-${i}`,
+        });
+      }
+
+      const writes = trackWrites(baseCtx.db);
+      writes.start();
+      await backfillToReady(api, baseCtx.db);
+      writes.stop();
+
+      // One insert per distinct key tuple, and no per-document re-patching.
+      expect(writes.insertsInto('aggregate_bucket')).toBe(distinctOrgs);
+      const bucketIds = await idsIn(baseCtx.db, 'aggregate_bucket');
+      expect(writes.writesTouching(bucketIds)).toBe(0);
+      expect(writes.insertsInto('aggregate_member')).toBe(rowCount);
+
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(10);
+    });
+  });
+});
+
+describe('aggregateIndex range scan budget', () => {
+  const seedScoredOrg = async (db: any, rowCount: number, orgId = 'org-1') => {
+    for (let i = 0; i < rowCount; i += 1) {
+      await db.insert('countUsers', {
+        orgId,
+        status: 'active',
+        tier: 'pro',
+        score: i,
+      });
+    }
+  };
+
+  it('throws a named error instead of collecting an unbounded bucket prefix', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 5 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await seedScoredOrg(baseCtx.db, 10);
+      await backfillToReady(api, baseCtx.db);
+
+      // 10 distinct `score` buckets sit under the `orgId` prefix, over budget.
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/COUNT_FILTER_UNSUPPORTED/);
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/aggregateWorkBudget/);
+    });
+  });
+
+  it('returns ranged counts when the prefix fits the budget', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      await seedScoredOrg(baseCtx.db, 10);
+      await backfillToReady(api, baseCtx.db);
+
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 5 } },
+        })
+      ).toBe(5);
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: 'org-1', score: { gte: 0 } },
+        })
+      ).toBe(10);
+    });
+  });
+
+  it('shares one budget across every IN prefix scan', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 20 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Ten prefixes the plan-time guard accepts (10 x 2 work units == budget)
+      // with eight `score` buckets each: every prefix fits the budget on its
+      // own, but the query as a whole covers 80 buckets.
+      const orgIds = Array.from({ length: 10 }, (_, org) => `org-${org}`);
+      for (const orgId of orgIds) {
+        await seedScoredOrg(baseCtx.db, 8, orgId);
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      const { db: countingDb, reads } = createReadCountingDb(baseCtx.db);
+      const ctx = ormClient.with({
+        db: countingDb as any,
+        scheduler: schedulerStub as any,
+      });
+
+      await expect(
+        ctx.orm.query.countUsers.count({
+          where: { orgId: { in: orgIds }, score: { gte: 0 } },
+        })
+      ).rejects.toThrow(/COUNT_FILTER_UNSUPPORTED/);
+      // One budget covers the whole fan-out plus one global probe row. In-flight
+      // prefixes cannot each overshoot the reservation.
+      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(21);
+    });
+  });
+
+  it('returns ranged counts when the combined prefixes fit the budget', async () => {
+    const { schema, relations } = buildCountIndexedFixtures({
+      defaults: { aggregateWorkBudget: 5 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      // Five buckets under one of two prefixes: exactly the budget, and more
+      // than the three buckets the first round gives that prefix. Scores 3 and
+      // 4 only reach the result if the prefix resumes after its full page.
+      await seedScoredOrg(baseCtx.db, 5, 'org-1');
+      await backfillToReady(api, baseCtx.db);
+
+      const { db: countingDb, reads } = createReadCountingDb(baseCtx.db);
+      const ctx = ormClient.with({
+        db: countingDb as any,
+        scheduler: schedulerStub as any,
+      });
+
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: { in: ['org-1', 'org-2'] }, score: { gte: 0 } },
+        })
+      ).toBe(5);
+      expect(
+        await ctx.orm.query.countUsers.count({
+          where: { orgId: { in: ['org-1', 'org-2'] }, score: { gte: 3 } },
+        })
+      ).toBe(2);
+      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(12);
+    });
+  });
+});
+
+describe('aggregateIndex clearing is resumable', () => {
+  const membersFor = (db: any, kind: string, table: string, index: string) =>
+    db
+      .query('aggregate_member')
+      .withIndex('by_kind_table_index', (q: any) =>
+        q.eq('kind', kind).eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  const bucketsFor = (db: any, table: string, index: string) =>
+    db
+      .query('aggregate_bucket')
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  const stateFor = (db: any, kind: string, table: string, index: string) =>
+    db
+      .query('aggregate_state')
+      .withIndex('by_kind_table_index', (q: any) =>
+        q.eq('kind', kind).eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  it('blocks metric and rank writes before a declared index is cleared', async () => {
+    const barrierUsers = convexTable(
+      'barrierUsers',
+      {
+        orgId: text().notNull(),
+        score: integer().notNull(),
+      },
+      (t) => [
+        aggregateIndex('by_org').on(t.orgId),
+        rankIndex('by_score').partitionBy(t.orgId).orderBy(t.score),
+      ]
+    );
+    const schema = defineSchema({ barrierUsers });
+    const relations = defineRelations(schema);
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const insertClearingState = (kind: string, indexName: string) =>
+        baseCtx.db.insert('aggregate_state', {
+          kind,
+          tableKey: 'barrierUsers',
+          indexName,
+          keyDefinitionHash: '',
+          metricDefinitionHash: '',
+          status: 'CLEARING',
+          cursor: null,
+          processed: 0,
+          startedAt: 0,
+          updatedAt: 0,
+          completedAt: null,
+          lastError: null,
+        });
+
+      const metricState = await insertClearingState(
+        METRIC_STATE_KIND,
+        'by_org'
+      );
+      await expect(
+        ctx.db.insert('barrierUsers', { orgId: 'org-1', score: 1 })
+      ).rejects.toThrow(/CLEARING/);
+      expect(await baseCtx.db.query('barrierUsers').collect()).toHaveLength(0);
+
+      await baseCtx.db.delete('aggregate_state', metricState as any);
+      await insertClearingState(RANK_STATE_KIND, 'by_score');
+      await expect(
+        ctx.db.insert('barrierUsers', { orgId: 'org-1', score: 2 })
+      ).rejects.toThrow(/CLEARING/);
+      expect(await baseCtx.db.query('barrierUsers').collect()).toHaveLength(0);
+    });
+  });
+
+  it('rebuild drains stored state across chunks instead of one mutation', async () => {
+    const { schema, relations } = buildCountIndexedFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      for (let i = 0; i < 12; i += 1) {
+        await baseCtx.db.insert('countPosts', {
+          orgId: `org-${i % 3}`,
+          title: `post-${i}`,
+        });
+      }
+      await backfillToReady(api, baseCtx.db);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(4);
+
+      // batchSize 2 cannot clear 12 members in a single mutation.
+      await (api as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        {
+          mode: 'rebuild',
+          batchSize: 2,
+          tableName: 'countPosts',
+          indexName: 'by_org',
+        }
+      );
+
+      const parked = await stateFor(
+        baseCtx.db,
+        METRIC_STATE_KIND,
+        'countPosts',
+        'by_org'
+      );
+      expect(parked[0]?.status).toBe('CLEARING');
+      expect(
+        (
+          await membersFor(
+            baseCtx.db,
+            METRIC_STATE_KIND,
+            'countPosts',
+            'by_org'
+          )
+        ).length
+      ).toBeGreaterThan(0);
+
+      let reachedReady = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const states = await (api as any).aggregateBackfillStatus.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'countPosts', indexName: 'by_org' }
+        );
+        if (states.every((entry: any) => entry.status === 'READY')) {
+          reachedReady = true;
+          break;
+        }
+        await (api as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'countPosts', indexName: 'by_org', batchSize: 2 }
+        );
+      }
+
+      expect(reachedReady).toBe(true);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-0' } })
+      ).toBe(4);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-1' } })
+      ).toBe(4);
+      expect(
+        await ctx.orm.query.countPosts.count({ where: { orgId: 'org-2' } })
+      ).toBe(4);
+    });
+  });
+
+  it('prune parks an oversized orphan in CLEARING and finishes it in chunks', async () => {
+    const { schema } = buildCountIndexedFixtures({
+      includeOrgStatusIndex: true,
+    });
+    const { relations: relationsWithoutOrgStatus } = buildCountIndexedFixtures({
+      includeOrgStatusIndex: false,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      for (let i = 0; i < 10; i += 1) {
+        await baseCtx.db.insert('aggregate_member', {
+          kind: METRIC_STATE_KIND,
+          tableKey: 'countUsers',
+          indexName: 'by_org_status',
+          docId: `doc-${i}`,
+          keyHash: '["org-1"]',
+          keyParts: ['org-1'],
+          sumValues: {},
+          nonNullCountValues: {},
+          extremaValues: {},
+          updatedAt: 0,
+        });
+      }
+      await baseCtx.db.insert('aggregate_bucket', {
+        tableKey: 'countUsers',
+        indexName: 'by_org_status',
+        keyHash: '["org-1"]',
+        keyParts: ['org-1'],
+        count: 10,
+        sumValues: {},
+        nonNullCountValues: {},
+        updatedAt: 0,
+      });
+      await baseCtx.db.insert('aggregate_state', {
+        kind: METRIC_STATE_KIND,
+        tableKey: 'countUsers',
+        indexName: 'by_org_status',
+        keyDefinitionHash: '',
+        metricDefinitionHash: '',
+        status: 'READY',
+        cursor: null,
+        processed: 0,
+        startedAt: 0,
+        updatedAt: 0,
+        completedAt: 0,
+        lastError: null,
+      });
+
+      const prunedOrmClient = createOrm({
+        schema: relationsWithoutOrgStatus,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const prunedApi = prunedOrmClient.api();
+
+      const result = await (prunedApi as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        { mode: 'prune', batchSize: 2 }
+      );
+      expect(result).toMatchObject({ mode: 'prune', pruned: 0, pruning: 1 });
+      expect(
+        (
+          await stateFor(
+            baseCtx.db,
+            METRIC_STATE_KIND,
+            'countUsers',
+            'by_org_status'
+          )
+        )[0]?.status
+      ).toBe('CLEARING');
+
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const remainingState = await stateFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        );
+        if (remainingState.length === 0) {
+          break;
+        }
+        await (prunedApi as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          {
+            tableName: 'countUsers',
+            indexName: 'by_org_status',
+            batchSize: 2,
+          }
+        );
+      }
+
+      expect(
+        await membersFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        )
+      ).toHaveLength(0);
+      expect(
+        await bucketsFor(baseCtx.db, 'countUsers', 'by_org_status')
+      ).toHaveLength(0);
+      expect(
+        await stateFor(
+          baseCtx.db,
+          METRIC_STATE_KIND,
+          'countUsers',
+          'by_org_status'
+        )
+      ).toHaveLength(0);
     });
   });
 });
