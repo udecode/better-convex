@@ -53,7 +53,11 @@ export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
     cache.remove(query);
 
     for (const observer of observers) {
-      observer.setOptions({ ...observer.options, initialData: undefined });
+      observer.setOptions({
+        ...observer.options,
+        initialData: undefined,
+        placeholderData: undefined,
+      });
     }
   }
 }

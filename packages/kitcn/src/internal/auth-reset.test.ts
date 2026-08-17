@@ -49,6 +49,7 @@ describe('clearAuthBoundQueries', () => {
       enabled: false,
       initialData: 'ACCOUNT_A',
       meta: { authType: 'optional' },
+      placeholderData: (previousData) => previousData,
       queryFn: async () => 'ACCOUNT_B',
       queryKey,
     });
@@ -60,6 +61,8 @@ describe('clearAuthBoundQueries', () => {
     expect(query).toBeDefined();
     expect(query.state.data).toBeUndefined();
     expect(query.state.status).toBe('pending');
+    expect(observer.getCurrentResult().data).toBeUndefined();
+    expect(observer.getCurrentResult().isPlaceholderData).toBe(false);
 
     await queryClient.resetQueries({ exact: true, queryKey });
 

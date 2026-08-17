@@ -10,7 +10,8 @@
   `CRPCClientError`, matching the React bindings.
 - Clear auth-bound cached data on identity transitions. Unobserved entries are
   removed; mounted entries are rebuilt without their previous `initialData`,
-  return to pending, and refetch for the new account.
+  return to pending without prior-account placeholder data, and refetch for the
+  new account.
 
 ## Patches
 
