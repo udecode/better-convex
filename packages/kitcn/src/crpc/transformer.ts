@@ -34,6 +34,18 @@ export interface WireCodec {
   decode(value: unknown): unknown;
   encode(value: unknown): unknown;
   isType(value: unknown): boolean;
+  /**
+   * Declares that `isType` only ever claims a value where
+   * `typeof value === 'object' && value !== null` - never a primitive, a
+   * function, `null` or `undefined`.
+   *
+   * Lets `serialize` skip codec dispatch on primitives, which are the majority
+   * of visited nodes. It is opt-in because an arbitrary predicate cannot be
+   * classified by sampling values: a codec that claims, say, one specific
+   * number would be misread as object-only and silently lose its encoding.
+   * Codecs that leave it unset keep full dispatch.
+   */
+  readonly objectsOnly?: boolean;
   readonly tag: `$${string}`;
 }
 
@@ -73,6 +85,7 @@ export const DATE_CODEC_TAG = '$date';
  */
 export const dateWireCodec: WireCodec = {
   tag: DATE_CODEC_TAG,
+  objectsOnly: true,
   isType: (value): value is Date => value instanceof Date,
   encode: (value) => (value as Date).getTime(),
   decode: (value) => {
@@ -81,6 +94,48 @@ export const dateWireCodec: WireCodec = {
     }
     return new Date(value);
   },
+};
+
+/**
+ * One value per primitive `typeof` result, plus the values the object fast path
+ * would otherwise skip.
+ */
+const PRIMITIVE_PROBES: readonly unknown[] = [
+  undefined,
+  null,
+  '',
+  0,
+  Number.NaN,
+  false,
+  0n,
+  Symbol('kitcn.codec.probe'),
+  () => undefined,
+];
+
+/**
+ * Falsify an `objectsOnly` declaration against representative primitives.
+ *
+ * Sampling cannot prove a predicate object-only, so it never *infers* the
+ * capability - it only rejects the misdeclarations it can catch
+ * (`typeof value === 'bigint'`, `value === null`, ...) before they silently
+ * drop a value's wire encoding. A codec that throws on a probe owns that.
+ */
+const assertObjectsOnly = (codec: WireCodec): void => {
+  for (const probe of PRIMITIVE_PROBES) {
+    let claimed = false;
+    try {
+      claimed = codec.isType(probe);
+    } catch {
+      continue;
+    }
+    if (claimed) {
+      throw new Error(
+        `Wire codec '${codec.tag}' declares objectsOnly, but isType() claims ${
+          probe === null ? 'null' : typeof probe
+        }. Drop objectsOnly so the codec keeps receiving non-object values.`
+      );
+    }
+  }
 };
 
 /**
@@ -99,10 +154,21 @@ export const createTaggedTransformer = (
     if (codecByTag.has(codec.tag)) {
       throw new Error(`Duplicate wire codec tag '${codec.tag}'.`);
     }
+    if (codec.objectsOnly) {
+      assertObjectsOnly(codec);
+    }
     codecByTag.set(codec.tag, codec);
   }
 
+  // Every codec has declared it ignores primitives, so `serialize` can skip
+  // dispatch on them - the overwhelming majority of visited nodes.
+  const skipNonObjects = codecs.every((codec) => codec.objectsOnly === true);
+
   const serialize = (value: unknown): unknown => {
+    if (skipNonObjects && (value === null || typeof value !== 'object')) {
+      return value;
+    }
+
     for (const codec of codecs) {
       if (codec.isType(value)) {
         return {
@@ -151,6 +217,12 @@ export const createTaggedTransformer = (
   };
 
   const deserialize = (value: unknown): unknown => {
+    // Only arrays and plain objects can carry a tagged payload, so anything
+    // else short-circuits without paying the two container checks.
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+
     if (Array.isArray(value)) {
       let result: unknown[] | undefined;
       for (let index = 0; index < value.length; index += 1) {
@@ -259,7 +331,7 @@ const normalizeCustomTransformer = (
  * - deserialize: default(Date) -> user
  */
 const composeWithDefault = (transformer?: DataTransformer): DataTransformer => {
-  if (!transformer) {
+  if (!transformer || transformer === defaultCRPCTransformer) {
     return defaultCRPCTransformer;
   }
 
@@ -273,9 +345,20 @@ const composeWithDefault = (transformer?: DataTransformer): DataTransformer => {
 
 const transformerCache = new WeakMap<object, CombinedDataTransformer>();
 
+// Resolving an already-resolved transformer is the identity. Without this the
+// default walkers get composed onto themselves and every payload is walked
+// twice per direction.
+transformerCache.set(
+  DEFAULT_COMBINED_TRANSFORMER,
+  DEFAULT_COMBINED_TRANSFORMER
+);
+
 /**
  * Normalize transformer config to split input/output shape.
  * User transformers are additive and always composed with default Date handling.
+ *
+ * Idempotent: passing a transformer this function already resolved returns it
+ * unchanged.
  */
 export const getTransformer = (
   transformer?: DataTransformerOptions
@@ -297,6 +380,7 @@ export const getTransformer = (
   };
 
   transformerCache.set(cacheKey, resolved);
+  transformerCache.set(resolved, resolved);
   return resolved;
 };
 

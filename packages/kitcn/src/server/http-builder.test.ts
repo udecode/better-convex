@@ -274,6 +274,50 @@ describe('server/http-builder', () => {
     });
   });
 
+  test('searchParams keys outside the schema stay raw strings', async () => {
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .get('/raw')
+      .searchParams(z.looseObject({ limit: z.number() }))
+      .query(async ({ searchParams }) => searchParams);
+
+    const resp = await (proc as any)(
+      {},
+      new Request('https://example.com/raw?limit=3&who=me&tag=a&tag=b')
+    );
+    expect(resp.status).toBe(200);
+    await expect(resp.json()).resolves.toEqual({
+      limit: 3,
+      who: 'me',
+      tag: ['a', 'b'],
+    });
+  });
+
+  test('a non-object searchParams schema gets no coercion', async () => {
+    const http = createHttpProcedureBuilder({
+      base: (handler) => handler as any,
+      createContext: () => ({}) as any,
+      meta: {},
+    });
+
+    const proc = http
+      .get('/record')
+      .searchParams(z.record(z.string(), z.string()))
+      .query(async ({ searchParams }) => searchParams);
+
+    const resp = await (proc as any)(
+      {},
+      new Request('https://example.com/record?limit=3&flag=true')
+    );
+    expect(resp.status).toBe(200);
+    await expect(resp.json()).resolves.toEqual({ limit: '3', flag: 'true' });
+  });
+
   test('procedure parses application/x-www-form-urlencoded bodies', async () => {
     const http = createHttpProcedureBuilder({
       base: (handler) => handler as any,
