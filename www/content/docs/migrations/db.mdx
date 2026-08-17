@@ -241,7 +241,9 @@ The manual pattern works, but `with:` keeps the same outcome with less boilerpla
   </CompareItem>
 </Compare>
 
-This is the same data shape. ORM gives you relation loading as a first-class query option.
+Same data shape and same read bound: the per-parent `limit` and `orderBy` are pushed into `by_user`, so each user costs five document reads. ORM gives you relation loading as a first-class query option.
+
+Sorting by a column the relation index does not order by is the exception. `by_user` sorts by creation time within a user, so `orderBy: { createdAt }` stays bounded, while `orderBy: { rank: 'desc' }` reads that user's posts and sorts them in memory. Put the sort column in the index — `index('by_user_rank').on(t.userId, t.rank)` — to keep the read bounded.
 
 ### Nested many-to-many (join table + payload)
 

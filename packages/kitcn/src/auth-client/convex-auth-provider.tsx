@@ -103,54 +103,159 @@ const hasActiveSessionData = (session: unknown) => {
   return Boolean((session as { session?: unknown }).session);
 };
 
+const getSessionId = (sessionData: unknown) => {
+  if (!sessionData || typeof sessionData !== 'object') {
+    return;
+  }
+  const session = (sessionData as { session?: unknown }).session;
+  if (!session || typeof session !== 'object') {
+    return;
+  }
+  const id = (session as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
+};
+
+const isSameSession = (left: unknown, right: unknown) => {
+  if (left === right) {
+    return true;
+  }
+  const leftId = getSessionId(left);
+  return leftId !== undefined && leftId === getSessionId(right);
+};
+
 const wait = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 
-const readAuthResultData = (result: unknown) => {
+const PERSISTED_TOKEN_RETRY_BASE_MS = 100;
+const PERSISTED_TOKEN_RETRY_MAX_MS = 2000;
+
+/**
+ * `session` — the server returned one.
+ * `none` — the server answered and there is no session. Definitive.
+ * `unknown` — every attempt failed in transport. Says nothing about the token.
+ */
+type PersistedTokenOutcome =
+  | { data: unknown; status: 'session' }
+  | { status: 'none' }
+  | { status: 'unknown' };
+
+// `/get-session` answers an unknown or expired token with 200 and a null body,
+// and the client resolves transport failures to `{ data: null, error }` instead
+// of throwing. `.error` is the only thing separating "no session" from "the
+// request never landed", so it has to be read.
+const readAuthResult = (result: unknown) => {
   if (!result || typeof result !== 'object') {
-    return;
+    return { data: undefined, errored: true };
   }
 
-  return (result as { data?: unknown }).data;
+  const { data, error } = result as { data?: unknown; error?: unknown };
+
+  return { data, errored: Boolean(error) };
 };
 
-const getSessionFromPersistedToken = async (
+// A thrown request is indistinguishable from a resolved one carrying `.error`,
+// so both surface as an errored result rather than as a rejection.
+const fetchPersistedSession = async (
   authClient: AuthClientFetch,
   token: string
 ) => {
-  await wait(250);
   const getSession = authClient.getSession as AuthGetSession | undefined;
 
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const result = authClient.$fetch
-      ? await authClient.$fetch('/get-session', {
+  try {
+    return await (authClient.$fetch
+      ? authClient.$fetch('/get-session', {
           credentials: 'omit',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         })
-      : await getSession?.({
+      : getSession?.({
           fetchOptions: {
             credentials: 'omit',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+            headers: { Authorization: `Bearer ${token}` },
           },
-        });
+        }));
+  } catch (error) {
+    return { data: undefined, error };
+  }
+};
 
-    const data = readAuthResultData(result);
-    if (data) {
-      return data;
-    }
-
-    if (attempt < 9) {
-      await wait(100);
-    }
+const fetchPersistedSessionBeforeDeadline = async (
+  authClient: AuthClientFetch,
+  token: string,
+  deadline: number
+): Promise<{ result: unknown; status: 'result' } | { status: 'deadline' }> => {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return { status: 'deadline' };
   }
 
-  return null;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadlineResult = new Promise<{ status: 'deadline' }>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ status: 'deadline' }), remaining);
+  });
+
+  try {
+    return await Promise.race([
+      fetchPersistedSession(authClient, token).then((result) => ({
+        result,
+        status: 'result' as const,
+      })),
+      deadlineResult,
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+// Retries are bounded by the same grace window the caller opened, so the
+// recovery always terminates: either the server answers, or the window closes
+// and the caller resolves the optimistic state it created.
+const getSessionFromPersistedToken = async (
+  authClient: AuthClientFetch,
+  token: string,
+  { deadline, shouldStop }: { deadline: number; shouldStop: () => boolean }
+): Promise<PersistedTokenOutcome> => {
+  for (let attempt = 0; ; attempt += 1) {
+    // Only retries wait, so a live token costs one immediate request.
+    if (attempt > 0) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return { status: 'unknown' };
+      }
+
+      await wait(
+        Math.min(
+          PERSISTED_TOKEN_RETRY_BASE_MS * 3 ** (attempt - 1),
+          PERSISTED_TOKEN_RETRY_MAX_MS,
+          remaining
+        )
+      );
+    }
+
+    if (shouldStop()) {
+      return { status: 'unknown' };
+    }
+
+    const request = await fetchPersistedSessionBeforeDeadline(
+      authClient,
+      token,
+      deadline
+    );
+    if (request.status === 'deadline') {
+      return { status: 'unknown' };
+    }
+    const { data, errored } = readAuthResult(request.result);
+
+    if (data) {
+      return { data, status: 'session' };
+    }
+    if (!errored) {
+      return { status: 'none' };
+    }
+  }
 };
 
 const syncSessionAtom = (
@@ -272,6 +377,8 @@ function ConvexAuthProviderInner({
   const sessionRef = useRef(session);
   const isPendingRef = useRef(isPending);
   const pendingTokenRef = useRef<Promise<string | null> | null>(null);
+  const restoredTokenRef = useRef<string | null>(null);
+  const isMountedRef = useRef(false);
   sessionRef.current = session;
   isPendingRef.current = isPending;
 
@@ -312,44 +419,78 @@ function ConvexAuthProviderInner({
   }, [session, isPending, authStore]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (hasActiveSessionData(session) || isPending || authStore.get('token')) {
       return;
     }
 
     const persistedToken = readAuthSessionFallbackToken();
-    const persistedSessionData = readAuthSessionFallbackData();
     if (
       !persistedToken ||
+      // The restore owns the optimistic state until it resolves. Re-entering on
+      // an unrelated re-render would either duplicate the probe or orphan the
+      // one already in flight.
+      restoredTokenRef.current === persistedToken ||
       (typeof authClient.getSession !== 'function' &&
         typeof (authClient as AuthClientFetch).$fetch !== 'function')
     ) {
       return;
     }
 
-    let cancelled = false;
+    restoredTokenRef.current = persistedToken;
+
+    const persistedSessionData = readAuthSessionFallbackData();
+    const graceUntil = Date.now() + AUTH_SESSION_SYNC_GRACE_MS;
 
     authStore.set('token', persistedToken);
     authStore.set('expiresAt', decodeJwtExp(persistedToken));
-    authStore.set(
-      'sessionSyncGraceUntil',
-      Date.now() + AUTH_SESSION_SYNC_GRACE_MS
-    );
+    authStore.set('sessionSyncGraceUntil', graceUntil);
     if (persistedSessionData) {
       syncSessionAtom(authClient, persistedSessionData);
     }
 
+    // Anything else that takes over the token — a Convex JWT exchange, a sign
+    // out — owns the state from that point on, so the restore stands down.
+    const ownsToken = () => authStore.get('token') === persistedToken;
+    const shouldStop = () => !isMountedRef.current || !ownsToken();
+
     void getSessionFromPersistedToken(
       authClient as AuthClientFetch,
-      persistedToken
+      persistedToken,
+      { deadline: graceUntil, shouldStop }
     )
-      .then((result) => {
-        if (cancelled) {
+      .then((outcome) => {
+        const hasCompetingSession =
+          hasActiveSessionData(sessionRef.current) &&
+          !isSameSession(sessionRef.current, persistedSessionData);
+        if (!isMountedRef.current || !ownsToken() || hasCompetingSession) {
           return;
         }
 
-        if (result) {
-          syncSessionAtom(authClient, result);
-          writeAuthSessionFallbackData(result);
+        if (outcome.status === 'session') {
+          syncSessionAtom(authClient, outcome.data);
+          writeAuthSessionFallbackData(outcome.data);
+          return;
+        }
+
+        // The transport never answered before the grace window closed. Keep the
+        // persisted credential — a dropped request is not a sign out, and the
+        // next mount can retry it — but drop the optimistic state this effect
+        // created. Leaving it behind pins the app in `isLoading` forever.
+        if (outcome.status === 'unknown') {
+          if (persistedSessionData) {
+            clearSessionAtom(authClient);
+          }
+          authStore.set('token', null);
+          authStore.set('expiresAt', null);
+          authStore.set('sessionSyncGraceUntil', null);
           return;
         }
 
@@ -359,21 +500,8 @@ function ConvexAuthProviderInner({
         authStore.set('expiresAt', null);
         authStore.set('sessionSyncGraceUntil', null);
       })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-
-        clearAuthSessionFallback();
-        clearSessionAtom(authClient);
-        authStore.set('token', null);
-        authStore.set('expiresAt', null);
-        authStore.set('sessionSyncGraceUntil', null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      // An unexpected failure is not evidence that the session is gone either.
+      .catch(() => {});
   }, [session, isPending, authStore, authClient]);
 
   // Stable fetchAccessToken - only recreated when authStore/authClient change (rare)

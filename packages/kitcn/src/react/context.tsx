@@ -18,11 +18,11 @@ import {
 import type { HttpClientError } from '../crpc/http-types';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import type { FnMeta, Meta } from '../crpc/types';
+import { decodeJwtIdentity } from '../internal/jwt';
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import { buildMetaIndex } from '../shared/meta-utils';
 import {
   decodeJwtExp,
-  decodeJwtSubject,
   useAuthStore,
   useAuthValue,
   useFetchAccessToken,
@@ -70,6 +70,21 @@ export function useFnMeta(): (
   const meta = useMeta();
 
   return (namespace: string, fnName: string) => meta?.[namespace]?.[fnName];
+}
+
+/**
+ * Stable signature of the current auth identity.
+ *
+ * JWTs collapse to their non-volatile claims so a refresh is a no-op; anything
+ * that is not a JWT keeps its own signature so opaque-token transitions and
+ * logout still register.
+ */
+function resolveAuthIdentity(token: string | null): string | null {
+  if (token === null) {
+    return null;
+  }
+
+  return decodeJwtIdentity(token) ?? `opaque:${token}`;
 }
 
 // ============================================================================
@@ -150,9 +165,6 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
   const VanillaClientContext = createContext<VanillaCRPCClient<TApi> | null>(
     null
   );
-  const HttpProxyContext = createContext<
-    HttpCRPCClientFromRouter<NonNullable<THttpRouter>> | undefined
-  >(undefined);
 
   // Combined return type - use Omit to prevent type conflicts
   type CRPCWithHttp =
@@ -185,7 +197,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     const isAuthenticated = useAuthValue('isAuthenticated');
     const previousAuthRef = useRef<{
       isAuthenticated: boolean;
-      subject: string | null;
+      identity: string | null;
     } | null>(null);
     // Get fetchAccessToken from context (immediately available, no race condition)
     const fetchAccessToken = useFetchAccessToken();
@@ -193,14 +205,18 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     useEffect(() => {
       const previous = previousAuthRef.current;
       const tokenReady = token === null || decodeJwtExp(token) !== null;
-      // Compare the account the JWT belongs to, not the JWT itself. A
-      // scheduled refresh mints a new token for the same `sub`, and treating
-      // that as a transition would drop every auth-bound entry — and every
-      // paginated cursor chain keyed on the account — once an hour.
-      const subject = token === null ? null : decodeJwtSubject(token);
+      // Compare identity claims, not the raw token. Convex proactively rotates
+      // the access token every ~15 minutes and kitcn stamps a fresh `iat` into
+      // each mint, so a string comparison treats routine rotation as an auth
+      // transition and wipes + re-subscribes every auth-bound query. The
+      // backend already re-runs the live query set under the refreshed identity
+      // via `Authenticate`, so a same-claims rotation needs zero client work.
+      // Non-JWT strings (the opaque SSR session token) keep their own signature
+      // so the opaque -> JWT and opaque -> logout transitions still reset.
+      const identity = resolveAuthIdentity(token);
       previousAuthRef.current = {
         isAuthenticated,
-        subject,
+        identity,
       };
 
       if (!previous) {
@@ -209,7 +225,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
 
       if (
         tokenReady &&
-        (previous.subject !== subject ||
+        (previous.identity !== identity ||
           previous.isAuthenticated !== isAuthenticated)
       ) {
         void convexQueryClient.resetAuthQueries();
@@ -281,15 +297,38 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
       [convexClient]
     );
 
+    // Merge the http namespace here, where every input is already memoized, so
+    // useCRPC/useCRPCClient collapse to plain context reads and return a stable
+    // identity. A Proxy can't be spread, so it has to be wrapped.
+    const mergedProxy = useMemo(() => {
+      if (!httpProxy) return proxy;
+
+      return new Proxy(proxy, {
+        get(target, prop) {
+          if (prop === 'http') return httpProxy;
+          return Reflect.get(target, prop);
+        },
+      });
+    }, [httpProxy, proxy]);
+
+    const mergedClient = useMemo(() => {
+      if (!httpProxy) return vanillaClient;
+
+      return new Proxy(vanillaClient, {
+        get(target, prop) {
+          if (prop === 'http') return httpProxy;
+          return Reflect.get(target, prop);
+        },
+      });
+    }, [httpProxy, vanillaClient]);
+
     return (
       <ConvexQueryClientContext.Provider value={convexQueryClient}>
         <MetaContext.Provider value={meta}>
-          <VanillaClientContext.Provider value={vanillaClient}>
-            <HttpProxyContext.Provider value={httpProxy}>
-              <CRPCProxyContext.Provider value={proxy}>
-                {children}
-              </CRPCProxyContext.Provider>
-            </HttpProxyContext.Provider>
+          <VanillaClientContext.Provider value={mergedClient}>
+            <CRPCProxyContext.Provider value={mergedProxy}>
+              {children}
+            </CRPCProxyContext.Provider>
           </VanillaClientContext.Provider>
         </MetaContext.Provider>
       </ConvexQueryClientContext.Provider>
@@ -336,21 +375,9 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
    */
   function useCRPC(): CRPCWithHttp {
     const ctx = useContext(CRPCProxyContext);
-    const httpProxy = useContext(HttpProxyContext);
 
     if (!ctx) {
       throw new Error('useCRPC must be used within CRPCProvider');
-    }
-
-    // If HTTP proxy is configured, wrap with a proxy that adds http namespace
-    // Note: Can't spread a Proxy - need to wrap it
-    if (httpProxy) {
-      return new Proxy(ctx, {
-        get(target, prop) {
-          if (prop === 'http') return httpProxy;
-          return Reflect.get(target, prop);
-        },
-      }) as CRPCWithHttp;
     }
 
     return ctx as CRPCWithHttp;
@@ -376,20 +403,9 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
    */
   function useCRPCClient(): VanillaClientWithHttp {
     const ctx = useContext(VanillaClientContext);
-    const httpProxy = useContext(HttpProxyContext);
 
     if (!ctx) {
       throw new Error('useCRPCClient must be used within CRPCProvider');
-    }
-
-    // If HTTP proxy is configured, wrap with a proxy that adds http namespace
-    if (httpProxy) {
-      return new Proxy(ctx, {
-        get(target, prop) {
-          if (prop === 'http') return httpProxy;
-          return Reflect.get(target, prop);
-        },
-      }) as VanillaClientWithHttp;
     }
 
     return ctx as VanillaClientWithHttp;

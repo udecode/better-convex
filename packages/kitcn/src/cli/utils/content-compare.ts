@@ -1,4 +1,4 @@
-import { parse } from '@babel/parser';
+import { loadBabelParser } from './lazy-deps.js';
 
 const AST_COMPARABLE_EXTENSIONS = new Set([
   '.js',
@@ -33,18 +33,51 @@ const getExtension = (filePath: string): string => {
   return lastDot >= 0 ? filePath.slice(lastDot).toLowerCase() : '';
 };
 
-const normalizeAst = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeAst(item));
+/**
+ * Own enumerable keys that would survive `JSON.stringify`, minus positional
+ * metadata. Babel emits `undefined`-valued keys (`typeParameters` on a plain
+ * `type A = string`), and `JSON.stringify` drops those — so must this.
+ */
+const comparableKeys = (value: Record<string, unknown>): string[] =>
+  Object.keys(value).filter(
+    (key) => !METADATA_KEYS.has(key) && value[key] !== undefined
+  );
+
+/**
+ * Structural AST equality with the same semantics as comparing two
+ * `JSON.stringify` outputs, but short-circuiting on the first difference and
+ * without cloning either tree.
+ *
+ * Key order is compared positionally on purpose. This result decides whether
+ * kitcn may overwrite a user file without prompting, so the comparator must
+ * never be more permissive than the serialized comparison it replaces.
+ */
+const astEqual = (a: unknown, b: unknown): boolean => {
+  if (a === b) {
+    return true;
   }
-  if (!value || typeof value !== 'object') {
-    return value;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => astEqual(item, b[index]))
+    );
+  }
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
   }
 
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !METADATA_KEYS.has(key))
-      .map(([key, child]) => [key, normalizeAst(child)])
+  const recordA = a as Record<string, unknown>;
+  const recordB = b as Record<string, unknown>;
+  const keysA = comparableKeys(recordA);
+  const keysB = comparableKeys(recordB);
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+
+  return keysA.every(
+    (key, index) => key === keysB[index] && astEqual(recordA[key], recordB[key])
   );
 };
 
@@ -53,18 +86,16 @@ const parseComparableAst = (content: string, filePath: string): unknown => {
   const isTypeScript = ['.ts', '.tsx', '.mts', '.cts'].includes(extension);
   const isJsx = ['.jsx', '.tsx'].includes(extension);
 
-  return normalizeAst(
-    parse(content, {
-      sourceType: 'unambiguous',
-      errorRecovery: false,
-      plugins: [
-        'decorators-legacy',
-        'importAttributes',
-        ...(isTypeScript ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ],
-    })
-  );
+  return loadBabelParser().parse(content, {
+    sourceType: 'unambiguous',
+    errorRecovery: false,
+    plugins: [
+      'decorators-legacy',
+      'importAttributes',
+      ...(isTypeScript ? (['typescript'] as const) : []),
+      ...(isJsx ? (['jsx'] as const) : []),
+    ],
+  });
 };
 
 const normalizeJson = (content: string): string => {
@@ -91,9 +122,9 @@ export const isContentEquivalent = (params: {
     }
 
     if (AST_COMPARABLE_EXTENSIONS.has(extension)) {
-      return (
-        JSON.stringify(parseComparableAst(existingContent, params.filePath)) ===
-        JSON.stringify(parseComparableAst(nextContent, params.filePath))
+      return astEqual(
+        parseComparableAst(existingContent, params.filePath),
+        parseComparableAst(nextContent, params.filePath)
       );
     }
   } catch {

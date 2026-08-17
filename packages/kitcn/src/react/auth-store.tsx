@@ -24,6 +24,9 @@ import {
 
 import { CRPCClientError, defaultIsUnauthorized } from '../crpc/error';
 
+// biome-ignore lint/performance/noBarrelFile: preserve the established React export while JWT policy stays internal
+export { decodeJwtExp } from '../internal/jwt';
+
 // ============================================================================
 // FetchAccessToken Context - Eliminates race condition by passing through context
 // ============================================================================
@@ -235,40 +238,6 @@ export const isSessionSyncGraceActive = (
 ) =>
   typeof sessionSyncGraceUntil === 'number' &&
   sessionSyncGraceUntil > Date.now();
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const segment = token.split('.')[1];
-    if (!segment) {
-      return null;
-    }
-
-    // JWT segments are base64url; atob only accepts the standard alphabet.
-    const binary = atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
-    return JSON.parse(
-      new TextDecoder().decode(
-        Uint8Array.from(binary, (char) => char.charCodeAt(0))
-      )
-    );
-  } catch {
-    return null;
-  }
-}
-
-/** Decode JWT expiration (ms timestamp) from token */
-export function decodeJwtExp(token: string): number | null {
-  const exp = decodeJwtPayload(token)?.exp;
-  return typeof exp === 'number' ? exp * 1000 : null;
-}
-
-/**
- * Decode the account a JWT belongs to. Distinguishes a scheduled refresh, which
- * mints a new token for the same `sub`, from an actual account change.
- */
-export function decodeJwtSubject(token: string): string | null {
-  const sub = decodeJwtPayload(token)?.sub;
-  return typeof sub === 'string' ? sub : null;
-}
 
 export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
   createAtomStore(

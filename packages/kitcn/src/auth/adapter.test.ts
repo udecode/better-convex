@@ -1,3 +1,4 @@
+import { getAuthTables } from 'better-auth/db';
 import { convexToJson } from 'convex/values';
 import {
   adapterConfig,
@@ -102,6 +103,47 @@ describe('handlePagination', () => {
     });
 
     expect(state.docs).toHaveLength(201);
+  });
+
+  test('count-only mode totals pages without retaining documents', async () => {
+    const rows = (count: number) =>
+      Array.from({ length: count }, (_, id) => ({ id }));
+    let index = 0;
+    const state = await handlePagination(
+      async () => {
+        index++;
+        return {
+          continueCursor: `cursor-${index}`,
+          isDone: index === 2,
+          page: rows(index === 1 ? 200 : 3),
+          pageStatus: 'Done' as const,
+        };
+      },
+      { countOnly: true }
+    );
+
+    expect(state.count).toBe(203);
+    expect(state.docs).toEqual([]);
+    expect(state.isDone).toBe(true);
+  });
+
+  test('count-only mode still honors limit', async () => {
+    const requested: number[] = [];
+    const state = await handlePagination(
+      async ({ paginationOpts }) => {
+        requested.push(paginationOpts.numItems);
+        return {
+          continueCursor: `cursor-${requested.length}`,
+          isDone: false,
+          page: [{ id: requested.length }],
+          pageStatus: 'Done' as const,
+        };
+      },
+      { countOnly: true, limit: 2 }
+    );
+
+    expect(state.count).toBe(2);
+    expect(requested).toEqual([2, 1]);
   });
 
   test('aborts a page that cannot make forward progress', async () => {
@@ -648,6 +690,54 @@ describe('httpAdapter', () => {
     expect(runMutation).not.toHaveBeenCalled();
   });
 
+  test('count totals every page without materializing the table', async () => {
+    let index = 0;
+    const runQuery = mock(async () => {
+      index++;
+      return {
+        continueCursor: `cursor-${index}`,
+        isDone: index === 2,
+        page: Array.from({ length: index === 1 ? 200 : 5 }, (_, id) => ({
+          _id: `user-${index}-${id}`,
+          email: `user-${index}-${id}@b.com`,
+        })),
+        pageStatus: 'Done' as const,
+      };
+    });
+    const adapterFactory = httpAdapter({ runQuery } as any, {
+      authFunctions: { findMany: 'findMany' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+
+    await expect(adapter.count({ model: 'user' })).resolves.toBe(205);
+    expect(runQuery).toHaveBeenCalledTimes(2);
+  });
+
+  test('update dispatches one mutation and no pre-check query', async () => {
+    const runQuery = mock(async () => ({
+      continueCursor: null,
+      isDone: true,
+      page: [{ _id: 'user-1', name: 'alice' }],
+      pageStatus: 'Done' as const,
+    }));
+    const runMutation = mock(async () => ({ _id: 'user-1', name: 'alice' }));
+    const adapterFactory = httpAdapter({ runMutation, runQuery } as any, {
+      authFunctions: { findMany: 'findMany', updateOne: 'updateOne' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+
+    await adapter.update({
+      model: 'user',
+      update: { name: 'alice' },
+      where: [{ field: 'id', operator: 'eq', value: 'user-1' }],
+    });
+
+    // The multiplicity assertion lives in updateOne, on the read it already
+    // performs, so the adapter must not pre-read in a second transaction.
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(runMutation).toHaveBeenCalledTimes(1);
+  });
+
   test('findMany and count reject mixed OR and AND where clauses', async () => {
     const runQuery = mock(async () => ({
       continueCursor: null,
@@ -676,6 +766,7 @@ describe('httpAdapter', () => {
 
 describe('dbAdapter', () => {
   const schema = { tables: { user: {} } } as any;
+  const getBetterAuthSchema = () => getAuthTables({} as any);
 
   const createMemoryCtx = (docsById: Record<string, any>) => {
     const store = new Map<string, any>(Object.entries(docsById));
@@ -709,11 +800,12 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'b', tenantId: 'tenant-1' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {
         deleteOne: 'deleteOne',
         updateMany: 'updateMany',
       } as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -749,8 +841,9 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'z@z.com', name: 'admin' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -773,8 +866,9 @@ describe('dbAdapter', () => {
       'user-2': { _id: 'user-2', email: 'b@b.com' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -795,8 +889,9 @@ describe('dbAdapter', () => {
       'user-1': { _id: 'user-1', email: 'a@b.com', name: 'Alice' },
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: { updateOne: 'updateOne' } as any,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -859,8 +954,9 @@ describe('dbAdapter', () => {
       return undefined;
     });
 
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions,
+      getBetterAuthSchema,
       schema,
     });
     const adapter = adapterFactory({} as any);
@@ -889,8 +985,9 @@ describe('dbAdapter', () => {
 
   test('createSchema keeps Convex output when schema is non-ORM', async () => {
     const { ctx } = createMemoryCtx({});
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema: { tables: { user: {} } } as any,
     });
     const adapter = adapterFactory({} as any);
@@ -911,8 +1008,9 @@ describe('dbAdapter', () => {
     Object.defineProperty(ormSchema, Symbol.for('kitcn:OrmSchemaOptions'), {
       value: {},
     });
-    const adapterFactory = dbAdapter(ctx, () => ({}) as any, {
+    const adapterFactory = dbAdapter(ctx, {
       authFunctions: {} as any,
+      getBetterAuthSchema,
       schema: ormSchema,
     });
     const adapter = adapterFactory({} as any);

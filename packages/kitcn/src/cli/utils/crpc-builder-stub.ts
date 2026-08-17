@@ -14,6 +14,7 @@ const createProcedureExport = (type, state, handler) => ({
     internal: state.internal ?? false,
     ...toMetaObject(state.meta),
   },
+  ...(state.httpRoute ? { _crpcHttpRoute: state.httpRoute } : {}),
   _handler: handler,
 });
 
@@ -61,23 +62,29 @@ const createProcedureBuilder = (state = {}) => {
     form() {
       return createProcedureBuilder(state);
     },
-    route() {
-      return createProcedureBuilder(state);
+    route(path, method) {
+      return createProcedureBuilder({
+        ...state,
+        httpRoute:
+          typeof path === "string" && typeof method === "string"
+            ? { path, method: method.toUpperCase() }
+            : undefined,
+      });
     },
-    get() {
-      return createProcedureBuilder(state);
+    get(path) {
+      return builder.route(path, "GET");
     },
-    post() {
-      return createProcedureBuilder(state);
+    post(path) {
+      return builder.route(path, "POST");
     },
-    put() {
-      return createProcedureBuilder(state);
+    put(path) {
+      return builder.route(path, "PUT");
     },
-    patch() {
-      return createProcedureBuilder(state);
+    patch(path) {
+      return builder.route(path, "PATCH");
     },
-    delete() {
-      return createProcedureBuilder(state);
+    delete(path) {
+      return builder.route(path, "DELETE");
     },
     query(handler = undefined) {
       return createProcedureExport("query", state, handler);
@@ -95,6 +102,30 @@ const createProcedureBuilder = (state = {}) => {
 
   return builder;
 };
+
+const flattenRouterRecord = (record = {}, prefix = "") => {
+  const procedures = {};
+  for (const [key, value] of Object.entries(record)) {
+    const procedurePath = prefix ? prefix + "." + key : key;
+    if (value?._def?.router === true) {
+      Object.assign(
+        procedures,
+        flattenRouterRecord(value._def.record ?? {}, procedurePath)
+      );
+      continue;
+    }
+    procedures[procedurePath] = value;
+  }
+  return procedures;
+};
+
+const createRouter = (record = {}) => ({
+  _def: {
+    router: true,
+    procedures: flattenRouterRecord(record),
+    record,
+  },
+});
 
 export const initCRPC = {
   meta() {
@@ -116,7 +147,7 @@ export const initCRPC = {
       action: createProcedureBuilder(),
       httpAction: createProcedureBuilder(),
       middleware: createMiddleware,
-      router: (record = {}) => record,
+      router: createRouter,
     };
   },
 };

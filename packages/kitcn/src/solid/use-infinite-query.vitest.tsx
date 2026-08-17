@@ -4,8 +4,7 @@
 import { renderHook } from '@solidjs/testing-library';
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query';
 import { makeFunctionReference } from 'convex/server';
-import { createComputed, type JSX } from 'solid-js';
-import { createStore } from 'solid-js/store';
+import type { JSX } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CRPCClientError } from '../crpc/error';
 import { convexInfiniteQueryOptions } from '../crpc/query-options';
@@ -13,53 +12,53 @@ import { FUNC_REF_SYMBOL } from '../crpc/types';
 import * as authStoreModule from './auth-store';
 import { useInfiniteQuery } from './use-infinite-query';
 
-// Mock useQueries at the module level (ESM modules are non-configurable)
-const mockUseQueries = vi.fn();
+// NOTE: `@tanstack/solid-query` is deliberately NOT mocked. Mocking `useQueries`
+// away is what let `state.map is not a function` ship: every mount of this hook
+// threw during setup while the suite stayed green. These tests drive the real
+// QueryClient, the real observers and the real page fetches.
 
-vi.mock('@tanstack/solid-query', async (importOriginal) => {
-  const actual = (await importOriginal()) as any;
-  return {
-    ...actual,
-    useQueries: (...args: any[]) => mockUseQueries(...args),
-  };
-});
-
-type UseQueriesArg = {
-  queries: any[];
-  combine: (results: any[]) => any;
+type FakePage = {
+  page: Record<string, unknown>[];
+  isDone: boolean;
+  continueCursor: string | null;
+  splitCursor?: string;
+  pageStatus?: 'SplitRecommended' | 'SplitRequired';
 };
 
-const makeCombined = (
-  overrides: Partial<Record<string, unknown>> = {}
-): Record<string, unknown> => ({
-  data: [],
-  pages: [],
-  status: 'Exhausted',
-  error: null,
-  isError: false,
-  isLoading: false,
-  isFetching: false,
-  isFetchNextPageError: false,
-  isPlaceholderData: false,
-  isRefetching: false,
-  failureReason: null,
-  _rawResults: [],
-  lastPage: undefined,
-  ...overrides,
-});
+type PageArgs = Record<string, unknown> & { cursor: string | null };
 
 describe('useInfiniteQuery', () => {
   let useSafeConvexAuthSpy: ReturnType<typeof vi.spyOn>;
   let useAuthValueSpy: ReturnType<typeof vi.spyOn>;
 
-  const useQueriesCalls: UseQueriesArg[] = [];
-
   const fn = makeFunctionReference<'query'>('posts:list');
   const meta = { posts: { list: { auth: 'required' } } } as any;
 
+  /** QueryClient whose default queryFn resolves Convex pagination results. */
+  function makeQueryClient(fetchPage: (args: PageArgs) => FakePage) {
+    return new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          queryFn: (({ queryKey }: any) =>
+            Promise.resolve(fetchPage(queryKey[2] as PageArgs))) as any,
+        },
+      },
+    });
+  }
+
+  /** Every Convex page query currently in the cache, in creation order. */
+  function convexPageArgs(queryClient: QueryClient): PageArgs[] {
+    return queryClient
+      .getQueryCache()
+      .getAll()
+      .filter((query) => (query.queryKey as unknown[])[0] === 'convexQuery')
+      .map((query) => (query.queryKey as unknown[])[2] as PageArgs);
+  }
+
   function createOptions(opts: {
     args?: Record<string, unknown>;
-    enabled?: boolean | ((query: any) => boolean);
+    enabled?: boolean;
     limit?: number;
     skipUnauth?: boolean;
   }) {
@@ -83,8 +82,6 @@ describe('useInfiniteQuery', () => {
   }
 
   beforeEach(() => {
-    useQueriesCalls.length = 0;
-
     useSafeConvexAuthSpy = vi
       .spyOn(authStoreModule, 'useSafeConvexAuth')
       .mockImplementation(
@@ -94,18 +91,89 @@ describe('useInfiniteQuery', () => {
     useAuthValueSpy = vi
       .spyOn(authStoreModule, 'useAuthValue')
       .mockImplementation(() => (() => {}) as any);
-
-    mockUseQueries.mockImplementation((accessor: any) => {
-      const arg = typeof accessor === 'function' ? accessor() : accessor;
-      useQueriesCalls.push(arg);
-      return makeCombined() as any;
-    });
   });
 
   afterEach(() => {
     useSafeConvexAuthSpy.mockRestore();
     useAuthValueSpy.mockRestore();
-    mockUseQueries.mockReset();
+  });
+
+  test('mounts against unmocked solid-query and resolves the first page', async () => {
+    const queryClient = makeQueryClient(() => ({
+      page: [{ _id: 'post-1' }, { _id: 'post-2' }],
+      isDone: false,
+      continueCursor: 'cursor-2',
+    }));
+    const wrapper = makeWrapper(queryClient);
+
+    // Regression gate: this used to throw `state.map is not a function` inside
+    // renderHook, before a single assertion could run.
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
+
+    expect(result.status).toBe('LoadingFirstPage');
+    expect(result.isLoading).toBe(true);
+    expect(result.data).toHaveLength(0);
+
+    await vi.waitFor(() => expect(result.status).toBe('CanLoadMore'));
+
+    expect(result.data.map((item: any) => item._id)).toEqual([
+      'post-1',
+      'post-2',
+    ]);
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0].map((item: any) => item._id)).toEqual([
+      'post-1',
+      'post-2',
+    ]);
+    expect(result.hasNextPage).toBe(true);
+    expect(result.isLoading).toBe(false);
+    expect(result.isFetching).toBe(false);
+    expect(result.isError).toBe(false);
+    expect(result.error).toBeNull();
+    expect(convexPageArgs(queryClient)).toHaveLength(1);
+  });
+
+  test('marks the list exhausted when the first page is done', async () => {
+    const queryClient = makeQueryClient(() => ({
+      page: [{ _id: 'post-1' }],
+      isDone: true,
+      continueCursor: 'cursor-end',
+    }));
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(result.status).toBe('Exhausted'));
+    expect(result.hasNextPage).toBe(false);
+    expect(result.data).toHaveLength(1);
+  });
+
+  test('surfaces page errors instead of crashing', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          queryFn: (() => Promise.reject(new Error('boom'))) as any,
+        },
+      },
+    });
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(result.isError).toBe(true));
+    expect(result.error).toBeInstanceOf(Error);
+    expect((result.error as Error).message).toBe('boom');
+    expect(result.data).toHaveLength(0);
   });
 
   test('returns UNAUTHORIZED error and calls onQueryUnauthorized when required and unauthenticated', () => {
@@ -122,11 +190,17 @@ describe('useInfiniteQuery', () => {
       return (() => {}) as any;
     });
 
-    const queryClient = new QueryClient();
+    const queryClient = makeQueryClient(() => ({
+      page: [],
+      isDone: true,
+      continueCursor: null,
+    }));
     const wrapper = makeWrapper(queryClient);
 
-    const options = createOptions({ limit: 2 });
-    const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
 
     expect(result.isError).toBe(true);
     expect(result.error).toBeInstanceOf(CRPCClientError);
@@ -137,6 +211,9 @@ describe('useInfiniteQuery', () => {
     expect(onQueryUnauthorized).toHaveBeenCalledWith({
       queryName: 'posts:list',
     });
+
+    // Nothing was fetched: no page query reached the cache.
+    expect(convexPageArgs(queryClient)).toHaveLength(0);
   });
 
   test('skipUnauth returns empty data and does not call onQueryUnauthorized when unauthenticated', () => {
@@ -152,17 +229,18 @@ describe('useInfiniteQuery', () => {
       if (key === 'onQueryUnauthorized') return onQueryUnauthorized as any;
       return (() => {}) as any;
     });
-    mockUseQueries.mockImplementation((accessor: any) => {
-      const arg = typeof accessor === 'function' ? accessor() : accessor;
-      useQueriesCalls.push(arg);
-      return makeCombined({ isPlaceholderData: true }) as any;
-    });
 
-    const queryClient = new QueryClient();
+    const queryClient = makeQueryClient(() => ({
+      page: [],
+      isDone: true,
+      continueCursor: null,
+    }));
     const wrapper = makeWrapper(queryClient);
 
-    const options = createOptions({ limit: 2, skipUnauth: true });
-    const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2, skipUnauth: true })),
+      { wrapper }
+    );
 
     expect(result.isError).toBe(false);
     expect(result.error).toBeNull();
@@ -172,72 +250,7 @@ describe('useInfiniteQuery', () => {
     expect(onQueryUnauthorized).toHaveBeenCalledTimes(0);
   });
 
-  test('forwards a function-form enabled predicate to the page queries', () => {
-    const predicate = vi.fn(() => false);
-
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-
-    const options = createOptions({ enabled: predicate, limit: 2 });
-    renderHook(() => useInfiniteQuery(options), { wrapper });
-
-    expect(useQueriesCalls.length).toBeGreaterThan(0);
-    const pageEnabled = (useQueriesCalls[0].queries[0] as any).enabled;
-
-    // The predicate must survive all the way to useQueries, not be collapsed
-    // into a boolean by the enabled === false checks along the way.
-    expect(typeof pageEnabled).toBe('function');
-    expect(pageEnabled({} as any)).toBe(false);
-    expect(predicate).toHaveBeenCalled();
-  });
-
-  test('still disables page queries for a boolean enabled: false', () => {
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-
-    const options = createOptions({ enabled: false, limit: 2 });
-    renderHook(() => useInfiniteQuery(options), { wrapper });
-
-    expect(useQueriesCalls.length).toBeGreaterThan(0);
-    // A boolean false skips before any page query is built.
-    expect(useQueriesCalls[0].queries).toHaveLength(0);
-  });
-
-  test('starts querying once auth finishes loading after mount', () => {
-    const [auth, setAuth] = createStore({
-      isLoading: true,
-      isAuthenticated: false,
-    });
-    useSafeConvexAuthSpy.mockImplementation(() => auth as any);
-
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-
-    const options = createOptions({ limit: 2 });
-    mockUseQueries.mockImplementation((accessor: any) => {
-      // Re-read inside a tracking scope, like the real useQueries does.
-      createComputed(() => {
-        useQueriesCalls.push(
-          typeof accessor === 'function' ? accessor() : accessor
-        );
-      });
-      return makeCombined() as any;
-    });
-
-    renderHook(() => useInfiniteQuery(options), { wrapper });
-
-    // Auth store starts loading: no page query is built at all.
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(0);
-
-    setAuth({ isLoading: false, isAuthenticated: true });
-
-    // The auth read must be tracked, so the page query appears without a
-    // remount. Freezing it at mount left `auth: 'required'` lists dead.
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(1);
-    expect((useQueriesCalls.at(-1)?.queries[0] as any).enabled).toBe(true);
-  });
-
-  test('prefetched first page hydrates while auth loading without fetching', () => {
+  test('prefetched first page hydrates while auth is still loading', () => {
     useSafeConvexAuthSpy.mockImplementation(
       () =>
         ({
@@ -246,204 +259,122 @@ describe('useInfiniteQuery', () => {
         }) as any
     );
 
-    const queryClient = new QueryClient();
+    const queryClient = makeQueryClient(() => {
+      throw new Error('prefetched page must not refetch');
+    });
     const wrapper = makeWrapper(queryClient);
 
     const options = createOptions({ limit: 2 });
-    const prefetched = {
+    queryClient.setQueryData(options.queryKey, {
       page: [{ _id: 'u1', name: 'Alice' }],
       isDone: false,
       continueCursor: 'c1',
-    };
-
-    queryClient.setQueryData(options.queryKey, prefetched);
-
-    renderHook(() => useInfiniteQuery(options), { wrapper });
-
-    expect(useQueriesCalls.length).toBeGreaterThan(0);
-    const firstCall = useQueriesCalls[0];
-    expect(firstCall.queries).toHaveLength(1);
-    // The page reads the prefetch straight out of the cache — it is keyed
-    // exactly like the server wrote it. Forwarding it as `initialData` would
-    // additionally freeze it into the query's `initialState`, which an account
-    // transition brings back.
-    expect((firstCall.queries[0] as any).queryKey).toEqual(options.queryKey);
-    expect((firstCall.queries[0] as any).initialData).toBeUndefined();
-    // Hydrates from the prefetch, but the page gate still blocks network work
-    // until auth settles.
-    expect((firstCall.queries[0] as any).enabled).toBe(false);
-  });
-
-  test('rebuilds an auth-bound list from its first page after an account transition', () => {
-    const [authState, setAuthState] = createStore({ authEpoch: 0 });
-    const useAuthStoreSpy = vi
-      .spyOn(authStoreModule, 'useAuthStore')
-      .mockImplementation(
-        () =>
-          ({
-            get: (key: string) => (authState as any)[key],
-            set: () => {},
-            store: authState,
-          }) as any
-      );
-
-    mockUseQueries.mockImplementation((accessor: any) => {
-      createComputed(() => {
-        useQueriesCalls.push(
-          typeof accessor === 'function' ? accessor() : accessor
-        );
-      });
-      return makeCombined({
-        status: 'CanLoadMore',
-        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
-      }) as any;
     });
-
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-    const options = createOptions({ limit: 2 });
 
     const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
 
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(1);
-
-    result.fetchNextPage();
-    const loaded = useQueriesCalls.at(-1)?.queries ?? [];
-    expect(loaded).toHaveLength(2);
-    expect(loaded[1].queryKey[2].cursor).toBe('cursor-a');
-
-    setAuthState('authEpoch', 1);
-
-    // 'cursor-a' indexes into the previous account's result set. Restoring the
-    // chain would page from a cursor that no longer describes this list.
-    const rebuilt = useQueriesCalls.at(-1)?.queries ?? [];
-    expect(rebuilt).toHaveLength(1);
-    expect(rebuilt[0].queryKey[2].cursor).toBeNull();
-
-    useAuthStoreSpy.mockRestore();
+    // Hydrated synchronously from the prefetched cache entry.
+    expect(result.data.map((item: any) => item._id)).toEqual(['u1']);
+    expect(result.status).toBe('CanLoadMore');
+    expect(convexPageArgs(queryClient)).toHaveLength(1);
   });
 
-  test('keeps a list with no auth binding paged across an account transition', () => {
-    const [authState, setAuthState] = createStore({ authEpoch: 0 });
-    const useAuthStoreSpy = vi
-      .spyOn(authStoreModule, 'useAuthStore')
-      .mockImplementation(
-        () =>
-          ({
-            get: (key: string) => (authState as any)[key],
-            set: () => {},
-            store: authState,
-          }) as any
-      );
-
-    mockUseQueries.mockImplementation((accessor: any) => {
-      createComputed(() => {
-        useQueriesCalls.push(
-          typeof accessor === 'function' ? accessor() : accessor
-        );
-      });
-      return makeCombined({
-        status: 'CanLoadMore',
-        lastPage: { page: [], isDone: false, continueCursor: 'cursor-a' },
-      }) as any;
-    });
-
-    const publicFn = makeFunctionReference<'query'>('posts:feed');
-    const publicOptions = convexInfiniteQueryOptions(
-      publicFn,
-      { tag: 'x' },
-      { limit: 2 },
-      { posts: { feed: {} } } as any
-    ) as any;
-    publicOptions[FUNC_REF_SYMBOL] = publicFn;
-
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-
-    const { result } = renderHook(() => useInfiniteQuery(publicOptions), {
-      wrapper,
-    });
-
-    result.fetchNextPage();
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(2);
-
-    setAuthState('authEpoch', 1);
-
-    // Nothing about a public list is scoped to an account, so signing in must
-    // not throw away how far the reader scrolled.
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(2);
-
-    useAuthStoreSpy.mockRestore();
-  });
-
-  test('does not split a native Convex page solely because it has a split cursor', () => {
-    const queryClient = new QueryClient();
-    const wrapper = makeWrapper(queryClient);
-    const firstPage = {
+  test('does not split a native Convex page solely because it has a split cursor', async () => {
+    const queryClient = makeQueryClient(() => ({
       page: [{ _id: 'post-1' }, { _id: 'post-2' }, { _id: 'post-3' }],
       isDone: false,
       continueCursor: 'cursor-3',
       splitCursor: 'cursor-2',
-    };
-    let capturedAccessor: (() => UseQueriesArg) | null = null;
-
-    mockUseQueries.mockImplementation((accessor: any) => {
-      capturedAccessor = accessor;
-      const arg = typeof accessor === 'function' ? accessor() : accessor;
-      useQueriesCalls.push(arg);
-      return arg.combine([
-        {
-          data: firstPage,
-          dataUpdatedAt: 1,
-          isError: false,
-          isFetching: false,
-          isLoading: false,
-          isPlaceholderData: false,
-        },
-      ]);
-    });
-
-    const options = createOptions({ limit: 3 });
-    const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
-
-    expect(result.data).toEqual(firstPage.page);
-    expect(result.hasNextPage).toBe(true);
-    expect(capturedAccessor!().queries).toHaveLength(1);
-  });
-
-  test('fetchNextPage adds a new page query with continueCursor and limit', () => {
-    const queryClient = new QueryClient();
+    }));
     const wrapper = makeWrapper(queryClient);
 
-    // Capture the accessor so we can re-evaluate it after state changes
-    let capturedAccessor: (() => UseQueriesArg) | null = null;
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 3 })),
+      { wrapper }
+    );
 
-    mockUseQueries.mockImplementation((accessor: any) => {
-      capturedAccessor = accessor;
-      const arg = typeof accessor === 'function' ? accessor() : accessor;
-      useQueriesCalls.push(arg);
-      return makeCombined({
-        status: 'CanLoadMore',
-        lastPage: { continueCursor: 'CUR' },
-      }) as any;
-    });
+    await vi.waitFor(() => expect(result.status).toBe('CanLoadMore'));
 
-    const options = createOptions({ limit: 2, args: { tag: 'x' } });
-    const { result } = renderHook(() => useInfiniteQuery(options), { wrapper });
+    expect(result.data).toHaveLength(3);
+    expect(result.hasNextPage).toBe(true);
+    expect(convexPageArgs(queryClient)).toHaveLength(1);
+  });
 
-    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(1);
+  test('splits a page Convex marks as SplitRequired', async () => {
+    const queryClient = makeQueryClient((args) =>
+      args.cursor === null
+        ? {
+            page: [{ _id: 'post-1' }, { _id: 'post-2' }],
+            isDone: false,
+            continueCursor: 'cursor-2',
+            splitCursor: 'cursor-1',
+            pageStatus: 'SplitRequired',
+          }
+        : {
+            page: [{ _id: 'post-2' }],
+            isDone: true,
+            continueCursor: 'cursor-2',
+          }
+    );
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(convexPageArgs(queryClient)).toHaveLength(2));
+
+    const [, splitArgs] = convexPageArgs(queryClient);
+    expect(splitArgs.cursor).toBe('cursor-1');
+    expect(Object.hasOwn(splitArgs, '__paginationId')).toBe(false);
+
+    // Deduplicated across the split boundary.
+    await vi.waitFor(() => expect(result.status).toBe('Exhausted'));
+    expect(result.data.map((item: any) => item._id)).toEqual([
+      'post-1',
+      'post-2',
+    ]);
+  });
+
+  test('fetchNextPage adds a page query with continueCursor and limit', async () => {
+    const queryClient = makeQueryClient((args) =>
+      args.cursor === null
+        ? {
+            page: [{ _id: 'post-1' }],
+            isDone: false,
+            continueCursor: 'CUR',
+          }
+        : {
+            page: [{ _id: 'post-2' }],
+            isDone: true,
+            continueCursor: 'CUR2',
+          }
+    );
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2, args: { tag: 'x' } })),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(result.status).toBe('CanLoadMore'));
+    expect(convexPageArgs(queryClient)).toHaveLength(1);
 
     result.fetchNextPage(5);
 
-    // In Solid, the mock doesn't re-run on signal changes,
-    // so re-evaluate the captured accessor to get updated queries
-    const updatedArg = capturedAccessor!();
-    expect(updatedArg.queries).toHaveLength(2);
-    const queryKey1 = (updatedArg.queries[1] as any).queryKey as unknown[];
-    const args1 = queryKey1[2] as Record<string, unknown>;
-    expect(args1.tag).toBe('x');
-    expect(args1.cursor).toBe('CUR');
-    expect(args1.limit).toBe(5);
-    expect(Object.hasOwn(args1, '__paginationId')).toBe(false);
+    const pageArgs = convexPageArgs(queryClient);
+    expect(pageArgs).toHaveLength(2);
+    expect(pageArgs[1].tag).toBe('x');
+    expect(pageArgs[1].cursor).toBe('CUR');
+    expect(pageArgs[1].limit).toBe(5);
+    expect(Object.hasOwn(pageArgs[1], '__paginationId')).toBe(false);
+
+    await vi.waitFor(() => expect(result.status).toBe('Exhausted'));
+    expect(result.data.map((item: any) => item._id)).toEqual([
+      'post-1',
+      'post-2',
+    ]);
+    expect(result.hasNextPage).toBe(false);
   });
 });

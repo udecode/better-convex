@@ -410,4 +410,62 @@ describe('useInfiniteQuery', () => {
     expect(args1.limit).toBe(5);
     expect(Object.hasOwn(args1, '__paginationId')).toBe(false);
   });
+
+  test('fetchNextPage keeps a stable identity across renders and live updates', () => {
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    useQueriesSpy.mockImplementation((arg: UseQueriesArg) => {
+      useQueriesCalls.push(arg);
+      // Page queries set structuralSharing: false, so every Convex push hands
+      // back a fresh lastPage reference and rebuilds the loadMore callback.
+      return makeCombined({
+        status: 'CanLoadMore',
+        lastPage: { continueCursor: 'CUR' },
+      }) as any;
+    });
+
+    const options = createOptions({ limit: 2 });
+    const { result, rerender } = renderHook(() => useInfiniteQuery(options), {
+      wrapper,
+    });
+
+    const first = result.current.fetchNextPage;
+
+    rerender();
+    expect(result.current.fetchNextPage).toBe(first);
+
+    rerender();
+    expect(result.current.fetchNextPage).toBe(first);
+
+    // Still wired to the latest loadMore, not a frozen first-render closure.
+    act(() => {
+      result.current.fetchNextPage(5);
+    });
+    expect(useQueriesCalls.at(-1)?.queries).toHaveLength(2);
+  });
+
+  test('reuses the page queries array and combine across identical renders', () => {
+    const queryClient = new QueryClient();
+    const wrapper = makeWrapper(queryClient);
+
+    const options = createOptions({ limit: 2 });
+    const { rerender } = renderHook(
+      ({ opts }: { opts: any }) => useInfiniteQuery(opts),
+      { initialProps: { opts: options }, wrapper }
+    );
+
+    const firstCall = useQueriesCalls.at(-1)!;
+    rerender({ opts: options });
+    const secondCall = useQueriesCalls.at(-1)!;
+
+    // A missed memo here re-hashes one Convex arg object per loaded page and
+    // re-runs the O(loaded items) dedupe on every render.
+    expect(secondCall.queries).toBe(firstCall.queries);
+    expect((secondCall as any).combine).toBe((firstCall as any).combine);
+
+    // Changed args must still rebuild the page queries.
+    rerender({ opts: createOptions({ args: { tag: 'y' }, limit: 2 }) });
+    expect(useQueriesCalls.at(-1)!.queries).not.toBe(firstCall.queries);
+  });
 });

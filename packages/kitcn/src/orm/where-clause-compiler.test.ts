@@ -248,6 +248,147 @@ describe('WhereClauseCompiler advanced index planning', () => {
     ).toEqual(['city', 'status']);
     expect(result.postFilters).toHaveLength(0);
   });
+
+  test('plans an AND-nested inArray as an index union when nothing else is indexable', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        inArray(fieldRef<string>('status') as any, ['zmatch']),
+        like(fieldRef<string>('name') as any, '%u%')
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('multiProbe');
+    expect(result.selectedIndex?.indexName).toBe('by_status');
+    expect(result.probeFilters).toHaveLength(1);
+    // The whole AND still has to be enforced after the probes.
+    expect(result.postFilters).toHaveLength(1);
+    expect((result.postFilters[0] as any).operator).toBe('and');
+  });
+
+  test('leaves an AND-nested inArray alone when an index was already selected', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        eq(fieldRef<string>('orgId') as any, 'o1'),
+        inArray(fieldRef<string>('status') as any, ['a', 'b'])
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('singleIndex');
+    expect(result.selectedIndex?.indexName).toBe('by_org');
+    expect(result.probeFilters).toHaveLength(0);
+  });
+
+  test('declines to promote a very wide AND-nested inArray', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+    ]);
+
+    const wide = Array.from({ length: 200 }, (_, i) => `s${i}`);
+    const result = compiler.compile(
+      and(
+        inArray(fieldRef<string>('status') as any, wide),
+        like(fieldRef<string>('name') as any, '%u%')
+      )!
+    ) as any;
+
+    expect(result.strategy).toBe('none');
+    expect(result.selectedIndex).toBeNull();
+  });
+
+  test('prefers a compound index that also supplies the order', () => {
+    const compiler = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_org_created', indexFields: ['orgId', 'publishedAt'] },
+    ]);
+
+    const withOrder = compiler.compile(
+      eq(fieldRef<string>('orgId') as any, 'o1'),
+      { orderFields: ['publishedAt'] }
+    ) as any;
+    expect(withOrder.selectedIndex?.indexName).toBe('by_org_created');
+
+    const withoutOrder = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      { indexName: 'by_org_created', indexFields: ['orgId', 'publishedAt'] },
+    ]).compile(eq(fieldRef<string>('orgId') as any, 'o1')) as any;
+    expect(withoutOrder.selectedIndex?.indexName).toBe('by_org');
+  });
+
+  test('keeps the narrow index when no candidate supplies the order', () => {
+    const compiler = new WhereClauseCompiler('posts', [
+      { indexName: 'by_org', indexFields: ['orgId'] },
+      {
+        indexName: 'by_tenant_created',
+        indexFields: ['tenantId', 'publishedAt'],
+      },
+    ]);
+
+    const result = compiler.compile(
+      eq(fieldRef<string>('orgId') as any, 'o1'),
+      { orderFields: ['publishedAt'] }
+    ) as any;
+
+    expect(result.selectedIndex?.indexName).toBe('by_org');
+  });
+
+  test('probe plans prefer an index whose second key is the order field', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_status', indexFields: ['status'] },
+      { indexName: 'by_status_age', indexFields: ['status', 'age'] },
+    ]);
+
+    const result = compiler.compile(
+      inArray(fieldRef<string>('status') as any, ['active', 'pending']),
+      { orderFields: ['age'] }
+    ) as any;
+
+    expect(result.strategy).toBe('multiProbe');
+    expect(result.selectedIndex?.indexName).toBe('by_status_age');
+  });
+
+  test('lands every unconsumed binary in postFilters exactly once', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_city', indexFields: ['city'] },
+    ]);
+
+    const terms = [eq(fieldRef<string>('city') as any, 'nyc')];
+    for (let i = 0; i < 20; i += 1) {
+      terms.push(eq(fieldRef<string>(`f${i}`) as any, `v${i}`));
+    }
+
+    const result = compiler.compile(and(...terms)!) as any;
+
+    expect(result.strategy).toBe('singleIndex');
+    expect(result.indexFilters).toHaveLength(1);
+    expect(result.postFilters).toHaveLength(20);
+    expect(new Set(result.postFilters).size).toBe(20);
+  });
+
+  test('keeps a second operator on an index field out of the index scan', () => {
+    const compiler = new WhereClauseCompiler('users', [
+      { indexName: 'by_age', indexFields: ['age'] },
+    ]);
+
+    const result = compiler.compile(
+      and(
+        eq(fieldRef<number>('age') as any, 30),
+        ne(fieldRef<number>('age') as any, 31)
+      )!
+    ) as any;
+
+    expect(result.indexFilters).toHaveLength(1);
+    expect(result.postFilters).toHaveLength(1);
+    expect((result.postFilters[0] as any).operator).toBe('ne');
+  });
 });
 
 describe('timestamp mode key normalization', () => {

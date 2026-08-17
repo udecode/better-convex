@@ -14,7 +14,10 @@ import {
   type OrmReader,
   type OrmWriter,
 } from './database';
-import { extractRelationsConfig } from './extractRelationsConfig';
+import {
+  type EdgeMetadata,
+  extractRelationsConfig,
+} from './extractRelationsConfig';
 import { createOrmDbLifecycle, type OrmDbLifecycle } from './lifecycle';
 import { createMigrationHandlers, type MigrationSet } from './migrations';
 import type {
@@ -214,10 +217,10 @@ function resolveOrmSchemaConfig<TSchema extends OrmSchemaInput>(
 
 function createDbFactory<TSchema extends TablesRelationalConfig>(
   schema: TSchema,
+  edgeMetadata: EdgeMetadata[],
   dbLifecycle: OrmDbLifecycle,
   ormFunctions?: OrmFunctions
 ): OrmFactory<TSchema> {
-  const edgeMetadata = extractRelationsConfig(schema as TablesRelationalConfig);
   return (<TSource extends OrmSource>(
     source: TSource,
     options?: CreateOrmOptions
@@ -273,7 +276,12 @@ export function createOrm<TSchema extends OrmSchemaInput>(
   const edgeMetadata = extractRelationsConfig(
     resolvedSchema as TablesRelationalConfig
   );
-  const db = createDbFactory(resolvedSchema, dbLifecycle, config.ormFunctions);
+  const db = createDbFactory(
+    resolvedSchema,
+    edgeMetadata,
+    dbLifecycle,
+    config.ormFunctions
+  );
   const withContext = <TContext extends OrmReaderCtx | OrmWriterCtx>(
     ctx: TContext,
     options?: CreateOrmOptions

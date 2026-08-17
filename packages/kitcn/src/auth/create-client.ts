@@ -1,4 +1,4 @@
-import type { BetterAuthOptions } from 'better-auth/minimal';
+import type { BetterAuthDBSchema } from 'better-auth/db';
 
 import type {
   FunctionReference,
@@ -44,6 +44,11 @@ export const createClient = <
     GenericMutationCtx<DataModel> = GenericMutationCtx<DataModel>,
 >(config: {
   authFunctions: AuthFunctions;
+  /**
+   * Ctx-free Better Auth table schema, memoized by the caller. Resolved lazily
+   * on the first db-adapter construction, never at module scope.
+   */
+  getBetterAuthSchema: () => BetterAuthDBSchema;
   schema: Schema;
   context?: (
     ctx: GenericMutationCtx<DataModel>
@@ -52,11 +57,6 @@ export const createClient = <
 }) => ({
   authFunctions: config.authFunctions,
   triggers: config.triggers,
-  adapter: (
-    ctx: GenericCtx<DataModel>,
-    getAuthOptions: (ctx: any) => BetterAuthOptions
-  ) =>
-    isQueryCtx(ctx)
-      ? dbAdapter(ctx, getAuthOptions, config)
-      : httpAdapter(ctx, config),
+  adapter: (ctx: GenericCtx<DataModel>) =>
+    isQueryCtx(ctx) ? dbAdapter(ctx, config) : httpAdapter(ctx, config),
 });
