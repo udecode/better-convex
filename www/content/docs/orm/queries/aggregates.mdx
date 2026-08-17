@@ -106,6 +106,8 @@ const nonNulls = await ctx.orm.query.users.count({
 
 Filtered `count()` accepts index-compilable filters: `eq`, `in`, `isNull`, `gt`, `gte`, `lt`, `lte`, conjunction via `AND`, and bounded finite DNF `OR` when every branch is index-plannable on the same `aggregateIndex`. Field counts in `select` require `.count(field)` metric declarations on the matching `aggregateIndex`.
 
+`isNull: true` matches a column that is explicitly `null` and a column that is absent from the document — a nullable column is optional, so a row inserted without it stores it absent. Matching `null` exactly (`{ status: null }` or `{ status: { eq: null } }`) matches only the explicitly-`null` rows. `count()`, `aggregate()`, `groupBy()`, and relation `_count` use the same null semantics as `findMany()`.
+
 Missing or mismatched indexes throw deterministic errors — see [Error Codes](#error-codes) below.
 
 For windowed counts with `orderBy`, `skip`, `take`, and `cursor`, see [Windowed Count](#windowed-count) below.
@@ -146,6 +148,7 @@ For analytics-style queries, `groupBy()` lets you bucket rows and compute metric
 
 - `by` is required
 - every `by` field must have finite `where` constraints (`eq`/`in`/`isNull`)
+- an `isNull`-constrained `by` field emits one group keyed `null`, covering both explicitly-`null` and absent rows
 - `orderBy` supports `by` fields and selected metric fields
 - `skip`/`take`/`cursor` require explicit `orderBy`
 - `having` supports conjunction filters on `by` fields and selected metric outputs

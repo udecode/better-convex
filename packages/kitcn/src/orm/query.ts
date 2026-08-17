@@ -199,6 +199,17 @@ type GroupByOrderSpec = {
   path: string[];
 };
 
+/** One value of one `by` field: what the group reports, and what reads it. */
+type GroupBySlot = {
+  key: unknown;
+  filter: unknown;
+};
+
+type GroupByCandidate = {
+  key: Record<string, unknown>;
+  where: Record<string, unknown>;
+};
+
 /**
  * Replays an already-read run of `[doc | null, indexKey]` entries.
  *
@@ -4169,7 +4180,11 @@ export class GelRelationalQuery<
           `groupBy() field '${fieldName}'.isNull only supports true.`
         );
       }
-      this._pushGroupByConstraint(constraints, fieldName, [null]);
+      // Explicit `null` and an absent field are separate aggregate buckets;
+      // `isNull` covers both. Keeping them as two constraint values (rather
+      // than one opaque "nullish" token) is what lets `AND` intersect
+      // `isNull` against `eq: null` down to the explicit-null bucket alone.
+      this._pushGroupByConstraint(constraints, fieldName, [null, undefined]);
     }
 
     if (
@@ -4305,28 +4320,61 @@ export class GelRelationalQuery<
     return output;
   }
 
+  /**
+   * One group per distinct value, where `null` and absent count as the same
+   * value. They occupy different aggregate buckets, so the emitted group key
+   * and the filter that reads it diverge: the key reports `null` while the
+   * filter keeps `isNull` so the aggregate compiler reads both buckets and
+   * combines their metrics into a single row.
+   */
+  private _buildGroupBySlots(values: unknown[]): GroupBySlot[] {
+    const nullishValues = values.filter(
+      (value) => value === null || value === undefined
+    );
+
+    const slots: GroupBySlot[] = [];
+    let mergedNullish = false;
+    for (const value of values) {
+      if (value !== null && value !== undefined) {
+        slots.push({ key: value, filter: value });
+        continue;
+      }
+      if (mergedNullish) {
+        continue;
+      }
+      mergedNullish = true;
+      slots.push({
+        key: null,
+        filter: nullishValues.length > 1 ? { isNull: true } : value,
+      });
+    }
+    return slots;
+  }
+
   private _buildGroupByCandidates(
     byFields: string[],
     byFieldValues: Record<string, unknown[]>
-  ): Record<string, unknown>[] {
+  ): GroupByCandidate[] {
     if (byFields.length === 0) {
       return [];
     }
 
-    const output: Record<string, unknown>[] = [];
-    const current: Record<string, unknown> = {};
+    const output: GroupByCandidate[] = [];
+    const key: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {};
     const build = (index: number) => {
       if (index >= byFields.length) {
-        output.push({ ...current });
+        output.push({ key: { ...key }, where: { ...where } });
         return;
       }
       const field = byFields[index]!;
-      const values = byFieldValues[field] ?? [];
-      for (const value of values) {
-        current[field] = value;
+      for (const slot of this._buildGroupBySlots(byFieldValues[field] ?? [])) {
+        key[field] = slot.key;
+        where[field] = slot.filter;
         build(index + 1);
       }
-      delete current[field];
+      delete key[field];
+      delete where[field];
     };
     build(0);
     return output;
@@ -5098,7 +5146,7 @@ export class GelRelationalQuery<
 
   private _coerceGroupByConfig(config: any): {
     by: Array<{ raw: string; field: string }>;
-    candidates: Record<string, unknown>[];
+    candidates: GroupByCandidate[];
     orderSpecs: GroupByOrderSpec[];
     having: unknown;
     window: {
@@ -5294,9 +5342,9 @@ export class GelRelationalQuery<
       normalized.candidates,
       async (candidate) => {
         const groupWhere = this._isEmptyWhere(normalized.aggregate.where)
-          ? candidate
+          ? candidate.where
           : {
-              AND: [normalized.aggregate.where, candidate],
+              AND: [normalized.aggregate.where, candidate.where],
             };
 
         const aggregateRow = await this._executeAggregate({
@@ -5309,7 +5357,7 @@ export class GelRelationalQuery<
             entry.raw,
             this._coerceAggregateReturnValue(
               entry.field,
-              candidate[entry.field]
+              candidate.key[entry.field]
             ),
           ])
         );
