@@ -4,6 +4,7 @@ import {
   internalActionGeneric,
   internalMutationGeneric,
   internalQueryGeneric,
+  type PaginationResult,
   paginationOptsValidator,
   type SchemaDefinition,
 } from 'convex/server';
@@ -613,10 +614,38 @@ export const updateOneHandler = async (
 ) => {
   const triggerCtx = args.triggerCtx ?? ctx;
   const tableTriggers = args.tableTriggers;
-  const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+  // Read until the query is terminal or a second match appears. A filtered
+  // stream can return one matching row on a nonterminal page after hitting its
+  // scan bound, so the first page alone cannot prove uniqueness.
+  const matches: any[] = [];
+  let cursor: string | null = null;
+  let isDone = false;
+  while (!isDone && matches.length < 2) {
+    const result: PaginationResult<any> = await paginate(
+      ctx,
+      schema,
+      betterAuthSchema,
+      {
+        ...args.input,
+        paginationOpts: { cursor, numItems: 2 - matches.length },
+      }
+    );
+    matches.push(...result.page);
+    isDone = result.isDone;
+    if (!isDone && result.continueCursor === cursor) {
+      throw new Error('Pagination made no forward progress');
+    }
+    cursor = result.continueCursor;
+  }
+  const doc = matches[0];
 
   if (!doc) {
     throw new Error(`Failed to update ${args.input.model}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `Multiple ${args.input.model} found matching criteria. Expected exactly 1.`
+    );
   }
   const normalizedDoc = withBothIdFields(doc);
   const transformedUpdate = await applyBeforeHook(
@@ -942,6 +971,12 @@ export const createApi = <
   options?: {
     internalMutation?: typeof internalMutationGeneric;
     context?: (ctx: any) => TriggerCtx | Promise<TriggerCtx>;
+    /**
+     * Ctx-free Better Auth table schema, memoized by the caller. Supplying it
+     * lets the runtime share one derivation with the db adapter instead of
+     * building a throwaway auth instance just to read `.options`.
+     */
+    getBetterAuthSchema?: () => ReturnType<typeof getAuthTables>;
     triggers?:
       | GenericAuthTriggers<DataModel, Schema, TriggerCtx>
       | ((
@@ -955,10 +990,14 @@ export const createApi = <
     internalMutation,
     validateInput = false,
     context,
+    getBetterAuthSchema: injectedBetterAuthSchema,
     triggers,
   } = options ?? {};
   let betterAuthSchema: ReturnType<typeof getAuthTables> | undefined;
   const getBetterAuthSchema = () => {
+    if (injectedBetterAuthSchema) {
+      return injectedBetterAuthSchema();
+    }
     betterAuthSchema ??= getAuthTables((getAuth({} as Ctx) as any).options);
     return betterAuthSchema;
   };

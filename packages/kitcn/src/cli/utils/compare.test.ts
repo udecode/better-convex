@@ -65,6 +65,54 @@ describe('cli/utils/compare', () => {
     ).toBe(true);
   });
 
+  test('treats undefined-valued AST keys as absent', () => {
+    // `type A = string` emits `TSTypeAliasDeclaration.typeParameters:
+    // undefined`. A comparator that counted that key would report a
+    // formatting-only edit as a real change and re-prompt on every install.
+    const existingContent = `
+      type ResendContent = string;
+
+      export const value: ResendContent = 'a';
+    `.trim();
+
+    const nextContent = `
+      type ResendContent = string;
+
+      export const value: ResendContent = "a";
+    `.trim();
+
+    expect(
+      isContentEquivalent({
+        filePath: 'convex/lib/plugins/resend/types.ts',
+        existingContent,
+        nextContent,
+      })
+    ).toBe(true);
+  });
+
+  test('preserves added optional syntax', () => {
+    const existingContent = 'export function run(value: string) {}';
+    const nextContent = 'export function run<T>(value: string) {}';
+
+    expect(
+      isContentEquivalent({
+        filePath: 'convex/lib/plugins/resend/run.ts',
+        existingContent,
+        nextContent,
+      })
+    ).toBe(false);
+  });
+
+  test('treats unparseable content as different', () => {
+    expect(
+      isContentEquivalent({
+        filePath: 'convex/lib/plugins/resend/broken.ts',
+        existingContent: 'export const a = 1;',
+        nextContent: 'export const = ;',
+      })
+    ).toBe(false);
+  });
+
   test('preserves semantic TypeScript changes', () => {
     const existingContent = `
       export const resendContentTable = convexTable("resend_content", {

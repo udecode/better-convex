@@ -3,6 +3,7 @@ import { CRPCError } from 'kitcn/server';
 import { z } from 'zod';
 import { authMutation, authQuery, optionalAuthQuery } from '../lib/crpc';
 import type { Insert, Select } from '../shared/api';
+import { hasAnyProject } from './_helpers/project_existence';
 import { projectMembersTable, projectsTable } from './schema';
 
 // Schema for project list items
@@ -155,6 +156,7 @@ export const list = optionalAuthQuery
     const memberships = await ctx.orm.query.projectMembers.findMany({
       where: { userId },
       limit: 1000,
+      columns: { projectId: true },
     });
     const memberProjectIds = new Set(memberships.map((m) => m.projectId));
 
@@ -610,3 +612,7 @@ export const listForDropdown = authQuery
       a.name.localeCompare(b.name)
     );
   });
+
+export const hasAny = authQuery.output(z.boolean()).query(({ ctx }) => {
+  return hasAnyProject(ctx, ctx.userId);
+});

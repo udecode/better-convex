@@ -188,14 +188,22 @@ export function getIndexFields<
   return fields;
 }
 
+/**
+ * Read the index key out of a document.
+ *
+ * Takes field paths already split on `.` rather than the field names: the field
+ * list is fixed for the life of a query, so splitting it once at `withIndex`
+ * time saves an array allocation per field per document pulled through the
+ * stream.
+ */
 function getIndexKey<
   DataModel extends GenericDataModel,
   T extends TableNamesInDataModel<DataModel>,
->(doc: DocumentByName<DataModel, T>, indexFields: string[]): IndexKey {
+>(doc: DocumentByName<DataModel, T>, indexFieldPaths: string[][]): IndexKey {
   const key: IndexKey = [];
-  for (const field of indexFields) {
+  for (const path of indexFieldPaths) {
     let obj: any = doc;
-    for (const subfield of field.split('.')) {
+    for (const subfield of path) {
       obj = obj[subfield];
     }
     key.push(obj);
@@ -470,6 +478,10 @@ export abstract class QueryStream<T extends GenericStreamItem>
         }
         return { done: false, value: result.value[0]! };
       },
+      async return() {
+        await iterator.return?.();
+        return { done: true as const, value: undefined };
+      },
     };
   }
 }
@@ -581,6 +593,8 @@ export type QueryReflection<
   table: T;
   index: IndexName;
   indexFields: string[];
+  /** `indexFields`, each split on `.` once, for reading document keys. */
+  indexFieldPaths: string[][];
   order: 'asc' | 'desc';
   bounds: IndexBounds;
   indexRange?: (
@@ -751,6 +765,7 @@ export class OrderedStreamQuery<
       table: this.parent.parent.table,
       index: this.parent.index,
       indexFields: this.parent.q.indexFields,
+      indexFieldPaths: this.parent.q.indexFieldPaths,
       order: this.order,
       bounds: {
         lowerBound: this.parent.q.lowerBoundIndexKey ?? [],
@@ -771,7 +786,7 @@ export class OrderedStreamQuery<
   iterWithKeys(): AsyncIterable<
     [DocumentByName<DM<Schema>, T> | null, IndexKey]
   > {
-    const { indexFields } = this.reflect();
+    const { indexFieldPaths } = this.reflect();
     const iterable = this.inner();
     return {
       [Symbol.asyncIterator]() {
@@ -784,7 +799,7 @@ export class OrderedStreamQuery<
             }
             return {
               done: false,
-              value: [result.value, getIndexKey(result.value, indexFields)],
+              value: [result.value, getIndexKey(result.value, indexFieldPaths)],
             };
           },
         };
@@ -893,9 +908,12 @@ class ReflectIndexRange {
   upperBoundInclusive = true;
   equalityIndexFilter: Value[] = [];
   indexFields: string[];
+  /** `indexFields`, each split on `.` once, for `getIndexKey`. */
+  indexFieldPaths: string[][];
 
   constructor(indexFields: string[]) {
     this.indexFields = indexFields;
+    this.indexFieldPaths = indexFields.map((field) => field.split('.'));
   }
   eq(field: string, value: Value) {
     if (!this.#canLowerBound(field) || !this.#canUpperBound(field)) {
@@ -1026,12 +1044,25 @@ export function mergedStream<T extends GenericStreamItem>(
   return new MergedStream(streams, orderByIndexFields);
 }
 
+/**
+ * Marks sources that are already `OrderByStream`s, so `narrow` reuses them
+ * instead of adding a redundant delegation layer per call.
+ *
+ * Module-private on purpose: wrapping is also where the ordering invariant is
+ * checked, so no caller outside this file can skip it.
+ */
+const PRE_ORDERED_STREAMS = Symbol('preOrderedStreams');
+
 export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
   #order: 'asc' | 'desc';
   #streams: QueryStream<T>[];
   #equalityIndexFilter: Value[];
   #indexFields: string[];
-  constructor(streams: QueryStream<T>[], orderByIndexFields: string[]) {
+  constructor(
+    streams: QueryStream<T>[],
+    orderByIndexFields: string[],
+    preOrdered?: typeof PRE_ORDERED_STREAMS
+  ) {
     super();
     if (streams.length === 0) {
       throw new Error('Cannot union empty array of streams');
@@ -1040,9 +1071,15 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
       streams.map((stream) => stream.getOrder()),
       'Cannot merge streams with different orders'
     );
-    this.#streams = streams.map(
-      (stream) => new OrderByStream(stream, orderByIndexFields)
-    );
+    // Each wrapper gets its own copy of the ordering fields, because the
+    // wrapper normalizes them in place and would otherwise mutate the
+    // caller's array.
+    this.#streams =
+      preOrdered === PRE_ORDERED_STREAMS
+        ? streams
+        : streams.map(
+            (stream) => new OrderByStream(stream, orderByIndexFields.slice())
+          );
     this.#indexFields = allSame(
       this.#streams.map((stream) => stream.getIndexFields()),
       'Cannot merge streams with different index fields. Consider using .orderBy()'
@@ -1067,17 +1104,28 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
             value: undefined,
           })
         );
+        // Exactly one slot is emptied per item, so after the initial fill only
+        // that slot needs refilling. Rebuilding a K-element `Promise.all` per
+        // item would allocate K closures and promises to advance one iterator.
+        let started = false;
+        let refillIndex: number | undefined;
         return {
           async next() {
-            // Fill results from iterators with no value yet.
-            await Promise.all(
-              iterators.map(async (iterator, i) => {
-                if (!results[i]!.done && !results[i]!.value) {
-                  const result = await iterator.next();
-                  results[i] = result;
-                }
-              })
-            );
+            if (started) {
+              if (refillIndex !== undefined) {
+                results[refillIndex] = await iterators[refillIndex]!.next();
+                refillIndex = undefined;
+              }
+            } else {
+              started = true;
+              // One `Promise.all` on the initial fill, so the sub-queries are
+              // still issued concurrently.
+              await Promise.all(
+                iterators.map(async (iterator, i) => {
+                  results[i] = await iterator.next();
+                })
+              );
+            }
             // Find index for the value with the lowest index key.
             let minIndexKeyAndIndex: [IndexKey, number] | undefined;
             for (let i = 0; i < results.length; i++) {
@@ -1109,7 +1157,12 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
             const result = results[minIndex]!.value;
             // indicate that we've used this result
             results[minIndex]!.value = undefined;
+            refillIndex = minIndex;
             return { done: false, value: result };
+          },
+          async return() {
+            await Promise.all(iterators.map((iterator) => iterator.return?.()));
+            return { done: true as const, value: undefined };
           },
         };
       },
@@ -1125,9 +1178,13 @@ export class MergedStream<T extends GenericStreamItem> extends QueryStream<T> {
     return this.#indexFields;
   }
   narrow(indexBounds: IndexBounds) {
+    // `OrderByStream.narrow` returns an `OrderByStream`, so the sources are
+    // already ordered -- re-wrapping them would stack an inert layer per call,
+    // and `.distinct()` narrows once per emitted row.
     return new MergedStream(
       this.#streams.map((stream) => stream.narrow(indexBounds)),
-      this.#indexFields
+      this.#indexFields,
+      PRE_ORDERED_STREAMS
     );
   }
 }
@@ -1197,46 +1254,59 @@ class ConcatStreams<T extends GenericStreamItem> extends QueryStream<T> {
     );
   }
   iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
-    const iterables = this.#streams.map((stream) => stream.iterWithKeys());
+    const streams = this.#streams;
     const comparisonInversion = this.#order === 'asc' ? 1 : -1;
-    let previousIndexKey: IndexKey | undefined;
     return {
       [Symbol.asyncIterator]() {
-        const iterators = iterables.map((iterable) =>
-          iterable[Symbol.asyncIterator]()
-        );
+        // Substreams are read strictly in order, and each one is a Convex query
+        // whose registration happens the moment its iterator is taken. Open
+        // substream `i` only once `i - 1` is exhausted, so a consumer that
+        // stops early never registers the rest.
+        let index = 0;
+        let iterator: AsyncIterator<[T | null, IndexKey]> | undefined;
+        let previousIndexKey: IndexKey | undefined;
         return {
           async next() {
-            while (iterators.length > 0) {
-              const result = await iterators[0]!.next();
+            while (index < streams.length) {
+              iterator ??=
+                streams[index]!.iterWithKeys()[Symbol.asyncIterator]();
+              const result = await iterator.next();
               if (result.done) {
-                iterators.shift();
-              } else {
-                const [_, indexKey] = result.value;
-                if (
-                  previousIndexKey !== undefined &&
-                  compareKeys(
-                    {
-                      value: previousIndexKey,
-                      kind: 'exact',
-                    },
-                    {
-                      value: indexKey,
-                      kind: 'exact',
-                    }
-                  ) *
-                    comparisonInversion >
-                    0
-                ) {
-                  throw new Error(
-                    `ConcatStreams in wrong order: ${JSON.stringify(previousIndexKey)}, ${JSON.stringify(indexKey)}`
-                  );
-                }
-                previousIndexKey = indexKey;
-                return result;
+                index++;
+                iterator = undefined;
+                continue;
               }
+              const [_, indexKey] = result.value;
+              if (
+                previousIndexKey !== undefined &&
+                compareKeys(
+                  {
+                    value: previousIndexKey,
+                    kind: 'exact',
+                  },
+                  {
+                    value: indexKey,
+                    kind: 'exact',
+                  }
+                ) *
+                  comparisonInversion >
+                  0
+              ) {
+                throw new Error(
+                  `ConcatStreams in wrong order: ${JSON.stringify(previousIndexKey)}, ${JSON.stringify(indexKey)}`
+                );
+              }
+              previousIndexKey = indexKey;
+              return result;
             }
             return { done: true, value: undefined };
+          },
+          async return() {
+            // Propagate an early `break` so the open substream is closed.
+            await iterator?.return?.();
+            index = streams.length;
+            iterator = undefined;
+            return { done: true as const, value: undefined };
           },
         };
       },
@@ -1356,6 +1426,16 @@ class FlatMapStreamIterator<
     this.#currentOuterItem.count++;
     const fullIndexKey = [...this.#currentOuterItem.indexKey, ...indexKey];
     return { done: false, value: [u, fullIndexKey] };
+  }
+
+  async return(): Promise<IteratorResult<[U | null, IndexKey]>> {
+    try {
+      await this.#currentOuterItem?.innerIterator.return?.();
+    } finally {
+      this.#currentOuterItem = null;
+      await this.#outerIterator.return?.();
+    }
+    return { done: true, value: undefined };
   }
 }
 
@@ -1703,6 +1783,10 @@ class OrderByStream<T extends GenericStreamItem> extends QueryStream<T> {
               value: [doc, indexKey.slice(staticFilter.length)],
             };
           },
+          async return() {
+            await iterator.return?.();
+            return { done: true as const, value: undefined };
+          },
         };
       },
     };
@@ -1752,12 +1836,12 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
   override iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
     const stream = this.#stream;
     const distinctIndexFieldsLength = this.#distinctIndexFieldsLength;
+    const order = stream.getOrder();
+    const comparisonInversion = order === 'asc' ? 1 : -1;
     return {
       [Symbol.asyncIterator]() {
-        let currentStream = stream;
-        let currentIterator = currentStream
-          .iterWithKeys()
-          [Symbol.asyncIterator]();
+        let currentIterator = stream.iterWithKeys()[Symbol.asyncIterator]();
+        let previousDistinctIndexKey: IndexKey | undefined;
         return {
           async next() {
             const result = await currentIterator.next();
@@ -1777,25 +1861,52 @@ class DistinctStream<T extends GenericStreamItem> extends QueryStream<T> {
               0,
               distinctIndexFieldsLength
             );
-            if (stream.getOrder() === 'asc') {
-              currentStream = currentStream.narrow({
+            // Skipping past the emitted key only terminates if each distinct
+            // key is strictly past the previous one, and that is also what
+            // makes narrowing the original stream equivalent to narrowing the
+            // narrowed one. Check it here rather than trusting the source.
+            if (
+              previousDistinctIndexKey !== undefined &&
+              compareKeys(
+                { value: previousDistinctIndexKey, kind: 'exact' },
+                { value: distinctIndexKey, kind: 'exact' }
+              ) *
+                comparisonInversion >=
+                0
+            ) {
+              throw new Error(
+                `DistinctStream in wrong order: ${JSON.stringify(previousDistinctIndexKey)}, ${JSON.stringify(distinctIndexKey)}`
+              );
+            }
+            previousDistinctIndexKey = distinctIndexKey;
+            // Narrow the original stream, not the one narrowed on the previous
+            // item. `narrow` intersects bounds and these bounds only tighten,
+            // so both describe the same range -- but chaining rebuilds the
+            // whole stream tree on every item, which multiplies the number of
+            // index ranges opened per emitted row.
+            let narrowed: QueryStream<T>;
+            if (order === 'asc') {
+              narrowed = stream.narrow({
                 lowerBound: distinctIndexKey,
                 lowerBoundInclusive: false,
                 upperBound: [],
                 upperBoundInclusive: true,
               });
             } else {
-              currentStream = currentStream.narrow({
+              narrowed = stream.narrow({
                 lowerBound: [],
                 lowerBoundInclusive: true,
                 upperBound: distinctIndexKey,
                 upperBoundInclusive: false,
               });
             }
-            currentIterator = currentStream
-              .iterWithKeys()
-              [Symbol.asyncIterator]();
+            await currentIterator.return?.();
+            currentIterator = narrowed.iterWithKeys()[Symbol.asyncIterator]();
             return result;
+          },
+          async return() {
+            await currentIterator.return?.();
+            return { done: true as const, value: undefined };
           },
         };
       },

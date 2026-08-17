@@ -7,13 +7,18 @@
  */
 
 import type { ConvexClient } from 'convex/browser';
-import { createContext, type JSX, useContext } from 'solid-js';
+import { createContext, createEffect, type JSX, useContext } from 'solid-js';
 import type { HttpClientError } from '../crpc/http-types';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import { buildMetaIndex } from '../shared/meta-utils';
 import { MetaContext } from './auth';
-import { useAuthStore, useFetchAccessToken } from './auth-store';
+import {
+  useAuthStore,
+  useConvexAuthBridge,
+  useFetchAccessToken,
+  useSafeConvexAuth,
+} from './auth-store';
 import type { ConvexQueryClient } from './client';
 import type { CRPCClient, VanillaCRPCClient } from './crpc-types';
 import {
@@ -137,7 +142,59 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     convexQueryClient: ConvexQueryClient;
   }) {
     const authStore = useAuthStore();
+    const bridgeAuth = useConvexAuthBridge();
+    const safeAuth = useSafeConvexAuth();
+    const auth = bridgeAuth ?? safeAuth;
     const fetchAccessToken = useFetchAccessToken();
+    props.convexQueryClient.updateAuthStore(
+      authStore.store ? authStore : undefined
+    );
+    let previousAuth:
+      | { identity: unknown; isAuthenticated: boolean; isLoading: boolean }
+      | undefined;
+    let authGeneration = 0;
+    let transitionClear: Promise<number> | undefined;
+
+    createEffect(() => {
+      const generation = ++authGeneration;
+      const currentAuth = {
+        identity: auth.identity,
+        isAuthenticated: auth.isAuthenticated,
+        isLoading: auth.isLoading,
+      };
+      const previous = previousAuth;
+      previousAuth = currentAuth;
+
+      if (currentAuth.isLoading) {
+        if (!previous?.isLoading) {
+          transitionClear = props.convexQueryClient.resetAuthQueries({
+            refetch: false,
+          });
+        }
+        return;
+      }
+
+      if (previous?.isLoading) {
+        const pendingClear = transitionClear;
+        transitionClear = undefined;
+        void (async () => {
+          const clientGeneration = await pendingClear;
+          if (generation !== authGeneration) return;
+          await props.convexQueryClient.resetAuthQueries({
+            generation: clientGeneration,
+          });
+        })();
+        return;
+      }
+
+      if (
+        !previous ||
+        previous.identity !== currentAuth.identity ||
+        previous.isAuthenticated !== currentAuth.isAuthenticated
+      ) {
+        void props.convexQueryClient.resetAuthQueries();
+      }
+    });
 
     // No useMemo needed — Solid component body runs once
     const proxy = createCRPCOptionsProxy(api, meta, options.transformer);

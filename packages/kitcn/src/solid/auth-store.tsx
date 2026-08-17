@@ -37,13 +37,23 @@ export const useFetchAccessToken = () => useContext(FetchAccessTokenContext);
 // ConvexAuthBridge Context - For @convex-dev/auth users without better-auth
 // ============================================================================
 
-type ConvexAuthResult = { isAuthenticated: boolean; isLoading: boolean };
+type ConvexAuthResult = {
+  identity: unknown;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+};
+
+type ConvexAuthBridgeResult = ConvexAuthResult & {
+  authEpoch: number;
+};
 
 /**
  * Context that holds auth result from ConvexAuthBridge.
  * Allows @convex-dev/auth users to use skipUnauth queries without better-auth.
  */
-const ConvexAuthBridgeContext = createContext<ConvexAuthResult | null>(null);
+const ConvexAuthBridgeContext = createContext<ConvexAuthBridgeResult | null>(
+  null
+);
 
 /** Get auth from bridge context (null if no bridge configured) */
 export const useConvexAuthBridge = () => useContext(ConvexAuthBridgeContext);
@@ -67,6 +77,12 @@ export type AuthStoreState = {
   isLoading: boolean;
   /** Auth state (synced from useConvexAuth for class methods) */
   isAuthenticated: boolean;
+  /**
+   * Account generation, advanced on every identity transition. Client state
+   * that only makes sense inside one account's result set — paginated cursor
+   * chains — keys on it so it is rebuilt instead of reused across accounts.
+   */
+  authEpoch: number;
 };
 
 /** Decode JWT expiration (ms timestamp) from token */
@@ -103,6 +119,7 @@ const defaultState: AuthStoreState = {
   expiresAt: null,
   isLoading: true,
   isAuthenticated: false,
+  authEpoch: 0,
 };
 
 // ============================================================================
@@ -137,6 +154,20 @@ export function useAuthValue<K extends keyof AuthStoreState>(
   key: K
 ): AuthStoreState[K] {
   const store = useAuthStore();
+  const bridgeAuth = useConvexAuthBridge();
+
+  if (!store.store && bridgeAuth) {
+    if (key === 'authEpoch') {
+      return bridgeAuth.authEpoch as AuthStoreState[K];
+    }
+    if (key === 'isAuthenticated') {
+      return bridgeAuth.isAuthenticated as AuthStoreState[K];
+    }
+    if (key === 'isLoading') {
+      return bridgeAuth.isLoading as AuthStoreState[K];
+    }
+  }
+
   return store.get(key);
 }
 
@@ -194,14 +225,17 @@ export function useSafeConvexAuth(): ConvexAuthResult {
 
   // Return getters so property access reads lazily from the store
   return {
+    get identity() {
+      return bridgeAuth?.identity ?? null;
+    },
     get isAuthenticated() {
-      if (authStore.store) return authStore.get('isAuthenticated');
       if (bridgeAuth !== null) return bridgeAuth.isAuthenticated;
+      if (authStore.store) return authStore.get('isAuthenticated');
       return false;
     },
     get isLoading() {
-      if (authStore.store) return authStore.get('isLoading');
       if (bridgeAuth !== null) return bridgeAuth.isLoading;
+      if (authStore.store) return authStore.get('isLoading');
       return false;
     },
   };
@@ -217,12 +251,20 @@ export function useSafeConvexAuth(): ConvexAuthResult {
  */
 export function ConvexAuthBridge(
   props: ParentProps<{
+    authEpoch?: number;
+    identity?: unknown;
     isLoading: boolean;
     isAuthenticated: boolean;
   }>
 ) {
   // Use getters so context consumers can track prop changes reactively
   const value = {
+    get authEpoch() {
+      return props.authEpoch ?? 0;
+    },
+    get identity() {
+      return props.identity ?? null;
+    },
     get isLoading() {
       return props.isLoading;
     },

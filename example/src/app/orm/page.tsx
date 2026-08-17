@@ -104,7 +104,6 @@ type CoverageRun = {
   validated: number;
   total: number;
   entries: CoverageEntry[];
-  snapshot: Snapshot;
 };
 
 const EMPTY_SNAPSHOT: Snapshot = {
@@ -282,9 +281,7 @@ export default function OrmPage() {
     })
   );
 
-  const snapshot = (lastCoverage?.snapshot ??
-    snapshotQuery.data ??
-    EMPTY_SNAPSHOT) as Snapshot;
+  const snapshot = (snapshotQuery.data ?? EMPTY_SNAPSHOT) as Snapshot;
 
   const coverageEntries = lastCoverage?.entries ?? [];
   const coverageValidated = coverageEntries.filter(matchesExpectation).length;

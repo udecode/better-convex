@@ -6,21 +6,24 @@ import type {
 } from 'convex/server';
 import type { TablesRelationalConfig } from '../relations';
 import {
-  clearRankIndexData,
+  clearRankIndexChunk,
   getRankIndexDefinitions,
   reconcileRankMembership,
 } from './rank-runtime';
 import {
   AGGREGATE_STATE_KIND_METRIC,
   AGGREGATE_STATE_KIND_RANK,
+  type AggregateMembershipDelta,
   COUNT_STATUS_BUILDING,
+  COUNT_STATUS_CLEARING,
   COUNT_STATUS_READY,
-  clearCountIndexData,
+  clearCountIndexChunk,
+  computeAggregateMembershipDelta,
   computeAggregateMetricValues,
   computeCountKeyParts,
+  flushAggregateMembershipDeltas,
   getCountState,
   listSchemaAggregateIndexes,
-  reconcileAggregateMembership,
   setCountState,
   setCountStateError,
 } from './runtime';
@@ -275,44 +278,6 @@ const requiresMetricBackfill = (
   );
 };
 
-const listDistinctIndexTuples = async (
-  db: GenericDatabaseWriter<any>,
-  tableName: string,
-  indexName: string,
-  fields: string[]
-): Promise<Record<string, string>[]> => {
-  const tuples: Record<string, string>[] = [];
-  let current = (await db
-    .query(tableName)
-    .withIndex(indexName)
-    .first()) as Record<string, string> | null;
-
-  while (current) {
-    const row = current;
-    const tuple: Record<string, string> = {};
-    for (const field of fields) {
-      tuple[field] = row[field];
-    }
-    tuples.push(tuple);
-
-    current = null;
-    for (let depth = fields.length - 1; depth >= 0 && !current; depth -= 1) {
-      current = (await db
-        .query(tableName)
-        .withIndex(indexName, (q: any) => {
-          let range = q;
-          for (let i = 0; i < depth; i += 1) {
-            range = range.eq(fields[i], tuple[fields[i]]);
-          }
-          return range.gt(fields[depth], tuple[fields[depth]]);
-        })
-        .first()) as Record<string, string> | null;
-    }
-  }
-
-  return tuples;
-};
-
 export function createCountBackfillHandlers(
   schema: TablesRelationalConfig,
   getChunkRef?: () => SchedulableFunctionReference | undefined
@@ -323,11 +288,59 @@ export function createCountBackfillHandlers(
     indexName: string
   ): string => `${kind}\u0000${tableName}\u0000${indexName}`;
 
+  const stateKindFor = (kind: 'metric' | 'rank'): string =>
+    kind === 'rank' ? AGGREGATE_STATE_KIND_RANK : AGGREGATE_STATE_KIND_METRIC;
+
+  const scheduleChunk = async (
+    ctx: CountBackfillContext,
+    tableName: string,
+    indexName: string,
+    batchSize: number
+  ): Promise<void> => {
+    const chunkRef = getChunkRef?.();
+    if (ctx.scheduler && chunkRef) {
+      await ctx.scheduler.runAfter(0, chunkRef, {
+        tableName,
+        indexName,
+        batchSize,
+      });
+    }
+  };
+
+  /**
+   * Drains an index's stored state until it is empty or the shared per-mutation
+   * budget runs out. Returns true only when the index is fully cleared, so the
+   * caller knows whether to advance the state machine or reschedule.
+   */
+  const drainIndexClear = async (
+    ctx: CountBackfillContext,
+    kind: 'metric' | 'rank',
+    tableName: string,
+    indexName: string,
+    batchSize: number,
+    budget: { remaining: number }
+  ): Promise<boolean> => {
+    while (budget.remaining > 0) {
+      const limit = Math.min(batchSize, budget.remaining);
+      const step =
+        kind === 'rank'
+          ? await clearRankIndexChunk(ctx.db, tableName, indexName, limit)
+          : await clearCountIndexChunk(ctx.db, tableName, indexName, limit);
+      if (step.done) {
+        return true;
+      }
+      budget.remaining -= Math.max(step.processed, 1);
+    }
+    return false;
+  };
+
   const pruneRemovedState = async (
     ctx: CountBackfillContext,
     args: CountBackfillKickoffArgs,
-    targets: CountBackfillTarget[]
-  ): Promise<number> => {
+    targets: CountBackfillTarget[],
+    batchSize: number,
+    clearBudget: { remaining: number }
+  ): Promise<{ pruned: number; pruning: number }> => {
     const targetKeys = new Set(
       targets.map((target) =>
         serializeKey(target.kind, target.tableName, target.indexName)
@@ -340,6 +353,8 @@ export function createCountBackfillHandlers(
       kind: string;
       tableKey: string;
       indexName: string;
+      keyDefinitionHash?: string;
+      metricDefinitionHash?: string;
     }>;
     const stateByKey = new Map(
       states.map((state) => [
@@ -351,26 +366,6 @@ export function createCountBackfillHandlers(
         state,
       ])
     );
-    const [bucketRows, memberRows, extremaRows] = await Promise.all([
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_BUCKET_TABLE,
-        'by_table_index',
-        ['tableKey', 'indexName']
-      ),
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_MEMBER_TABLE,
-        'by_kind_table_index',
-        ['kind', 'tableKey', 'indexName']
-      ),
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_EXTREMA_TABLE,
-        'by_table_index',
-        ['tableKey', 'indexName']
-      ),
-    ]);
     const existingKeys = new Set<string>();
     for (const state of states) {
       existingKeys.add(
@@ -381,17 +376,54 @@ export function createCountBackfillHandlers(
         )
       );
     }
-    for (const row of bucketRows) {
-      existingKeys.add(serializeKey('metric', row.tableKey, row.indexName));
-    }
-    for (const row of memberRows) {
-      const kind = row.kind === AGGREGATE_STATE_KIND_RANK ? 'rank' : 'metric';
-      existingKeys.add(serializeKey(kind, row.tableKey, row.indexName));
-    }
-    for (const row of extremaRows) {
-      existingKeys.add(serializeKey('metric', row.tableKey, row.indexName));
+
+    // State owns index lifecycle. Automatic resume/prune never reverse-scans
+    // backing tables to reconstruct it. An exact manual prune can recover
+    // state-less rows with four bounded existence probes.
+    if (args.tableName && args.indexName) {
+      const tableName = args.tableName;
+      const indexName = args.indexName;
+      const [bucket, extrema, metricMember, rankMember] = await Promise.all([
+        ctx.db
+          .query(AGGREGATE_BUCKET_TABLE)
+          .withIndex('by_table_index', (q: any) =>
+            q.eq('tableKey', tableName).eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_EXTREMA_TABLE)
+          .withIndex('by_table_index', (q: any) =>
+            q.eq('tableKey', tableName).eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_MEMBER_TABLE)
+          .withIndex('by_kind_table_index', (q: any) =>
+            q
+              .eq('kind', AGGREGATE_STATE_KIND_METRIC)
+              .eq('tableKey', tableName)
+              .eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_MEMBER_TABLE)
+          .withIndex('by_kind_table_index', (q: any) =>
+            q
+              .eq('kind', AGGREGATE_STATE_KIND_RANK)
+              .eq('tableKey', tableName)
+              .eq('indexName', indexName)
+          )
+          .first(),
+      ]);
+      if (bucket || extrema || metricMember) {
+        existingKeys.add(serializeKey('metric', tableName, indexName));
+      }
+      if (rankMember) {
+        existingKeys.add(serializeKey('rank', tableName, indexName));
+      }
     }
     let pruned = 0;
+    let pruning = 0;
 
     for (const key of existingKeys) {
       const [kind, tableName, indexName] = key.split('\u0000') as [
@@ -409,19 +441,116 @@ export function createCountBackfillHandlers(
         continue;
       }
 
-      if (kind === 'metric') {
-        await clearCountIndexData(ctx.db, tableName, indexName);
-      } else {
-        await clearRankIndexData(ctx.db, tableName, indexName);
-      }
       const state = stateByKey.get(key);
+      const cleared = await drainIndexClear(
+        ctx,
+        kind,
+        tableName,
+        indexName,
+        batchSize,
+        clearBudget
+      );
+
+      if (!cleared) {
+        // Too much stored state to drop in one mutation. Park the orphan in
+        // CLEARING and let scheduled chunks finish it.
+        const now = Date.now();
+        await setCountState(
+          ctx.db,
+          {
+            tableName,
+            indexName,
+            kind: stateKindFor(kind),
+            keyDefinitionHash: state?.keyDefinitionHash ?? '',
+            metricDefinitionHash: state?.metricDefinitionHash ?? '',
+            status: COUNT_STATUS_CLEARING,
+            cursor: null,
+            processed: 0,
+            startedAt: now,
+            updatedAt: now,
+            completedAt: null,
+            lastError: null,
+          },
+          stateKindFor(kind)
+        );
+        await scheduleChunk(ctx, tableName, indexName, batchSize);
+        pruning += 1;
+        continue;
+      }
+
       if (state) {
         await ctx.db.delete(AGGREGATE_STATE_TABLE, state._id as any);
       }
       pruned += 1;
     }
 
-    return pruned;
+    return { pruned, pruning };
+  };
+
+  /**
+   * Finishes clearing an index that no longer exists in the schema. Orphans have
+   * no backfill target, so they are driven purely by their CLEARING state row.
+   * Returns true when this invocation handled one.
+   */
+  const drainOrphanClear = async (
+    ctx: CountBackfillContext,
+    args: CountBackfillChunkArgs,
+    targets: CountBackfillTarget[],
+    batchSize: number
+  ): Promise<boolean> => {
+    const targetKeys = new Set(
+      targets.map((target) =>
+        serializeKey(target.kind, target.tableName, target.indexName)
+      )
+    );
+    const states = (await ctx.db
+      .query(AGGREGATE_STATE_TABLE)
+      .collect()) as Array<{
+      _id: string;
+      kind: string;
+      tableKey: string;
+      indexName: string;
+      status: string;
+    }>;
+
+    for (const state of states) {
+      if (state.status !== COUNT_STATUS_CLEARING) {
+        continue;
+      }
+      const kind =
+        state.kind === AGGREGATE_STATE_KIND_RANK
+          ? ('rank' as const)
+          : ('metric' as const);
+      if (targetKeys.has(serializeKey(kind, state.tableKey, state.indexName))) {
+        continue;
+      }
+      if (args.tableName && state.tableKey !== args.tableName) {
+        continue;
+      }
+      if (args.indexName && state.indexName !== args.indexName) {
+        continue;
+      }
+
+      const cleared = await drainIndexClear(
+        ctx,
+        kind,
+        state.tableKey,
+        state.indexName,
+        batchSize,
+        { remaining: batchSize }
+      );
+      if (cleared) {
+        await ctx.db.delete(AGGREGATE_STATE_TABLE, state._id as any);
+        return true;
+      }
+      await ctx.db.patch(AGGREGATE_STATE_TABLE, state._id as any, {
+        updatedAt: Date.now(),
+      });
+      await scheduleChunk(ctx, state.tableKey, state.indexName, batchSize);
+      return true;
+    }
+
+    return false;
   };
 
   const kickoff = async (
@@ -431,7 +560,16 @@ export function createCountBackfillHandlers(
     const targets = getTargets(schema, args);
     const mode = getBackfillMode(args.mode);
     const batchSize = getBackfillBatchSize(args.batchSize);
-    const pruned = await pruneRemovedState(ctx, args, targets);
+    // Clearing shares one document budget across the whole kickoff so a schema
+    // with many large indexes can never exceed the per-mutation limits.
+    const clearBudget = { remaining: batchSize };
+    const { pruned, pruning } = await pruneRemovedState(
+      ctx,
+      args,
+      targets,
+      batchSize,
+      clearBudget
+    );
     if (mode === 'prune') {
       return {
         targets: targets.length,
@@ -440,6 +578,7 @@ export function createCountBackfillHandlers(
         skippedReady: 0,
         needsRebuild: 0,
         pruned,
+        pruning,
         status: 'ok' as const,
       };
     }
@@ -470,17 +609,20 @@ export function createCountBackfillHandlers(
       };
 
       if (mode === 'rebuild') {
-        if (target.kind === 'rank') {
-          await clearRankIndexData(ctx.db, target.tableName, target.indexName);
-        } else {
-          await clearCountIndexData(ctx.db, target.tableName, target.indexName);
-        }
+        const cleared = await drainIndexClear(
+          ctx,
+          target.kind,
+          target.tableName,
+          target.indexName,
+          batchSize,
+          clearBudget
+        );
         await setCountState(
           ctx.db,
           {
             ...nextStateBase,
             kind: stateKind,
-            status: COUNT_STATUS_BUILDING,
+            status: cleared ? COUNT_STATUS_BUILDING : COUNT_STATUS_CLEARING,
             cursor: null,
             processed: 0,
             startedAt: now,
@@ -564,14 +706,7 @@ export function createCountBackfillHandlers(
         );
       }
 
-      const chunkRef = getChunkRef?.();
-      if (ctx.scheduler && chunkRef) {
-        await ctx.scheduler.runAfter(0, chunkRef, {
-          tableName: target.tableName,
-          indexName: target.indexName,
-          batchSize,
-        });
-      }
+      await scheduleChunk(ctx, target.tableName, target.indexName, batchSize);
       scheduled += 1;
     }
 
@@ -582,6 +717,7 @@ export function createCountBackfillHandlers(
       skippedReady,
       needsRebuild,
       pruned,
+      pruning,
       status: 'ok' as const,
     };
   };
@@ -592,6 +728,19 @@ export function createCountBackfillHandlers(
   ) => {
     const batchSize = getBackfillBatchSize(args.batchSize);
     const targets = getTargets(schema, args);
+
+    // An index removed from the schema has no target, so its CLEARING state row
+    // is the only thing that can drive the rest of its cleanup.
+    const namesOneTarget = Boolean(args.tableName && args.indexName);
+    if (
+      !(namesOneTarget && targets.length === 1) &&
+      (await drainOrphanClear(ctx, args, targets, batchSize))
+    ) {
+      return {
+        status: 'ok' as const,
+      };
+    }
+
     if (targets.length > 1) {
       for (const target of targets) {
         const stateKind =
@@ -633,11 +782,54 @@ export function createCountBackfillHandlers(
           continue;
         }
 
+        if (state.status === COUNT_STATUS_CLEARING) {
+          // Must be handled before the build body: building over a half-drained
+          // index would insert members against stale buckets.
+          const cleared = await drainIndexClear(
+            ctx,
+            target.kind,
+            target.tableName,
+            target.indexName,
+            batchSize,
+            { remaining: batchSize }
+          );
+          const clearedAt = Date.now();
+          await setCountState(
+            ctx.db,
+            {
+              tableName: target.tableName,
+              indexName: target.indexName,
+              kind: stateKind,
+              keyDefinitionHash: state.keyDefinitionHash,
+              metricDefinitionHash: state.metricDefinitionHash,
+              status: cleared ? COUNT_STATUS_BUILDING : COUNT_STATUS_CLEARING,
+              cursor: null,
+              processed: 0,
+              startedAt: state.startedAt,
+              updatedAt: clearedAt,
+              completedAt: null,
+              lastError: null,
+            },
+            stateKind
+          );
+          await scheduleChunk(
+            ctx,
+            target.tableName,
+            target.indexName,
+            batchSize
+          );
+          continue;
+        }
+
         const cursor = state.cursor ?? null;
         const page = await (ctx.db.query(target.tableName) as any)
           .withIndex('by_creation_time')
           .paginate({ cursor, numItems: batchSize });
 
+        // A page of documents typically shares a handful of key tuples, so
+        // deltas are accumulated and flushed once instead of reading and
+        // patching the same bucket document per document.
+        const pendingDeltas: AggregateMembershipDelta[] = [];
         for (const doc of page.page as Record<string, unknown>[]) {
           if (target.kind === 'rank') {
             await reconcileRankMembership(ctx.db, {
@@ -652,22 +844,33 @@ export function createCountBackfillHandlers(
               doc,
             });
           } else {
-            await reconcileAggregateMembership(ctx.db, {
-              tableName: target.tableName,
-              indexName: target.indexName,
-              docId: String((doc as any)._id),
-              keyParts: computeCountKeyParts(doc, target.fields),
-              metricValues: computeAggregateMetricValues(doc, {
-                name: target.indexName,
-                fields: target.fields,
-                countFields: target.countFields ?? [],
-                sumFields: target.sumFields ?? [],
-                avgFields: target.avgFields ?? [],
-                minFields: target.minFields ?? [],
-                maxFields: target.maxFields ?? [],
-              }),
-            });
+            pendingDeltas.push(
+              await computeAggregateMembershipDelta(ctx.db, {
+                tableName: target.tableName,
+                indexName: target.indexName,
+                docId: String((doc as any)._id),
+                keyParts: computeCountKeyParts(doc, target.fields),
+                metricValues: computeAggregateMetricValues(doc, {
+                  name: target.indexName,
+                  fields: target.fields,
+                  countFields: target.countFields ?? [],
+                  sumFields: target.sumFields ?? [],
+                  avgFields: target.avgFields ?? [],
+                  minFields: target.minFields ?? [],
+                  maxFields: target.maxFields ?? [],
+                }),
+              })
+            );
           }
+        }
+
+        if (pendingDeltas.length > 0) {
+          await flushAggregateMembershipDeltas(
+            ctx.db,
+            target.tableName,
+            target.indexName,
+            pendingDeltas
+          );
         }
 
         const now = Date.now();
@@ -714,14 +917,7 @@ export function createCountBackfillHandlers(
           stateKind
         );
 
-        const chunkRef = getChunkRef?.();
-        if (ctx.scheduler && chunkRef) {
-          await ctx.scheduler.runAfter(0, chunkRef, {
-            tableName: target.tableName,
-            indexName: target.indexName,
-            batchSize,
-          });
-        }
+        await scheduleChunk(ctx, target.tableName, target.indexName, batchSize);
       } catch (error) {
         await setCountStateError(
           ctx.db,

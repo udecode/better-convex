@@ -114,6 +114,7 @@ export type DataModel = {
       "by_id": ["_id"];
       "by_kind_status": ["kind","status"];
       "by_kind_table_index": ["kind","tableKey","indexName"];
+      "by_table_status": ["tableKey","status"];
     };
     searchIndexes: {
     };

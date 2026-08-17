@@ -57,6 +57,7 @@ export const posts = convexTable(
   },
   (t) => [
     index('by_author').on(t.authorId),
+    index('by_author_likes').on(t.authorId, t.numLikes),
     index('by_published').on(t.published),
     index('by_published_at').on(t.publishedAt),
     index('by_title').on(t.title),

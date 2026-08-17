@@ -807,3 +807,10 @@ export function loadCliConfig(configPathArg?: string): CliConfig {
 
   return config;
 }
+
+export function resolveConfiguredBackend(params: {
+  backendArg?: CliBackend;
+  config?: Pick<CliConfig, 'backend'>;
+}): CliBackend {
+  return params.backendArg ?? params.config?.backend ?? 'convex';
+}

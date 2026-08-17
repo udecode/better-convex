@@ -24,6 +24,9 @@ import {
 
 import { CRPCClientError, defaultIsUnauthorized } from '../crpc/error';
 
+// biome-ignore lint/performance/noBarrelFile: preserve the established React export while JWT policy stays internal
+export { decodeJwtExp } from '../internal/jwt';
+
 // ============================================================================
 // FetchAccessToken Context - Eliminates race condition by passing through context
 // ============================================================================
@@ -220,6 +223,12 @@ export type AuthStoreState = {
   isAuthenticated: boolean;
   /** Grace window for freshly seeded auth tokens while session sync catches up */
   sessionSyncGraceUntil: number | null;
+  /**
+   * Account generation, advanced on every identity transition. Client state
+   * that only makes sense inside one account's result set — paginated cursor
+   * chains — keys on it so it is rebuilt instead of reused across accounts.
+   */
+  authEpoch: number;
 };
 
 export const AUTH_SESSION_SYNC_GRACE_MS = 10_000;
@@ -229,27 +238,6 @@ export const isSessionSyncGraceActive = (
 ) =>
   typeof sessionSyncGraceUntil === 'number' &&
   sessionSyncGraceUntil > Date.now();
-
-/** Decode JWT expiration (ms timestamp) from token */
-export function decodeJwtExp(token: string): number | null {
-  try {
-    const segment = token.split('.')[1];
-    if (!segment) {
-      return null;
-    }
-
-    // JWT segments are base64url; atob only accepts the standard alphabet.
-    const binary = atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
-    const payload = JSON.parse(
-      new TextDecoder().decode(
-        Uint8Array.from(binary, (char) => char.charCodeAt(0))
-      )
-    );
-    return payload.exp ? payload.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
 
 export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
   createAtomStore(
@@ -267,6 +255,7 @@ export const { AuthProvider, useAuthStore, useAuthState, useAuthValue } =
       isLoading: true,
       isAuthenticated: false,
       sessionSyncGraceUntil: null,
+      authEpoch: 0,
     } as AuthStoreState,
     { name: 'auth' as const, suppressWarnings: true }
   );

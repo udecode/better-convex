@@ -14,6 +14,7 @@ import {
   Unauthenticated,
   useAuth,
   useAuthGuard,
+  useAuthValue,
   useSafeConvexAuth,
 } from './auth-store';
 
@@ -68,6 +69,7 @@ describe('useSafeConvexAuth / useAuth', () => {
   test('useSafeConvexAuth returns defaults when no auth is configured', () => {
     const { result } = renderHook(() => useSafeConvexAuth());
     expect(result).toEqual({
+      identity: null,
       isAuthenticated: false,
       isLoading: false,
     });
@@ -75,7 +77,11 @@ describe('useSafeConvexAuth / useAuth', () => {
 
   test('useSafeConvexAuth + useAuth use ConvexAuthBridge when present', () => {
     const wrapper = (props: { children: JSX.Element }) => (
-      <ConvexAuthBridge isAuthenticated={true} isLoading={false}>
+      <ConvexAuthBridge
+        identity="account-a"
+        isAuthenticated={true}
+        isLoading={false}
+      >
         {props.children}
       </ConvexAuthBridge>
     );
@@ -84,6 +90,7 @@ describe('useSafeConvexAuth / useAuth', () => {
       wrapper,
     });
     expect(safeAuth).toEqual({
+      identity: 'account-a',
       isAuthenticated: true,
       isLoading: false,
     });
@@ -94,6 +101,45 @@ describe('useSafeConvexAuth / useAuth', () => {
       isAuthenticated: true,
       isLoading: false,
     });
+  });
+
+  test('useSafeConvexAuth keeps Convex settlement authoritative with AuthProvider', () => {
+    const wrapper = (props: { children: JSX.Element }) => (
+      <AuthProvider initialValues={{ isAuthenticated: true, isLoading: false }}>
+        <ConvexAuthBridge
+          identity="account-a"
+          isAuthenticated={false}
+          isLoading={true}
+        >
+          {props.children}
+        </ConvexAuthBridge>
+      </AuthProvider>
+    );
+
+    const { result } = renderHook(() => useSafeConvexAuth(), { wrapper });
+
+    expect(result).toEqual({
+      identity: 'account-a',
+      isAuthenticated: false,
+      isLoading: true,
+    });
+  });
+
+  test('useAuthValue reads the custom Convex auth epoch without AuthProvider', () => {
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthBridge
+        authEpoch={7}
+        identity="account-b"
+        isAuthenticated={true}
+        isLoading={false}
+      >
+        {props.children}
+      </ConvexAuthBridge>
+    );
+
+    const { result } = renderHook(() => useAuthValue('authEpoch'), { wrapper });
+
+    expect(result).toBe(7);
   });
 
   test('useAuth (AuthProvider): hasSession reflects token and reads auth state', () => {
