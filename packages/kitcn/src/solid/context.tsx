@@ -143,6 +143,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     const authStore = useAuthStore();
     const auth = useSafeConvexAuth();
     const fetchAccessToken = useFetchAccessToken();
+    props.convexQueryClient.updateAuthStore(authStore);
     let previousAuth:
       | { identity: unknown; isAuthenticated: boolean }
       | undefined;

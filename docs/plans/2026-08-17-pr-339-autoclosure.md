@@ -79,11 +79,12 @@ Error attempts:
 | --- | ---: | --- | --- |
 | Branch conflicted with released auth and Solid mount owners | 1 | merge owners semantically and retain real Solid Query tests | focused merged-owner tests pass |
 | Stable fetcher missed account switches; provider transitions missed cache reset | 1 | publish a stable identity through the provider bridge and reset at the Solid CRPC owner | three red regressions now pass; 90 Solid owner tests green |
+| Solid CRPC reset had no query-client auth-store owner | 1 | install the provider auth store into the query client before observing transitions | red owner-sync regression passes; 129 Solid tests green |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 90 Solid tests pass |
+| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 129 Solid tests pass |
 | Package/docs/scenario closure | pending | typecheck/build/full check | package typecheck/build green; final full check rerun pending |
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
@@ -114,7 +115,9 @@ Verification evidence:
   cache reset. Three red regressions reproduced both paths. The provider now
   publishes a stable session identity, legacy custom providers retain safe
   reactive rebinding, and the Solid CRPC owner resets auth-bound caches on each
-  observed identity transition. All 90 Solid owner tests pass.
+  observed identity transition. The CRPC provider also installs its auth store
+  into the query client before resets, so auth epochs and subscription gates
+  share the same owner. All 129 Solid tests pass; package typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.
@@ -125,5 +128,5 @@ Reboot status:
 | Where am I? | Final local review/check rerun |
 | Where am I going? | Exact-head delivery and release |
 | What is the goal? | Ship only proven Solid/React parity. |
-| What have I learned? | Mutation-only resets miss provider-driven account changes. |
-| What have I done? | Merged released owners, removed changeset slop, and closed two P1 identity gaps. |
+| What have I learned? | Mutation-only resets miss provider transitions, and resets need the provider's auth-store owner. |
+| What have I done? | Merged released owners, removed changeset slop, and closed three P1 identity gaps. |

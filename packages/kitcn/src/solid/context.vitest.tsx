@@ -19,6 +19,10 @@ describe('context (solid)', () => {
   const mockProxy = { user: { get: { queryOptions: vi.fn() } } };
   const mockVanillaClient = { user: { get: { query: vi.fn() } } };
   const mockMeta = { users: { get: { type: 'query' } } };
+  const createMockConvexQueryClient = () => ({
+    resetAuthQueries: vi.fn(async () => {}),
+    updateAuthStore: vi.fn(),
+  });
 
   beforeEach(() => {
     _buildMetaIndexSpy = vi
@@ -66,7 +70,7 @@ describe('context (solid)', () => {
     const { CRPCProvider, useCRPC } = createCRPCContext({ api: {} as any });
 
     const mockConvexClient = {} as any;
-    const mockConvexQueryClient = {} as any;
+    const mockConvexQueryClient = createMockConvexQueryClient();
 
     const { result } = renderHook(() => useCRPC(), {
       wrapper: (props: any) => (
@@ -82,8 +86,10 @@ describe('context (solid)', () => {
     expect(result).toBe(mockProxy);
   });
 
-  test('resets auth-bound queries on a provider identity transition', () => {
+  test('syncs the auth store and resets queries on an identity transition', () => {
     const [identity, setIdentity] = createSignal<unknown>('account-a');
+    const authStore = { get: vi.fn() };
+    vi.spyOn(authStoreModule, 'useAuthStore').mockReturnValue(authStore as any);
     vi.spyOn(authStoreModule, 'useSafeConvexAuth').mockImplementation(
       () =>
         ({
@@ -94,25 +100,26 @@ describe('context (solid)', () => {
           isLoading: false,
         }) as any
     );
-    const resetAuthQueries = vi.fn(async () => {});
+    const convexQueryClient = createMockConvexQueryClient();
     const { CRPCProvider, useCRPC } = createCRPCContext({ api: {} as any });
 
     renderHook(() => useCRPC(), {
       wrapper: (props: any) => (
         <CRPCProvider
           convexClient={{} as any}
-          convexQueryClient={{ resetAuthQueries } as any}
+          convexQueryClient={convexQueryClient as any}
         >
           {props.children}
         </CRPCProvider>
       ),
     });
 
-    expect(resetAuthQueries).not.toHaveBeenCalled();
+    expect(convexQueryClient.updateAuthStore).toHaveBeenCalledWith(authStore);
+    expect(convexQueryClient.resetAuthQueries).not.toHaveBeenCalled();
 
     setIdentity('account-b');
 
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
   });
 
   test('useCRPCClient returns vanilla client inside provider', () => {
@@ -121,7 +128,7 @@ describe('context (solid)', () => {
     });
 
     const mockConvexClient = {} as any;
-    const mockConvexQueryClient = {} as any;
+    const mockConvexQueryClient = createMockConvexQueryClient();
 
     const { result } = renderHook(() => useCRPCClient(), {
       wrapper: (props: any) => (
@@ -158,7 +165,7 @@ describe('context (solid)', () => {
     _buildMetaIndexSpy.mockReturnValue(meta);
 
     const api = { _http: meta._http } as any;
-    const convexQueryClient = {} as any;
+    const convexQueryClient = createMockConvexQueryClient();
     const convexClient = {} as any;
 
     const { CRPCProvider, useCRPC, useCRPCClient } = createCRPCContext({
@@ -232,7 +239,7 @@ describe('context (solid)', () => {
       deserialize: (value: unknown) => value,
     };
     const api = {} as any;
-    const convexQueryClient = {} as any;
+    const convexQueryClient = createMockConvexQueryClient();
     const convexClient = {} as any;
 
     const { CRPCProvider, useCRPC } = createCRPCContext({
