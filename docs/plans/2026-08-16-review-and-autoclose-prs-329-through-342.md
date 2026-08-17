@@ -17,6 +17,8 @@ Applied packs:
 - agent-native (docs/plans/templates/packs/agent-native.md)
 
 Linked plans:
+- [Per-PR task workflow repair](docs/plans/2026-08-17-require-task-per-pr.md) -
+  Make one dedicated `task` run and plan mandatory for every future PR slice.
 - [PR #329 autoclosure](docs/plans/2026-08-16-pr-329-autoclosure.md) -
   Solid infinite-query mount crash and first release root.
 - [PR #330 autoclosure](docs/plans/2026-08-16-pr-330-autoclosure.md) -
@@ -196,7 +198,7 @@ Phase / pass table:
 | Repair | complete | accepted correctness, ownership, and proof defects fixed | review |
 | Review/checks | complete | focused/full gates and final reviews pass | delivery |
 | Delivery | complete | every PR merged and applicable releases published | final audit |
-| Closeout | complete | exact #342/release/npm/workflow read-back | done |
+| Closeout | in_progress | batch receipts complete; per-PR task workflow repair pending | workflow repair |
 
 Verification evidence:
 - GitHub snapshot: 14 contributor PRs #329-#342; every head had green CI and
@@ -338,4 +340,5 @@ Reboot status:
 | What have I done? | Repaired, reviewed, merged, released, and remotely verified all 14 frozen PRs without adding recurring automation. |
 
 Open risks:
-- None inside the frozen #329-#342 batch. PR #352 is explicitly outside scope.
+- The original batch cannot retroactively prove per-PR task runs. The linked
+  workflow repair prevents recurrence; PR #352 remains outside scope.

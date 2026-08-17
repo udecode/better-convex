@@ -39,6 +39,8 @@ Verification surface:
 Constraints:
 - Preserve existing user-facing behavior outside the task scope.
 - Prefer the durable ownership boundary over caller-by-caller patches.
+- When a GitHub PR is in scope, this plan owns exactly one PR. A coordinating
+  batch plan must link a separate task plan for every PR an agent processes.
 - Verified code changes must be committed and PR'd because the task skill
   requires that path unless the user explicitly says not to, the work has no
   local patch, or a real blocker is recorded.
@@ -114,6 +116,7 @@ Start Gates:
 | Skill analysis before edits | pending | pending |
 | Active goal checked or created | pending | pending |
 | Source of truth read before edits | pending | pending |
+| Exact per-PR task ownership | pending | Record one exact PR, or N/A before a new PR exists |
 | GitHub comments and attachments read | pending | pending |
 | Video transcript evidence required | pending | pending |
 | Pre-solution issue challenge required | pending | pending |
@@ -139,6 +142,9 @@ Work Checklist:
 - [ ] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
+- [ ] Every agent-processed GitHub PR has its own task plan. This plan owns one
+      exact PR, owns a not-yet-created PR slice, or records N/A because no PR is
+      in scope; a batch plan is not used as a substitute.
 - [ ] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason.
 - [ ] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -195,6 +201,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | pending | Run the command, proof, source audit, or artifact check named in this plan | pending |
+| Exact per-PR task ownership | pending | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | pending |
 | Pre-solution issue challenge verdict | pending | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | pending |
 | Repro escalation ladder | pending | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | pending |
 | Bug reproduced before fix | pending | Record failing test/repro or N/A with reason | pending |
