@@ -503,6 +503,9 @@ export const ormPolymorphicEventTable = convexTable(
   (t) => [
     index('actorId').on(t.actorId),
     index('eventType').on(t.eventType),
+    index('todoId').on(t.todoId),
+    index('projectId').on(t.projectId),
+    index('tagId').on(t.tagId),
     index('todo_event').on(t.eventType, t.todoId),
     index('project_event').on(t.eventType, t.projectId),
     index('tag_event').on(t.eventType, t.tagId),

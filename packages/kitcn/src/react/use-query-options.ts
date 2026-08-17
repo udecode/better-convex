@@ -41,7 +41,9 @@ import type {
 import { useAuthSkip } from '../internal/auth';
 import { resolveEnabled } from '../internal/enabled';
 import { createHashFn } from '../internal/hash';
+import { isRecord, isShallowEqual } from '../internal/shallow';
 import type { DistributiveOmit } from '../internal/types';
+import { useStableIdentity } from '../internal/use-stable-identity';
 import { useAuthGuard } from './auth-store';
 import { useFnMeta, useMeta } from './context';
 import type {
@@ -57,8 +59,6 @@ type ReservedMutationOptions = 'mutationFn';
 
 const EMPTY_ARGS = {};
 const hashConvexOptionsKey = createHashFn();
-const MAX_STABLE_ARGS = 500;
-const stableArgsByHash = new Map<string, unknown>();
 
 type QueryOptionsPrefix = 'convexQuery' | 'convexAction';
 type StableQueryArgs<TArgs> = {
@@ -66,28 +66,53 @@ type StableQueryArgs<TArgs> = {
   value: TArgs;
 };
 
-function getStableArgsByHash<TArgs>(hash: string, args: TArgs): TArgs {
-  if (stableArgsByHash.has(hash)) {
-    const stableArgs = stableArgsByHash.get(hash);
-    stableArgsByHash.delete(hash);
-    stableArgsByHash.set(hash, stableArgs);
-    return stableArgs as TArgs;
+type QueryOptionsResult<T extends FunctionReference<'query'>> =
+  ConvexQueryOptions<T> & { meta: ConvexQueryMeta };
+type ActionQueryOptionsResult<T extends FunctionReference<'action'>> =
+  ConvexActionOptions<T> & { meta: ConvexQueryMeta };
+
+/**
+ * Compare two computed option objects for observable equivalence.
+ *
+ * Top-level values are compared by reference so inline `select` /
+ * `placeholderData` closures are never treated as equal. `meta` is exempt: it
+ * is rebuilt from scalars by these hooks on every render, so comparing its
+ * identity would defeat the whole check.
+ */
+function areQueryOptionsEquivalent(a: object, b: object): boolean {
+  const keys = Object.keys(a);
+
+  if (keys.length !== Object.keys(b).length) {
+    return false;
   }
 
-  // Store a copy: callers may mutate their args object in place, which would
-  // otherwise silently rewrite the entry every other hash still points at.
-  const stored = structuredClone(args);
-  stableArgsByHash.set(hash, stored);
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
 
-  if (stableArgsByHash.size > MAX_STABLE_ARGS) {
-    const oldestHash = stableArgsByHash.keys().next().value;
-
-    if (oldestHash !== undefined) {
-      stableArgsByHash.delete(oldestHash);
+  for (const key of keys) {
+    if (!Object.hasOwn(right, key)) {
+      return false;
     }
+
+    const previous = left[key];
+    const next = right[key];
+
+    if (Object.is(previous, next)) {
+      continue;
+    }
+    if (
+      key === 'meta' &&
+      isRecord(previous) &&
+      isRecord(next) &&
+      isShallowEqual(previous, next)
+    ) {
+      continue;
+    }
+
+    return false;
   }
 
-  return stored;
+  return true;
 }
 
 function useStableQueryArgs<TArgs>(
@@ -104,10 +129,12 @@ function useStableQueryArgs<TArgs>(
     resolvedArgs,
   ]);
 
-  const value = useMemo(
-    () => getStableArgsByHash(argsHash, resolvedArgs),
-    [argsHash, resolvedArgs]
-  );
+  // Keyed on the structural hash only. Call sites pass inline object literals,
+  // so an identity dep would rebuild on every render; the hash fully determines
+  // the value. The clone is kept because a caller that mutates its args object
+  // after render must not be able to rewrite the queryKey the QueryCache holds.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- argsHash fully determines resolvedArgs
+  const value = useMemo(() => structuredClone(resolvedArgs), [argsHash]);
 
   return useMemo(() => ({ hash: argsHash, value }), [argsHash, value]);
 }
@@ -144,7 +171,7 @@ export function useConvexQueryOptions<T extends FunctionReference<'query'>>(
       UseQueryOptions<FunctionReturnType<T>, DefaultError>,
       ReservedQueryOptions
     >
-): ConvexQueryOptions<T> & { meta: ConvexQueryMeta } {
+): QueryOptionsResult<T> {
   // Handle skipToken - return disabled query with proper queryKey
   const isSkipped = args === skipToken;
 
@@ -167,7 +194,7 @@ export function useConvexQueryOptions<T extends FunctionReference<'query'>>(
     [funcRef, stableArgs]
   );
 
-  return useMemo(() => {
+  const next = useMemo<QueryOptionsResult<T>>(() => {
     // Extract ConvexQueryHookOptions from merged options
     const {
       enabled: userEnabled,
@@ -188,6 +215,12 @@ export function useConvexQueryOptions<T extends FunctionReference<'query'>>(
       },
     };
   }, [authType, baseOptions, isSkipped, options, shouldSkip]);
+
+  // The idiomatic two-argument call passes an inline options literal, so the
+  // memo above always recomputes. Stabilize the output instead of the input:
+  // a value-equal result keeps its identity, which is what lets
+  // QueryObserver.setOptions' shallowEqualObjects guard succeed.
+  return useStableIdentity(next, areQueryOptionsEquivalent);
 }
 
 /**
@@ -281,7 +314,7 @@ export function useConvexActionQueryOptions<
     UseQueryOptions<FunctionReturnType<Action>, DefaultError>,
     ReservedQueryOptions
   >
-): ConvexActionOptions<Action> & { meta: ConvexQueryMeta } {
+): ActionQueryOptionsResult<Action> {
   const isSkipped = args === skipToken;
 
   // Convert enabled to boolean (TanStack Query allows function)
@@ -303,7 +336,7 @@ export function useConvexActionQueryOptions<
     [action, stableArgs]
   );
 
-  return useMemo(() => {
+  const next = useMemo<ActionQueryOptionsResult<Action>>(() => {
     // Extract skipUnauth from options before spreading
     const { enabled: userEnabled, skipUnauth, ...queryOptions } = options ?? {};
 
@@ -318,6 +351,8 @@ export function useConvexActionQueryOptions<
       },
     };
   }, [authType, baseOptions, isSkipped, options, shouldSkip]);
+
+  return useStableIdentity(next, areQueryOptionsEquivalent);
 }
 
 type AuthType = 'required' | 'optional' | undefined;

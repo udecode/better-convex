@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import { dirname, join, posix, relative, resolve } from 'node:path';
-import { parse as parseDotEnv } from 'dotenv';
 import type { CliConfig } from '../config.js';
 import {
   GENERATED_AUTH_SECRET_COMMENT,
@@ -34,6 +33,7 @@ import type {
   ScaffoldTemplate,
   SupportedPlugin,
 } from '../types.js';
+import { loadDotenv } from '../utils/lazy-deps.js';
 import { inspectPluginDependencyInstall } from './dependencies.js';
 import {
   normalizeLockfileScaffoldPath,
@@ -402,7 +402,9 @@ export const renderLocalConvexEnvContent = (
     return existingContent;
   }
 
-  const existingVars = existingContent ? parseDotEnv(existingContent) : {};
+  const existingVars = existingContent
+    ? loadDotenv().parse(existingContent)
+    : {};
   const needsBootstrap = fields.some((field) => {
     const existingValue = existingVars[field.key];
     return typeof existingValue !== 'string' || existingValue.length === 0;

@@ -348,7 +348,7 @@ Runs `generated/server:aggregateBackfill` in resume mode (no clear/rebuild) for 
 npx kitcn aggregate prune --prod
 ```
 
-Runs `generated/server:aggregateBackfill` in prune mode to delete storage/state for aggregate indexes no longer declared in schema.
+Runs `generated/server:aggregateBackfill` in prune mode to delete storage/state for aggregate indexes no longer declared in schema. Large indexes are cleared in scheduled batches; the command reports how many are still draining.
 
 ## migrate create
 

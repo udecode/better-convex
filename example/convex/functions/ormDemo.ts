@@ -411,6 +411,5 @@ export const runCoverage = authMutation.mutation(async ({ ctx }) => {
     validated,
     total: entries.length,
     entries,
-    snapshot: await buildSnapshot(mutationCtx),
   };
 });
