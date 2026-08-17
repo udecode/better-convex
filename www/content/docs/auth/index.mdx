@@ -11,17 +11,30 @@ kitcn integrates [Better Auth](https://better-auth.com) with Convex.
 
 ## Key Concepts
 
-### Context-Aware Adapter
+### Reading the session
 
-Use one entrypoint everywhere:
+In queries and mutations — including the shared cRPC auth middleware — read the session row
+directly:
 
 ```ts showLineNumbers {2}
-const auth = getAuth(ctx);
+import { getSession } from "kitcn/auth";
+
+const session = await getSession(ctx);
 ```
 
-Use generated `getAuth(ctx)`; generated runtime handles context-aware adapter selection:
+### Context-Aware Adapter
+
+Reach for `getAuth(ctx)` in the modules that call `auth.api.*` — actions, HTTP routes, and
+organization/admin mutations. The generated runtime handles adapter selection:
 - direct DB adapter for queries/mutations (`ctx.db` available)
 - HTTP adapter for actions/HTTP contexts (`ctx.runQuery`/`ctx.runMutation`)
+
+<Callout icon={<InfoIcon />}>
+**Bundle:** Convex has no dynamic `import()`, so every module that names `getAuth` carries your
+whole Better Auth definition and all its plugins in its evaluation closure. Keep it out of
+`convex/lib/crpc.ts`, which every procedure module imports. Authenticated actions build from
+`convex/lib/crpc-action.ts`, the one builder module that imports it.
+</Callout>
 
 ## Authentication Flow
 

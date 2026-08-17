@@ -131,7 +131,7 @@ PR disposition ledger:
 | #338 | cache auth schema and repair session restore | credible, breaking; session races and paginated uniqueness repaired | 3 GitHub P1s plus 1 accepted local P1 | after released #337 | closed: merged `7163710a`, released v0.21.0, post-release CI green |
 | #339 | restore Solid/React parity | credible but broad; stale changeset story was slop and removed | 4 outdated threads plus accepted local privacy findings | after #329/#332 | closed: merged `ed72944a`, corrected and released v0.22.1, post-release CI green |
 | #340 | validate cRPC output once | credible; not slop, but handler/client output typing was wrong | 2 upstream repairs plus 1 accepted local P1 | after released #339 | closed: merged `13fbae32`, released v0.23.0, post-release CI green |
-| #341 | key anonymous rate limits per request | mixed but substantive; deny-list safety and recurring cleanup proposal were slop | 2 upstream fixes plus 2 accepted P1s | after released #340 | [local proof complete](docs/plans/2026-08-17-pr-341-autoclosure.md); manual cleanup only; delivery in progress |
+| #341 | key anonymous rate limits per request | mixed but substantive; deny-list safety and recurring cleanup proposal were slop | 2 upstream fixes plus 2 accepted P1s | after released #340 | closed: merged `c255ae2a`, released v0.24.0, post-release gates green; manual cleanup only |
 | #342 | inject ORM capabilities to cut bundle graphs | potentially valuable architecture change, far too large for trust-by-CI | 4 threads | last; depends on #330/#331/#333/#335/#337/#341 | deep review pending |
 
 Dependency-safe order:
@@ -294,7 +294,10 @@ Verification evidence:
   at 0.92 after two accepted security findings defined that honest contract.
 - #341 passes 99 focused tests, package/example typechecks, package build, all
   eight fixture sync/check variants, intent gates, zero-net deslop, `bun check`,
-  and an explicit all-scenario runtime rerun. Delivery remains pending.
+  and an explicit all-scenario runtime rerun. Exact head `38d04cad` merged as
+  `c255ae2a`; release PR #359 merged as `2f34a0e4`, published npm/GitHub
+  `v0.24.0`, and passed Convex Matrix `32002013196` plus post-release CI
+  `32002022128`.
 - #338 is real auth-runtime work, not disposable slop. Three live P1 races were
   repaired: restore success rechecks token/session ownership, each transport
   probe shares the grace deadline, and stable session IDs distinguish a cloned

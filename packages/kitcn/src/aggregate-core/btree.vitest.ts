@@ -11,6 +11,7 @@ import {
   atOffsetBatchHandler,
   atOffsetHandler,
   deleteHandler,
+  deleteTreesHandler,
   getHandler,
   getOrCreateTree,
   insertHandler,
@@ -23,7 +24,7 @@ import {
 } from './btree.js';
 import { compareValues } from './compare.js';
 import schema, { type Item } from './schema.fixture.js';
-import { AGGREGATE_TREE_TABLE } from './schema.js';
+import { AGGREGATE_NODE_TABLE, AGGREGATE_TREE_TABLE } from './schema.js';
 
 describe('btree', () => {
   test('insert', async () => {
@@ -790,6 +791,38 @@ describe('btree matches simpler impl', () => {
 });
 
 describe('namespace pagination regression', () => {
+  test('bounds aggregate cleanup by nodes within one tree', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await getOrCreateTree(ctx.db, undefined, 4, false);
+      for (let key = 0; key < 60; key++) {
+        await insertHandler(ctx, { key, value: `v${key}` });
+      }
+
+      const before = await ctx.db.query(AGGREGATE_NODE_TABLE).collect();
+      const firstDone = await deleteTreesHandler(ctx, {
+        aggregateName: '__legacy__',
+        limit: 2,
+      });
+      const afterFirst = await ctx.db.query(AGGREGATE_NODE_TABLE).collect();
+
+      expect(firstDone).toBe(false);
+      expect(before.length - afterFirst.length).toBe(2);
+      expect(afterFirst.length).toBeGreaterThan(0);
+
+      let done = false;
+      while (!done) {
+        done = await deleteTreesHandler(ctx, {
+          aggregateName: '__legacy__',
+          limit: 2,
+        });
+      }
+
+      expect(await ctx.db.query(AGGREGATE_NODE_TABLE).collect()).toEqual([]);
+      expect(await ctx.db.query(AGGREGATE_TREE_TABLE).collect()).toEqual([]);
+    });
+  });
+
   test('does not use collect for aggregate-scoped namespace pagination', async () => {
     const paginate = vi.fn().mockResolvedValue({
       page: [],

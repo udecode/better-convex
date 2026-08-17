@@ -8,6 +8,7 @@ import {
   index,
   text,
 } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { describe, expect, it, vi } from 'vitest';
 import * as aggregateRuntime from '../../packages/kitcn/src/orm/aggregate-index/runtime';
 import { convexTest } from '../setup.testing';
@@ -176,6 +177,7 @@ describe('ORM relation with._count', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -336,6 +338,7 @@ describe('ORM relation with._count', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -430,6 +433,7 @@ describe('ORM relation with._count', () => {
       };
 
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -494,6 +498,7 @@ describe('ORM relation with._count', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -560,6 +565,7 @@ describe('ORM relation with._count', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,

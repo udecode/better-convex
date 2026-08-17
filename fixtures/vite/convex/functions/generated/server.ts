@@ -25,7 +25,7 @@ import schema from '../schema';
 const ormFunctions: OrmFunctions = {
   scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:scheduledMutationBatch"),
   scheduledDelete: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:scheduledDelete"),
-  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:aggregateBackfillChunk"),
+  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/aggregate:aggregateBackfillChunk"),
   migrationRunChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:migrationRunChunk"),
   resetChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:resetChunk"),
 };
@@ -62,9 +62,6 @@ export { httpAction, internalMutation };
 export const {
   scheduledMutationBatch,
   scheduledDelete,
-  aggregateBackfill,
-  aggregateBackfillChunk,
-  aggregateBackfillStatus,
   migrationRun,
   migrationRunChunk,
   migrationStatus,

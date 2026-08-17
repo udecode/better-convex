@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   createDefaultConfig,
+  withSubsystemProject,
   writeMinimalSchema,
   writePackageJson,
 } from '../test-utils';
@@ -21,7 +22,7 @@ describe('cli/commands/migrate', () => {
     process.env.CONVEX_DEPLOY_KEY = deployKey;
 
     try {
-      await run();
+      await withSubsystemProject({ migrations: true }, run);
     } finally {
       process.env.CONVEX_DEPLOY_KEY = originalDeployKey;
     }
@@ -146,24 +147,27 @@ describe('cli/commands/migrate', () => {
       backend: 'concave' as const,
     }));
 
-    const exitCode = await handleMigrateCommand(
-      [
-        '--backend',
-        'concave',
-        'migrate',
-        'up',
-        '--url',
-        'http://localhost:3210',
-      ],
-      {
-        realConvex: '/fake/convex/main.js',
-        realConcave: concaveCliPath,
-        execa: execaStub as any,
-        generateMeta: generateMetaStub as any,
-        syncEnv: syncEnvStub as any,
-        loadCliConfig: loadConfigStub as any,
-      }
-    );
+    let exitCode = 1;
+    await withSubsystemProject({ migrations: true }, async () => {
+      exitCode = await handleMigrateCommand(
+        [
+          '--backend',
+          'concave',
+          'migrate',
+          'up',
+          '--url',
+          'http://localhost:3210',
+        ],
+        {
+          realConvex: '/fake/convex/main.js',
+          realConcave: concaveCliPath,
+          execa: execaStub as any,
+          generateMeta: generateMetaStub as any,
+          syncEnv: syncEnvStub as any,
+          loadCliConfig: loadConfigStub as any,
+        }
+      );
+    });
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
@@ -245,24 +249,27 @@ describe('cli/commands/migrate', () => {
       backend: 'concave' as const,
     }));
 
-    const exitCode = await handleMigrateCommand(
-      [
-        '--backend',
-        'concave',
-        'migrate',
-        'up',
-        '--url',
-        'http://localhost:3210',
-      ],
-      {
-        realConvex: '/fake/convex/main.js',
-        realConcave: concaveCliPath,
-        execa: execaStub as any,
-        generateMeta: generateMetaStub as any,
-        syncEnv: syncEnvStub as any,
-        loadCliConfig: loadConfigStub as any,
-      }
-    );
+    let exitCode = 1;
+    await withSubsystemProject({ migrations: true }, async () => {
+      exitCode = await handleMigrateCommand(
+        [
+          '--backend',
+          'concave',
+          'migrate',
+          'up',
+          '--url',
+          'http://localhost:3210',
+        ],
+        {
+          realConvex: '/fake/convex/main.js',
+          realConcave: concaveCliPath,
+          execa: execaStub as any,
+          generateMeta: generateMetaStub as any,
+          syncEnv: syncEnvStub as any,
+          loadCliConfig: loadConfigStub as any,
+        }
+      );
+    });
 
     expect(exitCode).toBe(0);
     expect(calls).toHaveLength(2);

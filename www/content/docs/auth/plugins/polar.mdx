@@ -477,7 +477,7 @@ Build additional subscription management functions (create, update, cancel, resu
 
 - Use `privateMutation` for webhook-triggered writes (subscription create/update)
 - Use `privateQuery` for internal reads (get active subscription)
-- Use `authAction` for user-facing operations that call the Polar SDK (cancel/resume)
+- Use `authAction` from `convex/lib/crpc-action.ts` for user-facing operations that call the Polar SDK (cancel/resume)
 - Use callers to bridge between actions and queries/mutations
 
 See the [example app](https://github.com/nichochar/kitcn/tree/main/example) for complete subscription CRUD implementations.

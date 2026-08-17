@@ -25,7 +25,7 @@ for:
 
 - `concave dev` now defaults to `3210`
 - `concave run` now succeeds for `generated/server:migrationRun` and
-  `generated/server:aggregateBackfill`
+  `generated/aggregate:aggregateBackfill`
 - `concave codegen --static` now emits the `api.d.ts` shape we wanted
 
 After removing those shims, two smaller Concave-specific gaps still showed up.

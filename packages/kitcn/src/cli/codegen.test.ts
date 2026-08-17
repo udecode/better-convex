@@ -570,6 +570,17 @@ describe('cli/codegen', () => {
       );
       expect(fs.existsSync(serverGeneratedFile)).toBe(true);
       const serverGenerated = fs.readFileSync(serverGeneratedFile, 'utf-8');
+      const aggregateGeneratedFile = path.join(
+        dir,
+        'convex',
+        'generated',
+        'aggregate.ts'
+      );
+      expect(fs.existsSync(aggregateGeneratedFile)).toBe(true);
+      const aggregateGenerated = fs.readFileSync(
+        aggregateGeneratedFile,
+        'utf-8'
+      );
       const ormGeneratedFile = path.join(dir, 'convex', 'generated', 'orm.ts');
       expect(fs.existsSync(ormGeneratedFile)).toBe(false);
       const crpcGeneratedFile = path.join(
@@ -610,10 +621,21 @@ describe('cli/codegen', () => {
         'generated',
         'server.runtime.ts'
       );
+      const aggregateRuntimeFile = path.join(
+        dir,
+        'convex',
+        'generated',
+        'aggregate.runtime.ts'
+      );
       expect(fs.existsSync(allRuntimeFile)).toBe(false);
       expect(fs.existsSync(serverRuntimeFile)).toBe(true);
+      expect(fs.existsSync(aggregateRuntimeFile)).toBe(true);
       const serverRuntimeGenerated = fs.readFileSync(
         serverRuntimeFile,
+        'utf-8'
+      );
+      const aggregateRuntimeGenerated = fs.readFileSync(
+        aggregateRuntimeFile,
         'utf-8'
       );
       const nestedRuntimeGenerated = fs.readFileSync(
@@ -841,14 +863,14 @@ describe('cli/codegen', () => {
       expect(serverRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["scheduledDelete"]>("generated/server:scheduledDelete")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfill"]>("generated/server:aggregateBackfill")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfill>("generated/aggregate:aggregateBackfill")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfillChunk"]>("generated/server:aggregateBackfillChunk")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfillChunk>("generated/aggregate:aggregateBackfillChunk")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfillStatus"]>("generated/server:aggregateBackfillStatus")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfillStatus>("generated/aggregate:aggregateBackfillStatus")'
       );
       expect(serverRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["migrationRun"]>("generated/server:migrationRun")'
@@ -874,9 +896,9 @@ describe('cli/codegen', () => {
       expect(nestedRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"query", "internal", typeof import("../../items/queries").internalOnly>("items/queries:internalOnly")'
       );
-      expect(serverGenerated).toContain('aggregateBackfill');
-      expect(serverGenerated).toContain('aggregateBackfillChunk');
-      expect(serverGenerated).toContain('aggregateBackfillStatus');
+      expect(aggregateGenerated).toContain('aggregateBackfill');
+      expect(aggregateGenerated).toContain('aggregateBackfillChunk');
+      expect(aggregateGenerated).toContain('aggregateBackfillStatus');
       expect(serverGenerated).toContain('migrationRun');
       expect(serverGenerated).toContain('migrationRunChunk');
       expect(serverGenerated).toContain('migrationStatus');
@@ -1944,6 +1966,133 @@ describe('cli/codegen', () => {
       expect(generatedServer).toContain('const ormSchema = schema;');
       expect(generatedServer).toContain('schema: ormSchema,');
       expect(generatedServer).toContain('ormFunctions,');
+      // Every procedure module imports this file, so an unused optional
+      // runtime named here lands in every Convex function of the app. This
+      // schema declares no aggregate/rank index and the app has no migrations
+      // manifest, so neither runtime may appear.
+      expect(generatedServer).not.toContain('kitcn/orm/aggregate-index');
+      expect(generatedServer).not.toContain('kitcn/orm/migrations');
+      expect(generatedServer).not.toContain('capabilities:');
+      const generatedAggregate = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'aggregate.ts'),
+        'utf-8'
+      );
+      expect(generatedAggregate).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedAggregate).toContain(
+        'capabilities: [aggregateCapability()],'
+      );
+      expect(generatedAggregate).toContain('aggregateBackfillStatus,');
+      expect(generatedServer).toContain(
+        '"generated/aggregate:aggregateBackfillChunk"'
+      );
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generated orm module registers the capabilities the app uses', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ name: 'caps-both', private: true, type: 'module' })
+      );
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { aggregateIndex, convexTable, defineSchema, text } from 'kitcn/orm';
+
+        export const todos = convexTable(
+          'todos',
+          { title: text().notNull() },
+          (t) => [aggregateIndex('byTitle').on(t.title)]
+        );
+
+        export default defineSchema({ todos });
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'migrations', 'manifest.ts'),
+        `
+        import { defineMigrationSet } from 'kitcn/orm';
+
+        export const migrations = defineMigrationSet([]);
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const generatedServer = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        'utf-8'
+      );
+      expect(generatedServer).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedServer).toContain(
+        "import { migrationCapability } from 'kitcn/orm/migrations';"
+      );
+      expect(generatedServer).toContain(
+        'capabilities: [aggregateCapability(), migrationCapability()],'
+      );
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generated orm module registers the aggregate capability alone', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+    process.chdir(dir);
+
+    try {
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({
+          name: 'caps-aggregate',
+          private: true,
+          type: 'module',
+        })
+      );
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { convexTable, defineSchema, rankIndex, integer, text } from 'kitcn/orm';
+
+        export const scores = convexTable(
+          'scores',
+          { player: text().notNull(), points: integer().notNull() },
+          (t) => [
+            rankIndex('byPoints')
+              .all()
+              .orderBy({ column: t.points, direction: 'desc' }),
+          ]
+        );
+
+        export default defineSchema({ scores });
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const generatedServer = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        'utf-8'
+      );
+      expect(generatedServer).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedServer).not.toContain('kitcn/orm/migrations');
+      expect(generatedServer).toContain(
+        'capabilities: [aggregateCapability()],'
+      );
     } finally {
       process.chdir(oldCwd);
     }

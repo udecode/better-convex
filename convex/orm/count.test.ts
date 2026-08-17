@@ -11,6 +11,7 @@ import {
   requireSchemaRelations,
   text,
 } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { it as baseIt, describe, expect, test, vi } from 'vitest';
 import baseSchema from '../schema';
 import { convexTest, runCtx, type TestCtx } from '../setup.testing';
@@ -261,6 +262,7 @@ describe('ORM count()', () => {
       }) as any;
 
       const orm = createOrm({
+        capabilities: [aggregateCapability()],
         schema: baseRelations,
       });
       const db = orm.db(baseCtx);
@@ -302,7 +304,10 @@ describe('ORM count()', () => {
     const t = convexTest(localSchema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: localRelations });
+      const orm = createOrm({
+        schema: localRelations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       const ids = [] as string[];
@@ -344,7 +349,10 @@ describe('ORM count() with aggregateIndex', () => {
     const t = convexTest(schema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: relations });
+      const orm = createOrm({
+        schema: relations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       await ctx.db.insert('countUsers', {
@@ -370,6 +378,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -471,6 +480,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -589,6 +599,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -678,6 +689,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -742,7 +754,10 @@ describe('ORM count() with aggregateIndex', () => {
     const t = convexTest(schema);
 
     await t.run(async (baseCtx) => {
-      const orm = createOrm({ schema: relations });
+      const orm = createOrm({
+        schema: relations,
+        capabilities: [aggregateCapability()],
+      });
       const ctx = orm.with({ db: baseCtx.db });
 
       await expect(
@@ -780,6 +795,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -843,6 +859,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -903,6 +920,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -985,6 +1003,7 @@ describe('ORM count() with aggregateIndex', () => {
       } as any;
       const runAfter = vi.fn(async () => undefined);
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1019,6 +1038,7 @@ describe('ORM count() with aggregateIndex', () => {
     await t.run(async (baseCtx) => {
       const runAfter = vi.fn(async () => undefined);
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1085,6 +1105,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1161,6 +1182,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1225,6 +1247,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const initialOrmClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1274,6 +1297,7 @@ describe('ORM count() with aggregateIndex', () => {
       expect(existingBuckets.length).toBeGreaterThan(0);
 
       const prunedOrmClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relationsWithoutOrgStatus,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1369,6 +1393,7 @@ describe('ORM count() with aggregateIndex', () => {
       });
 
       const prunedOrmClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relationsWithoutOrgStatus,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1554,6 +1579,7 @@ describe('ORM count() with aggregateIndex', () => {
       }
 
       const prunedOrmClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relationsWithoutOrgStatus,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1645,6 +1671,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1734,6 +1761,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1799,6 +1827,7 @@ describe('ORM count() with aggregateIndex', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1931,6 +1960,7 @@ describe('aggregateIndex write amplification', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -1990,6 +2020,7 @@ describe('aggregateIndex write amplification', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2051,6 +2082,7 @@ describe('aggregateIndex range scan budget', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2087,6 +2119,7 @@ describe('aggregateIndex range scan budget', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2124,6 +2157,7 @@ describe('aggregateIndex range scan budget', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2167,6 +2201,7 @@ describe('aggregateIndex range scan budget', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2246,6 +2281,7 @@ describe('aggregateIndex clearing is resumable', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2297,6 +2333,7 @@ describe('aggregateIndex clearing is resumable', () => {
 
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relations,
         ormFunctions: {
           scheduledDelete: {} as any,
@@ -2429,6 +2466,7 @@ describe('aggregateIndex clearing is resumable', () => {
       });
 
       const prunedOrmClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: relationsWithoutOrgStatus,
         ormFunctions: {
           scheduledDelete: {} as any,

@@ -171,10 +171,9 @@ Schema rules that matter:
 ### 2) Procedure Builders + Middleware
 
 ```ts
-import { getHeaders } from "kitcn/auth";
+import { getSession } from "kitcn/auth";
 import { CRPCError } from "kitcn/server";
-import { getAuth } from "../functions/generated/auth";
-import { initCRPC } from "../functions/generated/server";
+import { initCRPC, type QueryCtx } from "../functions/generated/server";
 
 const c = initCRPC
   .meta<{
@@ -190,40 +189,42 @@ function requireAuth<T>(user: T | null): T {
   }
   return user;
 }
+async function getSessionUser(ctx: QueryCtx) {
+  const session = await getSession(ctx);
+  if (!session) return null;
+  return await ctx.orm.query.user.findFirst({
+    where: { id: { eq: session.userId } },
+  });
+}
+
 export const publicQuery = c.query.meta({ auth: "optional" });
 export const authQuery = c.query
   .meta({ auth: "required" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
-    const user = requireAuth(session?.user ?? null);
+    const user = requireAuth(await getSessionUser(ctx));
     return next({ ctx: { ...ctx, user, userId: user.id } });
   });
 export const authMutation = c.mutation
   .meta({ auth: "optional" })
   .use(async ({ ctx, next }) => {
-    const auth = getAuth(ctx);
-    const session = await auth.api.getSession({
-      headers: await getHeaders(ctx),
-    });
+    const user = await getSessionUser(ctx);
     return next({
-      ctx: {
-        ...ctx,
-        user: session?.user ?? null,
-        userId: session?.user?.id ?? null,
-      },
+      ctx: { ...ctx, user, userId: user?.id ?? null },
     });
   });
 ```
 
 Builder rules that matter:
 
-1. Build `public`, `optional`, `auth`, and `private` procedure families once in `convex/lib/crpc.ts`.
+1. Build `public`, `optional`, `auth`, and `private` procedure families once in `convex/lib/crpc.ts`. Authenticated action builders live in `convex/lib/crpc-action.ts`, the only builder module that imports `getAuth`.
 2. `.meta(...)` is client-visible via generated API metadata. Never put secrets there.
 3. Middleware receives server-only `procedure` info. When procedures are built from your app `generated/server` helper, standard `export const` queries, mutations, and actions infer `module:function` automatically from file path + export name. Use `.name("module:function")` only to override or cover unusual export shapes.
 4. Resolve session/user once in middleware. Do not re-fetch auth state in every procedure.
+   Query/mutation middleware uses `getSession(ctx)` from `kitcn/auth`, which reads the session row
+   directly. Keep `getAuth(ctx)` out of `convex/lib/crpc.ts`: it pulls the whole Better Auth
+   definition and every auth plugin into the static import closure of every procedure module, and
+   Convex has no dynamic `import()` to escape it. Import `getAuth` only in the modules that call
+   `auth.api.*` — `convex/lib/crpc-action.ts`, HTTP routes, and organization/admin mutations.
 5. Shared `c.middleware()` chains preserve mutation writer types on mutation procedures. If the middleware itself performs writes, type it as mutation-only with `c.middleware<MutationCtx>(...)`.
 6. Keep deeper auth/runtime edge cases in `references/setup/server.md` and `references/features/auth*.md`.
 

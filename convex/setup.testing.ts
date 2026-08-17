@@ -10,6 +10,7 @@ import {
   type OrmWriter,
   requireSchemaRelations,
 } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import schema from './schema';
 
 type ImportMetaWithGlob = ImportMeta & {
@@ -208,7 +209,10 @@ export const withOrm = <
     options?.rls && options.rls.ctx
       ? options.rls
       : { ...(options?.rls ?? {}), ctx: ctxWithOrm };
-  const orm = createOrm({ schema });
+  const orm = createOrm({
+    schema,
+    capabilities: [aggregateCapability()],
+  });
   const ormDb = orm.db(ctx, { ...options, rls });
   ctxWithOrm.orm = ormDb as OrmWriter<Schema>;
   return ctxWithOrm;

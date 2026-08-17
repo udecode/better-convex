@@ -301,8 +301,8 @@ npx kitcn deploy --preview-name "$(git branch --show-current)"
 1. selected backend `deploy ...`
 2. post-deploy `generated/server:migrationRun` (`direction: "up"`)
 3. status polling (`generated/server:migrationStatus`) until completion (default behavior)
-4. post-deploy `generated/server:aggregateBackfill`
-5. aggregate status polling (`generated/server:aggregateBackfillStatus`) until `READY` (default behavior)
+4. post-deploy `generated/aggregate:aggregateBackfill`
+5. aggregate status polling (`generated/aggregate:aggregateBackfillStatus`) until `READY` (default behavior)
 
 Options:
 
@@ -332,7 +332,7 @@ Already-`READY` indexes are skipped (noop). See [Resume Compatibility](#resume-c
 npx kitcn aggregate rebuild --prod
 ```
 
-Runs `generated/server:aggregateBackfill` in rebuild mode (clear + recompute) for the selected deployment, then waits for `READY` by default.
+Runs `generated/aggregate:aggregateBackfill` in rebuild mode (clear + recompute) for the selected deployment, then waits for `READY` by default.
 
 ## aggregate backfill
 
@@ -340,7 +340,7 @@ Runs `generated/server:aggregateBackfill` in rebuild mode (clear + recompute) fo
 npx kitcn aggregate backfill --prod
 ```
 
-Runs `generated/server:aggregateBackfill` in resume mode (no clear/rebuild) for the selected deployment, then waits for `READY` by default.
+Runs `generated/aggregate:aggregateBackfill` in resume mode (no clear/rebuild) for the selected deployment, then waits for `READY` by default.
 
 ## aggregate prune
 
@@ -348,7 +348,7 @@ Runs `generated/server:aggregateBackfill` in resume mode (no clear/rebuild) for 
 npx kitcn aggregate prune --prod
 ```
 
-Runs `generated/server:aggregateBackfill` in prune mode to delete storage/state for aggregate indexes no longer declared in schema. Large indexes are cleared in scheduled batches; the command reports how many are still draining.
+Runs `generated/aggregate:aggregateBackfill` in prune mode to delete storage/state for aggregate indexes no longer declared in schema. Large indexes are cleared in scheduled batches; the command reports how many are still draining.
 
 ## migrate create
 

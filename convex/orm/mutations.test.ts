@@ -29,6 +29,7 @@ import {
   text,
   timestamp,
 } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { createGeneratedFunctionReference } from 'kitcn/server';
 import { it as baseIt, describe, expect, vi } from 'vitest';
 import schema, { users } from '../schema';
@@ -152,6 +153,7 @@ describe('M7 Mutations', () => {
     const t = convexTest(customSchema);
     await t.run(async (baseCtx) => {
       const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
         schema: customRelations,
         ormFunctions: {
           scheduledDelete: {} as any,

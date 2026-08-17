@@ -40,7 +40,7 @@ Closure matrix:
 | agent workflow | yes | published skill source/mirror sync and reviewer | complete |
 | cleanup/review | yes | zero-net deslop and clean P1 autoreview | complete |
 | repository check | yes | `bun check`; explicit `bun run test:runtime` rerun | complete |
-| GitHub delivery | yes | exact head, gates, merge, release, read-back | pending |
+| GitHub delivery | yes | exact head, gates, merge, release, read-back | complete |
 
 Work checklist:
 - [x] Exact released-main diff and four review threads reconstructed.
@@ -50,7 +50,7 @@ Work checklist:
 - [x] Manual cleanup helper and batched store mutation pass focused TDD.
 - [x] Scaffold, docs, skill, generated output, and changeset are synchronized.
 - [x] Focused, package, full-check, and final-review proof passes.
-- [ ] Feedback is resolved and exact remote delivery completes.
+- [x] Feedback is resolved and exact remote delivery completes.
 
 Verification evidence:
 - The PR is mixed but substantive, not wholesale slop. Exact HTTP keys, shared
@@ -80,6 +80,11 @@ Verification evidence:
 - `bun check` passed its lint, typecheck, unit, CLI, fixture, verify, and runtime
   lanes. A separate `bun run test:runtime` rerun completed every scenario with
   exit 0, removing ambiguity from the unified command's closed output stream.
+- Exact head `38d04cad` passed CI `32001491949`, Vercel, and auto-release,
+  resolved all four threads, and squash-merged as `c255ae2a`.
+- Release PR #359 merged as `2f34a0e4`, published both npm packages and GitHub
+  `v0.24.0`, passed Convex Matrix `32002013196` in 15m32s, and passed
+  post-release CI `32002022128`.
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -87,5 +92,5 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | deny-list, cleanup, scaffold, and docs synchronized | proof |
 | Review/checks | complete | focused/package/fixture/full gates; P1 review clean | delivery |
-| Delivery | in_progress | local proof complete | push and remote gates |
-| Closeout | pending | | release read-back |
+| Delivery | complete | exact head merged and released | closeout |
+| Closeout | complete | npm/tag/matrix/post-release CI read back | done |

@@ -8,12 +8,14 @@ import {
   index,
   text,
 } from '.';
+import { aggregateCapability } from './aggregate-index';
 
 const users = convexTable('invalid_id_users', {
   name: text().notNull(),
 });
 
 const orm = createOrm({
+  capabilities: [aggregateCapability()],
   schema: defineRelations({
     invalid_id_users: users,
   }),
@@ -43,6 +45,7 @@ const relationMemberships = convexTable(
 );
 
 const relationOrm = createOrm({
+  capabilities: [aggregateCapability()],
   schema: defineRelations(
     {
       invalid_id_relation_posts: relationPosts,

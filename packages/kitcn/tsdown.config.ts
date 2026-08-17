@@ -47,6 +47,10 @@ export default defineConfig([
       'rsc/index': 'src/rsc/index.ts',
       'server/index': 'src/server/index.ts',
       'orm/index': 'src/orm/index.ts',
+      // Optional ORM subsystems. Separate entries so `kitcn/orm` consumers do
+      // not bundle the aggregate btree or the migration runtime.
+      'orm/aggregate-index/index': 'src/orm/aggregate-index/index.ts',
+      'orm/migrations/index': 'src/orm/migrations/index.ts',
     },
     // Keep CI strict: only allow this known transitive Better Auth dep to inline.
     inlineOnly: ['kysely'],

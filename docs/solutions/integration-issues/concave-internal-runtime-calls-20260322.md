@@ -10,7 +10,7 @@ tags:
   - cli
 symptoms:
   - `kitcn dev --backend concave` prints startup retry counters, then still warns that migration or aggregate kickoff failed
-  - Concave logs `INTERNAL_FUNCTION_ACCESS` for `generated/server:migrationRun` or `generated/server:aggregateBackfill`
+  - Concave logs `INTERNAL_FUNCTION_ACCESS` for `generated/server:migrationRun` or `generated/aggregate:aggregateBackfill`
   - routing those calls through `_system:systemExecuteFunction` via `concave run` still fails with the same internal access error
 module: concave-dev
 resolved: 2026-03-22
@@ -24,8 +24,8 @@ kitcn startup hooks call internal runtime mutations:
 
 - `generated/server:migrationRun`
 - `generated/server:migrationStatus`
-- `generated/server:aggregateBackfill`
-- `generated/server:aggregateBackfillStatus`
+- `generated/aggregate:aggregateBackfill`
+- `generated/aggregate:aggregateBackfillStatus`
 
 On Convex local dev, those startup-time calls work.
 

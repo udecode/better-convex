@@ -66,6 +66,8 @@ const FIXTURE_PACKAGE_PATHS = {
   'kitcn/auth/start/server': 'src/auth-start/server.ts',
   'kitcn/crpc': 'src/crpc/index.ts',
   'kitcn/orm': 'src/orm/index.ts',
+  'kitcn/orm/aggregate-index': 'src/orm/aggregate-index/index.ts',
+  'kitcn/orm/migrations': 'src/orm/migrations/index.ts',
   'kitcn/plugins': 'src/plugins/index.ts',
   'kitcn/ratelimit': 'src/ratelimit/index.ts',
   'kitcn/ratelimit/react': 'src/ratelimit/react/index.ts',

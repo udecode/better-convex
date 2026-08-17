@@ -15,7 +15,14 @@ Covers Better Auth integration with Convex: server setup, client hooks, triggers
 | Query/Mutation (`ctx.db`) | Direct DB | No `runQuery`/`runMutation` wrapper |
 | Action/HTTP | HTTP adapter | Uses `ctx.run*` APIs |
 
-**Entrypoint**: `getAuth(ctx)` everywhere (query, mutation, action, HTTP).
+**Entrypoints**:
+
+- `getSession(ctx)` from `kitcn/auth` in queries and mutations, including the shared cRPC auth
+  middleware. It reads the session row directly and keeps the Better Auth definition out of the
+  importing module's static closure.
+- `getAuth(ctx)` only where `auth.api.*` is actually called: `convex/lib/crpc-action.ts`, HTTP
+  routes, and organization/admin mutations. Convex has no dynamic `import()`, so every module that
+  names `getAuth` carries the whole auth definition and its plugins into its evaluation closure.
 
 ## Auth Flow
 

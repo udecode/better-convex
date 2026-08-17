@@ -13,6 +13,7 @@ import {
   createProjectJiti,
   getProjectServerParserShimPath,
 } from './utils/project-jiti.js';
+import { schemaDeclaresAggregateIndexes } from './utils/schema-tables.js';
 
 /**
  * Generate api.ts with cRPC metadata and client-facing public API refs.
@@ -138,15 +139,21 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
 >[] = [
   { exportName: 'scheduledMutationBatch', internal: true, type: 'mutation' },
   { exportName: 'scheduledDelete', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfill', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfillChunk', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfillStatus', internal: true, type: 'mutation' },
   { exportName: 'migrationRun', internal: true, type: 'mutation' },
   { exportName: 'migrationRunChunk', internal: true, type: 'mutation' },
   { exportName: 'migrationStatus', internal: true, type: 'mutation' },
   { exportName: 'migrationCancel', internal: true, type: 'mutation' },
   { exportName: 'resetChunk', internal: true, type: 'mutation' },
   { exportName: 'reset', internal: true, type: 'action' },
+];
+
+const GENERATED_AGGREGATE_RUNTIME_PROCEDURES: readonly Omit<
+  ProcedureRegistryEntry,
+  'moduleName' | 'kind'
+>[] = [
+  { exportName: 'aggregateBackfill', internal: true, type: 'mutation' },
+  { exportName: 'aggregateBackfillChunk', internal: true, type: 'mutation' },
+  { exportName: 'aggregateBackfillStatus', internal: true, type: 'mutation' },
 ];
 
 function listFilesRecursive(cwd: string, relDir = ''): string[] {
@@ -550,6 +557,10 @@ function getGeneratedServerOutputFile(functionsDir: string): string {
   return path.join(functionsDir, GENERATED_DIR, 'server.ts');
 }
 
+function getGeneratedAggregateOutputFile(functionsDir: string): string {
+  return path.join(functionsDir, GENERATED_DIR, 'aggregate.ts');
+}
+
 function getGeneratedOrmOutputFile(functionsDir: string): string {
   return path.join(functionsDir, GENERATED_DIR, 'orm.ts');
 }
@@ -781,22 +792,28 @@ function listGeneratedRuntimeFiles(functionsDir: string): string[] {
     .map((file) => path.join(generatedDir, file));
 }
 
+type SchemaMetadataForCodegen = {
+  hasOrmSchema: boolean;
+  hasAggregateIndexes: boolean;
+  hasRelations: boolean;
+  hasTriggers: boolean;
+};
+
+const EMPTY_SCHEMA_METADATA: SchemaMetadataForCodegen = {
+  hasOrmSchema: false,
+  hasAggregateIndexes: false,
+  hasRelations: false,
+  hasTriggers: false,
+};
+
 async function resolveSchemaMetadataForCodegen(
   functionsDir: string,
   debug: boolean,
   createJitiInstance: () => ProjectJiti = createProjectJiti
-): Promise<{
-  hasOrmSchema: boolean;
-  hasRelations: boolean;
-  hasTriggers: boolean;
-}> {
+): Promise<SchemaMetadataForCodegen> {
   const schemaPath = path.join(functionsDir, 'schema.ts');
   if (!fs.existsSync(schemaPath)) {
-    return {
-      hasOrmSchema: false,
-      hasRelations: false,
-      hasTriggers: false,
-    };
+    return EMPTY_SCHEMA_METADATA;
   }
 
   const jitiInstance = createJitiInstance();
@@ -809,11 +826,7 @@ async function resolveSchemaMetadataForCodegen(
         : null;
 
     if (!schemaValue || typeof schemaValue !== 'object') {
-      return {
-        hasOrmSchema: false,
-        hasRelations: false,
-        hasTriggers: false,
-      };
+      return EMPTY_SCHEMA_METADATA;
     }
 
     const hasOrmSchema = OrmSchemaOptions in schemaValue;
@@ -822,6 +835,13 @@ async function resolveSchemaMetadataForCodegen(
 
     return {
       hasOrmSchema,
+      hasAggregateIndexes:
+        hasOrmSchema &&
+        resolveHasAggregateIndexes(
+          schemaValue as Record<string, unknown>,
+          schemaPath,
+          debug
+        ),
       hasRelations,
       hasTriggers,
     };
@@ -831,11 +851,28 @@ async function resolveSchemaMetadataForCodegen(
         `⚠️  Failed to load schema extensions from ${schemaPath}: ${(error as Error).message}`
       );
     }
-    return {
-      hasOrmSchema: false,
-      hasRelations: false,
-      hasTriggers: false,
-    };
+    return EMPTY_SCHEMA_METADATA;
+  }
+}
+
+/**
+ * Fails open: registering an unused capability only costs bundle size, while
+ * omitting a needed one breaks `createOrm()` for every function in the app.
+ */
+function resolveHasAggregateIndexes(
+  schemaValue: Record<string, unknown>,
+  schemaPath: string,
+  debug: boolean
+): boolean {
+  try {
+    return schemaDeclaresAggregateIndexes(schemaValue);
+  } catch (error) {
+    if (debug) {
+      logger.warn(
+        `⚠️  Failed to inspect aggregate indexes in ${schemaPath}: ${(error as Error).message}`
+      );
+    }
+    return true;
   }
 }
 
@@ -855,6 +892,7 @@ function emitGeneratedServerFile(
   outputFile: string,
   functionsDir: string,
   hasOrmSchema: boolean,
+  hasAggregateIndexes: boolean,
   hasMigrationsManifest: boolean,
   procedureNameLookup: ProcedureNameLookup
 ): string {
@@ -881,6 +919,26 @@ function emitGeneratedServerFile(
     ? `import { migrations } from ${migrationsManifestImportLiteral};\n`
     : '';
   const migrationsConfigLine = hasMigrationsManifest ? '  migrations,\n' : '';
+  // Every procedure module imports this file for `initCRPC`/`withOrm`, and
+  // Convex bundles the whole static import graph of each entry. Naming an
+  // optional runtime here therefore puts it in every function of the app, so
+  // only the subsystems this schema actually uses get registered.
+  const capabilityImportLines = [
+    hasAggregateIndexes
+      ? "import { aggregateCapability } from 'kitcn/orm/aggregate-index';\n"
+      : '',
+    hasMigrationsManifest
+      ? "import { migrationCapability } from 'kitcn/orm/migrations';\n"
+      : '',
+  ].join('');
+  const capabilityEntries = [
+    ...(hasAggregateIndexes ? ['aggregateCapability()'] : []),
+    ...(hasMigrationsManifest ? ['migrationCapability()'] : []),
+  ];
+  const capabilitiesConfigLine =
+    capabilityEntries.length > 0
+      ? `  capabilities: [${capabilityEntries.join(', ')}],\n`
+      : '';
   const functionsDirHint =
     normalizeImportPath(path.relative(process.cwd(), functionsDir)) || 'convex';
   const procedureNameLookupLiteral =
@@ -928,6 +986,10 @@ export { httpAction, internalMutation };
   }
 
   const moduleNamespace = getModuleNameFromOutputFile(outputFile, functionsDir);
+  const aggregateModuleNamespace = getModuleNameFromOutputFile(
+    getGeneratedAggregateOutputFile(functionsDir),
+    functionsDir
+  );
   const ormFunctionsDeclaration = `const ormFunctions: OrmFunctions = {
   scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
     `${moduleNamespace}:scheduledMutationBatch`
@@ -936,7 +998,7 @@ export { httpAction, internalMutation };
     `${moduleNamespace}:scheduledDelete`
   )}),
   aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
-    `${moduleNamespace}:aggregateBackfillChunk`
+    `${aggregateModuleNamespace}:aggregateBackfillChunk`
   )}),
   migrationRunChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
     `${moduleNamespace}:migrationRunChunk`
@@ -956,7 +1018,7 @@ import {
   type GenericOrmCtx,
   type OrmFunctions,
 } from 'kitcn/orm';
-import {
+${capabilityImportLines}import {
   createGeneratedFunctionReference,
   initCRPC as baseInitCRPC,
   registerProcedureNameLookup,
@@ -982,7 +1044,7 @@ registerProcedureNameLookup(
 export const orm = createOrm({
   schema: ormSchema,
   ormFunctions,
-${migrationsConfigLine}  internalMutation,
+${capabilitiesConfigLine}${migrationsConfigLine}  internalMutation,
 });
 
 export type OrmCtx<Ctx extends ServerQueryCtx | ServerMutationCtx = ServerQueryCtx> = GenericOrmCtx<Ctx, typeof ormSchema>;
@@ -1005,15 +1067,65 @@ export { httpAction, internalMutation };
 export const {
   scheduledMutationBatch,
   scheduledDelete,
-  aggregateBackfill,
-  aggregateBackfillChunk,
-  aggregateBackfillStatus,
   migrationRun,
   migrationRunChunk,
   migrationStatus,
   migrationCancel,
   resetChunk,
   reset,
+} = orm.api();
+`;
+}
+
+function emitGeneratedAggregateFile(
+  outputFile: string,
+  functionsDir: string
+): string {
+  const schemaImportLiteral = JSON.stringify(
+    getSchemaImportPath(outputFile, functionsDir)
+  );
+  const serverTypesImportLiteral = JSON.stringify(
+    getServerTypesImportPath(outputFile, functionsDir)
+  );
+  const moduleNamespace = getModuleNameFromOutputFile(outputFile, functionsDir);
+  const serverModuleNamespace = getModuleNameFromOutputFile(
+    getGeneratedServerOutputFile(functionsDir),
+    functionsDir
+  );
+
+  return `// biome-ignore-all format: generated
+// This file is auto-generated by kitcn
+// Do not edit manually. Run \`kitcn codegen\` to regenerate.
+
+import { createOrm, type OrmFunctions } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
+import { createGeneratedFunctionReference } from 'kitcn/server';
+import { internalMutation } from ${serverTypesImportLiteral};
+import schema from ${schemaImportLiteral};
+
+const ormFunctions: OrmFunctions = {
+  scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${serverModuleNamespace}:scheduledMutationBatch`
+  )}),
+  scheduledDelete: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${serverModuleNamespace}:scheduledDelete`
+  )}),
+  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${moduleNamespace}:aggregateBackfillChunk`
+  )}),
+};
+
+const orm = createOrm({
+  schema,
+  ormFunctions,
+  capabilities: [aggregateCapability()],
+  internalMutation,
+});
+
+export const {
+  aggregateBackfill,
+  aggregateBackfillChunk,
+  aggregateBackfillStatus,
 } = orm.api();
 `;
 }
@@ -1661,6 +1773,16 @@ function buildGeneratedOrmRuntimeProcedureEntries(
   }));
 }
 
+function buildGeneratedAggregateRuntimeProcedureEntries(
+  moduleName: string
+): ProcedureRegistryEntry[] {
+  return GENERATED_AGGREGATE_RUNTIME_PROCEDURES.map((entry) => ({
+    ...entry,
+    moduleName,
+    kind: 'dispatch',
+  }));
+}
+
 function partitionRuntimeEntriesForEmission(
   entries: ProcedureRegistryEntry[]
 ): {
@@ -1871,6 +1993,7 @@ export async function generateMeta(
   const startTime = Date.now();
   const { functionsDir, outputFile } = getConvexConfig(sharedDir);
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
+  const aggregateOutputFile = getGeneratedAggregateOutputFile(functionsDir);
   const ormOutputFile = getGeneratedOrmOutputFile(functionsDir);
   const crpcOutputFile = getGeneratedCrpcOutputFile(functionsDir);
   const authOutputFile = getGeneratedAuthOutputFile(functionsDir);
@@ -1997,6 +2120,7 @@ export async function generateMeta(
         ...new Set([
           ...files.map((file) => file.replace(TS_EXTENSION_RE, '')),
           ...(hasOrmSchema ? ['generated/server'] : []),
+          ...(hasOrmSchema ? ['generated/aggregate'] : []),
           ...(generateAuth ? [generatedAuthModuleName] : []),
         ]),
       ];
@@ -2227,6 +2351,7 @@ ${optionalTypeExports}
     serverOutputFile,
     functionsDir,
     hasOrmSchema,
+    schemaMetadata.hasAggregateIndexes,
     hasMigrationsManifest,
     procedureNameLookup
   );
@@ -2237,6 +2362,14 @@ ${optionalTypeExports}
   }
 
   writeFileIfChanged(serverOutputFile, serverOutput);
+  if (hasOrmSchema) {
+    writeFileIfChanged(
+      aggregateOutputFile,
+      emitGeneratedAggregateFile(aggregateOutputFile, functionsDir)
+    );
+  } else {
+    fs.rmSync(aggregateOutputFile, { force: true });
+  }
   fs.rmSync(ormOutputFile, { force: true });
   fs.rmSync(crpcOutputFile, { force: true });
 
@@ -2267,6 +2400,9 @@ ${optionalTypeExports}
   const mergedProcedureEntries = dedupeProcedureEntries([
     ...(hasOrmSchema
       ? buildGeneratedOrmRuntimeProcedureEntries('generated/server')
+      : []),
+    ...(hasOrmSchema
+      ? buildGeneratedAggregateRuntimeProcedureEntries('generated/aggregate')
       : []),
     ...(generateApi ? procedureEntries : []),
     ...(generateAuth && hasAuthDefaultExport
@@ -2355,6 +2491,11 @@ ${optionalTypeExports}
         logger.info(`\nRemoved ${outputFile}`);
       }
       logger.success(`Generated ${serverOutputFile}`);
+      if (hasOrmSchema) {
+        logger.success(`Generated ${aggregateOutputFile}`);
+      } else {
+        logger.info(`Removed ${aggregateOutputFile}`);
+      }
       logger.success(`Generated ${migrationsHelperOutputFile}`);
       if (generateAuth) {
         logger.success(`Generated ${authOutputFile}`);

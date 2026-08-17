@@ -24,6 +24,7 @@ export const aggregateTreeTable = convexTable(
   AGGREGATE_TREE_TABLE,
   {
     aggregateName: text().notNull(),
+    deletionStack: custom(v.array(v.id(AGGREGATE_NODE_TABLE))),
     maxNodeSize: integer().notNull(),
     namespace: custom(v.any()),
     root: id(AGGREGATE_NODE_TABLE).notNull(),

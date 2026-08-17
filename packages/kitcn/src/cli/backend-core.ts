@@ -14,7 +14,6 @@ import {
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { getTableConfig } from '../orm/introspection.js';
-import { getSchemaRelations } from '../orm/schema.js';
 import { runAnalyze } from './analyze.js';
 import { generateMeta, getConvexConfig } from './codegen.js';
 import {
@@ -158,6 +157,11 @@ import { highlighter } from './utils/highlighter.js';
 import { loadClackPrompts, loadDotenv } from './utils/lazy-deps.js';
 import { logger } from './utils/logger.js';
 import { createProjectJiti } from './utils/project-jiti.js';
+import {
+  collectSchemaTables,
+  resolveSchemaDefaultExport,
+  schemaDeclaresAggregateIndexes,
+} from './utils/schema-tables.js';
 import { createSpinner } from './utils/spinner.js';
 import { createTypeScriptProxy } from './utils/typescript-runtime.js';
 
@@ -4087,6 +4091,17 @@ function normalizeStringList(values: unknown): string[] {
   ].sort();
 }
 
+function normalizeOrderedStringList(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      values.filter((value): value is string => typeof value === 'string')
+    ),
+  ];
+}
+
 function readOptionalCliFlagValue(
   args: string[],
   flag: string
@@ -4111,44 +4126,7 @@ function readOptionalCliFlagValue(
   return;
 }
 
-function resolveSchemaDefaultExport(
-  schemaModule: Record<string, unknown>
-): Record<string, unknown> | null {
-  const schemaValue =
-    schemaModule.default !== undefined ? schemaModule.default : schemaModule;
-  if (!schemaValue || typeof schemaValue !== 'object') {
-    return null;
-  }
-  return schemaValue as Record<string, unknown>;
-}
-
-function collectSchemaTables(schemaValue: Record<string, unknown>): unknown[] {
-  const allTables = new Set<unknown>();
-  const relations = getSchemaRelations(schemaValue);
-  if (relations && typeof relations === 'object' && !Array.isArray(relations)) {
-    for (const relationConfig of Object.values(
-      relations as Record<string, unknown>
-    )) {
-      const table = (relationConfig as { table?: unknown })?.table;
-      if (table) {
-        allTables.add(table);
-      }
-    }
-  }
-
-  const tables = schemaValue.tables;
-  if (tables && typeof tables === 'object' && !Array.isArray(tables)) {
-    for (const table of Object.values(tables as Record<string, unknown>)) {
-      if (table) {
-        allTables.add(table);
-      }
-    }
-  }
-
-  return [...allTables];
-}
-
-function buildAggregateFingerprintPayload(tables: unknown[]): Array<{
+export function buildAggregateFingerprintPayload(tables: unknown[]): Array<{
   tableName: string;
   aggregateIndexes: Array<{
     name: string;
@@ -4158,6 +4136,12 @@ function buildAggregateFingerprintPayload(tables: unknown[]): Array<{
     avgFields: string[];
     minFields: string[];
     maxFields: string[];
+  }>;
+  rankIndexes: Array<{
+    name: string;
+    partitionFields: string[];
+    orderFields: string[];
+    sumField: string;
   }>;
 }> {
   return tables
@@ -4175,13 +4159,25 @@ function buildAggregateFingerprintPayload(tables: unknown[]): Array<{
           maxFields: normalizeStringList(index.maxFields),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
+      // Rank indexes backfill through the same flow, so a rank-only schema
+      // change has to move the fingerprint too.
+      rankIndexes: tableConfig.rankIndexes
+        .map((index) => ({
+          name: index.name,
+          partitionFields: normalizeOrderedStringList(index.partitionFields),
+          orderFields: (index.orderFields ?? []).map(
+            (field) => `${field.field}:${field.direction}`
+          ),
+          sumField: index.sumField ?? '',
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => a.tableName.localeCompare(b.tableName));
 }
 
-async function computeAggregateIndexFingerprint(
+async function loadBackendSchemaValue(
   functionsDir: string
-): Promise<string | null> {
+): Promise<Record<string, unknown> | null> {
   const schemaPath = join(functionsDir, 'schema.ts');
   if (!fs.existsSync(schemaPath)) {
     return null;
@@ -4192,15 +4188,56 @@ async function computeAggregateIndexFingerprint(
   if (!schemaModule || typeof schemaModule !== 'object') {
     return null;
   }
-  const schemaValue = resolveSchemaDefaultExport(
-    schemaModule as Record<string, unknown>
-  );
+  return resolveSchemaDefaultExport(schemaModule as Record<string, unknown>);
+}
+
+/**
+ * Whether the deployed ORM can serve the aggregate procedures at all.
+ *
+ * `kitcn codegen` registers `aggregateCapability()` only for schemas that
+ * declare an `aggregateIndex`/`rankIndex`, so calling `aggregateBackfill`
+ * against a schema without one is a guaranteed error rather than a no-op.
+ *
+ * No schema file means no ORM and no aggregate procedures to call. A schema
+ * that exists but fails to load is treated as using them, so a real backfill
+ * is never skipped over a transient load error.
+ */
+async function backendUsesAggregateIndexes(): Promise<boolean> {
+  try {
+    const { functionsDir } = getConvexConfig();
+    const schemaValue = await loadBackendSchemaValue(functionsDir);
+    if (!schemaValue) {
+      return false;
+    }
+    return schemaDeclaresAggregateIndexes(schemaValue);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Whether the deployed ORM registered `migrationCapability()`. Codegen keys
+ * that off the generated manifest, so the flows key off the same file.
+ */
+export function backendUsesMigrations(): boolean {
+  try {
+    const { functionsDir } = getConvexConfig();
+    return fs.existsSync(join(functionsDir, 'migrations', 'manifest.ts'));
+  } catch {
+    return true;
+  }
+}
+
+async function computeAggregateIndexFingerprint(
+  functionsDir: string
+): Promise<string | null> {
+  const schemaValue = await loadBackendSchemaValue(functionsDir);
   if (!schemaValue) {
     return null;
   }
 
   const tables = collectSchemaTables(schemaValue);
-  if (tables.length === 0) {
+  if (tables.length === 0 || !schemaDeclaresAggregateIndexes(schemaValue)) {
     return null;
   }
 
@@ -5746,10 +5783,14 @@ export async function runAggregateBackfillFlow(params: {
     return 0;
   }
 
+  if (!(await backendUsesAggregateIndexes())) {
+    return 0;
+  }
+
   const kickoff = await runBackendFunction(
     execaFn,
     backendAdapter,
-    'generated/server:aggregateBackfill',
+    'generated/aggregate:aggregateBackfill',
     {
       mode,
       batchSize: backfillConfig.batchSize,
@@ -5842,7 +5883,7 @@ export async function runAggregateBackfillFlow(params: {
     const statusResult = await runBackendFunction(
       execaFn,
       backendAdapter,
-      'generated/server:aggregateBackfillStatus',
+      'generated/aggregate:aggregateBackfillStatus',
       {},
       targetArgs,
       {
@@ -5909,7 +5950,7 @@ export async function runAggregatePruneFlow(params: {
   const result = await runBackendFunction(
     execaFn,
     backendAdapter,
-    'generated/server:aggregateBackfill',
+    'generated/aggregate:aggregateBackfill',
     {
       mode: 'prune',
     },
@@ -6129,6 +6170,10 @@ export async function runMigrationFlow(params: {
     to,
   } = params;
   if (signal?.aborted || migrationConfig.enabled === 'off') {
+    return 0;
+  }
+
+  if (!backendUsesMigrations()) {
     return 0;
   }
 
@@ -7645,6 +7690,15 @@ export async function run(
         steps,
         to,
       });
+    }
+
+    // Codegen registers the migration capability off the manifest, so without
+    // one the deployed procedures have no runtime to answer with.
+    if (!backendUsesMigrations()) {
+      logger.info(
+        'No migrations manifest. Run `kitcn migrate create <name>` to add one.'
+      );
+      return 0;
     }
 
     if (subcommand === 'status') {

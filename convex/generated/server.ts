@@ -10,6 +10,7 @@ import {
 import {
   createGeneratedFunctionReference,
   initCRPC as baseInitCRPC,
+  registerProcedureNameLookup,
 } from 'kitcn/server';
 import type { DataModel } from '../_generated/dataModel';
 import type {
@@ -24,11 +25,16 @@ import schema from '../schema';
 const ormFunctions: OrmFunctions = {
   scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:scheduledMutationBatch"),
   scheduledDelete: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:scheduledDelete"),
-  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:aggregateBackfillChunk"),
+  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/aggregate:aggregateBackfillChunk"),
   migrationRunChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:migrationRunChunk"),
   resetChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>("generated/server:resetChunk"),
 };
 const ormSchema = schema;
+
+registerProcedureNameLookup(
+  {},
+  "convex"
+);
 
 export const orm = createOrm({
   schema: ormSchema,
@@ -56,9 +62,6 @@ export { httpAction, internalMutation };
 export const {
   scheduledMutationBatch,
   scheduledDelete,
-  aggregateBackfill,
-  aggregateBackfillChunk,
-  aggregateBackfillStatus,
   migrationRun,
   migrationRunChunk,
   migrationStatus,

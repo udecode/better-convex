@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { createDefaultConfig } from '../test-utils';
+import { createDefaultConfig, withSubsystemProject } from '../test-utils';
 import { handleAggregateCommand } from './aggregate';
 
 describe('cli/commands/aggregate', () => {
@@ -11,7 +11,7 @@ describe('cli/commands/aggregate', () => {
     process.env.CONVEX_DEPLOY_KEY = deployKey;
 
     try {
-      await run();
+      await withSubsystemProject({ aggregateIndexes: true }, run);
     } finally {
       process.env.CONVEX_DEPLOY_KEY = originalDeployKey;
     }
@@ -97,5 +97,39 @@ describe('cli/commands/aggregate', () => {
         CONVEX_DEPLOY_KEY: 'prod:demo|secret',
       })
     );
+  });
+
+  test('handleAggregateCommand(prune) remains available after removing the final index', async () => {
+    const calls: string[][] = [];
+    const execaStub = mock(async (_cmd: string, args: string[]) => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: `${JSON.stringify({ pruned: 1 })}\n`,
+        stderr: '',
+      } as any;
+    });
+    const originalDeployKey = process.env.CONVEX_DEPLOY_KEY;
+    process.env.CONVEX_DEPLOY_KEY = 'prod:demo|secret';
+
+    try {
+      await withSubsystemProject({ aggregateIndexes: false }, async () => {
+        const exitCode = await handleAggregateCommand(
+          ['aggregate', 'prune', '--prod'],
+          {
+            realConvex: '/fake/convex/main.js',
+            execa: execaStub as any,
+            loadCliConfig: (() => createDefaultConfig()) as any,
+          }
+        );
+
+        expect(exitCode).toBe(0);
+      });
+    } finally {
+      process.env.CONVEX_DEPLOY_KEY = originalDeployKey;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('generated/aggregate:aggregateBackfill');
   });
 });

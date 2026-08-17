@@ -1652,6 +1652,19 @@ describe('cli/commands/dev', () => {
       path.join(dir, 'convex', '.env'),
       'SITE_URL=http://localhost:3000\n'
     );
+    // The backfill flow only runs for apps whose schema declares an aggregate
+    // or rank index, since those are the only apps whose generated ORM
+    // registers the aggregate capability.
+    fs.writeFileSync(
+      path.join(dir, 'convex', 'schema.ts'),
+      `const scores = {
+  getAggregateIndexes: () => [{ name: 'by_points', fields: ['points'] }],
+  getRankIndexes: () => [],
+};
+
+export default { tables: { scores } };
+`
+    );
 
     const watcherProcess = createPendingProcess();
     const convexProcess = createPersistentProcess();
@@ -1668,14 +1681,14 @@ describe('cli/commands/dev', () => {
       if (isConvexInitCommand(args)) {
         return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
       }
-      if (args.includes('generated/server:aggregateBackfill')) {
+      if (args.includes('generated/aggregate:aggregateBackfill')) {
         return Promise.resolve({
           exitCode: 0,
           stdout: '{"targets":0,"scheduled":0}\n',
           stderr: '',
         });
       }
-      if (args.includes('generated/server:aggregateBackfillStatus')) {
+      if (args.includes('generated/aggregate:aggregateBackfillStatus')) {
         return Promise.resolve({
           exitCode: 0,
           stdout: '[]\n',
@@ -1716,7 +1729,7 @@ describe('cli/commands/dev', () => {
       expect(
         execaStub.mock.calls.some((call) => {
           const [, args] = call as unknown as [string, string[]];
-          return args.includes('generated/server:aggregateBackfill');
+          return args.includes('generated/aggregate:aggregateBackfill');
         })
       ).toBe(false);
 
@@ -1725,7 +1738,7 @@ describe('cli/commands/dev', () => {
       await waitFor(() =>
         execaStub.mock.calls.some((call) => {
           const [, args] = call as unknown as [string, string[]];
-          return args.includes('generated/server:aggregateBackfill');
+          return args.includes('generated/aggregate:aggregateBackfill');
         })
       );
 

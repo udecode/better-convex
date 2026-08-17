@@ -7,7 +7,17 @@ import {
   type Scheduler,
 } from 'convex/server';
 import { v } from 'convex/values';
-import { createCountBackfillHandlers } from './aggregate-index/backfill';
+import type {
+  OrmAggregateCapability,
+  OrmCapabilities,
+  OrmCapability,
+  OrmMigrationCapability,
+} from './capabilities';
+import {
+  requireAggregateCapability,
+  requireMigrationCapability,
+  resolveOrmCapabilities,
+} from './capabilities';
 import {
   type CreateDatabaseOptions,
   createDatabase,
@@ -19,7 +29,7 @@ import {
   extractRelationsConfig,
 } from './extractRelationsConfig';
 import { createOrmDbLifecycle, type OrmDbLifecycle } from './lifecycle';
-import { createMigrationHandlers, type MigrationSet } from './migrations';
+import type { MigrationSet } from './migrations';
 import type {
   ExtractTablesFromSchema,
   RelationsConfigWithSchema,
@@ -99,6 +109,17 @@ type GenericOrmCtx<
 
 type CreateOrmConfigBase<TSchema extends OrmSchemaInput> = {
   schema: TSchema;
+  /**
+   * Optional subsystems this ORM may use.
+   *
+   * `count()`, `aggregate()`, `groupBy()`, `rank()`, relation `_count`,
+   * `aggregateIndex(...)` / `rankIndex(...)` write maintenance and the
+   * `orm.api()` backfill handlers need `aggregateCapability()` from
+   * `kitcn/orm/aggregate-index`. The `orm.api()` migration handlers need
+   * `migrationCapability()` from `kitcn/orm/migrations`. Anything not
+   * registered here stays out of the Convex bundle for this module.
+   */
+  capabilities?: readonly OrmCapability[];
   migrations?: MigrationSet<any>;
   internalMutation?: typeof internalMutationGeneric;
 };
@@ -219,6 +240,7 @@ function createDbFactory<TSchema extends TablesRelationalConfig>(
   schema: TSchema,
   edgeMetadata: EdgeMetadata[],
   dbLifecycle: OrmDbLifecycle,
+  capabilities: OrmCapabilities,
   ormFunctions?: OrmFunctions
 ): OrmFactory<TSchema> {
   return (<TSource extends OrmSource>(
@@ -242,6 +264,7 @@ function createDbFactory<TSchema extends TablesRelationalConfig>(
     const wrappedCtx = dbLifecycle.wrapDB(lifecycleSource);
     const orm = createDatabase(wrappedCtx.db, schema, edgeMetadata, {
       ...options,
+      capabilities,
       scheduler,
       vectorSearch,
       scheduledDelete,
@@ -272,7 +295,14 @@ export function createOrm<TSchema extends OrmSchemaInput>(
   const { schema: resolvedSchema, triggers } = resolveOrmSchemaConfig(
     config.schema
   );
-  const dbLifecycle = createOrmDbLifecycle(resolvedSchema, triggers);
+  // `createOrmDbLifecycle` fails closed when a table declares an
+  // aggregateIndex/rankIndex without the aggregate capability registered.
+  const capabilities = resolveOrmCapabilities(config.capabilities);
+  const dbLifecycle = createOrmDbLifecycle(
+    resolvedSchema,
+    triggers,
+    capabilities
+  );
   const edgeMetadata = extractRelationsConfig(
     resolvedSchema as TablesRelationalConfig
   );
@@ -280,6 +310,7 @@ export function createOrm<TSchema extends OrmSchemaInput>(
     resolvedSchema,
     edgeMetadata,
     dbLifecycle,
+    capabilities,
     config.ormFunctions
   );
   const withContext = <TContext extends OrmReaderCtx | OrmWriterCtx>(
@@ -314,26 +345,48 @@ export function createOrm<TSchema extends OrmSchemaInput>(
         config.ormFunctions.migrationRunChunk;
       let resetChunkRef: SchedulableFunctionReference | undefined =
         config.ormFunctions.resetChunk;
-      const countBackfillHandlers = createCountBackfillHandlers(
-        resolvedSchema,
-        () => aggregateBackfillChunkRef
-      );
-      const migrationHandlers = createMigrationHandlers({
-        schema: resolvedSchema,
-        migrations: config.migrations as MigrationSet<any> | undefined,
-        getOrm: (ctx) => db(ctx as any) as OrmWriter<ResolveOrmSchema<TSchema>>,
-        getChunkRef: () => migrationRunChunkRef,
-      });
+      // Resolved on first invocation, not when `api()` is called: `api()`
+      // always emits the full procedure set so generated code and function
+      // references stay stable, and an app that registers neither capability
+      // must still be able to define its ORM functions. Only actually calling
+      // an aggregate or migration procedure requires the capability.
+      let countBackfillHandlersCache:
+        | ReturnType<OrmAggregateCapability['createCountBackfillHandlers']>
+        | undefined;
+      const countBackfillHandlers = () =>
+        (countBackfillHandlersCache ??= requireAggregateCapability(
+          capabilities,
+          'orm.api() aggregate procedures'
+        ).createCountBackfillHandlers(
+          resolvedSchema,
+          () => aggregateBackfillChunkRef
+        ));
+      let migrationHandlersCache:
+        | ReturnType<OrmMigrationCapability['createMigrationHandlers']>
+        | undefined;
+      const migrationHandlers = () =>
+        (migrationHandlersCache ??= requireMigrationCapability(
+          capabilities,
+          'orm.api() migration procedures'
+        ).createMigrationHandlers({
+          schema: resolvedSchema,
+          migrations: config.migrations as MigrationSet<any> | undefined,
+          getOrm: (ctx) =>
+            db(ctx as any) as OrmWriter<ResolveOrmSchema<TSchema>>,
+          getChunkRef: () => migrationRunChunkRef,
+        }));
       const aggregateBackfillChunk = mutationBuilder({
         args: v.any(),
-        handler: countBackfillHandlers.chunk as any,
+        handler: ((ctx: any, args: any) =>
+          (countBackfillHandlers() as any).chunk(ctx, args)) as any,
       });
       if (!aggregateBackfillChunkRef) {
         aggregateBackfillChunkRef = aggregateBackfillChunk as any;
       }
       const migrationRunChunk = mutationBuilder({
         args: v.any(),
-        handler: migrationHandlers.chunk as any,
+        handler: ((ctx: any, args: any) =>
+          (migrationHandlers() as any).chunk(ctx, args)) as any,
       });
       if (!migrationRunChunkRef) {
         migrationRunChunkRef =
@@ -397,25 +450,30 @@ export function createOrm<TSchema extends OrmSchemaInput>(
         }),
         aggregateBackfill: mutationBuilder({
           args: v.any(),
-          handler: countBackfillHandlers.kickoff as any,
+          handler: ((ctx: any, args: any) =>
+            (countBackfillHandlers() as any).kickoff(ctx, args)) as any,
         }),
         aggregateBackfillChunk,
         aggregateBackfillStatus: mutationBuilder({
           args: v.any(),
-          handler: countBackfillHandlers.status as any,
+          handler: ((ctx: any, args: any) =>
+            (countBackfillHandlers() as any).status(ctx, args)) as any,
         }),
         migrationRun: mutationBuilder({
           args: v.any(),
-          handler: migrationHandlers.run as any,
+          handler: ((ctx: any, args: any) =>
+            (migrationHandlers() as any).run(ctx, args)) as any,
         }),
         migrationRunChunk,
         migrationStatus: mutationBuilder({
           args: v.any(),
-          handler: migrationHandlers.status as any,
+          handler: ((ctx: any, args: any) =>
+            (migrationHandlers() as any).status(ctx, args)) as any,
         }),
         migrationCancel: mutationBuilder({
           args: v.any(),
-          handler: migrationHandlers.cancel as any,
+          handler: ((ctx: any, args: any) =>
+            (migrationHandlers() as any).cancel(ctx, args)) as any,
         }),
         resetChunk,
         reset: internalActionGeneric({

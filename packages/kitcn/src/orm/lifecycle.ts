@@ -3,14 +3,11 @@ import type {
   GenericDatabaseWriter,
 } from 'convex/server';
 import {
-  applyRankIndexesForChange,
-  getRankIndexDefinitions,
-} from './aggregate-index/rank-runtime';
-import {
-  applyAggregateIndexesForChange,
-  assertAggregateIndexesWritable,
   getAggregateIndexDefinitions,
-} from './aggregate-index/runtime';
+  getRankIndexDefinitions,
+} from './aggregate-index/definitions';
+import type { OrmCapabilities } from './capabilities';
+import { requireAggregateCapability } from './capabilities';
 import type { TablesRelationalConfig } from './relations';
 import {
   type NormalizedOrmTableTriggers,
@@ -692,7 +689,8 @@ const createNoopLifecycle = (): OrmDbLifecycle => ({
 
 export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
   schema: TSchema,
-  triggerDefinitions?: OrmTriggers<TSchema, any>
+  triggerDefinitions?: OrmTriggers<TSchema, any>,
+  capabilities?: OrmCapabilities
 ): OrmDbLifecycle {
   const tableNameBySchemaKey = new Map<string, string>();
   const tableNames = new Set<string>();
@@ -736,6 +734,14 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
       continue;
     }
 
+    // Fail closed: writes to a table with aggregate/rank indexes must maintain
+    // them, and the runtime that does so is only in the graph when the app
+    // registers the capability.
+    const aggregate = requireAggregateCapability(
+      capabilities,
+      `Table '${tableConfig.name}' declares an aggregateIndex/rankIndex, which`
+    );
+
     const existing = tableHooks.get(tableConfig.name) ?? {};
     const existingChange = existing.change;
     const metricIndexNames = aggregateIndexes.map((entry) => entry.name);
@@ -747,7 +753,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
         >['before']
       ) =>
       async (data: AnyRecord, ctx: AnyRecord) => {
-        await assertAggregateIndexesWritable(
+        await aggregate.assertAggregateIndexesWritable(
           ctx.db as GenericDatabaseWriter<any>,
           tableConfig.name,
           metricIndexNames,
@@ -773,7 +779,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
       change: async (change, ctx) => {
         if (change.operation === 'delete') {
           if (aggregateIndexes.length > 0) {
-            await applyAggregateIndexesForChange(
+            await aggregate.applyAggregateIndexesForChange(
               ctx.db as GenericDatabaseWriter<any>,
               tableConfig.name,
               aggregateIndexes,
@@ -784,7 +790,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
             );
           }
           if (rankIndexes.length > 0) {
-            await applyRankIndexesForChange(
+            await aggregate.applyRankIndexesForChange(
               ctx.db as GenericDatabaseWriter<any>,
               tableConfig.name,
               rankIndexes,
@@ -796,7 +802,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
           }
         } else {
           if (aggregateIndexes.length > 0) {
-            await applyAggregateIndexesForChange(
+            await aggregate.applyAggregateIndexesForChange(
               ctx.db as GenericDatabaseWriter<any>,
               tableConfig.name,
               aggregateIndexes,
@@ -808,7 +814,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
             );
           }
           if (rankIndexes.length > 0) {
-            await applyRankIndexesForChange(
+            await aggregate.applyRankIndexesForChange(
               ctx.db as GenericDatabaseWriter<any>,
               tableConfig.name,
               rankIndexes,

@@ -25,6 +25,7 @@ type NodeId = GenericId<string>;
 type TreeDoc = {
   aggregateName?: string;
   _id: GenericId<string>;
+  deletionStack?: NodeId[];
   maxNodeSize: number;
   namespace?: Namespace;
   root: NodeId;
@@ -1003,9 +1004,9 @@ export async function deleteTreeNodes(
 }
 
 /**
- * Deletes up to `limit` namespace trees belonging to one aggregate, returning
- * true once none are left. Unlike `clearTree` this does not recreate the tree,
- * so a caller can drain every namespace across several transactions.
+ * Deletes up to `limit` nodes from one namespace tree belonging to an
+ * aggregate, returning true once none are left. The traversal stack lives on
+ * the tree document so a large tree resumes across transactions.
  */
 export async function deleteTreesHandler(
   ctx: { db: DatabaseWriter },
@@ -1016,12 +1017,31 @@ export async function deleteTreesHandler(
     .withIndex('by_aggregate_name', (q) =>
       q.eq('aggregateName', args.aggregateName)
     )
-    .take(args.limit)) as TreeDoc[];
-  for (const tree of trees) {
-    await deleteTreeNodes(ctx.db, tree.root);
+    .take(1)) as TreeDoc[];
+  const tree = trees[0];
+  if (!tree) {
+    return true;
+  }
+
+  const stack = [...(tree.deletionStack ?? [tree.root])];
+  let remaining = Math.max(1, Math.floor(args.limit));
+  while (stack.length > 0 && remaining > 0) {
+    const nodeId = stack.pop()!;
+    const node = (await ctx.db.get(nodeId)) as NodeDoc | null;
+    remaining -= 1;
+    if (!node) {
+      continue;
+    }
+    stack.push(...node.subtrees);
+    await ctx.db.delete(nodeId);
+  }
+
+  if (stack.length > 0) {
+    await ctx.db.patch(tree._id, { deletionStack: stack });
+  } else {
     await ctx.db.delete(tree._id);
   }
-  return trees.length === 0;
+  return false;
 }
 
 export async function clearTree(

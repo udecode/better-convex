@@ -910,6 +910,21 @@ export declare const internal: {
     >;
   };
   generated: {
+    aggregate: {
+      aggregateBackfill: FunctionReference<"mutation", "internal", any, any>;
+      aggregateBackfillChunk: FunctionReference<
+        "mutation",
+        "internal",
+        any,
+        any
+      >;
+      aggregateBackfillStatus: FunctionReference<
+        "mutation",
+        "internal",
+        any,
+        any
+      >;
+    };
     auth: {
       create: FunctionReference<
         "mutation",
@@ -1043,19 +1058,6 @@ export declare const internal: {
       >;
     };
     server: {
-      aggregateBackfill: FunctionReference<"mutation", "internal", any, any>;
-      aggregateBackfillChunk: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
-      aggregateBackfillStatus: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
       migrationCancel: FunctionReference<"mutation", "internal", any, any>;
       migrationRun: FunctionReference<"mutation", "internal", any, any>;
       migrationRunChunk: FunctionReference<"mutation", "internal", any, any>;

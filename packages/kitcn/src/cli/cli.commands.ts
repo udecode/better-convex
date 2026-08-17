@@ -25,6 +25,8 @@ import {
   resolveScaffoldInstallSpec,
 } from './supported-dependencies';
 import {
+  enterSubsystemProject,
+  exitSubsystemProject,
   writeExpoDefaultApp,
   writeShadcnNextApp,
   writeShadcnStartApp,
@@ -612,6 +614,11 @@ function expectDependencyInstallCallWithPackages(
 }
 
 describe('cli/cli', () => {
+  // The aggregate and migration flows only run for apps that declare an
+  // aggregate/rank index or ship a migrations manifest, so the tests that
+  // assert those flows run enter a project shaped like one.
+  afterEach(exitSubsystemProject);
+
   test('isEntryPoint treats symlinked bin shims as the entrypoint', () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'kitcn-cli-entrypoint-')
@@ -6662,6 +6669,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) executes post-deploy aggregate backfill with wait', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
@@ -6686,13 +6694,13 @@ describe('cli/cli', () => {
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -6727,9 +6735,9 @@ describe('cli/cli', () => {
     });
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
     expect(calls[2]?.args).toContain('generated/server:migrationStatus');
-    expect(calls[3]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[3]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[4]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
@@ -6762,6 +6770,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) passes ambient Convex deployment env through deploy flow', async () => {
+    enterSubsystemProject();
     const deploymentEnvKeys = [
       'CONVEX_DEPLOYMENT',
       'CONVEX_DEPLOY_KEY',
@@ -6793,7 +6802,7 @@ describe('cli/cli', () => {
               stderr: '',
             } as any;
           }
-          if (args.includes('generated/server:aggregateBackfill')) {
+          if (args.includes('generated/aggregate:aggregateBackfill')) {
             return {
               exitCode: 0,
               stdout: '{"status":"ok"}\n',
@@ -6836,6 +6845,7 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) uses concave deploy + concave run when backend is concave', async () => {
+    enterSubsystemProject();
     const concaveCliPath = path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), 'kitcn-concave-cli-')),
       'main.mjs'
@@ -6860,14 +6870,14 @@ describe('cli/cli', () => {
           stderr: '',
         } as any;
       }
-      if (args.includes('generated/server:aggregateBackfill')) {
+      if (args.includes('generated/aggregate:aggregateBackfill')) {
         return {
           exitCode: 0,
           stdout: '{"status":"ok"}\n',
           stderr: '',
         } as any;
       }
-      if (args.includes('generated/server:aggregateBackfillStatus')) {
+      if (args.includes('generated/aggregate:aggregateBackfillStatus')) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       return { exitCode: 0 } as any;
@@ -6898,13 +6908,14 @@ describe('cli/cli', () => {
     });
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
     expect(calls[2]?.args).toContain('generated/server:migrationStatus');
-    expect(calls[3]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[3]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[4]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
   test('run(migrate up) executes migration runtime with polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
@@ -6943,6 +6954,7 @@ describe('cli/cli', () => {
   });
 
   test('run(migrate up) prints explicit noop message when nothing is pending', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
@@ -7065,12 +7077,13 @@ describe('cli/cli', () => {
   });
 
   test('run(deploy) fails in strict resume mode when kickoff reports needsRebuild', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return {
           exitCode: 0,
@@ -7096,7 +7109,7 @@ describe('cli/cli', () => {
     expect(calls.length).toBe(3);
     expect(calls[0]?.args[1]).toBe('deploy');
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
-    expect(calls[2]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[2]?.args).toContain('generated/aggregate:aggregateBackfill');
   });
 
   test('run(dev) rejects --scope and instructs using codegen --scope', async () => {
@@ -7144,19 +7157,20 @@ describe('cli/cli', () => {
   });
 
   test('run(aggregate rebuild) executes rebuild backfill and status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7175,29 +7189,30 @@ describe('cli/cli', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"rebuild"'
     );
     expect(calls[1]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
   test('run(aggregate backfill) executes resume backfill and status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7216,23 +7231,24 @@ describe('cli/cli', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"resume"'
     );
     expect(calls[1]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
   test('run(aggregate prune) executes prune without status polling', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return {
           exitCode: 0,
@@ -7256,7 +7272,7 @@ describe('cli/cli', () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"prune"'
     );
@@ -7299,19 +7315,20 @@ describe('cli/cli', () => {
   });
 
   test('run(reset) executes before hook, reset, resume backfill, status, then after hook', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[] }[] = [];
 
     const execaStub = mock(async (cmd: string, args: string[]) => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7348,8 +7365,8 @@ describe('cli/cli', () => {
     expect(runFunctions).toEqual([
       'internal.app.resetHooks:before',
       'generated/server:reset',
-      'generated/server:aggregateBackfill',
-      'generated/server:aggregateBackfillStatus',
+      'generated/aggregate:aggregateBackfill',
+      'generated/aggregate:aggregateBackfillStatus',
       'internal.app.resetHooks:after',
     ]);
     expect(runCalls[1]?.args[runCalls[1].args.length - 1]).toBe('{}');
@@ -7359,6 +7376,7 @@ describe('cli/cli', () => {
   });
 
   test('run(dev) runs aggregateBackfill and waits via status polling by default', async () => {
+    enterSubsystemProject();
     const calls: { cmd: string; args: string[]; opts?: any }[] = [];
     const onSpy = spyOn(process, 'on').mockImplementation(() => process as any);
 
@@ -7382,13 +7400,13 @@ describe('cli/cli', () => {
         if (cmd === 'bun') return watcherProcess;
         if (
           args[1] === 'run' &&
-          args.includes('generated/server:aggregateBackfillStatus')
+          args.includes('generated/aggregate:aggregateBackfillStatus')
         ) {
           return Promise.resolve({ exitCode: 0, stdout: '[]\n', stderr: '' });
         }
         if (
           args[1] === 'run' &&
-          args.includes('generated/server:aggregateBackfill')
+          args.includes('generated/aggregate:aggregateBackfill')
         ) {
           return Promise.resolve({
             exitCode: 0,
@@ -7416,14 +7434,14 @@ describe('cli/cli', () => {
         calls.some(
           ({ args }) =>
             args[1] === 'run' &&
-            args.includes('generated/server:aggregateBackfill')
+            args.includes('generated/aggregate:aggregateBackfill')
         )
       ).toBe(true);
       expect(
         calls.some(
           ({ args }) =>
             args[1] === 'run' &&
-            args.includes('generated/server:aggregateBackfillStatus')
+            args.includes('generated/aggregate:aggregateBackfillStatus')
         )
       ).toBe(true);
     } finally {
