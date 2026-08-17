@@ -88,11 +88,13 @@ Error attempts:
 | Released-main merge duplicated `mapWithConcurrency` ownership | 1 | trace current owner and remove the redundant new helper | resolved through `orm/write-fanout.ts`; owner tests pass |
 | Range budget counted buckets but not extrema document reads | 1 | add low-budget extrema regressions and share reservations through the plan cache | fixed; single and multiple extrema metrics reject before exceeding budget |
 | Chunked clear kickoff still reverse-scanned every backing-table index tuple | 1 | make lifecycle state canonical and retain only exact bounded recovery probes | fixed; automatic resume reads zero backing rows and exact state-less prune stays bounded |
+| Metric/rank writes could race multi-transaction clearing | 1 | put a declared-index barrier before the raw lifecycle write | fixed; both kinds reject before document insertion while `CLEARING` |
+| Concurrent prefix scans could each overshoot the hard range budget | 1 | reserve the whole batch from one shared remaining allowance | fixed; ten-prefix regression reads at most budget plus one global probe |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | in_progress | prove aggregate semantics and bounded reads | 76 focused aggregate tests plus 4 concurrency-owner tests pass |
+| Targeted behavior proof | in_progress | prove aggregate semantics and bounded reads | 77 focused aggregate tests plus 25 lifecycle/concurrency-owner tests pass |
 | Source/generated audit | complete | audit runtime/docs and generated mirror | source/mirror synchronized |
 | Package/docs/scenario closure | in_progress | typecheck/build/full check | package typecheck/build pass; full check pending |
 | Deslop | complete | bounded changed-file cleanup | 167 -> 167; score unchanged |
@@ -132,6 +134,17 @@ Verification evidence:
   pruning, so resume reads zero backing rows; exact state-less prune uses four
   bounded existence probes. All 32 count tests and the 76-test aggregate owner
   surface pass.
+- The second P1 review cycle found both clearing kinds could erase concurrent
+  user writes. The lifecycle owner now checks one table/status index before the
+  raw create/update/delete and rejects only writes targeting declared indexes
+  in `CLEARING`; removed-index pruning does not block unrelated writes. Metric
+  and rank regressions prove the document is never inserted.
+- The same review found 25 concurrent prefix scans could each spend a probe row.
+  Batch width is now bounded by the shared remaining allowance, so the existing
+  ten-prefix regression reads no more than 21 buckets for budget 20.
+- Two-cycle scope pause: every accepted finding remains inside the declared
+  aggregate read/clear invariant and its lifecycle owner. No protocol, storage,
+  or unrelated product expansion remains, so one fresh review is authorized.
 - Docs/skill agent-native mapping passes: the touched `www` aggregate reference
   maps to the package feature reference and regenerated `.agents` mirror;
   mirrors are byte-equal, Intent validates, and staleness is clean.
@@ -144,6 +157,8 @@ Timeline:
 - 2026-08-17 Repaired extrema budget accounting and synchronized docs/skill.
 - 2026-08-17 Accepted P1 review, removed unbounded reverse discovery, and
   retained exact bounded recovery for state-less storage.
+- 2026-08-17 Accepted the second P1 cycle, added the pre-write clearing barrier,
+  bounded concurrent probes, and paused to reconfirm scope before final review.
 
 Reboot status:
 | Question | Answer |

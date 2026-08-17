@@ -2295,11 +2295,15 @@ export const readPlanBuckets = async (
   let scanned = 0;
 
   while (pending.length > 0 && scanned < scanLimit) {
-    const batch = pending.slice(0, AGGREGATE_BUCKET_READ_CONCURRENCY);
+    const remaining = scanLimit - scanned;
+    const batch = pending.slice(
+      0,
+      Math.min(AGGREGATE_BUCKET_READ_CONCURRENCY, remaining)
+    );
     // Split what is left of the shared budget across the batch, so a round can
     // never read more than the budget however many prefixes fan out. Only the
     // final round can overshoot, by at most one row per in-flight scan.
-    const share = Math.max(1, Math.floor((scanLimit - scanned) / batch.length));
+    const share = Math.floor(remaining / batch.length);
     const pages = await mapWithConcurrency(
       batch,
       AGGREGATE_BUCKET_READ_CONCURRENCY,
@@ -3106,6 +3110,41 @@ export const getCountState = async (
     ...rest,
     tableName: tableKey,
   };
+};
+
+export const assertAggregateIndexesWritable = async (
+  db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
+  tableName: string,
+  metricIndexNames: readonly string[],
+  rankIndexNames: readonly string[]
+): Promise<void> => {
+  const clearingStates = (await db
+    .query(AGGREGATE_STATE_TABLE)
+    .withIndex('by_table_status', (q: any) =>
+      q.eq('tableKey', tableName).eq('status', COUNT_STATUS_CLEARING)
+    )
+    .collect()) as CountStateRow[];
+  const metricNames = new Set(metricIndexNames);
+  const rankNames = new Set(rankIndexNames);
+  const blockingState = clearingStates.find((state) =>
+    state.kind === AGGREGATE_STATE_KIND_RANK
+      ? rankNames.has(state.indexName)
+      : metricNames.has(state.indexName)
+  );
+  if (!blockingState) {
+    return;
+  }
+
+  const indexType =
+    blockingState.kind === AGGREGATE_STATE_KIND_RANK
+      ? 'rankIndex'
+      : 'aggregateIndex';
+  throw createError(
+    blockingState.kind === AGGREGATE_STATE_KIND_RANK
+      ? 'RANK_INDEX_BUILDING'
+      : AGGREGATE_ERROR.INDEX_BUILDING,
+    `${indexType} '${tableName}.${blockingState.indexName}' is CLEARING. Retry the write after aggregateBackfill reaches BUILDING or READY.`
+  );
 };
 
 export const setCountState = async (

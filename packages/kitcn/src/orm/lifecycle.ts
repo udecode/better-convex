@@ -8,6 +8,7 @@ import {
 } from './aggregate-index/rank-runtime';
 import {
   applyAggregateIndexesForChange,
+  assertAggregateIndexesWritable,
   getAggregateIndexDefinitions,
 } from './aggregate-index/runtime';
 import type { TablesRelationalConfig } from './relations';
@@ -737,9 +738,38 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
 
     const existing = tableHooks.get(tableConfig.name) ?? {};
     const existingChange = existing.change;
+    const metricIndexNames = aggregateIndexes.map((entry) => entry.name);
+    const rankIndexNames = rankIndexes.map((entry) => entry.name);
+    const prependWriteBarrier =
+      (
+        before?: NonNullable<
+          NormalizedOrmTableTriggers<AnyRecord>['create']
+        >['before']
+      ) =>
+      async (data: AnyRecord, ctx: AnyRecord) => {
+        await assertAggregateIndexesWritable(
+          ctx.db as GenericDatabaseWriter<any>,
+          tableConfig.name,
+          metricIndexNames,
+          rankIndexNames
+        );
+        return before?.(data, ctx);
+      };
 
     tableHooks.set(tableConfig.name, {
       ...existing,
+      create: {
+        ...existing.create,
+        before: prependWriteBarrier(existing.create?.before),
+      },
+      update: {
+        ...existing.update,
+        before: prependWriteBarrier(existing.update?.before),
+      },
+      delete: {
+        ...existing.delete,
+        before: prependWriteBarrier(existing.delete?.before),
+      },
       change: async (change, ctx) => {
         if (change.operation === 'delete') {
           if (aggregateIndexes.length > 0) {

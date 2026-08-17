@@ -7,6 +7,7 @@ import {
   defineSchema,
   index,
   integer,
+  rankIndex,
   requireSchemaRelations,
   text,
 } from 'kitcn/orm';
@@ -2152,10 +2153,9 @@ describe('aggregateIndex range scan budget', () => {
           where: { orgId: { in: orgIds }, score: { gte: 0 } },
         })
       ).rejects.toThrow(/COUNT_FILTER_UNSUPPORTED/);
-      // One budget covers the whole fan-out: `aggregateWorkBudget + 1` buckets
-      // plus at most one trailing page per in-flight scan, not that many for
-      // each prefix.
-      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(46);
+      // One budget covers the whole fan-out plus one global probe row. In-flight
+      // prefixes cannot each overshoot the reservation.
+      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThanOrEqual(21);
     });
   });
 
@@ -2227,6 +2227,69 @@ describe('aggregateIndex clearing is resumable', () => {
         q.eq('kind', kind).eq('tableKey', table).eq('indexName', index)
       )
       .collect();
+
+  it('blocks metric and rank writes before a declared index is cleared', async () => {
+    const barrierUsers = convexTable(
+      'barrierUsers',
+      {
+        orgId: text().notNull(),
+        score: integer().notNull(),
+      },
+      (t) => [
+        aggregateIndex('by_org').on(t.orgId),
+        rankIndex('by_score').partitionBy(t.orgId).orderBy(t.score),
+      ]
+    );
+    const schema = defineSchema({ barrierUsers });
+    const relations = defineRelations(schema);
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const insertClearingState = (kind: string, indexName: string) =>
+        baseCtx.db.insert('aggregate_state', {
+          kind,
+          tableKey: 'barrierUsers',
+          indexName,
+          keyDefinitionHash: '',
+          metricDefinitionHash: '',
+          status: 'CLEARING',
+          cursor: null,
+          processed: 0,
+          startedAt: 0,
+          updatedAt: 0,
+          completedAt: null,
+          lastError: null,
+        });
+
+      const metricState = await insertClearingState(
+        METRIC_STATE_KIND,
+        'by_org'
+      );
+      await expect(
+        ctx.db.insert('barrierUsers', { orgId: 'org-1', score: 1 })
+      ).rejects.toThrow(/CLEARING/);
+      expect(await baseCtx.db.query('barrierUsers').collect()).toHaveLength(0);
+
+      await baseCtx.db.delete('aggregate_state', metricState as any);
+      await insertClearingState(RANK_STATE_KIND, 'by_score');
+      await expect(
+        ctx.db.insert('barrierUsers', { orgId: 'org-1', score: 2 })
+      ).rejects.toThrow(/CLEARING/);
+      expect(await baseCtx.db.query('barrierUsers').collect()).toHaveLength(0);
+    });
+  });
 
   it('rebuild drains stored state across chunks instead of one mutation', async () => {
     const { schema, relations } = buildCountIndexedFixtures();

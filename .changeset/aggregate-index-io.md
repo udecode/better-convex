@@ -31,6 +31,9 @@ export default defineSchema(
   on a large table no longer has to fit in a single Convex mutation. Indexes
   report a `CLEARING` status while draining, and `kitcn aggregate prune` reports
   how many removed indexes are still being cleared in the background.
+- ORM writes targeting a declared index in `CLEARING` fail before the document
+  write. Retry after the index advances to `BUILDING` or `READY`; this prevents
+  concurrent writes from being erased by a multi-mutation clear.
 - Automatic pruning follows canonical aggregate lifecycle state instead of
   reverse-scanning every distinct backing-table index. Exact `tableName` and
   `indexName` handler arguments retain bounded recovery for state-less storage.

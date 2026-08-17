@@ -107,6 +107,7 @@ export const countStateTable = convexTable(
   (t) => [
     index('by_kind_table_index').on(t.kind, t.tableKey, t.indexName),
     index('by_kind_status').on(t.kind, t.status),
+    index('by_table_status').on(t.tableKey, t.status),
   ]
 );
 
