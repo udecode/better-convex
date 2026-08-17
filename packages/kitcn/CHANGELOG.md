@@ -1,5 +1,16 @@
 # kitcn
 
+## 0.25.1
+
+### Patch Changes
+
+- [#343](https://github.com/udecode/kitcn/pull/343) [`3f9631c`](https://github.com/udecode/kitcn/commit/3f9631cad7e07fbe034afba702f84a9318067a77) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Patches
+
+  - Support Convex commit timestamp validators in ORM and Zod conversion.
+  - Warn when an installed Convex version is outside the supported minor range.
+  - Keep emitted declarations compatible with the minimum supported Convex and
+    forward commit timestamp variables through database wrappers.
+
 ## 0.25.0
 
 ### Minor Changes
