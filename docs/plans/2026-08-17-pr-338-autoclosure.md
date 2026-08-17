@@ -59,7 +59,7 @@ Closure matrix:
 | docs/package skill | no | generated `defineAuth` is the documented surface | N/A |
 | changeset | yes | `.changeset/auth-runtime-hot-path.md` | present |
 | agent workflow | no | no agent workflow changes | N/A |
-| cleanup/review | yes | deslop and autoreview | complete locally |
+| cleanup/review | yes | deslop and autoreview | complete |
 | repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | feedback, exact checks, merge/release | pending |
 
@@ -89,7 +89,7 @@ Completion Gates:
 | Final lint | yes | run `bun lint:fix` | 905 files clean |
 | Repository check | yes | run `bun check` | complete against released v0.20.0 main |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final branch review | repair bundle P1-clean; whole-branch P1 accepted and fixed; rerun pending |
+| Autoreview | yes | final branch review | final whole-branch P1 review clean at 0.87 |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -98,7 +98,7 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | three session-race defects repaired | review/checks |
 | Review/checks | complete | focused/package/deslop/lint/full gates green | final review |
-| Delivery | pending | | push, checks, merge/release |
+| Delivery | in_progress | final committed bundle ready | push, checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -119,7 +119,9 @@ Verification evidence:
   repository during `fixtures:check`. `git ls-remote` immediately proved the
   path had recovered; the exact full `bun check` retry passed every fixture and
   runtime scenario.
+- The final committed whole-branch P1 autoreview is clean and calls the patch
+  correct at 0.87 confidence.
 
 Open risks:
-- The committed whole-branch P1 review remains before delivery.
+- Remote exact-head checks, merge, release, and post-release CI remain.
 - Remote exact-head checks, merge, release, and post-release CI remain unproven.
