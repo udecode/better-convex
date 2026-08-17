@@ -59,12 +59,12 @@ Closure matrix:
 | source behavior | yes | shared gate/reset plus React/Solid bindings | complete |
 | package/API/build | yes | package typecheck/build | complete |
 | generated output | no | no generated artifact changes | N/A |
-| fixtures/scenarios | yes | full check/runtime | pending |
+| fixtures/scenarios | yes | full check/runtime | complete |
 | docs/package skill | no | no end-user setup surface changes | N/A |
 | changeset | yes | `.changeset/solid-bindings-parity.md` | complete |
 | agent workflow | no | no agent workflow changes | N/A |
-| cleanup/review | yes | deslop and autoreview | review rerun pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop and autoreview | clean |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | feedback, exact checks, merge/release | pending |
 
 Work Checklist:
@@ -93,13 +93,13 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
 | Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 131 Solid tests pass |
-| Package/docs/scenario closure | pending | typecheck/build/full check | package typecheck/build green; final full check rerun pending |
+| Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build and full check green |
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
-| Repository check | yes | run `bun check` | pending |
+| Repository check | yes | run `bun check` | passed |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final whole-branch review | pending |
+| Autoreview | yes | final whole-branch review | clean; patch correct (0.87) |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -107,8 +107,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | released-main merge plus provider identity owner | focused proof |
-| Review/checks | in_progress | focused/package/deslop green | full check and final review |
-| Delivery | pending | | push, checks, merge/release |
+| Review/checks | complete | focused/package/deslop, autoreview, full check green | delivery |
+| Delivery | in_progress | local branch ready | push, checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -133,16 +133,17 @@ Verification evidence:
   cannot inherit its claim identity. The first settled identity clears
   unproven hydration data, and observed queries are rebuilt so future public
   resets or placeholder callbacks cannot resurrect the old account's data. All
-  131 Solid tests pass; package typecheck/build pass.
+  131 Solid tests pass; package typecheck/build and `bun check` pass. Final
+  whole-branch P1 review is clean and reports the patch correct.
 
 Open risks:
-- Final full check, review rerun, and remote delivery gates remain.
+- Exact-head remote checks, merge, release, and read-back remain.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Final local review/check rerun |
+| Where am I? | Exact-head GitHub delivery |
 | Where am I going? | Exact-head delivery and release |
 | What is the goal? | Ship only proven Solid/React parity. |
 | What have I learned? | Mutation-only resets miss provider transitions, and resets need the provider's auth-store owner. |
-| What have I done? | Merged released owners, removed changeset slop, and closed three P1 identity gaps. |
+| What have I done? | Merged released owners, removed changeset slop, and closed all reviewed identity/cache privacy gaps. |
