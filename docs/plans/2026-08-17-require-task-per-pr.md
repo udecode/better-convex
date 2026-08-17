@@ -210,10 +210,10 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
+- [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
       new branch needed, or N/A with reason.
@@ -268,17 +268,17 @@ Completion Gates:
 | High-risk mini gate | yes | Record workflow failure mode and proof | aggregate autoclosure skip; fixed at canonical routes and mandatory plan gates |
 | Agent-native review for agent/tooling changes | yes | Run capability review | PASS; no findings after task-template gate repair |
 | Local install corruption suspected | no | N/A | no corruption signal |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| Commit created | yes | Stage whole checkout and commit | `c72bbfd5` initial workflow commit; final plan receipt commit follows |
+| PR create or update | yes | Push and create/update PR | PR #363 open from dedicated branch after full check |
+| Task-style PR body verified | yes | Read back exact PR #270 emoji body | `gh pr view 363 --json body` matches all required fields and has no self-link |
 | PR proof image hosting | no | N/A | no browser proof images |
 | GitHub issue sync-back | no | N/A | no issue source |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill exact PR/confidence/proof/outcome/caveat/design | complete below |
 | Final lint | yes | Run `bun lint:fix` | pass; 929 files, no fixes |
 | Output budget discipline | yes | Verify scoped/capped output | pass; one broad full-check stream belongs to prior #362 task, not this run |
 | Timed checkpoint | no | N/A | no duration |
 | Autoreview for non-trivial implementation changes | yes | Run dirty local review | clean, correct 0.99, no actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-require-task-per-pr.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-require-task-per-pr.md` | final audit pending after this receipt update |
 | Docs source-backed claim audit | yes | Verify contributor claims against rules | pass |
 | Docs links / routes / previews | yes | Verify README leaf link | `CONTRIBUTING.md` exists at linked path |
 | Docs MDX/content parser | no | N/A | no MDX/www change |
@@ -295,8 +295,8 @@ Phase / pass table:
 | Intake and source read | complete | user source, PR state, rules/templates/docs read | implementation |
 | Implementation | complete | canonical rules, templates, mirrors, contributor docs | verification |
 | Verification | complete | intent, source/mirror audit, reviews, and `bun check` pass | commit/PR |
-| Commit / PR / GitHub sync | pending | | final response |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | complete | commit pushed; PR #363 task body read back | remote gates/merge |
+| Closeout | in_progress | local proof complete | exact remote gates and merge |
 
 Findings:
 - The old workflow recommended `task` but did not require one invocation and
@@ -342,8 +342,8 @@ Source-listed case matrix:
 | human-only author | submitting without Codex remains allowed | CONTRIBUTING audit | ambiguous scope could burden external contributors | agent mandate only | CONTRIBUTING opening paragraph | pass |
 
 Final handoff contract:
-- Commit line: pending until delivery
-- PR line: follow-up required because #362 sealed during interrupted merge
+- Commit line: `c72bbfd5 docs: require task per PR`
+- PR line: #363 opened from dedicated task branch; final plan receipt follows
 - Issue line: N/A
 - Confidence line: 99%
 - Flow table:
@@ -358,7 +358,7 @@ Final handoff contract:
   - Why not broader change: no runtime/CI can reliably prove a skill invocation occurred
 - Verified: install parity, intent gates, source audit, agent-native review,
   autoreview, and full repository check
-- PR body verified: pending
+- PR body verified: exact #270 emoji shape read back with `gh pr view 363`
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -381,11 +381,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
+- Commit: `c72bbfd5`
+- PR: https://github.com/udecode/kitcn/pull/363
 - Issue: pending
-- Browser proof: pending
-- Caveats: pending
+- Browser proof: N/A
+- Caveats: #362 was already sealed; #363 is the technically necessary follow-up
 
 Timeline:
 - 2026-08-17T08:25:05.242Z Task goal plan created.
@@ -393,14 +393,14 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Intake and source read |
-| Where am I going? | Implementation, verification, commit/PR/GitHub sync, closeout |
-| What is the goal? | TODO: Fill from Objective |
-| What have I learned? | See Findings |
-| What have I done? | See Timeline |
+| Where am I? | Remote closeout |
+| Where am I going? | Exact #363 gates and merge |
+| What is the goal? | Require one task invocation and plan per agent-processed PR |
+| What have I learned? | Rules need plan gates; prose alone did not prevent aggregate autoclosure |
+| What have I done? | Patched sources/templates/docs, regenerated mirrors, proved locally, opened #363 |
 
 Open risks:
-- Pending.
+- Required remote gates and merge remain for PR #363.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
