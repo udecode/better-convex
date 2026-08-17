@@ -11,7 +11,8 @@ metadata:
 
 Autoclosure finishes already-started work. It does not invent the next feature.
 It also does not replace `task`: every PR must enter through its own `task`
-invocation and dedicated task plan before autoclosure can finish it.
+invocation and dedicated task plan. A PR without verifiable task evidence is
+commented on and closed, not reviewed, repaired, or merged.
 
 ## Use When
 
@@ -33,15 +34,50 @@ Create or resume a goal plan from the `autoclosure` template with the
 `agent-native` pack. Inventory the current intended delta from the active plan,
 source owners, and actual files. Do not absorb unrelated product scope.
 
-When the source is a PR, record the dedicated task invocation and task-plan
-path before any closure work. If only a batch-level plan exists, route back to
-`task`; missing per-PR task ownership is not an autoclosure waiver.
+## Task Compliance Gate
+
+Before reading the implementation diff or review feedback:
+
+1. Read `state`, `body`, `headRefOid`, and `url` with `gh pr view`. If the PR is
+   not `OPEN`, record its state and stop without adding another comment.
+2. Require all three:
+
+   - The PR body includes exactly one
+     `🧭 Task plan: docs/plans/<plan>.md` line.
+   - That plan file exists at the exact fetched PR head. Fetch
+     `pull/<number>/head` into a local `refs/pr/<number>` ref and inspect the
+     path with `git show`; do not browse GitHub files or trust a mutable branch.
+   - The plan identifies the exact PR number or URL in its task source or exact
+     per-PR ownership evidence. A batch plan is invalid evidence.
+
+Do not infer compliance from the author, labels, CI, comments, review state, or
+generic prose. If any requirement is missing or invalid:
+
+1. Build this comment, substituting the exact PR URL or number:
+
+   > Closing because this PR has no verifiable per-PR `task` run. Every PR must
+   > include `🧭 Task plan: docs/plans/<plan>.md` in its body, that plan must
+   > exist at the PR head, and it must identify this exact PR. Run
+   > `$kitcn:task <PR URL or #>` and add the evidence before reopening or
+   > submitting a replacement. We recommend GPT-5.6 with high-or-higher
+   > reasoning effort.
+
+2. Read existing comments first. If the exact remediation comment already
+   exists, reuse it; otherwise post it once with `gh pr comment`.
+3. Read the comment back and verify the exact explanation is present.
+4. Only after comment verification succeeds, close the PR with `gh pr close`.
+5. Read back `state: CLOSED` and the comment with `gh pr view`, record both
+   receipts, and stop.
+
+If commenting fails, do not close. Missing task evidence is not a waiver and
+must never continue into source review, repair, checks, merge, or release.
 
 ## Closure Matrix
 
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| per-PR task ownership | yes/no | exact PR + dedicated task plan | pending |
+| per-PR task ownership | yes | body path + head file + exact PR owner | pending |
+| noncompliant close | conditional | comment + `CLOSED` read-back | pending |
 | source behavior | yes/no | focused tests/runtime | pending |
 | package API/build | yes/no | exports/build/types | pending |
 | generated output | yes/no | source + regenerate + diff | pending |
@@ -57,9 +93,9 @@ Mark N/A only with a concrete reason.
 
 ## Closure Loop
 
-1. Verify the exact PR already has its own `task` invocation and dedicated task
-   plan. Route to `task` first when it does not.
-2. Reconstruct intended behavior and exclusions from the active source.
+1. Run the task compliance gate. If it fails, comment, verify, close, verify,
+   record receipts, and stop.
+2. Reconstruct intended behavior and exclusions only for a compliant PR.
 3. Run the smallest missing proof first; classify failures before editing.
 4. Repair accepted defects within the existing contract.
 5. When package behavior changed, ensure changeset, package build, focused tests,
@@ -81,8 +117,8 @@ Mark N/A only with a concrete reason.
 Clean means:
 
 - requested behavior exists with regression proof;
-- when a PR is in scope, its exact slice has a dedicated `task` invocation and
-  task plan;
+- a compliant PR has body/head/exact-owner task evidence, or a noncompliant PR
+  has the required comment and verified `CLOSED` state;
 - source/generated ownership is correct;
 - public exports, docs, package skill, examples, fixtures, and scenarios agree;
 - no stale alias, placeholder, skipped required gate, or accepted review finding
@@ -98,9 +134,10 @@ an authorized whole-checkout commit.
 
 ## Stop Conditions
 
-Stop only for missing authority, an external action the user must perform, an
-irreversible choice outside the source contract, or a reproducible environment
-blocker after different repair attempts. Record exact evidence and next owner.
+Stop only for a failed required comment, missing authority, an external action
+the user must perform, an irreversible choice outside the source contract, or
+a reproducible environment blocker after different repair attempts. Record
+exact evidence and next owner.
 
 Do not call closeout complete because code compiles, a PR exists, or a reviewer
 returned clean. Those are receipts inside the closure matrix.

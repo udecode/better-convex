@@ -17,6 +17,8 @@ Applied packs:
 - agent-native (docs/plans/templates/packs/agent-native.md)
 
 Linked plans:
+- [Noncompliant PR autoclosure](docs/plans/2026-08-17-autoclose-prs-without-task.md) -
+  Comment and close PRs without exact per-PR task evidence.
 - [Per-PR task workflow repair](docs/plans/2026-08-17-require-task-per-pr.md) -
   Make one dedicated `task` run and plan mandatory for every future PR slice.
 - [PR #329 autoclosure](docs/plans/2026-08-16-pr-329-autoclosure.md) -
@@ -198,7 +200,7 @@ Phase / pass table:
 | Repair | complete | accepted correctness, ownership, and proof defects fixed | review |
 | Review/checks | complete | focused/full gates and final reviews pass | delivery |
 | Delivery | complete | every PR merged and applicable releases published | final audit |
-| Closeout | complete | batch receipts plus per-PR task workflow repair PR #363 | done |
+| Closeout | complete | batch receipts plus per-PR task and noncompliant close policies | done |
 
 Verification evidence:
 - GitHub snapshot: 14 contributor PRs #329-#342; every head had green CI and

@@ -23,9 +23,12 @@ they earn their keep, and verify before calling the task done.
 - Verify the actual result before claiming done.
 - Do not default to research swarms, review swarms, browser proof, GitHub
   comments, or compounding.
-- Every GitHub PR an agent authors, reviews, repairs, or merges requires a
-  dedicated `task` invocation and task plan for that exact PR. A batch-level
-  task, plan, `auto`, or `autoclosure` run does not satisfy this requirement.
+- Every GitHub PR requires a dedicated `task` invocation and task plan for that
+  exact PR. A batch-level task, plan, `auto`, or `autoclosure` run does not
+  satisfy this requirement.
+- Every task-run PR body must include
+  `🧭 Task plan: docs/plans/<plan>.md`. Before autoclosure, the plan must exist
+  at the PR head and identify the exact PR number or URL.
 - For verified code-changing work, commit, push, and create or update a PR by
   default. The `task` skill is the explicit git permission. Only skip that path
   when the user explicitly says not to, the work has no local patch, the task is
@@ -98,7 +101,10 @@ they earn their keep, and verify before calling the task done.
     verified code-changing work, this branch decision must assume commit, push,
     and PR as the default closeout path unless the user explicitly declined it
     or a real blocker is recorded.
-14. If anything important is still ambiguous after the source and nearby code
+14. When a PR is created, update its dedicated plan from a not-yet-created PR
+    slice to the exact PR number or URL and add its plan path to the PR body
+    before invoking `autoclosure`.
+15. If anything important is still ambiguous after the source and nearby code
     pass, ask the smallest useful clarifying question.
 
 ## GitHub Source Rules
@@ -432,12 +438,14 @@ Use the accepted task PR format from PR #270. The shape is not optional:
    `🐛 Fixes #123` or `🐛 Fixes ➖ N/A`. Never include a line that links to the
    current PR itself; the current PR URL belongs in the final response, not in
    its own description.
-3. Use an emoji confidence line, for example `🟢 95-100% confidence`.
-4. Use this exact table header:
+3. Add `🧭 Task plan: docs/plans/<plan>.md`; the path must resolve at the PR
+   head and the plan must identify the exact PR before autoclosure.
+4. Use an emoji confidence line, for example `🟢 95-100% confidence`.
+5. Use this exact table header:
    `| Phase | 🧪 Tests | 🌐 Browser |`
-5. Use `Reproduced` and `Verified` rows. Mark passing proof with `🟢`, repro or
+6. Use `Reproduced` and `Verified` rows. Mark passing proof with `🟢`, repro or
    failing proof with `🔴`, and non-applicable browser/test cells with `➖ N/A`.
-6. Use bold emoji section headings exactly in this family:
+7. Use bold emoji section headings exactly in this family:
    `**✅ Outcome**`, `**⚠️ Caveat**`, `**🏗️ Design**`, and
    `**🧪 Verified**`.
 
@@ -460,8 +468,10 @@ with `gh pr view --json body` before final handoff.
 - Testing work loaded the testing policy before implementation.
 - Only necessary skills were loaded.
 - Batch work did not sprawl without explicit instruction.
-- Every agent-processed PR in a batch has its own `task` invocation and task
-  plan; no aggregate `autoclosure` was used as a substitute.
+- Every PR in a batch has its own `task` invocation and task plan; no aggregate
+  `autoclosure` was used as a substitute.
+- The PR body names the dedicated task plan, the plan exists at the PR head,
+  and it identifies the exact PR before autoclosure.
 - Verification matched change scope.
 - Verified code-changing work was committed and PR'd, or the user explicitly
   declined that path, the work had no local patch, or a real blocker was
