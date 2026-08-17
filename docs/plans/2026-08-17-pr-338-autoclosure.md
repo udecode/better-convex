@@ -52,22 +52,22 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | auth runtime, adapters, provider tests | repair in progress |
-| package/API/build | yes | package typecheck/build | pending |
+| source behavior | yes | auth runtime, adapters, provider tests | complete |
+| package/API/build | yes | package typecheck/build | complete |
 | generated output | no | no generated artifact changes | N/A |
-| fixtures/scenarios | yes | full check/runtime | pending |
+| fixtures/scenarios | yes | full check/runtime | complete |
 | docs/package skill | no | generated `defineAuth` is the documented surface | N/A |
 | changeset | yes | `.changeset/auth-runtime-hot-path.md` | present |
 | agent workflow | no | no agent workflow changes | N/A |
-| cleanup/review | yes | deslop and autoreview | pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop and autoreview | complete locally |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | feedback, exact checks, merge/release | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each local lane is proven or N/A with a concrete reason.
+- [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Package/docs/skill/changeset ownership is classified.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed locally.
 - [ ] PR body and check state match the final evidence.
 
 Error attempts:
@@ -80,22 +80,22 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | run full auth owner surface | provider 25/25 passes |
-| Package/docs/scenario closure | pending | typecheck/build/full check | pending |
-| Deslop | pending | changed-file cleanup | pending |
+| Targeted behavior proof | complete | run full auth owner surface | 100 focused auth tests pass; provider 26/26 |
+| Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build and `bun check` pass |
+| Deslop | complete | changed-file cleanup | 167 -> 167; score unchanged |
 | Agent-native reviewer | no | no workflow changes | N/A |
-| Final lint | yes | run `bun lint:fix` | pending |
-| Repository check | yes | run `bun check` | pending |
+| Final lint | yes | run `bun lint:fix` | 905 files clean |
+| Repository check | yes | run `bun check` | complete against released v0.20.0 main |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final branch review | pending |
+| Autoreview | yes | final branch review | repair bundle P1-clean at 0.91; committed branch rerun pending |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback | repair |
-| Repair | in_progress | three session-race defects repaired | review/checks |
-| Review/checks | pending | provider tests green | full owner proof |
+| Repair | complete | three session-race defects repaired | review/checks |
+| Review/checks | complete | focused/package/deslop/lint/full gates green | final review |
 | Delivery | pending | | push, checks, merge/release |
 | Closeout | pending | | final |
 
@@ -103,8 +103,12 @@ Verification evidence:
 - The branch is substantial runtime work, not disposable slop, but its original
   persisted-token recovery could overwrite newer auth state and hang forever.
 - Red/green provider regressions prove token ownership, request deadlines, and
-  cloned seeded-session identity. The full provider file passes 25 tests.
+  cloned seeded-session identity. A separate competing-sign-in regression
+  proves a different session cannot be overwritten. The full provider file
+  passes 26 tests; all seven touched auth owners pass 100 tests.
+- Released-main package typecheck/build, zero-net deslop, lint, and full
+  `bun check` all pass. The repair-only P1 autoreview is clean at 0.91.
 
 Open risks:
-- The remaining auth runtime/adapters need full focused proof and final review.
+- The committed whole-branch P1 review remains before delivery.
 - Remote exact-head checks, merge, release, and post-release CI remain unproven.

@@ -123,8 +123,8 @@ PR disposition ledger:
 | #334 | reduce example/www client work and reads | mixed but mostly real; three proof/owner defects were slop and repaired | both threads resolved | codegen fix released in 0.17.4 | closed: merged `6bc8d1ca`, released 0.17.4 |
 | #335 | push ORM limit/order into indexes | valuable but high-risk; advertised index preference was missing | 3 GitHub P1s plus 2 accepted local P1s repaired; 1 local P1 rejected with owner proof | before #336/#337/#342 | closed: merged `9b3494de`, released v0.18.0, post-release CI green |
 | #336 | bound streams and id-list pagination | credible, not slop; release/docs claims overstated and iterator cleanup incomplete | first P2 repaired upstream; second accepted locally; four local cleanup regressions repaired | after #335 | closed: merged `aba33f55`, released v0.19.0, post-release CI green |
-| #337 | bound aggregate reads and clearing | valuable but high-risk; duplicate helper, budget, discovery, and clearing-race gaps repaired | first P1 fixed upstream; five local P1 blockers repaired across two bounded review cycles | before #342 | all local gates green; delivery pending |
-| #338 | cache auth schema and repair session restore | credible, breaking | 3 P1 threads | after #337 by release plan | repair pending |
+| #337 | bound aggregate reads and clearing | valuable but high-risk; duplicate helper, budget, discovery, and clearing-race gaps repaired | first P1 fixed upstream; five local P1 blockers repaired across two bounded review cycles | before #342 | closed: merged `5d3172b2`, released v0.20.0, post-release CI pending |
+| #338 | cache auth schema and repair session restore | credible, breaking; three live session races repaired | 3 P1 threads; local fixes complete | after released #337 | local gates green; delivery pending |
 | #339 | restore Solid/React parity | credible but broad | 4 outdated threads | after #329/#332 | verify/repair pending |
 | #340 | validate cRPC output once | credible, silent contract risk | 3 P1 threads | after #339 by release plan | repair pending |
 | #341 | key anonymous rate limits per request | high-risk operational/security bundle | 4 threads | late; must remove cron burden or redesign | decision pending |
@@ -135,8 +135,9 @@ Dependency-safe order:
 - Released 0.17.4: #331 plus #334's package repair; #333 had no package delta.
 - Released 0.17.5: #332.
 - Release 0.19.x: #335 then #336.
-- Release 0.20.x: #337 then #338.
-- Release 0.21.x: #339 then #340.
+- Released 0.20.0: #337.
+- Next isolated package release: #338.
+- Subsequent candidates: #339 then #340, each rebased on released main.
 - Later isolated candidates: #341, then #342 only after explicit high-risk proof.
 
 Work Checklist:
@@ -269,6 +270,16 @@ Verification evidence:
   mapped, merged, distinct, and direct early exits did not propagate cleanup;
   the repaired wrappers pass 61 focused tests, package typecheck/build, skill
   mirror/intent gates, zero-net slop delta, full `bun check`, and P1 autoreview.
+- #337 exact head `9054d2f3` passed CI `31981859413` and Vercel, then merged
+  as `5d3172b2`. Release PR #353 passed Convex Matrix `31982252778`, merged as
+  `778464fc`, and published both npm packages plus GitHub `v0.20.0` at that
+  exact commit. Post-release CI `31983014399` remains in progress.
+- #338 is real auth-runtime work, not disposable slop. Three live P1 races were
+  repaired: restore success rechecks token/session ownership, each transport
+  probe shares the grace deadline, and stable session IDs distinguish a cloned
+  seed from a competing sign-in. The released-main branch passes 100 focused
+  auth tests, package typecheck/build, zero-net deslop, lint, full `bun check`,
+  and a clean P1 repair review at 0.91 confidence.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.

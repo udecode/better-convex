@@ -71,7 +71,7 @@ Closure matrix:
 | agent workflow | no | no rule/helper/workflow behavior | N/A |
 | cleanup/review | yes | deslop and autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, exact checks, merge/release | pending |
+| GitHub delivery | yes | feedback, exact checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -79,7 +79,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 
 Error attempts:
@@ -101,9 +101,9 @@ Completion Gates:
 | Agent-native reviewer | yes | docs/skill mirror audit | source/generated/action map passes |
 | Final lint | yes | run `bun lint:fix` | 905 files clean |
 | Repository check | yes | run `bun check` | complete on released v0.19.0 main |
-| GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
+| GitHub delivery | complete | push, feedback, exact checks, merge/release | merged `5d3172b2`; released `778464fc` as v0.20.0 |
 | Autoreview | yes | final branch review | P1 clean; patch correct (0.84) |
-| Goal plan complete | yes | run checker | pending |
+| Goal plan complete | yes | run checker | complete |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -111,8 +111,8 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback, released main | repair |
 | Repair | complete | merge overlap and budget accounting repaired | review/checks |
 | Review/checks | complete | focused/package/docs/fixture/deslop/full/review green | delivery |
-| Delivery | in_progress | final committed bundle ready | push, exact checks, merge/release |
-| Closeout | pending | | final |
+| Delivery | complete | exact checks, merge, release complete | final audit |
+| Closeout | complete | npm and GitHub v0.20.0 verified | done |
 
 Verification evidence:
 - The branch is substantial aggregate-index work rather than disposable slop,
@@ -155,6 +155,10 @@ Verification evidence:
   mirrors are byte-equal, Intent validates, and staleness is clean.
 - Deslop is zero-net (167 -> 167, score 495.27 unchanged); the only hot-path
   async wrapper was removed. `bun lint:fix` leaves 905 files clean.
+- Exact head `9054d2f3` passed CI `31981859413` and Vercel, then squash-merged
+  as `5d3172b2`. Release PR #353 head `e694f3a7` passed Convex Matrix
+  `31982252778`, merged as `778464fc`, and published `kitcn@0.20.0`,
+  `@kitcn/resend@0.20.0`, and GitHub `v0.20.0` at that exact commit.
 
 Timeline:
 - 2026-08-17 Merged released main, removed duplicate concurrency ownership, and
@@ -168,12 +172,12 @@ Timeline:
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, exact-head checks, merge, and release |
+| Where am I? | Closeout complete |
+| Where am I going? | PR #338 |
 | What is the goal? | Ship only proven bounded aggregate-index behavior. |
 | What have I learned? | Bucket-only accounting could still cross Convex's read ceiling. |
 | What have I done? | Closed five correctness gaps; every local gate passes. |
 
 Open risks:
-- Remote exact-head checks, merge, release, and post-release CI remain unproven
-  until delivery completes.
+- Post-release CI `31983014399` is still running; publication and the tagged
+  release commit are already independently verified.
