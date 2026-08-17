@@ -105,7 +105,7 @@ Completion Gates:
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
-| Repository check | yes | run `bun check` | pending final repaired source |
+| Repository check | yes | run `bun check` | passed on `f2445ea1` |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
 | Autoreview | yes | final whole-branch review | clean at `ebbbedcf`; patch correct (0.86) |
 | Goal plan complete | yes | run checker | pending |
@@ -115,8 +115,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | released-main merge plus provider identity owner | focused proof |
-| Review/checks | in_progress | 137 focused tests and package build/typecheck green | final review/check |
-| Delivery | pending | | push, checks, merge/release |
+| Review/checks | complete | focused/package/deslop, final autoreview, full check green | delivery |
+| Delivery | in_progress | local branch ready | push, checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
