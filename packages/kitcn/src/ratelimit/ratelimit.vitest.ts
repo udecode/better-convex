@@ -4,6 +4,7 @@ import {
   calculateRatelimit,
   snapshotToState,
 } from './core/calculate-rate-limit';
+import { cleanupRatelimitState } from './maintenance';
 import { Ratelimit } from './ratelimit';
 import type { ConvexRatelimitDbWriter } from './types';
 
@@ -51,17 +52,30 @@ function createMockDb(options?: {
       const table = getTable(tableName);
       return {
         withIndex(_name, cb) {
-          const filters: Array<{ field: string; value: unknown }> = [];
+          const filters: Array<{
+            field: string;
+            operation: 'eq' | 'lt';
+            value: unknown;
+          }> = [];
           cb({
             eq(field: string, value: unknown) {
-              filters.push({ field, value });
+              filters.push({ field, operation: 'eq', value });
+              return this;
+            },
+            lt(field: string, value: unknown) {
+              filters.push({ field, operation: 'lt', value });
               return this;
             },
           });
 
           const filtered = () =>
             table.filter((row) =>
-              filters.every((filter) => row[filter.field] === filter.value)
+              filters.every((filter) => {
+                if (filter.operation === 'eq') {
+                  return row[filter.field] === filter.value;
+                }
+                return Number(row[filter.field]) < Number(filter.value);
+              })
             );
 
           return {
@@ -74,6 +88,10 @@ function createMockDb(options?: {
               counters.collectReads += 1;
               await delay(tableName);
               return filtered();
+            },
+            async take(limit: number) {
+              await delay(tableName);
+              return filtered().slice(0, limit);
             },
           };
         },
@@ -921,6 +939,41 @@ describe('Ratelimit', () => {
     expect(allowed.success).toBe(true);
   });
 
+  test('cleanupRatelimitState deletes stale rows in on-demand batches', async () => {
+    const { db } = createMockDb();
+    for (const [key, ts] of [
+      ['stale-a', 100],
+      ['stale-b', 200],
+      ['fresh', 400],
+    ] as const) {
+      await db.insert('ratelimitState', {
+        name: 'manual-cleanup',
+        key,
+        shard: 0,
+        value: 1,
+        ts,
+      });
+    }
+
+    await expect(
+      cleanupRatelimitState(db, { before: 300, limit: 1 })
+    ).resolves.toEqual({ deleted: 1, hasMore: true });
+    await expect(
+      cleanupRatelimitState(db, { before: 300, limit: 1 })
+    ).resolves.toEqual({ deleted: 1, hasMore: false });
+    await expect(
+      cleanupRatelimitState(db, { before: 300, limit: 1 })
+    ).resolves.toEqual({ deleted: 0, hasMore: false });
+
+    const fresh = await db
+      .query('ratelimitState')
+      .withIndex('by_name_key', (q) =>
+        q.eq('name', 'manual-cleanup').eq('key', 'fresh')
+      )
+      .collect();
+    expect(fresh).toHaveLength(1);
+  });
+
   test('dynamic updates discard in-flight stale cache writes', async () => {
     const { db } = createMockDb({
       delayMsByTable: { ratelimitState: 20 },
@@ -1150,6 +1203,9 @@ describe('Ratelimit', () => {
               async collect() {
                 throw new Error('Table ratelimitState does not exist');
               },
+              async take() {
+                throw new Error('Table ratelimitState does not exist');
+              },
             };
           },
         };
@@ -1188,6 +1244,9 @@ describe('Ratelimit', () => {
                 return null;
               },
               async collect() {
+                return [];
+              },
+              async take() {
                 return [];
               },
             };

@@ -1104,6 +1104,14 @@ export declare const internal: {
         string
       >;
     };
+    ratelimit: {
+      cleanup: FunctionReference<
+        "mutation",
+        "internal",
+        { limit?: number; olderThanMs: number },
+        { deleted: number; hasMore: boolean }
+      >;
+    };
     resend: {
       callResendAPIWithBatch: FunctionReference<
         "action",

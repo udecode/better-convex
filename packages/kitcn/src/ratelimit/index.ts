@@ -17,6 +17,11 @@ export type {
   DurationUnit,
 } from './duration';
 export { toMs } from './duration';
+export type {
+  CleanupRatelimitStateOptions,
+  CleanupRatelimitStateResult,
+} from './maintenance';
+export { cleanupRatelimitState } from './maintenance';
 export type { RatelimitPluginOptions } from './plugin';
 export { RatelimitPlugin } from './plugin';
 export { Ratelimit } from './ratelimit';

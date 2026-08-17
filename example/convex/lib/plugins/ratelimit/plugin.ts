@@ -1,4 +1,3 @@
-import { getSessionNetworkSignals } from 'kitcn/auth';
 import {
   type LimitRequest,
   MINUTE,
@@ -7,7 +6,6 @@ import {
   SECOND,
 } from 'kitcn/ratelimit';
 import type { MutationCtx } from '../../../functions/generated/server';
-import type { Select } from '../../../shared/api';
 
 const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
 
@@ -31,7 +29,6 @@ type RatelimitUser = {
   id: string;
   isAdmin?: boolean;
   plan?: 'premium' | 'team' | null;
-  session?: Select<'session'> | null;
 };
 
 type RatelimitCtx = MutationCtx & {
@@ -42,7 +39,7 @@ type RatelimitMeta = {
   ratelimit?: RatelimitBucket;
 };
 
-function getUserTier(user: RatelimitUser | null): RatelimitTier {
+export function getUserTier(user: RatelimitUser | null): RatelimitTier {
   if (!user) {
     return 'public';
   }
@@ -53,23 +50,10 @@ function getUserTier(user: RatelimitUser | null): RatelimitTier {
   return 'free';
 }
 
-/**
- * Live request metadata wins over the session's recorded address, and the
- * session fills in whatever the request does not carry. Session helpers return
- * `{}` when there is no session, which is exactly when anonymous traffic needs
- * an IP to key on.
- */
-async function getRequestSignals(
-  ctx: RatelimitCtx,
-  user: RatelimitUser | null
-): Promise<LimitRequest> {
-  const [{ ip, userAgent }, session] = await Promise.all([
-    ctx.meta.getRequestMetadata(),
-    getSessionNetworkSignals(ctx, user?.session ?? null),
-  ]);
+async function getRequestSignals(ctx: RatelimitCtx) {
+  const { ip, userAgent } = await ctx.meta.getRequestMetadata();
 
   return {
-    ...session,
     ...(ip ? { ip } : {}),
     ...(userAgent ? { userAgent } : {}),
   };
@@ -80,8 +64,8 @@ async function getRequestSignals(
  * the same string shares one budget and one `ratelimitState` document.
  *
  * Unauthenticated traffic is keyed by request IP so one visitor cannot spend
- * every other visitor's budget. Requests with no client IP (scheduled
- * functions, crons) all fall back to one key.
+ * every other visitor's budget. Calls without request metadata all fall back
+ * to one key.
  */
 function getRequestIdentifier(
   user: RatelimitUser | null,
@@ -99,13 +83,7 @@ export const ratelimit = RatelimitPlugin.configure({
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? 'default',
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
   getTier: getUserTier,
-  getSignals: ({
-    ctx,
-    user,
-  }: {
-    ctx: RatelimitCtx;
-    user: RatelimitUser | null;
-  }) => getRequestSignals(ctx, user),
+  getSignals: ({ ctx }: { ctx: RatelimitCtx }) => getRequestSignals(ctx),
   getIdentifier: ({
     user,
     signals,

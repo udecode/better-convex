@@ -1,4 +1,12 @@
 import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from 'bun:test';
+import {
   clearProtection,
   pickDeniedValue,
   protectionStateSize,
@@ -13,20 +21,21 @@ const MAX_TRACKED_MEMBERS = 4096;
 
 const base = { prefix: PREFIX, threshold: 3 };
 
-let now = 1_000_000;
-let nowSpy: { mockRestore: () => void } | undefined;
+const INITIAL_NOW = 1_000_000;
 
 beforeEach(() => {
   resetProtectionState();
-  now = 1_000_000;
-  nowSpy = spyOn(Date, 'now').mockImplementation(() => now);
+  setSystemTime(INITIAL_NOW);
 });
 
-afterEach(() => {
-  nowSpy?.mockRestore();
-  nowSpy = undefined;
+afterAll(() => {
+  setSystemTime();
   resetProtectionState();
 });
+
+function advanceTime(ms: number): void {
+  setSystemTime(Date.now() + ms);
+}
 
 describe('deny-list protection state', () => {
   test('blocks a value once it reaches the threshold inside the window', () => {
@@ -53,11 +62,23 @@ describe('deny-list protection state', () => {
   test('hits decay, so failures paced outside the window never block', () => {
     for (let i = 0; i < 10; i++) {
       recordRatelimitFailure({ ...base, identifier: 'paced' });
-      now += HITS_WINDOW_MS + 1;
+      advanceTime(HITS_WINDOW_MS + 1);
     }
 
     expect(
       pickDeniedValue({ prefix: PREFIX, identifier: 'paced' })
+    ).toBeUndefined();
+  });
+
+  test('counts only failures inside the rolling window', () => {
+    recordRatelimitFailure({ ...base, identifier: 'rolling' });
+    advanceTime(9 * 60 * 1000);
+    recordRatelimitFailure({ ...base, identifier: 'rolling' });
+    advanceTime(2 * 60 * 1000);
+    recordRatelimitFailure({ ...base, identifier: 'rolling' });
+
+    expect(
+      pickDeniedValue({ prefix: PREFIX, identifier: 'rolling' })
     ).toBeUndefined();
   });
 
@@ -69,7 +90,7 @@ describe('deny-list protection state', () => {
       'temp'
     );
 
-    now += THRESHOLD_BLOCK_MS + 1;
+    advanceTime(THRESHOLD_BLOCK_MS + 1);
     expect(
       pickDeniedValue({ prefix: PREFIX, identifier: 'temp' })
     ).toBeUndefined();
@@ -88,6 +109,50 @@ describe('deny-list protection state', () => {
     expect(protectionStateSize(PREFIX).hits).toBeLessThanOrEqual(
       MAX_TRACKED_MEMBERS
     );
+  });
+
+  test('blocked members stay bounded under a distributed flood', () => {
+    for (let i = 0; i < MAX_TRACKED_MEMBERS; i++) {
+      recordRatelimitFailure({
+        prefix: PREFIX,
+        threshold: 1,
+        identifier: `blocked-${i}`,
+      });
+    }
+
+    for (let i = 0; i < 500; i++) {
+      pickDeniedValue({ prefix: PREFIX, identifier: 'blocked-0' });
+      recordRatelimitFailure({
+        prefix: PREFIX,
+        threshold: 1,
+        identifier: `overflow-${i}`,
+      });
+    }
+
+    expect(protectionStateSize(PREFIX).blocked).toBeLessThanOrEqual(
+      MAX_TRACKED_MEMBERS
+    );
+    expect(pickDeniedValue({ prefix: PREFIX, identifier: 'blocked-0' })).toBe(
+      'blocked-0'
+    );
+    expect(
+      pickDeniedValue({ prefix: PREFIX, identifier: 'overflow-499' })
+    ).toBe('overflow-499');
+  });
+
+  test('rolling failure timestamps stay globally bounded', () => {
+    const threshold = 1000;
+    for (let round = 0; round < 20; round++) {
+      for (let member = 0; member < MAX_TRACKED_MEMBERS; member++) {
+        recordRatelimitFailure({
+          prefix: PREFIX,
+          threshold,
+          identifier: `distributed-${member}`,
+        });
+      }
+    }
+
+    expect(protectionStateSize(PREFIX).failures).toBeLessThanOrEqual(65_536);
   });
 
   test('eviction drops cold members, not the ones under active attack', () => {
@@ -114,7 +179,7 @@ describe('deny-list protection state', () => {
 
   test('overlong values still match on the read path after truncation', () => {
     const longAgent = `${'a'.repeat(10_000)}-one`;
-    const otherAgent = `b${'a'.repeat(9_999)}-two`;
+    const otherAgent = `${'a'.repeat(10_000)}-two`;
 
     recordRatelimitFailure({
       ...base,
@@ -186,11 +251,15 @@ describe('deny-list protection state', () => {
     for (let i = 0; i < 3; i++) {
       recordRatelimitFailure({ ...base, identifier: 'user-5' });
     }
-    expect(protectionStateSize(PREFIX).hits).toBeGreaterThan(0);
+    expect(protectionStateSize(PREFIX).blocked).toBeGreaterThan(0);
 
     resetProtectionState();
 
-    expect(protectionStateSize(PREFIX)).toEqual({ blocked: 0, hits: 0 });
+    expect(protectionStateSize(PREFIX)).toEqual({
+      blocked: 0,
+      failures: 0,
+      hits: 0,
+    });
     expect(
       pickDeniedValue({ prefix: PREFIX, identifier: 'user-5' })
     ).toBeUndefined();

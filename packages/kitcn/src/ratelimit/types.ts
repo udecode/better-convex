@@ -169,6 +169,7 @@ export type ConvexQueryBuilder = {
   ) => {
     unique: () => Promise<any>;
     collect: () => Promise<any[]>;
+    take: (limit: number) => Promise<any[]>;
   };
 };
 

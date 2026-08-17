@@ -45,6 +45,7 @@
     "ratelimit": {
       "package": "kitcn",
       "files": {
+        "ratelimit-functions": "convex/functions/plugins/ratelimit.ts",
         "ratelimit-plugin": "convex/lib/plugins/ratelimit/plugin.ts",
         "ratelimit-schema": "convex/lib/plugins/ratelimit/schema.ts"
       }

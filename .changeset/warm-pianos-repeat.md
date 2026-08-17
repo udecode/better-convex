@@ -29,9 +29,9 @@ getIdentifier: ({
   identifier, so a single visitor can no longer spend every other visitor's
   budget or arm a 24 hour deny-list block against all of them. Run
   `kitcn add ratelimit --overwrite` to take the new plugin.
-- Schedule cleanup of `ratelimitState` documents: per-IP keys write one document
-  per visitor per bucket and tier, and nothing reaps them. A cron that deletes
-  documents older than your longest window is enough.
+- Add `cleanupRatelimitState` and scaffold an indexed, batched private mutation
+  for manual cleanup of state older than a caller-owned cutoff. Repeat the
+  on-demand call while it returns `hasMore: true`.
 - Store no-arg `crpc.http.*` entries under `['httpQuery', route, {}]` on both the
   client and the RSC server, so a server-prefetched route hydrates instead of
   refetching.
@@ -63,9 +63,9 @@ crpc.http.health.queryKey(); // ['httpQuery', 'health', {}]
   carries a 30 second `staleTime` shared with the RSC QueryClient, overridable
   per call, and `refetchOnMount` keeps its default so a route invalidated while
   unmounted still refetches.
-- Fix the deny list blocking shared NAT and mobile-carrier IPs. Failures stop
-  counting 10 minutes after the last one, while a caller that reaches
-  `denyListThreshold` inside that window is still blocked for 24 hours.
+- Fix the deny list blocking shared NAT and mobile-carrier IPs. Count only
+  failures inside a rolling 10-minute window and cache values that reach
+  `denyListThreshold` as blocked for up to 24 hours.
 - Fix deny-list memory growing without bound when callers forge `User-Agent`
   headers.
 - Fix `ephemeralCache: false` being ignored while a limit is evaluated, which

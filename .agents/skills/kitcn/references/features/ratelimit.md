@@ -85,7 +85,8 @@ A request larger than every shard's capacity plus finite reservation headroom ca
 
 With `enableProtection: true`, failures are counted per identifier, ip, userAgent, and country.
 
-- A value is blocked for 24 h once it reaches `denyListThreshold` **within a rolling 10 minute window**. Failures paced wider than that window decay, so a shared NAT/carrier IP is not blocked by unrelated failures accumulated over days.
+- A value's block is cached for up to 24 h once it reaches `denyListThreshold` **within a rolling 10 minute window**. Failures paced wider than that window decay, so a shared NAT/carrier IP is not blocked by unrelated failures accumulated over days.
+- Protection state is a bounded in-memory LRU. Failure histories are evicted before blocks, active blocks refresh on use, and the coldest block can be evicted above 4,096 simultaneous blocked values per prefix. Evicted values fall through to the database-backed limiter.
 - A success clears the **identifier** counter only. ip/userAgent counters are attacker-supplied; clearing them on success would let a caller loop `threshold - 1` failures plus one success indefinitely, or reset a victim's counter by forging their user-agent.
 - State is module-scope memory: at most 4096 tracked values per prefix with least-recently-hit eviction, and values over 128 characters stored truncated. It is per-isolate, so it does not survive a cold start and is not shared across function entries.
 - Increments are not rolled back when Convex retries a mutation after a write conflict, so a value can count slightly more failures than it was served.

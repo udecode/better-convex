@@ -297,6 +297,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_kind_status: ["kind", "status", "_creationTime"];
       by_kind_table_index: ["kind", "tableKey", "indexName", "_creationTime"];
+      by_table_status: ["tableKey", "status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -742,6 +743,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_name_key: ["name", "key", "_creationTime"];
       by_name_key_shard: ["name", "key", "shard", "_creationTime"];
+      by_ts: ["ts", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

@@ -32,17 +32,30 @@ function createMockDb(): ConvexRatelimitDbWriter {
       const table = getTable(tableName);
       return {
         withIndex(_name, cb) {
-          const filters: Array<{ field: string; value: unknown }> = [];
+          const filters: Array<{
+            field: string;
+            operation: 'eq' | 'lt';
+            value: unknown;
+          }> = [];
           cb({
             eq(field: string, value: unknown) {
-              filters.push({ field, value });
+              filters.push({ field, operation: 'eq', value });
+              return this;
+            },
+            lt(field: string, value: unknown) {
+              filters.push({ field, operation: 'lt', value });
               return this;
             },
           });
 
           const filtered = () =>
             table.filter((row) =>
-              filters.every((filter) => row[filter.field] === filter.value)
+              filters.every((filter) => {
+                if (filter.operation === 'eq') {
+                  return row[filter.field] === filter.value;
+                }
+                return Number(row[filter.field]) < Number(filter.value);
+              })
             );
 
           return {
@@ -51,6 +64,9 @@ function createMockDb(): ConvexRatelimitDbWriter {
             },
             async collect() {
               return filtered();
+            },
+            async take(limit: number) {
+              return filtered().slice(0, limit);
             },
           };
         },

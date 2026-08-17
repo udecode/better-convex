@@ -5,6 +5,7 @@ export const RATELIMIT_PLUGIN_TEMPLATE = `import {
   MINUTE,
   Ratelimit,
   RatelimitPlugin,
+  SECOND,
 } from "kitcn/ratelimit";
 import type { MutationCtx } from "${FUNCTIONS_DIR_IMPORT_PLACEHOLDER}/generated/server";
 
@@ -15,6 +16,11 @@ export const ratelimitBuckets = {
     public: fixed(30),
     free: fixed(60),
     premium: fixed(200),
+  },
+  interactive: {
+    public: Ratelimit.fixedWindow(3, 30 * SECOND),
+    free: Ratelimit.fixedWindow(3, 30 * SECOND),
+    premium: Ratelimit.fixedWindow(3, 30 * SECOND),
   },
 } as const;
 
@@ -60,8 +66,8 @@ async function getRequestSignals(ctx: RatelimitCtx) {
  * the same string shares one budget and one \`ratelimitState\` document.
  *
  * Unauthenticated traffic is keyed by request IP so one visitor cannot spend
- * every other visitor's budget. Requests with no client IP (scheduled
- * functions, crons) all fall back to one key.
+ * every other visitor's budget. Calls without request metadata all fall back
+ * to one key.
  */
 function getRequestIdentifier(
   user: RatelimitUser | null,
