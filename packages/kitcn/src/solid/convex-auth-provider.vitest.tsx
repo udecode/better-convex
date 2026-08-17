@@ -8,9 +8,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useAuthStore, useFetchAccessToken } from './auth-store';
 import { ConvexAuthProvider } from './convex-auth-provider';
 
-const makeJwt = (expSecondsFromNow: number) => {
+const makeJwt = (
+  expSecondsFromNow: number,
+  claims: Record<string, unknown> = {}
+) => {
   const exp = Math.floor(Date.now() / 1000) + expSecondsFromNow;
-  const payload = btoa(JSON.stringify({ exp }));
+  const payload = btoa(JSON.stringify({ ...claims, exp }));
   return `x.${payload}.z`;
 };
 
@@ -202,7 +205,7 @@ describe('ConvexAuthProvider', () => {
     expect(convexToken).toHaveBeenCalledTimes(1);
   });
 
-  test('authenticates Convex once per auth transition, not per token write', async () => {
+  test('reauthenticates for identity claims, not routine token rotation', async () => {
     const jwt = makeJwt(7200);
     const convexToken = vi.fn(async () => ({ data: { token: jwt } }));
 
@@ -255,12 +258,16 @@ describe('ConvexAuthProvider', () => {
 
     expect(setAuthCalls).toHaveLength(1);
 
+    result.set('token', makeJwt(9000, { role: 'admin' }));
+
+    expect(setAuthCalls).toHaveLength(2);
+
     setSession({
       data: { session: { id: 'session-2' } },
       isPending: false,
     });
 
-    expect(setAuthCalls).toHaveLength(2);
+    expect(setAuthCalls).toHaveLength(3);
   });
 
   test('treats empty session payload as unauthenticated', async () => {

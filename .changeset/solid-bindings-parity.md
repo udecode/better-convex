@@ -40,4 +40,5 @@
   paging from cursors that point into another account's results.
 - Fix an auth-bound query refetching everything on every scheduled token
   refresh. A refreshed JWT for the same account leaves the cache alone; only an
-  actual account change clears it.
+  authorization identity change clears it, including tenant or role claims
+  changing inside the same Better Auth session.

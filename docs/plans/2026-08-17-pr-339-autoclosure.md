@@ -80,6 +80,7 @@ Error attempts:
 | Branch conflicted with released auth and Solid mount owners | 1 | merge owners semantically and retain real Solid Query tests | focused merged-owner tests pass |
 | Stable fetcher missed account switches; provider transitions missed cache reset | 1 | publish a stable identity through the provider bridge and reset at the Solid CRPC owner | three red regressions now pass; 90 Solid owner tests green |
 | Solid CRPC reset had no query-client auth-store owner | 1 | install the provider auth store into the query client before observing transitions | red owner-sync regression passes; 129 Solid tests green |
+| Session ID masked JWT tenant/role changes | 1 | combine stable session and non-volatile claim identity while ignoring routine rotation | red same-session claim regression passes; 129 Solid tests green |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -117,7 +118,10 @@ Verification evidence:
   reactive rebinding, and the Solid CRPC owner resets auth-bound caches on each
   observed identity transition. The CRPC provider also installs its auth store
   into the query client before resets, so auth epochs and subscription gates
-  share the same owner. All 129 Solid tests pass; package typecheck/build pass.
+  share the same owner. The identity key also tracks non-volatile JWT claims,
+  so tenant or role changes inside one session rebind without treating routine
+  expiry rotation as a transition. All 129 Solid tests pass; package
+  typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.

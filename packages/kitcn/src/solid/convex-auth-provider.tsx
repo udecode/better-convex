@@ -121,6 +121,10 @@ function ConvexAuthProviderInner(
 
   // Stable ref for pending token promise (no re-renders in Solid)
   let pendingTokenPromise: Promise<string | null> | null = null;
+  let authIdentity: string | null = null;
+  let identityClaims: string | null = null;
+  let identityInitialized = false;
+  let identitySessionId: string | undefined;
 
   // Clear token when session becomes null (logout)
   createEffect(() => {
@@ -228,11 +232,27 @@ function ConvexAuthProviderInner(
     const hasSession = hasActiveSessionData(sessionState.data);
     const sessionMissing = !hasSession && !sessionState.isPending;
     const token = authStore.get('token');
+    const sessionId = getSessionId(sessionState.data);
+    const claims = token ? decodeJwtIdentity(token) : null;
+
+    if (!identityInitialized || sessionId !== identitySessionId) {
+      identityInitialized = true;
+      identitySessionId = sessionId;
+      identityClaims = claims;
+      authIdentity = claims
+        ? JSON.stringify({ claims, sessionId: sessionId ?? null })
+        : (sessionId ?? null);
+    } else if (claims && identityClaims === null) {
+      // The first token arrives through the setAuth call already in flight.
+      // Record its claims without pausing and restarting the same auth attempt.
+      identityClaims = claims;
+    } else if (claims && claims !== identityClaims) {
+      identityClaims = claims;
+      authIdentity = JSON.stringify({ claims, sessionId: sessionId ?? null });
+    }
 
     return {
-      identity:
-        getSessionId(sessionState.data) ??
-        (token ? decodeJwtIdentity(token) : null),
+      identity: authIdentity,
       isLoading: sessionState.isPending && !token,
       // If Better Auth confirms no session, stale JWT should not keep auth=true.
       isAuthenticated: sessionMissing ? false : hasSession || token !== null,
