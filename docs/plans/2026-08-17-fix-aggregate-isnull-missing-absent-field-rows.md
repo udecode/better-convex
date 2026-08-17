@@ -182,7 +182,7 @@ Start Gates:
 | Skill analysis before edits | yes | Loaded `task` + `autogoal`; `changeset` rule read before writing `.changeset/loud-jars-shave.md`; `autoreview` loaded for closeout |
 | Active goal checked or created | yes | This plan created via `create-goal-scratchpad.mjs --template task --with package-api --with docs` |
 | Source of truth read before edits | yes | `gh issue view 366` read in full before any file mutation |
-| Exact per-PR task ownership | yes | This plan owns exactly one PR: PENDING_PR_URL |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/370 |
 | GitHub comments and attachments read | yes | `gh issue view 366 --json comments` returned `[]` |
 | Video transcript evidence required | no | N/A: issue contains no video or screen recording |
 | Pre-solution issue challenge required | yes | Recorded above; verdict `valid` |
@@ -196,7 +196,7 @@ Start Gates:
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | User explicitly requested a PR; commit, push, and PR completed |
 | Task-style PR body decision | yes | PR #270 emoji task-style body used |
-| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/2026-08-17-fix-aggregate-isnull-missing-absent-field-rows.md`; plan exists at PR head and names PENDING_PR_URL |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/2026-08-17-fix-aggregate-isnull-missing-absent-field-rows.md`; plan exists at PR head and names https://github.com/udecode/kitcn/pull/370 |
 | GitHub issue sync expectation decision | yes | QA-facing fixed-in-PR comment posted on #366 |
 | Output budget strategy recorded | yes | Recorded above |
 | Package/API pack selected | yes | Change lands in published `kitcn` runtime behavior |
@@ -223,7 +223,7 @@ Work Checklist:
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
 - [x] Every GitHub PR in scope has its own task plan. This plan owns exactly one
-      PR: PENDING_PR_URL. No batch plan was used as a substitute.
+      PR: https://github.com/udecode/kitcn/pull/370. No batch plan was used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason. N/A: no video in source.
 - [x] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -285,7 +285,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named commands | All four surfaces pass; see Verification evidence |
-| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan | PENDING_PR_URL |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan | https://github.com/udecode/kitcn/pull/370 |
 | Pre-solution issue challenge verdict | yes | Record claim, fix, repro, validity, boundary, decision | Recorded above; verdict `valid` |
 | Repro escalation ladder | yes | Record each rung or N/A | Source-level repro sufficient; browser/visual N/A |
 | Bug reproduced before fix | yes | Record failing test | 3/4 cases failed on pristine source |
@@ -306,7 +306,7 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | no | Load agent-native-reviewer | N/A: only the generated kitcn skill mirror changed, regenerated from package source |
 | Local install corruption suspected | yes | Run install/build once and rerun | Missing `packages/kitcn/dist` diagnosed and fixed by the package build; failures disappeared |
 | Commit created | yes | Stage the entire checkout and commit | Whole checkout staged and committed on `fix/aggregate-isnull-absent-rows` |
-| PR create or update | yes | Run `check`, push, create PR, sync body | `bun check` green, pushed, PR opened at PENDING_PR_URL |
+| PR create or update | yes | Run `check`, push, create PR, sync body | `bun check` green, pushed, PR opened at https://github.com/udecode/kitcn/pull/370 |
 | Task-style PR body verified | yes | `gh pr view --json body` | Verified: emoji fix line, task plan line, confidence line, `| Phase | 🧪 Tests | 🌐 Browser |` table, bold emoji sections |
 | PR task evidence verified | yes | Verify body plan line, plan at PR head, exact PR ownership | Verified after the plan-sync commit |
 | PR proof image hosting | no | Host proof images | N/A: no browser proof images |
@@ -489,7 +489,7 @@ High-risk note:
 
 Final handoff contract:
 - Commit line: committed on `fix/aggregate-isnull-absent-rows` (whole checkout staged per repo policy).
-- PR line: PENDING_PR_URL
+- PR line: https://github.com/udecode/kitcn/pull/370
 - Issue line: QA-facing fixed-in-PR comment posted on #366.
 - Confidence line: 95-100%
 - Flow table:
@@ -537,7 +537,7 @@ Task-style PR body contract:
 
 Final handoff / sync:
 - Commit: `fix/aggregate-isnull-absent-rows`.
-- PR: PENDING_PR_URL
+- PR: https://github.com/udecode/kitcn/pull/370
 - Issue: #366 synced with a QA-facing comment.
 - Browser proof: N/A: no browser surface.
 - Caveats: `rank()` and bulk `update`/`delete` `isNull` carry the same
@@ -554,6 +554,8 @@ Timeline:
 - groupBy candidate split landed; 4/4 green.
 - Guard messages reworded for `isNull` expansion.
 - Docs, skill mirror, and changeset landed; repo gates green; autoreview run.
+- User authorized the PR path; branch renamed to `fix/aggregate-isnull-absent-rows`,
+  `bun check` green, committed, pushed, PR #370 opened, issue #366 synced.
 
 Reboot status:
 | Question | Answer |
@@ -576,4 +578,4 @@ Hard closeout guard:
   this plan records an explicit user decline, no local patch, analytical/
   blocked/inconclusive outcome, or a real commit/PR blocker.
 - Not applicable: the user explicitly requested a PR, so this run commits,
-  pushes, and opens PENDING_PR_URL.
+  pushes, and opens https://github.com/udecode/kitcn/pull/370.
