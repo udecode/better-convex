@@ -4450,9 +4450,12 @@ describe('cli/cli', () => {
         path.join(dir, 'convex', 'lib', 'plugins', 'ratelimit', 'plugin.ts'),
         'utf8'
       );
-      expect(ratelimitPluginSource).toContain(
-        'import { MINUTE, Ratelimit, RatelimitPlugin } from "kitcn/ratelimit";'
-      );
+      // Asserted per-symbol, not as one line: the template's import wraps once
+      // it carries enough names for the formatter to split it.
+      for (const symbol of ['MINUTE', 'Ratelimit', 'RatelimitPlugin']) {
+        expect(ratelimitPluginSource).toContain(symbol);
+      }
+      expect(ratelimitPluginSource).toContain('from "kitcn/ratelimit";');
       expect(ratelimitPluginSource).toContain(
         'export const ratelimitBuckets = {'
       );

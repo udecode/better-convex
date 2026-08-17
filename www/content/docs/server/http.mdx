@@ -651,6 +651,15 @@ export function TodoList() {
 }
 ```
 
+`queryOptions` ships a 30 second `staleTime`, so an RSC-prefetched entry hydrates without an immediate refetch on mount. `refetchOnMount` stays at TanStack's default, so a route invalidated while unmounted still refetches when it comes back. Override either per call:
+
+```ts
+crpc.http.todos.list.queryOptions(
+  { searchParams: { limit: '10' } },
+  { staleTime: 0 }
+);
+```
+
 ### One-Time Fetch
 
 For one-time fetches like exports or downloads, use `mutationOptions` with `useMutation`. This gives you `isPending` state and `onSuccess`/`onError` callbacks without caching:
@@ -841,6 +850,27 @@ updateTodo.mutate({ params: { id: todoId }, completed: true });
 // DELETE with path params
 deleteTodo.mutate({ params: { id: todoId } });
 ```
+
+### Cache Keys
+
+`queryKey()` returns the exact key an entry is stored under — the same key `queryOptions()` and RSC prefetching use. Pass it to `getQueryData`/`setQueryData`, which match by exact key.
+
+```tsx showLineNumbers {4-5,8-9}
+const crpc = useCRPC();
+const queryClient = useQueryClient();
+
+const queryKey = crpc.http.todos.list.queryKey();
+// => ['httpQuery', 'todos.list', {}]
+
+const data = queryClient.getQueryData(queryKey);
+queryClient.setQueryData(queryKey, newData);
+
+// Args are part of the key
+crpc.http.todos.get.queryKey({ params: { id: todoId } });
+// => ['httpQuery', 'todos.get', { params: { id: todoId } }]
+```
+
+Reach for `queryFilter()` instead when you want every args variant of a route.
 
 ### Custom Headers and Fetch Options
 
@@ -1047,8 +1077,8 @@ Methods available on each route proxy (`crpc.http.*.*`):
 |--------|-----------|-------------|
 | `queryOptions` | `(args?, queryOpts?)` | Options for `useQuery`/`useSuspenseQuery`. `args` includes client opts, `queryOpts` is TanStack Query only |
 | `mutationOptions` | `(mutationOpts?)` | Options for `useMutation`. `mutationOpts` is TanStack Mutation only, client opts go in `mutate(args)` |
-| `queryKey` | `(args?)` | Get the query key for cache operations |
-| `queryFilter` | `(args?, filters?)` | Filter for `invalidateQueries`, etc. |
+| `queryKey` | `(args?)` | Exact cache key for these args — for `getQueryData`/`setQueryData` |
+| `queryFilter` | `(args?, filters?)` | Filter for `invalidateQueries`, etc. Omit `args` to match every variant |
 
 ## Next Steps
 

@@ -37,7 +37,7 @@ Closure matrix:
 | agent workflow | no | no agent tooling changes | N/A |
 | cleanup/review | yes | zero-net deslop and repair review | clean |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | exact head, merge, release, read-back | pending |
+| GitHub delivery | yes | exact head, merge, release, read-back | complete |
 
 Work checklist:
 - [x] Exact released-main diff and three review threads reconstructed.
@@ -46,7 +46,7 @@ Work checklist:
 - [x] Changeset and docs/skill ownership reviewed.
 - [x] Focused and package proof passes.
 - [x] Deslop, lint, full check, and final whole-branch review pass.
-- [ ] Feedback is resolved and exact remote delivery completes.
+- [x] Feedback is resolved and exact remote delivery completes.
 
 Verification evidence:
 - The branch is broad but substantive, not generated slop. It removes repeated
@@ -67,6 +67,11 @@ Verification evidence:
   unchanged; the focused follow-up review is clean at 0.98.
 - The committed whole-branch P1 review is clean at 0.94 and reports no P0/P1
   defect across validation, memoization, HTTP coercion, or codec dispatch.
+- Exact head `9c5050c3` passed all required gates and squash-merged as
+  `13fbae32`. Release PR #358 merged as `d5ff987e`, published npm/GitHub
+  `v0.23.0`, and post-release CI `31998182904` passed.
+- Release Convex Matrix run `31998177107` passed job `95293531708`, including
+  the full version matrix and runtime scenarios, from 05:31:15Z to 05:47:03Z.
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -74,5 +79,5 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | output type contract and changeset | proof |
 | Review/checks | complete | focused/package/full gates; whole-branch review clean | delivery |
-| Delivery | in_progress | committed head ready | exact GitHub closure |
-| Closeout | pending | | release read-back |
+| Delivery | complete | exact head merged and released | closeout |
+| Closeout | complete | npm/tag/post-release CI read back | done |

@@ -9,6 +9,7 @@ import {
 } from '../../plan-helpers.js';
 import type { PluginRegistryBuildPlanFilesParams } from '../../types.js';
 import { patchRatelimitCrpcSource } from './ratelimit-crpc.js';
+import { RATELIMIT_FUNCTIONS_TEMPLATE } from './ratelimit-functions.template.js';
 import { RATELIMIT_PLUGIN_TEMPLATE } from './ratelimit-plugin.template.js';
 import { RATELIMIT_SCHEMA_TEMPLATE } from './ratelimit-schema.template.js';
 
@@ -18,6 +19,13 @@ const RATELIMIT_FILES = [
     path: 'schema.ts',
     target: 'lib',
     content: RATELIMIT_SCHEMA_TEMPLATE,
+  }),
+  createRegistryFile({
+    id: 'ratelimit-functions',
+    path: 'ratelimit.ts',
+    target: 'functions',
+    content: RATELIMIT_FUNCTIONS_TEMPLATE,
+    requires: ['ratelimit-schema'],
   }),
   createRegistryFile({
     id: 'ratelimit-plugin',
@@ -82,7 +90,7 @@ export const ratelimitRegistryItem = defineInternalRegistryItem({
         name: 'server-first',
         description:
           'Scaffold a reusable ratelimit plugin and auto-register schema extension.',
-        registryDependencies: ['ratelimit-schema', 'ratelimit-plugin'],
+        registryDependencies: RATELIMIT_FILES.map((file) => file.meta.id),
       },
       {
         name: 'schema-only',

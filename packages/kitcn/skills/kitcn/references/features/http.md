@@ -495,7 +495,17 @@ crpc.http.todos.list.queryOptions({
   searchParams: { limit: "10" },
   headers: { "X-Custom": "value" },
 });
+
+// Override the default 30s staleTime
+crpc.http.todos.list.queryOptions(
+  { searchParams: { limit: "10" } },
+  { staleTime: 0 }
+);
 ```
+
+`queryOptions` defaults to a 30 second `staleTime` so RSC-prefetched entries hydrate
+without an immediate refetch. `refetchOnMount` keeps TanStack's default, so a route
+invalidated while unmounted still refetches.
 
 ### One-Time Fetch
 
@@ -557,6 +567,20 @@ const updateTodo = useMutation(
   })
 );
 ```
+
+### Cache Keys
+
+```ts
+const queryKey = crpc.http.todos.list.queryKey();
+// => ['httpQuery', 'todos.list', {}]
+queryClient.getQueryData(queryKey);
+
+crpc.http.todos.get.queryKey({ params: { id: '123' } });
+// => ['httpQuery', 'todos.get', { params: { id: '123' } }]
+```
+
+`queryKey()` is the exact key `queryOptions()` and RSC prefetching store under, so
+`getQueryData`/`setQueryData` hit. Use `queryFilter()` to match every args variant.
 
 See [Client Methods](#client-methods) in API Reference.
 
@@ -645,4 +669,5 @@ Client args can include `params`, `searchParams`, `form`, custom `fetch`,
 ### Client Methods
 
 Generated clients expose `queryOptions`, `staticQueryOptions`,
-`mutationOptions`, `queryKey`, and `queryFilter`.
+`mutationOptions`, `queryKey` (exact cache key), and `queryFilter` (matches every
+args variant when called without args).

@@ -345,3 +345,5 @@ Unlike traditional REST APIs that use polling, Convex pushes updates via WebSock
 | `gcTime` | `5 min` | Cached data persists for back-navigation after unmount |
 | `refetchOnMount` | `false` | No need to refetch - subscription provides latest data |
 | `refetchOnWindowFocus` | `false` | WebSocket already pushed any changes |
+
+These apply to the WebSocket push model. `crpc.http.*` routes are pull-model and carry their own `staleTime` of 30 seconds with `refetchOnMount` left at TanStack's default — see [HTTP Routes](/docs/server/http).

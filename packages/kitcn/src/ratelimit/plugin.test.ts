@@ -1,8 +1,13 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { definePlugin } from '../plugins';
 import { CRPCError, initCRPC } from '../server';
+import { resetProtectionState } from './core/deny-list';
 import { MINUTE, Ratelimit, RatelimitPlugin } from './index';
-import type { ConvexRatelimitDbWriter, LimitRequest } from './types';
+import type {
+  ConvexRatelimitDbWriter,
+  LimitRequest,
+  ProtectionLists,
+} from './types';
 
 type TableRow = Record<string, unknown> & {
   _id: string;
@@ -27,17 +32,30 @@ function createMockDb(): ConvexRatelimitDbWriter {
       const table = getTable(tableName);
       return {
         withIndex(_name, cb) {
-          const filters: Array<{ field: string; value: unknown }> = [];
+          const filters: Array<{
+            field: string;
+            operation: 'eq' | 'lt';
+            value: unknown;
+          }> = [];
           cb({
             eq(field: string, value: unknown) {
-              filters.push({ field, value });
+              filters.push({ field, operation: 'eq', value });
+              return this;
+            },
+            lt(field: string, value: unknown) {
+              filters.push({ field, operation: 'lt', value });
               return this;
             },
           });
 
           const filtered = () =>
             table.filter((row) =>
-              filters.every((filter) => row[filter.field] === filter.value)
+              filters.every((filter) => {
+                if (filter.operation === 'eq') {
+                  return row[filter.field] === filter.value;
+                }
+                return Number(row[filter.field]) < Number(filter.value);
+              })
             );
 
           return {
@@ -46,6 +64,9 @@ function createMockDb(): ConvexRatelimitDbWriter {
             },
             async collect() {
               return filtered();
+            },
+            async take(limit: number) {
+              return filtered().slice(0, limit);
             },
           };
         },
@@ -90,6 +111,7 @@ type TestCtx = {
   db: ConvexRatelimitDbWriter;
   scheduler: {};
   user: TestUser | null;
+  ip?: string;
 };
 
 type TestMeta = {
@@ -100,6 +122,7 @@ const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
 
 function createConfiguredPlugin(options?: {
   onSignals?: (request: LimitRequest | undefined) => void;
+  denyList?: ProtectionLists;
 }) {
   return RatelimitPlugin.configure({
     buckets: {
@@ -116,25 +139,36 @@ function createConfiguredPlugin(options?: {
     },
     getBucket: ({ meta }: { meta: TestMeta }) => meta.ratelimit ?? 'default',
     getUser: ({ ctx }: { ctx: TestCtx }) => ctx.user,
-    getIdentifier: ({ user }: { user: TestUser | null }) =>
-      user?.id ?? 'anonymous',
     getTier: (user: TestUser | null) => (user?.plan ? 'premium' : 'free'),
-    getSignals: ({ user }: { user: TestUser | null }) => {
+    getSignals: ({ ctx, user }: { ctx: TestCtx; user: TestUser | null }) => {
       const request = {
-        ip: user ? '127.0.0.1' : '127.0.0.2',
+        ip: ctx.ip ?? (user ? '127.0.0.1' : '127.0.0.2'),
         userAgent: 'bun:test',
       } satisfies LimitRequest;
       options?.onSignals?.(request);
       return request;
     },
+    getIdentifier: ({
+      user,
+      signals,
+    }: {
+      user: TestUser | null;
+      signals: LimitRequest | undefined;
+    }) => user?.id ?? `ip:${signals?.ip ?? 'unknown'}`,
     failureMode: 'closed',
     enableProtection: true,
     denyListThreshold: 30,
+    denyList: options?.denyList,
     prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   });
 }
 
 describe('RatelimitPlugin', () => {
+  // Deny-list state is module-scope, so every test in this file shares it.
+  beforeEach(() => {
+    resetProtectionState();
+  });
+
   test('middleware() injects ctx.api.ratelimit and uses default bucket when unset', async () => {
     const db = createMockDb();
     const plugin = createConfiguredPlugin();
@@ -241,6 +275,89 @@ describe('RatelimitPlugin', () => {
       ip: '127.0.0.1',
       userAgent: 'bun:test',
     });
+  });
+
+  test('middleware() resolves signals before the identifier so each request ip gets its own budget', async () => {
+    const db = createMockDb();
+    const plugin = createConfiguredPlugin();
+    const ips = ['203.0.113.1', '203.0.113.2', '203.0.113.1'];
+    let call = 0;
+    const c = initCRPC
+      .context({
+        mutation: () =>
+          ({
+            db,
+            scheduler: {},
+            user: null,
+            ip: ips[call++],
+          }) satisfies TestCtx,
+      })
+      .meta<TestMeta>()
+      .create();
+
+    const proc = c.mutation.use(plugin.middleware()).mutation(async () => 'ok');
+
+    // Two distinct ips do not share the single-token public budget.
+    await expect((proc as any)._handler({}, {})).resolves.toBe('ok');
+    await expect((proc as any)._handler({}, {})).resolves.toBe('ok');
+    // The first ip comes back and is out of budget.
+    await expect((proc as any)._handler({}, {})).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    } satisfies Partial<CRPCError>);
+  });
+
+  test('middleware() forwards denyList to the limiter', async () => {
+    const db = createMockDb();
+    const plugin = createConfiguredPlugin({
+      denyList: { ips: ['203.0.113.9'] },
+    });
+    const c = initCRPC
+      .context({
+        mutation: () =>
+          ({
+            db,
+            scheduler: {},
+            user: null,
+            ip: '203.0.113.9',
+          }) satisfies TestCtx,
+      })
+      .meta<TestMeta>()
+      .create();
+
+    const proc = c.mutation.use(plugin.middleware()).mutation(async () => 'ok');
+
+    // Denied on the first call: a static deny list short-circuits before any
+    // budget is spent, so this only passes if `denyList` reached the limiter.
+    await expect((proc as any)._handler({}, {})).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    } satisfies Partial<CRPCError>);
+  });
+
+  test('middleware() calls getSignals once per request', async () => {
+    const db = createMockDb();
+    let signalCalls = 0;
+    const plugin = createConfiguredPlugin({
+      onSignals: () => {
+        signalCalls += 1;
+      },
+    });
+    const c = initCRPC
+      .context({
+        mutation: () =>
+          ({
+            db,
+            scheduler: {},
+            user: null,
+          }) satisfies TestCtx,
+      })
+      .meta<TestMeta>()
+      .create();
+
+    const proc = c.mutation.use(plugin.middleware()).mutation(async () => 'ok');
+
+    await expect((proc as any)._handler({}, {})).resolves.toBe('ok');
+
+    expect(signalCalls).toBe(1);
   });
 
   test('extend() can coexist with named middleware presets', async () => {

@@ -7,7 +7,7 @@
 
 import type { QueryOptions } from '@tanstack/react-query';
 import { executeHttpRequest, type HttpInputArgs } from '../crpc/http-client';
-import type { HttpRouteInfo } from '../crpc/http-types';
+import { buildHttpQueryKey, type HttpRouteInfo } from '../crpc/http-types';
 import type { CombinedDataTransformer } from '../crpc/transformer';
 
 /** Metadata attached to HTTP query options for execution by QueryClient */
@@ -23,11 +23,11 @@ export interface HttpQueryMeta {
 export function buildHttpQueryOptions(
   route: HttpRouteInfo,
   routeKey: string,
-  args: unknown
+  args?: unknown
 ): QueryOptions {
   return {
-    // Match client query key format for hydration
-    queryKey: ['httpQuery', routeKey, args] as const,
+    // Shared builder guarantees the key matches the browser observer's key
+    queryKey: buildHttpQueryKey(routeKey, args),
     // Route info stored in meta for queryFn to use
     meta: {
       path: route.path,

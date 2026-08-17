@@ -130,8 +130,8 @@ PR disposition ledger:
 | #337 | bound aggregate reads and clearing | valuable but high-risk; duplicate helper, budget, discovery, and clearing-race gaps repaired | first P1 fixed upstream; five local P1 blockers repaired across two bounded review cycles | before #342 | closed: merged `5d3172b2`, released v0.20.0, post-release CI green |
 | #338 | cache auth schema and repair session restore | credible, breaking; session races and paginated uniqueness repaired | 3 GitHub P1s plus 1 accepted local P1 | after released #337 | closed: merged `7163710a`, released v0.21.0, post-release CI green |
 | #339 | restore Solid/React parity | credible but broad; stale changeset story was slop and removed | 4 outdated threads plus accepted local privacy findings | after #329/#332 | closed: merged `ed72944a`, corrected and released v0.22.1, post-release CI green |
-| #340 | validate cRPC output once | credible; not slop, but handler/client output typing was wrong | 2 upstream repairs plus 1 accepted local P1 | after released #339 | [repair in progress](docs/plans/2026-08-17-pr-340-autoclosure.md) |
-| #341 | key anonymous rate limits per request | high-risk operational/security bundle | 4 threads | late; must remove cron burden or redesign | decision pending |
+| #340 | validate cRPC output once | credible; not slop, but handler/client output typing was wrong | 2 upstream repairs plus 1 accepted local P1 | after released #339 | closed: merged `13fbae32`, released v0.23.0, post-release CI green |
+| #341 | key anonymous rate limits per request | mixed but substantive; deny-list safety and recurring cleanup proposal were slop | 2 upstream fixes plus 2 accepted P1s | after released #340 | [local proof complete](docs/plans/2026-08-17-pr-341-autoclosure.md); manual cleanup only; delivery in progress |
 | #342 | inject ORM capabilities to cut bundle graphs | potentially valuable architecture change, far too large for trust-by-CI | 4 threads | last; depends on #330/#331/#333/#335/#337/#341 | deep review pending |
 
 Dependency-safe order:
@@ -278,6 +278,23 @@ Verification evidence:
   as `5d3172b2`. Release PR #353 passed Convex Matrix `31982252778`, merged as
   `778464fc`, and published both npm packages plus GitHub `v0.20.0` at that
   exact commit. Post-release CI `31983014399` passed.
+- #340 exact head `9c5050c3` passed all remote gates and squash-merged as
+  `13fbae32`. Release PR #358 merged as `d5ff987e`, published both npm packages
+  plus GitHub `v0.23.0`, and post-release CI `31998182904` passed. Release
+  Convex Matrix `31998177107` passed job `95293531708`, including the full
+  version matrix and runtime scenarios.
+- #341 is not wholesale slop, but its deny-list retained blocked members without
+  a bound, counted an inactivity interval instead of a rolling window, and
+  collided long values sharing prefix and length. Focused red/green tests cover
+  all three repairs. Recurring cleanup is rejected; an indexed batched private
+  mutation provides manual/on-demand cleanup instead.
+- #341 final bounded protection is explicitly an LRU optimization over the
+  database limiter: histories evict before blocks, active blocks refresh, and
+  cold blocks may evict only at total saturation. The final P1 review is clean
+  at 0.92 after two accepted security findings defined that honest contract.
+- #341 passes 99 focused tests, package/example typechecks, package build, all
+  eight fixture sync/check variants, intent gates, zero-net deslop, `bun check`,
+  and an explicit all-scenario runtime rerun. Delivery remains pending.
 - #338 is real auth-runtime work, not disposable slop. Three live P1 races were
   repaired: restore success rechecks token/session ownership, each transport
   probe shares the grace deadline, and stable session IDs distinguish a cloned

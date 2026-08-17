@@ -8,7 +8,7 @@ import {
 } from 'kitcn/orm';
 
 export const ratelimitStateTable = convexTable(
-  'ratelimit_state',
+  'ratelimitState',
   {
     name: text().notNull(),
     key: text(),
@@ -21,11 +21,12 @@ export const ratelimitStateTable = convexTable(
   (t) => [
     index('by_name_key_shard').on(t.name, t.key, t.shard),
     index('by_name_key').on(t.name, t.key),
+    index('by_ts').on(t.ts),
   ]
 );
 
 export const ratelimitDynamicTable = convexTable(
-  'ratelimit_dynamic_limit',
+  'ratelimitDynamicLimit',
   {
     prefix: text().notNull(),
     limit: integer().notNull(),
@@ -35,7 +36,7 @@ export const ratelimitDynamicTable = convexTable(
 );
 
 export const ratelimitProtectionTable = convexTable(
-  'ratelimit_protection_hit',
+  'ratelimitProtectionHit',
   {
     prefix: text().notNull(),
     value: text().notNull(),
