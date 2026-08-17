@@ -67,6 +67,8 @@ export function ConvexProviderWithAuth(
   props: ParentProps<{
     client: ConvexClient;
     useAuth: () => {
+      /** Stable account/session identity. Token refreshes must keep this value. */
+      identity?: string | null;
       isLoading: boolean;
       isAuthenticated: boolean;
       fetchAccessToken: AuthTokenFetcher;
@@ -77,25 +79,35 @@ export function ConvexProviderWithAuth(
   const [isConvexLoading, setIsConvexLoading] = createSignal(true);
   const [isConvexAuthenticated, setIsConvexAuthenticated] = createSignal(false);
 
-  // The provider's contract with `useAuth` is two booleans plus a fetcher.
-  // Memoize each so a token write that changes none of them stops here, and run
-  // the body through `on` so the synchronous `fetchAccessToken` call inside
-  // `setAuth` cannot add its own reads (the JWT and its expiry) as
-  // dependencies. Both leaks re-enter `setAuth`, and each re-entry pauses the
-  // socket and bumps the Convex identity version, which re-executes every live
-  // subscription server-side.
+  // Memoize the provider's booleans, fetcher, and stable identity separately so
+  // a token-only write stops here. Run the body through `on` so the synchronous
+  // `fetchAccessToken` call inside `setAuth` cannot add the JWT and expiry as
+  // dependencies. Both leaks re-enter `setAuth`, pause the socket, and
+  // re-execute every live subscription server-side.
   //
   // `fetchAccessToken` is a source, not just a value read in the body: a custom
   // `useAuth` may hand back a new fetcher when its session state changes, and
   // Convex would otherwise keep refreshing through the fetcher bound to the
   // previous account. Memo equality is referential, so a fetcher that stays the
   // same function across a token write still stops here.
-  const isAuthLoading = createMemo(() => props.useAuth().isLoading);
-  const isAuthenticated = createMemo(() => props.useAuth().isAuthenticated);
-  const fetchAccessToken = createMemo(() => props.useAuth().fetchAccessToken);
+  const authSnapshot = createMemo(() => props.useAuth(), undefined, {
+    equals: false,
+  });
+  const isAuthLoading = createMemo(() => authSnapshot().isLoading);
+  const isAuthenticated = createMemo(() => authSnapshot().isAuthenticated);
+  const fetchAccessToken = createMemo(() => authSnapshot().fetchAccessToken);
+  const identity = createMemo(() => {
+    const snapshot = authSnapshot();
+    // Existing custom providers do not publish an identity. Preserve their
+    // safe legacy behavior: any reactive auth change rebinds Convex. Providers
+    // that supply a stable identity avoid rebinding for token-only writes.
+    return snapshot.identity === undefined
+      ? Symbol('legacy-auth-transition')
+      : snapshot.identity;
+  });
 
   createEffect(
-    on([isAuthLoading, isAuthenticated, fetchAccessToken], () => {
+    on([isAuthLoading, isAuthenticated, fetchAccessToken, identity], () => {
       if (isAuthLoading()) return;
 
       if (!isAuthenticated()) {
@@ -119,6 +131,7 @@ export function ConvexProviderWithAuth(
   return (
     <ConvexContext.Provider value={props.client}>
       <ConvexAuthBridge
+        identity={identity()}
         isAuthenticated={isConvexAuthenticated()}
         isLoading={isConvexLoading()}
       >

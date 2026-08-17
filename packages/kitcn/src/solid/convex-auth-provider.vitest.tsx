@@ -219,9 +219,12 @@ describe('ConvexAuthProvider', () => {
       clearAuth: () => {},
     };
 
+    const [session, setSession] = createSignal({
+      data: { session: { id: 'session-1' } },
+      isPending: false,
+    });
     const authClient = {
-      useSession: () =>
-        makeSessionAccessor({ session: { id: 'session-1' } }, false),
+      useSession: () => session,
       convex: { token: convexToken },
       getSession: async () => null,
       updateSession: () => {},
@@ -251,6 +254,13 @@ describe('ConvexAuthProvider', () => {
     result.set('expiresAt', Date.now() + 9_000_000);
 
     expect(setAuthCalls).toHaveLength(1);
+
+    setSession({
+      data: { session: { id: 'session-2' } },
+      isPending: false,
+    });
+
+    expect(setAuthCalls).toHaveLength(2);
   });
 
   test('treats empty session payload as unauthenticated', async () => {

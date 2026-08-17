@@ -56,6 +56,25 @@ describe('ConvexProviderWithAuth', () => {
     expect(setAuthCalls).toEqual([first, second]);
   });
 
+  test('rebinds Convex when the account identity changes with a stable fetcher', () => {
+    const { client, setAuthCalls } = makeClient();
+    const fetchAccessToken: AuthTokenFetcher = async () => 'token';
+    const [identity, setIdentity] = createSignal('account-a');
+
+    renderProvider(client, () => ({
+      isLoading: false,
+      isAuthenticated: true,
+      fetchAccessToken,
+      identity: identity(),
+    }));
+
+    expect(setAuthCalls).toEqual([fetchAccessToken]);
+
+    setIdentity('account-b');
+
+    expect(setAuthCalls).toEqual([fetchAccessToken, fetchAccessToken]);
+  });
+
   test('does not rebind when a token write leaves the fetcher identity alone', () => {
     const { client, setAuthCalls } = makeClient();
     const [token, setToken] = createSignal('token-a');
@@ -68,6 +87,7 @@ describe('ConvexProviderWithAuth', () => {
         isLoading: false,
         isAuthenticated: true,
         fetchAccessToken,
+        identity: 'account-a',
       };
     });
 

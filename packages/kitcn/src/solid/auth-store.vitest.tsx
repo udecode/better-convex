@@ -68,6 +68,7 @@ describe('useSafeConvexAuth / useAuth', () => {
   test('useSafeConvexAuth returns defaults when no auth is configured', () => {
     const { result } = renderHook(() => useSafeConvexAuth());
     expect(result).toEqual({
+      identity: null,
       isAuthenticated: false,
       isLoading: false,
     });
@@ -75,7 +76,11 @@ describe('useSafeConvexAuth / useAuth', () => {
 
   test('useSafeConvexAuth + useAuth use ConvexAuthBridge when present', () => {
     const wrapper = (props: { children: JSX.Element }) => (
-      <ConvexAuthBridge isAuthenticated={true} isLoading={false}>
+      <ConvexAuthBridge
+        identity="account-a"
+        isAuthenticated={true}
+        isLoading={false}
+      >
         {props.children}
       </ConvexAuthBridge>
     );
@@ -84,6 +89,7 @@ describe('useSafeConvexAuth / useAuth', () => {
       wrapper,
     });
     expect(safeAuth).toEqual({
+      identity: 'account-a',
       isAuthenticated: true,
       isLoading: false,
     });

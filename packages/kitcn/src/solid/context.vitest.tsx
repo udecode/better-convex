@@ -2,6 +2,7 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: testing */
 
 import { renderHook } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as metaUtilsModule from '../shared/meta-utils';
 import * as authStoreModule from './auth-store';
@@ -79,6 +80,39 @@ describe('context (solid)', () => {
     });
 
     expect(result).toBe(mockProxy);
+  });
+
+  test('resets auth-bound queries on a provider identity transition', () => {
+    const [identity, setIdentity] = createSignal<unknown>('account-a');
+    vi.spyOn(authStoreModule, 'useSafeConvexAuth').mockImplementation(
+      () =>
+        ({
+          get identity() {
+            return identity();
+          },
+          isAuthenticated: true,
+          isLoading: false,
+        }) as any
+    );
+    const resetAuthQueries = vi.fn(async () => {});
+    const { CRPCProvider, useCRPC } = createCRPCContext({ api: {} as any });
+
+    renderHook(() => useCRPC(), {
+      wrapper: (props: any) => (
+        <CRPCProvider
+          convexClient={{} as any}
+          convexQueryClient={{ resetAuthQueries } as any}
+        >
+          {props.children}
+        </CRPCProvider>
+      ),
+    });
+
+    expect(resetAuthQueries).not.toHaveBeenCalled();
+
+    setIdentity('account-b');
+
+    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
   });
 
   test('useCRPCClient returns vanilla client inside provider', () => {

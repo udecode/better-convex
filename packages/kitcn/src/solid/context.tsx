@@ -7,13 +7,17 @@
  */
 
 import type { ConvexClient } from 'convex/browser';
-import { createContext, type JSX, useContext } from 'solid-js';
+import { createContext, createEffect, type JSX, useContext } from 'solid-js';
 import type { HttpClientError } from '../crpc/http-types';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import { buildMetaIndex } from '../shared/meta-utils';
 import { MetaContext } from './auth';
-import { useAuthStore, useFetchAccessToken } from './auth-store';
+import {
+  useAuthStore,
+  useFetchAccessToken,
+  useSafeConvexAuth,
+} from './auth-store';
 import type { ConvexQueryClient } from './client';
 import type { CRPCClient, VanillaCRPCClient } from './crpc-types';
 import {
@@ -137,7 +141,28 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     convexQueryClient: ConvexQueryClient;
   }) {
     const authStore = useAuthStore();
+    const auth = useSafeConvexAuth();
     const fetchAccessToken = useFetchAccessToken();
+    let previousAuth:
+      | { identity: unknown; isAuthenticated: boolean }
+      | undefined;
+
+    createEffect(() => {
+      const currentAuth = {
+        identity: auth.identity,
+        isAuthenticated: auth.isAuthenticated,
+      };
+      const previous = previousAuth;
+      previousAuth = currentAuth;
+
+      if (
+        previous &&
+        (previous.identity !== currentAuth.identity ||
+          previous.isAuthenticated !== currentAuth.isAuthenticated)
+      ) {
+        void props.convexQueryClient.resetAuthQueries();
+      }
+    });
 
     // No useMemo needed — Solid component body runs once
     const proxy = createCRPCOptionsProxy(api, meta, options.transformer);

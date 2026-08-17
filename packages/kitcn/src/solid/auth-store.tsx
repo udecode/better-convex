@@ -37,7 +37,11 @@ export const useFetchAccessToken = () => useContext(FetchAccessTokenContext);
 // ConvexAuthBridge Context - For @convex-dev/auth users without better-auth
 // ============================================================================
 
-type ConvexAuthResult = { isAuthenticated: boolean; isLoading: boolean };
+type ConvexAuthResult = {
+  identity: unknown;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+};
 
 /**
  * Context that holds auth result from ConvexAuthBridge.
@@ -201,6 +205,9 @@ export function useSafeConvexAuth(): ConvexAuthResult {
 
   // Return getters so property access reads lazily from the store
   return {
+    get identity() {
+      return bridgeAuth?.identity ?? null;
+    },
     get isAuthenticated() {
       if (authStore.store) return authStore.get('isAuthenticated');
       if (bridgeAuth !== null) return bridgeAuth.isAuthenticated;
@@ -224,12 +231,16 @@ export function useSafeConvexAuth(): ConvexAuthResult {
  */
 export function ConvexAuthBridge(
   props: ParentProps<{
+    identity?: unknown;
     isLoading: boolean;
     isAuthenticated: boolean;
   }>
 ) {
   // Use getters so context consumers can track prop changes reactively
   const value = {
+    get identity() {
+      return props.identity ?? null;
+    },
     get isLoading() {
       return props.isLoading;
     },

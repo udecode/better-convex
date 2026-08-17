@@ -29,6 +29,10 @@
 - Fix `kitcn/solid` ignoring a `useAuth` that returns a new `fetchAccessToken`.
   Convex is rebound to the current fetcher instead of refreshing through the one
   captured for the previous session.
+- Fix provider-driven identity transitions retaining the previous account's
+  auth-bound cache or Convex binding. `ConvexProviderWithAuth` accepts an
+  optional stable `identity`; providers that omit it retain the safe legacy
+  behavior of rebinding on reactive auth changes.
 - Fix an account transition leaving the previous account's rows in disabled,
   unobserved, or non-subscribed queries.
 - Fix a paginated list restoring the previous account's cursors after signing

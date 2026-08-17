@@ -11,6 +11,7 @@ import type { ConvexClient } from 'convex/browser';
 import { createEffect, type JSX, onMount, type ParentProps } from 'solid-js';
 
 import { CRPCClientError, defaultIsUnauthorized } from '../crpc/error';
+import { decodeJwtIdentity } from '../internal/jwt';
 import {
   AuthProvider,
   decodeJwtExp,
@@ -55,6 +56,18 @@ const hasActiveSessionData = (session: unknown) => {
     return false;
   }
   return Boolean((session as { session?: unknown }).session);
+};
+
+const getSessionId = (sessionData: unknown): string | undefined => {
+  if (!sessionData || typeof sessionData !== 'object') {
+    return;
+  }
+  const session = (sessionData as { session?: unknown }).session;
+  if (!session || typeof session !== 'object') {
+    return;
+  }
+  const id = (session as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
 };
 
 /**
@@ -217,6 +230,9 @@ function ConvexAuthProviderInner(
     const token = authStore.get('token');
 
     return {
+      identity:
+        getSessionId(sessionState.data) ??
+        (token ? decodeJwtIdentity(token) : null),
       isLoading: sessionState.isPending && !token,
       // If Better Auth confirms no session, stale JWT should not keep auth=true.
       isAuthenticated: sessionMissing ? false : hasSession || token !== null,

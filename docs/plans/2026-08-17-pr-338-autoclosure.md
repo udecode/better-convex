@@ -40,6 +40,13 @@ Boundaries:
 - non-goals: Solid/React parity (#339), cRPC output (#340), scheduled rate-limit
   cleanup (#341), or ORM capability injection (#342)
 
+Output budget strategy:
+- Run focused auth owners first; keep GitHub polling to exact-head summaries.
+
+Blocked condition:
+- Stop only if owning auth proof or maintainer merge authority remains
+  unavailable after the documented retry path.
+
 Start Gates:
 | Gate | Applies | Evidence |
 | --- | --- | --- |
@@ -61,14 +68,14 @@ Closure matrix:
 | agent workflow | no | no agent workflow changes | N/A |
 | cleanup/review | yes | deslop and autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, exact checks, merge/release | pending |
+| GitHub delivery | yes | feedback, exact checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
 - [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Package/docs/skill/changeset ownership is classified.
 - [x] Accepted cleanup and review findings are closed locally.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -88,9 +95,9 @@ Completion Gates:
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 905 files clean |
 | Repository check | yes | run `bun check` | complete against released v0.20.0 main |
-| GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
+| GitHub delivery | complete | push, feedback, exact checks, merge/release | PR #338 merged `7163710a`; release PR #354 merged `351abde5`; v0.21.0 published; post-release CI green |
 | Autoreview | yes | final branch review | final whole-branch P1 review clean at 0.87 |
-| Goal plan complete | yes | run checker | pending |
+| Goal plan complete | yes | run checker | complete at final audit |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -98,8 +105,8 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | three session-race defects repaired | review/checks |
 | Review/checks | complete | focused/package/deslop/lint/full gates green | final review |
-| Delivery | in_progress | final committed bundle ready | push, checks, merge/release |
-| Closeout | pending | | final |
+| Delivery | complete | exact checks, merge, release, and post-release CI green | closeout |
+| Closeout | complete | final receipts recorded | final |
 
 Verification evidence:
 - The branch is substantial runtime work, not disposable slop, but its original
@@ -122,6 +129,19 @@ Verification evidence:
 - The final committed whole-branch P1 autoreview is clean and calls the patch
   correct at 0.87 confidence.
 
+Timeline:
+- 2026-08-17 Repaired persisted-session ownership and deadline races.
+- 2026-08-17 Repaired paginated update uniqueness and passed final review/checks.
+- 2026-08-17 Merged #338 and #354, published v0.21.0, and verified post-release CI.
+
+Reboot status:
+| Question | Answer |
+| --- | --- |
+| Where am I? | Closeout complete |
+| Where am I going? | PR #339 |
+| What is the goal? | Ship only proven auth hot-path behavior. |
+| What have I learned? | Green auth paths still hid ownership and pagination races. |
+| What have I done? | Closed four P1 gaps and verified merge, release, and post-release CI. |
+
 Open risks:
-- Remote exact-head checks, merge, release, and post-release CI remain.
-- Remote exact-head checks, merge, release, and post-release CI remain unproven.
+- None in PR #338 scope.

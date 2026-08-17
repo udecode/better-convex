@@ -36,6 +36,14 @@ Boundaries:
 - non-goals: cRPC output (#340), rate-limit cleanup (#341), or ORM capability
   injection (#342)
 
+Output budget strategy:
+- Run focused React/Solid owners first; keep GitHub polling to exact-head
+  summaries and save full-gate logs outside the final handoff.
+
+Blocked condition:
+- Stop only if owning Solid runtime proof or maintainer merge authority remains
+  unavailable after the documented retry path.
+
 Start Gates:
 | Gate | Applies | Evidence |
 | --- | --- | --- |
@@ -48,37 +56,38 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | shared gate/reset plus React/Solid bindings | in_progress |
-| package/API/build | yes | package typecheck/build | pending |
+| source behavior | yes | shared gate/reset plus React/Solid bindings | complete |
+| package/API/build | yes | package typecheck/build | complete |
 | generated output | no | no generated artifact changes | N/A |
 | fixtures/scenarios | yes | full check/runtime | pending |
 | docs/package skill | no | no end-user setup surface changes | N/A |
-| changeset | yes | `.changeset/solid-bindings-parity.md` | repair pending |
+| changeset | yes | `.changeset/solid-bindings-parity.md` | complete |
 | agent workflow | no | no agent workflow changes | N/A |
-| cleanup/review | yes | deslop and autoreview | pending |
+| cleanup/review | yes | deslop and autoreview | review rerun pending |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | yes | feedback, exact checks, merge/release | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each local lane is proven or N/A with a concrete reason.
-- [ ] Package/changeset ownership is closed.
-- [ ] Accepted cleanup and review findings are closed locally.
+- [x] Each focused local lane is proven or N/A with a concrete reason.
+- [x] Package/changeset ownership is closed.
+- [x] Accepted cleanup and review findings are closed locally.
 - [ ] PR body and check state match the final evidence.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
 | Branch conflicted with released auth and Solid mount owners | 1 | merge owners semantically and retain real Solid Query tests | focused merged-owner tests pass |
+| Stable fetcher missed account switches; provider transitions missed cache reset | 1 | publish a stable identity through the provider bridge and reset at the Solid CRPC owner | three red regressions now pass; 90 Solid owner tests green |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | run React/Solid owner suites | pending |
-| Package/docs/scenario closure | pending | typecheck/build/full check | pending |
-| Deslop | pending | changed-file cleanup | pending |
+| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 90 Solid tests pass |
+| Package/docs/scenario closure | pending | typecheck/build/full check | package typecheck/build green; final full check rerun pending |
+| Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
-| Final lint | yes | run `bun lint:fix` | pending |
+| Final lint | yes | run `bun lint:fix` | 910 files clean |
 | Repository check | yes | run `bun check` | pending |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
 | Autoreview | yes | final whole-branch review | pending |
@@ -88,8 +97,8 @@ Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback | repair |
-| Repair | in_progress | source-backed main merge | focused proof |
-| Review/checks | pending | | review/checks |
+| Repair | complete | released-main merge plus provider identity owner | focused proof |
+| Review/checks | in_progress | focused/package/deslop green | full check and final review |
 | Delivery | pending | | push, checks, merge/release |
 | Closeout | pending | | final |
 
@@ -100,7 +109,21 @@ Verification evidence:
   JWT-identity owner, stable React page options, and #329's unmocked Solid Query
   runtime suite. Initial focused React and shared-owner tests pass 41/41; Solid
   owner files pass 18/18; package typecheck passes.
+- The first whole-branch P1 review found Solid could miss account switches when
+  the token fetcher stayed stable and provider-driven transitions bypassed the
+  cache reset. Three red regressions reproduced both paths. The provider now
+  publishes a stable session identity, legacy custom providers retain safe
+  reactive rebinding, and the Solid CRPC owner resets auth-bound caches on each
+  observed identity transition. All 90 Solid owner tests pass.
 
 Open risks:
-- Solid parity behaviors need real-runtime regression coverage after the test
-  conflict; changeset wording is inaccurate; full/review/delivery gates remain.
+- Final full check, review rerun, and remote delivery gates remain.
+
+Reboot status:
+| Question | Answer |
+| --- | --- |
+| Where am I? | Final local review/check rerun |
+| Where am I going? | Exact-head delivery and release |
+| What is the goal? | Ship only proven Solid/React parity. |
+| What have I learned? | Mutation-only resets miss provider-driven account changes. |
+| What have I done? | Merged released owners, removed changeset slop, and closed two P1 identity gaps. |
