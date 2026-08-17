@@ -17,9 +17,6 @@ docs/plans/templates/autoclosure.md
 Applied packs:
 - agent-native (docs/plans/templates/packs/agent-native.md)
 
-Linked plans:
-- [Batch plan](docs/plans/2026-08-16-review-and-autoclose-prs-329-through-342.md)
-
 Completion threshold:
 - The two watcher review threads are source-backed and closed; lazy imports,
   codegen parsing/content comparison, config/env behavior, package build,
