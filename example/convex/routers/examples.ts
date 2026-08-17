@@ -1,5 +1,5 @@
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { authRoute, publicRoute, router } from '../lib/crpc';
 
 /** POST /webhooks/example - Webhook with signature verification */

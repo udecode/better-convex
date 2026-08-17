@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import { mapWithConcurrency } from '../internal/concurrency';
 import { patchReferencingRows } from './mutation-utils';
-import {
-  hasLifecycleHooks,
-  mapWithConcurrency,
-  markLifecycleHookedTables,
-} from './write-fanout';
+import { hasLifecycleHooks, markLifecycleHookedTables } from './write-fanout';
 
 const createPatchSpy = () => {
   let inFlight = 0;

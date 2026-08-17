@@ -6,7 +6,7 @@
  *
  * Usage:
  * ```typescript
- * import { z } from 'zod';
+ * import * as z from 'zod';
  * import { publicQuery, authQuery, authMutation } from '../lib/crpc';
  *
  * export const getItem = publicQuery

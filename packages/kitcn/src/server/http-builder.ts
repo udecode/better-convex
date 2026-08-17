@@ -1,6 +1,6 @@
 import type { GenericActionCtx, GenericDataModel } from 'convex/server';
 import type { Context } from 'hono';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   type DataTransformerOptions,
   getTransformer,

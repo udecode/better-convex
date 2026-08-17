@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { createTodoInternalCaller } from '../functions/generated/todoInternal.runtime';
 import { createTodosCaller } from '../functions/generated/todos.runtime';
 import { authRoute, publicRoute, router } from '../lib/crpc';

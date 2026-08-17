@@ -9,7 +9,7 @@ import {
   shouldRetry,
 } from '@kitcn/resend';
 import { eq, inArray } from 'kitcn/orm';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction, privateMutation, privateQuery } from '../../lib/crpc';
 import { resend } from '../../lib/plugins/resend/plugin';
 import {

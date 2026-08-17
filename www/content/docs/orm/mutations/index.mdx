@@ -28,7 +28,7 @@ All mutation examples assume you attached ORM to `ctx.orm` once in your context 
 Typical import block for mutation handlers:
 
 ```ts showLineNumbers title="convex/functions/users.ts"
-import { z } from 'zod';
+import * as z from 'zod';
 import { eq } from 'kitcn/orm';
 import { publicMutation } from '../lib/crpc';
 import { users } from '../schema';

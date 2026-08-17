@@ -1,6 +1,6 @@
 import { and, eq, unsetToken } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation, authQuery, optionalAuthQuery } from '../lib/crpc';
 import type { Insert, Select } from '../shared/api';
 import { hasAnyProject } from './_helpers/project_existence';

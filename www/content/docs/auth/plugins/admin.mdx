@@ -225,7 +225,7 @@ Function examples use the ORM (`ctx.orm`).
 ### Check Admin Status
 
 ```ts title="convex/functions/admin.ts" showLineNumbers {3-4,7-10,13-21}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authQuery } from '../lib/crpc';
 
 export const checkUserAdminStatus = authQuery

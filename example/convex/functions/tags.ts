@@ -1,6 +1,6 @@
 import { eq } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation, authQuery } from '../lib/crpc';
 import { mergeTags } from './_helpers/tag_merge';
 import { tagsTable } from './schema';

@@ -149,7 +149,7 @@ function SessionFeed() {
 Paginated queries use `.paginated({ limit, item })` to add pagination input automatically, set the max items per page, and auto-wrap the output:
 
 ```ts title="convex/functions/session.ts" showLineNumbers {8,10-16}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicQuery } from './lib/crpc';
 
 const SessionSchema = z.object({

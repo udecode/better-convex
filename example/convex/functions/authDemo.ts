@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { authAction, authQuery } from '../lib/crpc';
 import { getEnv } from '../lib/get-env';
 import {

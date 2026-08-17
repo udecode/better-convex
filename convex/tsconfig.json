@@ -8,6 +8,8 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo",
     "jsx": "react-jsx",
     "lib": ["esnext", "dom"],
     "types": ["bun-types"],

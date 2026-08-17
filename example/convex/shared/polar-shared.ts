@@ -2,7 +2,7 @@
 // Product Management - Premium Subscription
 // ----------------------------------------
 
-import { z } from 'zod';
+import * as z from 'zod';
 
 const env = {
   POLAR_PRODUCT_PREMIUM: process.env.POLAR_PRODUCT_PREMIUM ?? 'premium',

@@ -3,6 +3,7 @@ import type {
   GenericDatabaseWriter,
 } from 'convex/server';
 import type { GenericId, Value } from 'convex/values';
+import { mapWithConcurrency } from '../../internal/concurrency';
 import { normalizeTemporalComparableValue } from '../mutation-utils';
 import { Columns } from '../symbols';
 import {
@@ -11,7 +12,6 @@ import {
   usesSystemCreatedAtAlias,
 } from '../timestamp-mode';
 import type { TableRelationalConfig, TablesRelationalConfig } from '../types';
-import { mapWithConcurrency } from '../write-fanout';
 import type {
   AggregateIndexDefinition,
   CountIndexDefinition,

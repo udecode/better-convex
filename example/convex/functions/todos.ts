@@ -1,6 +1,6 @@
 import { eq, unsetToken } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation, authQuery, optionalAuthQuery } from '../lib/crpc';
 import type { QueryCtx } from './generated/server';
 import { todosTable, todoTagsTable } from './schema';

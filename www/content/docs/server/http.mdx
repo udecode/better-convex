@@ -79,7 +79,7 @@ The cRPC HTTP router provides a **tRPC-style fluent API** for building typed HTT
 Here's a basic example of an HTTP endpoint using cRPC with the fluent builder API.
 
 ```ts title="convex/routers/health.ts" showLineNumbers {1-7}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicRoute } from '../lib/crpc';
 
 export const health = publicRoute
@@ -150,7 +150,7 @@ Use `.get()` with `.query()` for read operations. GET endpoints cannot have a re
 Use `.searchParams()` for query string validation. Values come as strings, so use `z.coerce` for type conversion.
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {5-8,11}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicRoute } from '../lib/crpc';
 import { createTodosCaller } from '../functions/generated/todos.runtime';
 
@@ -179,7 +179,7 @@ export const list = publicRoute
 Use `.params()` for URL path parameters. Define placeholders with `:paramName` in the path.
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {5-6,9}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicRoute } from '../lib/crpc';
 import { createTodosCaller } from '../functions/generated/todos.runtime';
 
@@ -198,7 +198,7 @@ export const get = publicRoute
 Use `.post()` with `.input()` and `.mutation()` for create operations.
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {5-9,12-16}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authRoute } from '../lib/crpc';
 import { createTodoInternalCaller } from '../functions/generated/todoInternal.runtime';
 
@@ -224,7 +224,7 @@ export const create = authRoute
 Use `.patch()` for partial updates. Combine `.params()` for the resource ID and `.input()` for the update data.
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {5-11,14-18}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authRoute } from '../lib/crpc';
 import { createTodoInternalCaller } from '../functions/generated/todoInternal.runtime';
 
@@ -251,7 +251,7 @@ export const update = authRoute
 Use `.delete()` for resource deletion. Typically only needs `.params()` for the resource ID.
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {5-8,11-13}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authRoute } from '../lib/crpc';
 import { createTodoInternalCaller } from '../functions/generated/todoInternal.runtime';
 
@@ -282,7 +282,7 @@ Group related endpoints into routers for better organization and code splitting.
 ### Creating a Router
 
 ```ts title="convex/routers/todos.ts" showLineNumbers {18-24}
-import { z } from 'zod';
+import * as z from 'zod';
 import { router, publicRoute, authRoute } from '../lib/crpc';
 
 const todoSchema = z.object({

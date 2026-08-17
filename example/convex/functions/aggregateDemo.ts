@@ -1,5 +1,5 @@
 import { eq } from 'kitcn/orm';
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation, authQuery } from '../lib/crpc';
 import {
   AGGREGATE_PARITY_DEFINITIONS,

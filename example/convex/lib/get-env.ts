@@ -1,5 +1,5 @@
 import { createEnv } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 
 // Define the environment schema
 const envSchema = z.object({

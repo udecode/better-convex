@@ -98,7 +98,7 @@ Ordering note:
 **Create:** `convex/functions/user.ts`
 
 ```ts
-import { z } from "zod";
+import * as z from "zod";
 import { getHeaders } from "kitcn/auth";
 
 import { getAuth } from "./generated/auth";

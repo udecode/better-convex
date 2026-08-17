@@ -4,11 +4,11 @@ import ts from 'typescript';
 import {
   CommandFailedError,
   generateFreshApp,
+  getLocalInstallSpec,
   installLocalPackage,
   log,
   normalizeEnvLocal,
   PROJECT_ROOT,
-  packLocalPackage,
   patchPreparedLocalDevPort,
   readJson,
   run,
@@ -385,11 +385,13 @@ export const syncTemplate = async (
   });
 
   try {
-    const kitcnPackageSpec = packLocalPackage(tempRoot);
+    // `generateTemplateFn` already packed kitcn through `getLocalInstallSpec`,
+    // and the snapshot rewrites the dependency to `workspace:*`, so the tarball
+    // location never reaches the fixture. Reuse the memo instead of repacking.
     await (params.installLocalPackageFn ?? installLocalPackage)(
       generatedAppDir,
       {
-        kitcnPackageSpec,
+        kitcnPackageSpec: getLocalInstallSpec(),
         runCommand,
       }
     );
@@ -433,7 +435,7 @@ export const checkTemplate = async (
     installLocalPackageFn?: typeof installLocalPackage;
     logFn?: typeof log;
     normalizeTemplateFn?: typeof normalizeTemplateSnapshot;
-    packLocalPackageFn?: typeof packLocalPackage;
+    packLocalPackageFn?: typeof getLocalInstallSpec;
     projectRoot?: string;
     runCommand?: typeof run;
     scope?: FixtureCheckScope;
@@ -456,9 +458,10 @@ export const checkTemplate = async (
   });
 
   try {
-    const kitcnPackageSpec = (params.packLocalPackageFn ?? packLocalPackage)(
-      tempRoot
-    );
+    // Same memo as `syncTemplate`: one pack per process, not one per template.
+    const kitcnPackageSpec = (
+      params.packLocalPackageFn ?? getLocalInstallSpec
+    )();
     await (params.installLocalPackageFn ?? installLocalPackage)(
       generatedAppDir,
       {

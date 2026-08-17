@@ -8,7 +8,40 @@ import {
   writePackageJson,
   writeShadcnNextApp,
 } from '../test-utils';
-import { ADD_HELP_TEXT, handleAddCommand, parseAddCommandArgs } from './add';
+import {
+  ADD_HELP_TEXT,
+  handleAddCommand,
+  mergeBaselineAndPluginInstall,
+  parseAddCommandArgs,
+} from './add';
+
+const MERGED_INSTALL_FAILURE_RE =
+  /Installing baseline dependencies and the auth package: Dependency install failed/;
+
+const writeAuthProject = (prefix: string) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  writeShadcnNextApp(dir);
+  fs.mkdirSync(path.join(dir, 'convex', 'functions'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'convex', 'functions', 'schema.ts'),
+    'import { defineSchema } from "kitcn/orm";\n\nexport default defineSchema({});\n'
+  );
+  return dir;
+};
+
+const makeGenerateMetaStub = (dir: string) =>
+  mock(async (sharedDir: string) => {
+    const generatedAuthPath = path.join(
+      dir,
+      sharedDir,
+      '..',
+      'functions',
+      'generated',
+      'auth.ts'
+    );
+    fs.mkdirSync(path.dirname(generatedAuthPath), { recursive: true });
+    fs.writeFileSync(generatedAuthPath, 'export {};\n');
+  });
 
 describe('cli/commands/add', () => {
   test('parseAddCommandArgs supports dry-run, diff, view, overwrite, no-codegen, and preset', () => {
@@ -249,5 +282,116 @@ describe('cli/commands/add', () => {
     } finally {
       process.chdir(originalCwd);
     }
+  });
+
+  test('handleAddCommand issues one install for baseline plus the plugin package', async () => {
+    const dir = writeAuthProject('kitcn-add-auth-single-install-');
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+
+    const installCommands: string[] = [];
+    const execaStub = mock(async (command: string, args: string[] = []) => {
+      if (args[0] === 'add' || args[0] === 'install') {
+        installCommands.push([command, ...args].join(' '));
+      }
+      return { exitCode: 0, stdout: '', stderr: '' } as any;
+    });
+
+    try {
+      const exitCode = await handleAddCommand(['add', 'auth', '--yes'], {
+        realConvex: '/fake/convex/main.js',
+        execa: execaStub as any,
+        generateMeta: makeGenerateMetaStub(dir) as any,
+        loadCliConfig: (() => createDefaultConfig()) as any,
+        runLocalBootstrap: (async () => 0) as any,
+        syncEnv: (async () => {}) as any,
+      } as any);
+
+      expect(exitCode).toBe(0);
+      // Leg 1 is the planning install, which must land before the planner
+      // loads Better Auth internals. Everything after it is one install.
+      expect(installCommands).toHaveLength(2);
+      expect(installCommands[0]).toContain('@opentelemetry/api');
+      expect(installCommands[1]).toContain('convex@');
+      expect(installCommands[1]).toContain('better-auth@');
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('handleAddCommand attributes a merged install failure to its stage', async () => {
+    const dir = writeAuthProject('kitcn-add-auth-install-failure-');
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+
+    const execaStub = mock(async (_command: string, args: string[] = []) => {
+      const isMergedInstall =
+        (args[0] === 'add' || args[0] === 'install') &&
+        args.some((arg) => arg.startsWith('better-auth@'));
+      return {
+        exitCode: isMergedInstall ? 1 : 0,
+        stdout: '',
+        stderr: '',
+      } as any;
+    });
+
+    try {
+      await expect(
+        handleAddCommand(['add', 'auth', '--yes'], {
+          realConvex: '/fake/convex/main.js',
+          execa: execaStub as any,
+          generateMeta: makeGenerateMetaStub(dir) as any,
+          loadCliConfig: (() => createDefaultConfig()) as any,
+          runLocalBootstrap: (async () => 0) as any,
+          syncEnv: (async () => {}) as any,
+        } as any)
+      ).rejects.toThrow(MERGED_INSTALL_FAILURE_RE);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('mergeBaselineAndPluginInstall only merges same-target legs', () => {
+    const baseline = {
+      packageManager: 'bun' as const,
+      command: 'bun',
+      args: ['add', 'convex@1.0.0'],
+      packages: ['convex@1.0.0'],
+      cwd: process.cwd(),
+    };
+    const plugin = {
+      packageName: 'better-auth',
+      packageSpec: 'better-auth@1.0.0',
+      packageJsonPath: path.join(process.cwd(), 'package.json'),
+      installed: false,
+      skipped: false,
+    };
+
+    expect(mergeBaselineAndPluginInstall(baseline, plugin)).toEqual({
+      ...baseline,
+      args: ['add', 'convex@1.0.0', 'better-auth@1.0.0'],
+      packages: ['convex@1.0.0', 'better-auth@1.0.0'],
+    });
+
+    expect(mergeBaselineAndPluginInstall(null, plugin)).toBeNull();
+    expect(
+      mergeBaselineAndPluginInstall(baseline, {
+        ...plugin,
+        skipped: true,
+        reason: 'already_present',
+      })
+    ).toBeNull();
+    expect(
+      mergeBaselineAndPluginInstall(baseline, {
+        ...plugin,
+        packageJsonPath: path.join(os.tmpdir(), 'elsewhere', 'package.json'),
+      })
+    ).toBeNull();
+    expect(
+      mergeBaselineAndPluginInstall(
+        { ...baseline, packageManager: 'npm', command: 'npm' },
+        plugin
+      )
+    ).toBeNull();
   });
 });

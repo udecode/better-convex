@@ -36,7 +36,7 @@ export const getAllUsers = publicQuery.query(async ({ ctx }) => {
 Use `findFirst()` to retrieve a single row matching your criteria. This example uses `id` which has a built-in index:
 
 ```ts title="convex/functions/users.ts" showLineNumbers
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicQuery } from '../lib/crpc';
 
 export const getFirstUser = publicQuery

@@ -3,7 +3,7 @@ const resolveCrpcImportPath = (functionsDirRelative: string) =>
 
 export const renderInitNextMessagesTemplate = (
   functionsDirRelative = 'convex/functions'
-) => `import { z } from 'zod';
+) => `import * as z from 'zod';
 
 import { publicMutation, publicQuery } from '${resolveCrpcImportPath(functionsDirRelative)}';
 

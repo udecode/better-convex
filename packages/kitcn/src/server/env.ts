@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { CRPCError } from './error';
 
 export type RuntimeEnv = Record<string, string | undefined>;

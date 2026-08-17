@@ -144,7 +144,7 @@ Without codegen, use `initCRPC` from `kitcn/server` with `.dataModel()` and opti
   </CompareItem>
   <CompareItem title="After (cRPC)">
     ```ts title="convex/functions/user.ts" showLineNumbers {4-7}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicQuery } from '../lib/crpc';
 
     export const list = publicQuery

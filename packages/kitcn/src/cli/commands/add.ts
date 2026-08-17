@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import {
   applyDependencyInstallPlan,
@@ -13,6 +13,10 @@ import {
   runAfterScaffoldScript,
   runConfiguredCodegen,
 } from '../backend-core.js';
+import {
+  detectPackageManager,
+  resolveDependencyInstallCommand,
+} from '../package-manager.js';
 import { resolveProjectScaffoldContext } from '../project-context.js';
 import {
   applyDependencyHintsInstall,
@@ -45,6 +49,7 @@ import {
 } from '../registry/state.js';
 import type {
   PluginApplyScope,
+  PluginDependencyInstallResult,
   PluginInstallPlan,
   PluginInstallPlanOperation,
   ResolvedScaffoldRoots,
@@ -337,6 +342,97 @@ const assertRawConvexAuthDeploymentReady = () => {
   }
 };
 
+type DependencyInstallPlan = NonNullable<
+  Parameters<typeof applyDependencyInstallPlan>[0]
+>;
+
+const runDependencyInstallStage = async (
+  installPlan: DependencyInstallPlan | null,
+  stage: string,
+  execaFn: RunDeps['execa']
+) => {
+  try {
+    await applyDependencyInstallPlan(installPlan, execaFn);
+  } catch (error) {
+    throw new Error(
+      `${stage}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+};
+
+/**
+ * The baseline install and the plugin package install run back to back with no
+ * code between them, so they collapse into a single package-manager call.
+ * Merging only happens when both legs target the same package.json with the
+ * same package manager; otherwise each leg runs on its own.
+ */
+export const mergeBaselineAndPluginInstall = (
+  baseline: DependencyInstallPlan | null,
+  plugin: PluginDependencyInstallResult
+): DependencyInstallPlan | null => {
+  if (!baseline) {
+    return null;
+  }
+  if (plugin.skipped || !(plugin.packageName && plugin.packageJsonPath)) {
+    return null;
+  }
+  if (resolve(baseline.cwd) !== resolve(dirname(plugin.packageJsonPath))) {
+    return null;
+  }
+  if (detectPackageManager(baseline.cwd) !== baseline.packageManager) {
+    return null;
+  }
+
+  const pluginSpec = plugin.packageSpec ?? plugin.packageName;
+  const packages = [...baseline.packages, pluginSpec];
+  const { args, command } = resolveDependencyInstallCommand(
+    baseline.packageManager,
+    packages
+  );
+
+  return { ...baseline, args, command, packages };
+};
+
+const installBaselineAndPluginDependencies = async (params: {
+  baseline: DependencyInstallPlan | null;
+  plugin: PluginDependencyInstallResult;
+  pluginKey: string;
+  execaFn: RunDeps['execa'];
+}): Promise<PluginDependencyInstallResult> => {
+  const { baseline, plugin, pluginKey, execaFn } = params;
+  const merged = mergeBaselineAndPluginInstall(baseline, plugin);
+
+  if (merged) {
+    await runDependencyInstallStage(
+      merged,
+      `Installing baseline dependencies and the ${pluginKey} package`,
+      execaFn
+    );
+    return {
+      packageName: plugin.packageName,
+      packageSpec: plugin.packageSpec ?? plugin.packageName,
+      packageJsonPath: plugin.packageJsonPath,
+      installed: true,
+      skipped: false,
+    };
+  }
+
+  await runDependencyInstallStage(
+    baseline,
+    'Installing baseline dependencies',
+    execaFn
+  );
+  try {
+    return await applyPluginDependencyInstall(plugin, execaFn);
+  } catch (error) {
+    throw new Error(
+      `Installing the ${pluginKey} package: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+};
+
 export const handleAddCommand = async (argv: string[], deps: AddDeps = {}) => {
   const parsed = parseArgs(argv);
   if (
@@ -569,14 +665,12 @@ export const handleAddCommand = async (argv: string[], deps: AddDeps = {}) => {
     yes: addArgs.yes,
     promptAdapter,
   });
-  await applyDependencyInstallPlan(
-    initializationPlan?.dependencyInstall ?? null,
-    execaFn
-  );
-  const dependencyInstall = await applyPluginDependencyInstall(
-    plan.dependency,
-    execaFn
-  );
+  const dependencyInstall = await installBaselineAndPluginDependencies({
+    baseline: initializationPlan?.dependencyInstall ?? null,
+    plugin: plan.dependency,
+    pluginKey: selectedPlugin,
+    execaFn,
+  });
   const installedDependencyHints = await applyDependencyHintsInstall(
     plan.dependencyHints,
     execaFn

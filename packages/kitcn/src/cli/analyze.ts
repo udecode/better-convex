@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { BuildResult, Plugin } from 'esbuild';
+import { mapWithConcurrency } from '../internal/concurrency';
 import { isColorEnabled } from './utils/highlighter.js';
 import { loadEsbuild } from './utils/lazy-deps.js';
 import { createProjectJiti } from './utils/project-jiti.js';
@@ -1493,6 +1495,24 @@ const collectAnalyzeEntrySelection = async (
   };
 };
 
+const MAX_ANALYZE_CONCURRENCY = 8;
+
+/**
+ * esbuild bundles are independent, so the entry sweep runs through a bounded
+ * pool instead of one build at a time. The cap stays low enough to avoid
+ * oversubscribing esbuild's worker pool on small machines.
+ */
+const resolveAnalyzeConcurrency = (taskCount: number): number => {
+  if (taskCount <= 1) {
+    return 1;
+  }
+  const cpuCount = os.cpus().length || 1;
+  return Math.max(
+    1,
+    Math.min(MAX_ANALYZE_CONCURRENCY, cpuCount - 1, taskCount)
+  );
+};
+
 const collectHotspotRows = async (
   roots: ProjectRoots,
   options: AnalyzeOptions,
@@ -1505,24 +1525,27 @@ const collectHotspotRows = async (
     handlerExportsByEntry,
   } = await collectAnalyzeEntrySelection(roots, options);
 
-  const rows: Array<HotspotRow | FailedRow> = [];
-  for (const entryPoint of entryPoints) {
-    try {
-      rows.push({
-        ...(await analyzeHotspotEntry(
-          entryPoint,
-          roots.projectRoot,
-          includeDeepData
-        )),
-        handlerExports: handlerExportsByEntry.get(entryPoint) ?? [],
-      });
-    } catch (error) {
-      rows.push({
-        entry: path.relative(roots.projectRoot, entryPoint),
-        error: error instanceof Error ? error.message : String(error),
-      });
+  const rows = await mapWithConcurrency(
+    entryPoints,
+    resolveAnalyzeConcurrency(entryPoints.length),
+    async (entryPoint): Promise<HotspotRow | FailedRow> => {
+      try {
+        return {
+          ...(await analyzeHotspotEntry(
+            entryPoint,
+            roots.projectRoot,
+            includeDeepData
+          )),
+          handlerExports: handlerExportsByEntry.get(entryPoint) ?? [],
+        };
+      } catch (error) {
+        return {
+          entry: path.relative(roots.projectRoot, entryPoint),
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
-  }
+  );
 
   return {
     isolateEntries,
@@ -2774,9 +2797,11 @@ export const __test = {
   filterEntryPointsByPattern,
   fitListViewport,
   getNativeHandlerExportNames,
+  mapWithConcurrency,
   parseArgs,
   pickSelectedIndex,
   reduceInteractiveState,
+  resolveAnalyzeConcurrency,
   resolveInteractiveLayout,
   selectHotspotEntryPoints,
 };

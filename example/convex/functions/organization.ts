@@ -1,6 +1,6 @@
 import { eq } from 'kitcn/orm';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { hasPermission } from '../lib/auth/auth-helpers';
 import {
   type AuthCtx,

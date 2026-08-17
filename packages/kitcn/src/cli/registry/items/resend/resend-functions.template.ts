@@ -14,7 +14,7 @@ export const RESEND_FUNCTIONS_TEMPLATE = `import {
   shouldRetry,
 } from '@kitcn/resend';
 import { eq, inArray } from 'kitcn/orm';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction, privateMutation, privateQuery } from '${PROJECT_CRPC_IMPORT_PLACEHOLDER}';
 import { resend } from '${PLUGIN_CONFIG_IMPORT_PLACEHOLDER}';
 import {

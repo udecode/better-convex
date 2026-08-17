@@ -1,5 +1,5 @@
 import { eq } from 'kitcn/orm';
-import { z } from 'zod';
+import * as z from 'zod';
 import { createUser } from '../lib/auth/auth-helpers';
 import { authAction, privateMutation } from '../lib/crpc';
 import { getEnv } from '../lib/get-env';

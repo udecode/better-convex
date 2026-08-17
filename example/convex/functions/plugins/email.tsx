@@ -12,7 +12,7 @@ import {
   Text,
 } from '@react-email/components';
 import { render } from '@react-email/render';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction } from '../../lib/crpc';
 import { getEnv } from '../../lib/get-env';
 import { createResendCaller } from '../generated/plugins/resend.runtime';

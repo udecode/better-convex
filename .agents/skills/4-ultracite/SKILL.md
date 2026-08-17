@@ -21,6 +21,6 @@ Key rules at a glance:
 
 **React:** Function components only. Hooks at top level. Exhaustive deps. `key` on iterables (no array index). No nested component definitions. Semantic HTML + ARIA.
 
-**Performance:** No accumulating spread in loops. No barrel files. No namespace imports. Top-level regex.
+**Performance:** No accumulating spread in loops. No barrel files. Avoid namespace imports except `import * as z from "zod"` when it is required to keep deployed entry graphs tree-shakeable. Top-level regex.
 
 **Security:** `rel="noopener"` on `target="_blank"`. No `dangerouslySetInnerHTML`. No `eval()`.
