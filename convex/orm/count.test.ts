@@ -1323,7 +1323,7 @@ describe('ORM count() with aggregateIndex', () => {
     });
   });
 
-  it('resume kickoff prunes removed aggregate index rows even without state', async () => {
+  it('exact prune recovers removed aggregate index rows without state', async () => {
     const { schema } = buildCountIndexedFixtures({
       includeOrgStatusIndex: true,
     });
@@ -1379,10 +1379,14 @@ describe('ORM count() with aggregateIndex', () => {
 
       const result = await (prunedApi as any).aggregateBackfill.handler(
         { db: baseCtx.db, scheduler: schedulerStub },
-        {}
+        {
+          mode: 'prune',
+          tableName: 'countUsers',
+          indexName: 'by_org_status',
+        }
       );
       expect(result).toMatchObject({
-        mode: 'resume',
+        mode: 'prune',
         pruned: 1,
       });
 
@@ -1525,6 +1529,28 @@ describe('ORM count() with aggregateIndex', () => {
         count: 1,
         updatedAt: 0,
       });
+      for (const [kind, tableKey, indexName] of [
+        [METRIC_STATE_KIND, 'countUsers', 'by_org_status'],
+        [METRIC_STATE_KIND, 'countPosts', 'by_removed_x'],
+        [METRIC_STATE_KIND, 'countPosts', 'by_removed_y'],
+        [RANK_STATE_KIND, 'countUsers', 'by_rank_removed_a'],
+        [RANK_STATE_KIND, 'countUsers', 'by_rank_removed_b'],
+      ]) {
+        await baseCtx.db.insert('aggregate_state', {
+          kind,
+          tableKey,
+          indexName,
+          keyDefinitionHash: '',
+          metricDefinitionHash: '',
+          status: 'READY',
+          cursor: null,
+          processed: 0,
+          startedAt: 0,
+          updatedAt: 0,
+          completedAt: 0,
+          lastError: null,
+        });
+      }
 
       const prunedOrmClient = createOrm({
         schema: relationsWithoutOrgStatus,
@@ -1612,7 +1638,7 @@ describe('ORM count() with aggregateIndex', () => {
     });
   });
 
-  it('resume kickoff reads a bounded number of aggregate rows regardless of member table size', async () => {
+  it('resume kickoff does not scan aggregate backing rows', async () => {
     const { schema, relations } = buildCountIndexedFixtures();
     const t = convexTest(schema);
 
@@ -1694,12 +1720,9 @@ describe('ORM count() with aggregateIndex', () => {
       );
 
       expect(result).toMatchObject({ mode: 'resume', status: 'ok' });
-      expect(reads.get('aggregate_member') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_member') ?? 0).toBeLessThan(20);
-      expect(reads.get('aggregate_bucket') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_bucket') ?? 0).toBeLessThan(20);
-      expect(reads.get('aggregate_extrema') ?? 0).toBeGreaterThan(0);
-      expect(reads.get('aggregate_extrema') ?? 0).toBeLessThan(20);
+      expect(reads.get('aggregate_member') ?? 0).toBe(0);
+      expect(reads.get('aggregate_bucket') ?? 0).toBe(0);
+      expect(reads.get('aggregate_extrema') ?? 0).toBe(0);
       expect(reads.get('#db.get') ?? 0).toBeLessThan(20);
     });
   });
@@ -2326,6 +2349,20 @@ describe('aggregateIndex clearing is resumable', () => {
         sumValues: {},
         nonNullCountValues: {},
         updatedAt: 0,
+      });
+      await baseCtx.db.insert('aggregate_state', {
+        kind: METRIC_STATE_KIND,
+        tableKey: 'countUsers',
+        indexName: 'by_org_status',
+        keyDefinitionHash: '',
+        metricDefinitionHash: '',
+        status: 'READY',
+        cursor: null,
+        processed: 0,
+        startedAt: 0,
+        updatedAt: 0,
+        completedAt: 0,
+        lastError: null,
       });
 
       const prunedOrmClient = createOrm({

@@ -316,6 +316,8 @@ kitcn aggregate rebuild
 
 Rebuild clears stored state in scheduled batches, so it works on tables of any size. Indexes report `CLEARING` while draining and `BUILDING` while recomputing; wait for `READY` before querying them again.
 
+Automatic pruning follows aggregate lifecycle state, so kickoff reads stay bounded as backing tables grow. To recover state-less storage, invoke `generated/server:aggregateBackfill` in `prune` mode with exact `tableName` and `indexName` arguments.
+
 ## Best Practices
 
 ### Use `partitionBy` for Isolation

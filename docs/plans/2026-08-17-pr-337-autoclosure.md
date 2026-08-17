@@ -87,6 +87,7 @@ Error attempts:
 | --- | ---: | --- | --- |
 | Released-main merge duplicated `mapWithConcurrency` ownership | 1 | trace current owner and remove the redundant new helper | resolved through `orm/write-fanout.ts`; owner tests pass |
 | Range budget counted buckets but not extrema document reads | 1 | add low-budget extrema regressions and share reservations through the plan cache | fixed; single and multiple extrema metrics reject before exceeding budget |
+| Chunked clear kickoff still reverse-scanned every backing-table index tuple | 1 | make lifecycle state canonical and retain only exact bounded recovery probes | fixed; automatic resume reads zero backing rows and exact state-less prune stays bounded |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -125,6 +126,12 @@ Verification evidence:
   typecheck and build pass.
 - The changeset and both aggregate references define work units precisely and
   keep example configuration below Convex's transaction read ceiling.
+- P1 review found kickoff still reverse-scanned all distinct bucket/member/
+  extrema index tuples before chunked clearing. A red read-count regression
+  observed three backing-table reads. Lifecycle state now owns automatic
+  pruning, so resume reads zero backing rows; exact state-less prune uses four
+  bounded existence probes. All 32 count tests and the 76-test aggregate owner
+  surface pass.
 - Docs/skill agent-native mapping passes: the touched `www` aggregate reference
   maps to the package feature reference and regenerated `.agents` mirror;
   mirrors are byte-equal, Intent validates, and staleness is clean.
@@ -135,6 +142,8 @@ Timeline:
 - 2026-08-17 Merged released main, removed duplicate concurrency ownership, and
   passed the first focused/package baseline.
 - 2026-08-17 Repaired extrema budget accounting and synchronized docs/skill.
+- 2026-08-17 Accepted P1 review, removed unbounded reverse discovery, and
+  retained exact bounded recovery for state-less storage.
 
 Reboot status:
 | Question | Answer |

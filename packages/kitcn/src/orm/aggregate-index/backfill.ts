@@ -278,44 +278,6 @@ const requiresMetricBackfill = (
   );
 };
 
-const listDistinctIndexTuples = async (
-  db: GenericDatabaseWriter<any>,
-  tableName: string,
-  indexName: string,
-  fields: string[]
-): Promise<Record<string, string>[]> => {
-  const tuples: Record<string, string>[] = [];
-  let current = (await db
-    .query(tableName)
-    .withIndex(indexName)
-    .first()) as Record<string, string> | null;
-
-  while (current) {
-    const row = current;
-    const tuple: Record<string, string> = {};
-    for (const field of fields) {
-      tuple[field] = row[field];
-    }
-    tuples.push(tuple);
-
-    current = null;
-    for (let depth = fields.length - 1; depth >= 0 && !current; depth -= 1) {
-      current = (await db
-        .query(tableName)
-        .withIndex(indexName, (q: any) => {
-          let range = q;
-          for (let i = 0; i < depth; i += 1) {
-            range = range.eq(fields[i], tuple[fields[i]]);
-          }
-          return range.gt(fields[depth], tuple[fields[depth]]);
-        })
-        .first()) as Record<string, string> | null;
-    }
-  }
-
-  return tuples;
-};
-
 export function createCountBackfillHandlers(
   schema: TablesRelationalConfig,
   getChunkRef?: () => SchedulableFunctionReference | undefined
@@ -404,26 +366,6 @@ export function createCountBackfillHandlers(
         state,
       ])
     );
-    const [bucketRows, memberRows, extremaRows] = await Promise.all([
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_BUCKET_TABLE,
-        'by_table_index',
-        ['tableKey', 'indexName']
-      ),
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_MEMBER_TABLE,
-        'by_kind_table_index',
-        ['kind', 'tableKey', 'indexName']
-      ),
-      listDistinctIndexTuples(
-        ctx.db,
-        AGGREGATE_EXTREMA_TABLE,
-        'by_table_index',
-        ['tableKey', 'indexName']
-      ),
-    ]);
     const existingKeys = new Set<string>();
     for (const state of states) {
       existingKeys.add(
@@ -434,15 +376,51 @@ export function createCountBackfillHandlers(
         )
       );
     }
-    for (const row of bucketRows) {
-      existingKeys.add(serializeKey('metric', row.tableKey, row.indexName));
-    }
-    for (const row of memberRows) {
-      const kind = row.kind === AGGREGATE_STATE_KIND_RANK ? 'rank' : 'metric';
-      existingKeys.add(serializeKey(kind, row.tableKey, row.indexName));
-    }
-    for (const row of extremaRows) {
-      existingKeys.add(serializeKey('metric', row.tableKey, row.indexName));
+
+    // State owns index lifecycle. Automatic resume/prune never reverse-scans
+    // backing tables to reconstruct it. An exact manual prune can recover
+    // state-less rows with four bounded existence probes.
+    if (args.tableName && args.indexName) {
+      const tableName = args.tableName;
+      const indexName = args.indexName;
+      const [bucket, extrema, metricMember, rankMember] = await Promise.all([
+        ctx.db
+          .query(AGGREGATE_BUCKET_TABLE)
+          .withIndex('by_table_index', (q: any) =>
+            q.eq('tableKey', tableName).eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_EXTREMA_TABLE)
+          .withIndex('by_table_index', (q: any) =>
+            q.eq('tableKey', tableName).eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_MEMBER_TABLE)
+          .withIndex('by_kind_table_index', (q: any) =>
+            q
+              .eq('kind', AGGREGATE_STATE_KIND_METRIC)
+              .eq('tableKey', tableName)
+              .eq('indexName', indexName)
+          )
+          .first(),
+        ctx.db
+          .query(AGGREGATE_MEMBER_TABLE)
+          .withIndex('by_kind_table_index', (q: any) =>
+            q
+              .eq('kind', AGGREGATE_STATE_KIND_RANK)
+              .eq('tableKey', tableName)
+              .eq('indexName', indexName)
+          )
+          .first(),
+      ]);
+      if (bucket || extrema || metricMember) {
+        existingKeys.add(serializeKey('metric', tableName, indexName));
+      }
+      if (rankMember) {
+        existingKeys.add(serializeKey('rank', tableName, indexName));
+      }
     }
     let pruned = 0;
     let pruning = 0;
