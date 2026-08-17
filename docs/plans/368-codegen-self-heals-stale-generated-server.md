@@ -90,8 +90,8 @@ Boundaries:
   `example/**`, `convex/**` output, `www/content/docs/cli/backend.mdx`,
   `packages/kitcn/skills/kitcn/**`, `.changeset/**`.
 - Browser surface: none.
-- GitHub issue sync: N/A — user explicitly declined outward-facing GitHub
-  actions for this run ("Do not create PR under any circumstances").
+- GitHub issue sync: N/A — issue #368 is linked from the PR body via
+  `Fixes #368`; no separate issue comment requested.
 - Non-goals: replacing the jiti parse loop with TS AST analysis; removing the
   `_generated/server` value import from emitted output; hard-cutting the
   bootstrap placeholder writers. All named as follow-ups.
@@ -182,7 +182,7 @@ Start Gates:
 | Skill analysis before edits | yes | Loaded `task`; added `autogoal` (non-trivial measurable), `changeset` rule, `autoreview`. Declined `major-task` (single-package bug, not architecture redesign), `tdd`/`testing` (bounded regression tests written directly), `find-skills` (no missing capability) |
 | Active goal checked or created | yes | This plan, created via `create-goal-scratchpad.mjs --template task --with package-api`, renamed to ticket-number format per repo rule |
 | Source of truth read before edits | yes | Read `.context/attachments/github-5175746510/[GITHUB]-368.md` in full before any tool call touching code |
-| Exact per-PR task ownership | no | N/A: no PR created — user explicitly declined |
+| Exact per-PR task ownership | yes | https://github.com/udecode/kitcn/pull/372 — this plan owns exactly that PR |
 | GitHub comments and attachments read | yes | Issue supplied as a local attachment containing the full body; no additional comments present in it |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | Recorded above; all three reporter suggestions challenged, two rejected with measured evidence |
@@ -194,10 +194,10 @@ Start Gates:
 | Branch decision for code-changing task | yes | Already on `issue-368`, a dedicated non-`main` branch matching this ticket; reused |
 | Release artifact decision | yes | `.changeset/quiet-pugs-yawn.md` — published CLI behavior changes |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | yes | Commit: yes (task skill explicitly requires it and CLAUDE.md permits skill-required commits). Push/PR: N/A — user preference explicitly states "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
-| GitHub issue sync expectation decision | no | N/A: user declined outward-facing GitHub actions |
+| Commit / PR expectation decision | yes | Commit, push, and PR all completed. The user's standing no-PR preference was explicitly overridden by a later direct request to create a PR |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used, including the `auto-release` block |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/368-codegen-self-heals-stale-generated-server.md`; plan present at PR head; plan names PR #372 |
+| GitHub issue sync expectation decision | yes | `Fixes #368` in the PR body links and closes the issue; no separate comment requested |
 | Output budget strategy recorded | yes | Recorded above |
 | Package/API pack selected | yes | `--with package-api` |
 | Public surface or package boundary identified | yes | Generated-output shape for every kitcn app: `generated/server.ts` loses the inline lookup, new `generated/procedure-names.gen.ts` |
@@ -216,9 +216,9 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. This plan owns one exact
-      PR, owns a not-yet-created PR slice, or records N/A because no PR is in
-      scope; a batch plan is not used as a substitute. N/A: no PR in scope.
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly
+      one PR, https://github.com/udecode/kitcn/pull/372; no batch plan was used
+      as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason. N/A: no video.
 - [x] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -235,12 +235,15 @@ Work Checklist:
 - [x] Release artifact requirement recorded: new changeset
       `.changeset/quiet-pugs-yawn.md`.
 - [x] Final handoff shape decided: bug fix, no PR, no issue sync.
-- [x] Commit/PR handling recorded for code-changing work: commit completed;
-      push/PR explicitly declined by the user.
-- [x] PR body shape recorded. N/A: no PR created.
-- [x] PR task evidence recorded. N/A: no PR created.
-- [x] Branch handling recorded for code-changing work: reused the dedicated
-      `issue-368` branch.
+- [x] Commit/PR handling recorded for code-changing work: committed, pushed,
+      and PR #372 opened after the user directly requested a PR.
+- [x] PR body shape recorded: PR #270 emoji task-style body, verified with
+      `gh pr view --json body`.
+- [x] PR task evidence recorded: body includes the `🧭 Task plan:` line, the
+      plan exists at the PR head, and it names PR #372.
+- [x] Branch handling recorded for code-changing work: renamed `issue-368` to
+      `fix/codegen-regenerate-stale-generated-server` before the first push, per
+      the user's `<type>/<kebab-summary>` branch convention.
 - [x] Local-env-rot retry policy recorded: `packages/resend/dist` was missing
       and broke `fixtures:sync`; rebuilt once with `bun --cwd packages/resend
       build` and rerun. Codex autoreview engine failed on an unrelated local
@@ -270,7 +273,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named commands | All run; see Verification evidence |
-| Exact per-PR task ownership | no | Record the exact PR | N/A: no PR created |
+| Exact per-PR task ownership | yes | Record the exact PR | https://github.com/udecode/kitcn/pull/372 — this plan owns exactly that PR |
 | Pre-solution issue challenge verdict | yes | Record challenge before implementation | Recorded above: `valid` |
 | Repro escalation ladder | yes | Record ladder outcomes | Recorded above |
 | Bug reproduced before fix | yes | Record failing repro | Exact reported message reproduced on unpatched source |
@@ -291,11 +294,11 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | no | N/A | No agent tooling changed |
 | Local install corruption suspected | yes | Rebuild once and rerun | `packages/resend/dist` missing → `bun --cwd packages/resend build` → `fixtures:sync` succeeded |
 | Commit created | yes | Stage the checkout and commit | Commit created on `issue-368` |
-| PR create or update | no | N/A | User preference: "Do not create PR under any circumstances, unless user prompts to" — explicit decline |
-| Task-style PR body verified | no | N/A | No PR created |
-| PR task evidence verified | no | N/A | No PR created |
-| PR proof image hosting | no | N/A | No PR created |
-| GitHub issue sync-back | no | N/A | User declined outward-facing GitHub actions |
+| PR create or update | yes | Run check, push, create PR, sync body | `bun check` exit 0; pushed; PR #372 created with the task-style body |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | Verified: auto-release block preserved, `🐛 Fixes #368`, `🧭 Task plan:`, `🟢 95-100% confidence`, exact `Phase / 🧪 Tests / 🌐 Browser` header, Reproduced/Verified rows, bold emoji sections, no self-link |
+| PR task evidence verified | yes | Verify plan line, plan at head, exact PR | All three confirmed for PR #372 |
+| PR proof image hosting | no | N/A | No browser proof images in the body |
+| GitHub issue sync-back | yes | Link the issue | `Fixes #368` in the PR body closes issue #368 on merge |
 | Final handoff contract | yes | Fill the final handoff fields | Filled below |
 | Final lint | yes | Run `bun lint:fix` | Run; fixed formatting in `codegen.ts` only |
 | Output budget discipline | yes | Verify no unbounded output streamed | All command output filtered |
@@ -320,7 +323,7 @@ Phase / pass table:
 | Design | complete | 8-agent workflow: 1 verifier, 4 mappers, 3 adversarial judges | implementation |
 | Implementation | complete | codegen emit split + reorder, fail-closed schema, hint fix | verification |
 | Verification | complete | See Verification evidence | closeout |
-| Commit / PR / GitHub sync | complete | Commit created; PR and issue sync explicitly declined by user | closeout |
+| Commit / PR / GitHub sync | complete | Branch renamed, pushed, PR #372 opened, issue linked via `Fixes #368` | closeout |
 | Closeout | complete | Autoreview clean | final response |
 
 Findings:
@@ -495,9 +498,9 @@ High-risk note:
   aspirational, and it fixes two further silent bugs that shared the same cause.
 
 Final handoff contract:
-- Commit line: `fix(cli): regenerate a stale generated/server.ts before codegen reads it (#368)` on branch `issue-368`
-- PR line: ➖ N/A — user preference explicitly forbids creating a PR
-- Issue line: ➖ N/A — user declined outward-facing GitHub actions
+- Commit line: `fix(cli): regenerate stale generated/server.ts before codegen reads it (#368)` on branch `fix/codegen-regenerate-stale-generated-server`
+- PR line: https://github.com/udecode/kitcn/pull/372
+- Issue line: 🐛 Fixes #368 (linked from the PR body)
 - Confidence line: 🟢 95-100%
 - Flow table:
   - Reproduced: tests 🔴 (exact reported message), browser ➖ N/A
@@ -522,21 +525,23 @@ Final handoff contract:
     the bootstrap window untouched.
 - Verified: targeted tests, full repo suite, typecheck, package build, fixture
   sync + check, lint, autoreview clean.
-- PR body verified: N/A — no PR created.
+- PR body verified: `gh pr view 372 --json body` matches the PR #270 task-style contract.
 
 Task-style PR body contract:
-- N/A for this run: no PR was created because the user's standing preference is
-  "Do not create PR under any circumstances, unless user prompts to." If a PR is
-  later requested, it must use the PR #270 emoji task-style body, include
-  `🧭 Task plan: docs/plans/368-codegen-self-heals-stale-generated-server.md`,
-  and be verified with `gh pr view --json body`.
+- Applied to PR #372: `<!-- auto-release:start -->` block preserved, `🐛 Fixes
+  #368`, `🧭 Task plan:
+  docs/plans/368-codegen-self-heals-stale-generated-server.md`, `🟢 95-100%
+  confidence`, the exact `| Phase | 🧪 Tests | 🌐 Browser |` header with
+  Reproduced/Verified rows, and bold emoji Outcome/Caveat/Design/Verified
+  sections. No self-link to PR #372 inside its own body. Verified with
+  `gh pr view 372 --json body`.
 
 Final handoff / sync:
-- Commit: created on `issue-368`, not pushed
-- PR: N/A (explicit user decline)
-- Issue: N/A (explicit user decline)
+- Commit: `fix/codegen-regenerate-stale-generated-server`, pushed
+- PR: https://github.com/udecode/kitcn/pull/372
+- Issue: #368, closed by the PR on merge
 - Browser proof: N/A
-- Caveats: pre-existing flaky `btree.vitest.ts` property test
+- Caveats: none blocking. `bun check` is green end to end (exit 0).
 
 Timeline:
 - 2026-08-17T21:57:12.621Z Task goal plan created.
@@ -568,6 +573,6 @@ Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
   this plan records an explicit user decline, no local patch, analytical/
   blocked/inconclusive outcome, or a real commit/PR blocker.
-- Recorded: the user's standing preference explicitly declines PR creation. A
-  local commit was still created because the `task` skill requires committing
-  verified code-changing work and CLAUDE.md permits skill-required commits.
+- Recorded: the user later directly requested a PR, overriding the standing
+  no-PR preference. Work is committed, pushed, and delivered as PR #372, so the
+  local-only exemption no longer applies.
