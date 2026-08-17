@@ -1,5 +1,12 @@
 # kitcn
 
+## 0.22.1
+
+### Patch Changes
+
+- [#356](https://github.com/udecode/kitcn/pull/356) [`f5d9edd`](https://github.com/udecode/kitcn/commit/f5d9edd62670ce098bb18d7f4987ec1f3b3365aa) Thanks [@zbeyens](https://github.com/zbeyens)! - Fix prefetched optional React pagination remaining disabled after authentication
+  settles.
+
 ## 0.22.0
 
 ### Minor Changes
