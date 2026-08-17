@@ -145,20 +145,23 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     const fetchAccessToken = useFetchAccessToken();
     props.convexQueryClient.updateAuthStore(authStore);
     let previousAuth:
-      | { identity: unknown; isAuthenticated: boolean }
+      | { identity: unknown; isAuthenticated: boolean; isLoading: boolean }
       | undefined;
 
     createEffect(() => {
       const currentAuth = {
         identity: auth.identity,
         isAuthenticated: auth.isAuthenticated,
+        isLoading: auth.isLoading,
       };
       const previous = previousAuth;
       previousAuth = currentAuth;
 
       if (
-        previous &&
-        (previous.identity !== currentAuth.identity ||
+        !currentAuth.isLoading &&
+        (!previous ||
+          previous.isLoading ||
+          previous.identity !== currentAuth.identity ||
           previous.isAuthenticated !== currentAuth.isAuthenticated)
       ) {
         void props.convexQueryClient.resetAuthQueries();

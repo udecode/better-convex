@@ -4,32 +4,16 @@
  * account's data identically.
  */
 
-/**
- * The state a query is born with when it declares no `initialData`. Mirrors
- * query-core's `getDefaultState` for that case.
- */
-const PRISTINE_QUERY_STATE = {
-  data: undefined,
-  dataUpdateCount: 0,
-  dataUpdatedAt: 0,
-  error: null,
-  errorUpdateCount: 0,
-  errorUpdatedAt: 0,
-  fetchFailureCount: 0,
-  fetchFailureReason: null,
-  fetchMeta: null,
-  isInvalidated: false,
-  status: 'pending',
-  fetchStatus: 'idle',
-} as const;
-
-type PristineQueryState = typeof PRISTINE_QUERY_STATE;
+export type AuthResetObserver = {
+  options: object;
+  setOptions(options: object): void;
+};
 
 /** Minimal view of a query-core `Query` used when clearing auth-bound entries. */
 export type AuthResetQuery = {
   cancel(options?: { silent?: boolean }): Promise<void>;
   getObserversCount(): number;
-  setState(state: PristineQueryState): void;
+  observers: AuthResetObserver[];
 };
 
 /** Minimal view of a query-core `QueryCache`. */
@@ -49,9 +33,10 @@ export type AuthResetCache<TQuery> = {
  * every refetch trigger off, and `resetQueries` only refetches entries that are
  * currently active.
  *
- * Entries nobody renders are removed outright. The rest are forced back to
- * `pending`, so their observers render empty instead of the previous account's
- * rows while the new fetch is in flight.
+ * Every entry is removed so query-core forgets both its current state and its
+ * private `initialState`. Mounted observers are rebound with `initialData`
+ * removed, creating a pristine replacement query that future public resets
+ * cannot use to resurrect the previous account's rows.
  */
 export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
   cache: AuthResetCache<TQuery>,
@@ -64,11 +49,11 @@ export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
   await Promise.all(authQueries.map((query) => query.cancel({ silent: true })));
 
   for (const query of authQueries) {
-    if (query.getObserversCount() === 0) {
-      cache.remove(query);
-      continue;
-    }
+    const observers = [...query.observers];
+    cache.remove(query);
 
-    query.setState({ ...PRISTINE_QUERY_STATE });
+    for (const observer of observers) {
+      observer.setOptions({ ...observer.options, initialData: undefined });
+    }
   }
 }

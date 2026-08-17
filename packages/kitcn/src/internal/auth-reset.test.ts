@@ -61,6 +61,11 @@ describe('clearAuthBoundQueries', () => {
     expect(query.state.data).toBeUndefined();
     expect(query.state.status).toBe('pending');
 
+    await queryClient.resetQueries({ exact: true, queryKey });
+
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    expect(queryClient.getQueryState(queryKey)?.status).toBe('pending');
+
     unsubscribe();
   });
 

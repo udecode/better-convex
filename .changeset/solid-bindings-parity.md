@@ -9,7 +9,8 @@
 - Reject unauthenticated `auth: "required"` Solid action queries locally with
   `CRPCClientError`, matching the React bindings.
 - Clear auth-bound cached data on identity transitions. Unobserved entries are
-  removed; mounted entries return to pending and refetch for the new account.
+  removed; mounted entries are rebuilt without their previous `initialData`,
+  return to pending, and refetch for the new account.
 
 ## Patches
 
@@ -36,7 +37,8 @@
   session also invalidates its cached JWT and abandons in-flight token requests
   owned by the previous session before authenticating the new one. SSR tokens
   remain hydration fallbacks only until a client session is confirmed and
-  cannot seed that session's cache identity.
+  cannot seed that session's cache identity. The first settled client identity
+  clears auth-bound hydration state when its ownership cannot be proven.
 - Fix an account transition leaving the previous account's rows in disabled,
   unobserved, or non-subscribed queries.
 - Fix a paginated list restoring the previous account's cursors after signing

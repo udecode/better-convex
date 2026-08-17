@@ -85,6 +85,8 @@ Error attempts:
 | New session inherited the previous session's in-flight token request | 1 | scope pending requests and late writes to the initiating session | red deferred-request race passes |
 | First hydrated session claimed an unowned SSR JWT | 1 | keep SSR tokens pending-only and fetch after a client session is confirmed | red hydration account-switch regression passes |
 | Unowned SSR claims seeded the hydrated cache identity | 1 | derive identity claims only from a token owned by the confirmed session | red pre-token bridge identity regression passes |
+| First settled client identity skipped hydration reset | 1 | conservatively clear auth-bound state on the first settled identity | immediate-settled context regression passes |
+| Query reset restored previous-account `initialData` | 1 | remove and rebuild observed auth queries without `initialData` | public reset resurrection regression passes |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -127,8 +129,10 @@ Verification evidence:
   expiry rotation as a transition. Replacing a session clears its token owner
   and abandons prior-session in-flight requests before fetching the replacement
   JWT. A confirmed hydrated session also replaces any unowned SSR token and
-  cannot inherit its claim identity. All 131 Solid tests pass; package
-  typecheck/build pass.
+  cannot inherit its claim identity. The first settled identity clears
+  unproven hydration data, and observed queries are rebuilt so future public
+  resets cannot resurrect the old account's `initialData`. All 131 Solid tests
+  pass; package typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.

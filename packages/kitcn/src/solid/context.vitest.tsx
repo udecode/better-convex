@@ -115,11 +115,11 @@ describe('context (solid)', () => {
     });
 
     expect(convexQueryClient.updateAuthStore).toHaveBeenCalledWith(authStore);
-    expect(convexQueryClient.resetAuthQueries).not.toHaveBeenCalled();
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
 
     setIdentity('account-b');
 
-    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(2);
   });
 
   test('useCRPCClient returns vanilla client inside provider', () => {
