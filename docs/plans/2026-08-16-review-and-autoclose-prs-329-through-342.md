@@ -200,7 +200,7 @@ Phase / pass table:
 | Repair | complete | accepted correctness, ownership, and proof defects fixed | review |
 | Review/checks | complete | focused/full gates and final reviews pass | delivery |
 | Delivery | complete | every PR merged and applicable releases published | final audit |
-| Closeout | in_progress | batch receipts and task requirement landed; noncompliant close policy pending | workflow repair |
+| Closeout | complete | batch receipts plus per-PR task and noncompliant close policies | done |
 
 Verification evidence:
 - GitHub snapshot: 14 contributor PRs #329-#342; every head had green CI and

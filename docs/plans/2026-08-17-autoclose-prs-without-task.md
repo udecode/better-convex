@@ -31,7 +31,7 @@ Timed checkpoint:
 - initial confidence score: 90%
 - improvement loop: evidence contract, destructive-path review, mirrors,
   templates, contributor docs, structured review, full gate, GitHub delivery
-- final score / loop closure: 98%; exact remote delivery pending
+- final score / loop closure: 99%; exact source head remote gates green
 
 Completion threshold:
 - Task and PR-body rules expose verifiable per-PR evidence. Autoclosure checks
@@ -90,10 +90,10 @@ Blocked condition:
 Task state:
 - task_type: agent workflow policy hard cut
 - task_complexity: non-trivial
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: commit and PR
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: done
+- goal_status: complete after exact merge read-back
 
 Current verdict:
 - verdict: valid
@@ -114,7 +114,7 @@ Pre-solution issue challenge:
 - suggested diagnosis or fix: verify task-plan evidence; comment; close; mention
   GPT-5.6 high-or-higher reasoning effort
 - repro ladder:
-  - tests / source-level repro: pending
+  - tests / source-level repro: current autoclosure step left noncompliant PRs open
   - repo-owned automated browser or integration proof: N/A; structural policy
   - Browser plugin: N/A
   - screenshot / visual proof: N/A
@@ -284,7 +284,7 @@ Completion Gates:
 | Output budget discipline | yes | Scope/cap noisy commands | pass |
 | Timed checkpoint | no | N/A | no duration |
 | Autoreview for non-trivial implementation changes | yes | Dirty local review | clean, correct 0.98, no actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-autoclose-prs-without-task.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-autoclose-prs-without-task.md` | pass after final receipt update |
 | Docs source-backed claim audit | yes | Compare CONTRIBUTING with rules | pass |
 | Docs links / routes / previews | yes | README contributor link | existing leaf resolves |
 | Docs MDX/content parser | no | N/A | no MDX/www change |
@@ -302,7 +302,7 @@ Phase / pass table:
 | Implementation | complete | evidence gate, comment/close path, templates, docs, mirrors | verification |
 | Verification | complete | source/mirror/intent/reviews and `bun check` pass | commit/PR |
 | Commit / PR / GitHub sync | complete | PR #364 body and task evidence read back | remote gates |
-| Closeout | pending | | final response |
+| Closeout | complete | source head gates green; final receipt-only head will be merged | done |
 
 Findings:
 - Current autoclosure routed missing task evidence back to task and left the PR
@@ -340,6 +340,8 @@ Verification evidence:
   scenario.
 - PR #364 body contains exactly one task-plan line. Its exact fetched head
   contains this plan, which identifies PR #364 in task source and ownership.
+- PR #364 head `cf852b2c` passed CI run `32014117778` in 6m26s,
+  Vercel, and auto-release run `32014117836` with no release requested.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -354,7 +356,7 @@ Source-listed case matrix:
 
 Final handoff contract:
 - Commit line: `117d699e docs: close PRs without task evidence`
-- PR line: #364 opened and exact task evidence verified at `60319be3`
+- PR line: #364 exact task evidence verified; source head gates green at `cf852b2c`
 - Issue line: N/A
 - Confidence line: 98%
 - Flow table:
@@ -404,14 +406,15 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Remote closeout |
-| Where am I going? | Exact #364 gates and merge |
+| Where am I? | Complete implementation; final GitHub merge receipt next |
+| Where am I going? | Final receipt-only head gates and exact merge |
 | What is the goal? | Comment and close PRs without verifiable task evidence |
 | What have I learned? | Destructive enforcement needs immutable evidence and idempotent ordering |
 | What have I done? | Patched sources/templates/docs, regenerated, reviewed, checked, opened compliant #364 |
 
 Open risks:
-- Required remote gates and exact merge remain for PR #364.
+- None in the workflow policy. Final merge read-back is an external GitHub
+  receipt and cannot be committed inside the PR after merge.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
