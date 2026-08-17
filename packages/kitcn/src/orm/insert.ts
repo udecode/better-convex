@@ -1,5 +1,6 @@
 import type { GenericDatabaseWriter } from 'convex/server';
 import type { ColumnBuilder } from './builders/column-builder';
+import { convexAnd } from './convex-filter-compiler';
 import type { FilterExpression } from './filter-expression';
 import { findIndexForColumns, getIndexes } from './index-utils';
 import {
@@ -478,17 +479,14 @@ export class ConvexInsertBuilder<
       if (strict) {
         console.warn('onConflict running without index (allowFullScan: true).');
       }
-      query = query.filter((q: any) => {
-        let expr = q.eq(
-          q.field(filterValuePairs[0][0]),
-          filterValuePairs[0][1]
-        );
-        for (let i = 1; i < filterValuePairs.length; i++) {
-          const [field, fieldValue] = filterValuePairs[i];
-          expr = q.and(expr, q.eq(q.field(field), fieldValue));
-        }
-        return expr;
-      });
+      query = query.filter((q: any) =>
+        convexAnd(
+          q,
+          filterValuePairs.map(([field, fieldValue]) =>
+            q.eq(q.field(field), fieldValue)
+          )
+        )
+      );
     }
 
     const row = await query.first();

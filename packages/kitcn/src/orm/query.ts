@@ -26,15 +26,14 @@ import type { PlanBucketReadCache } from './aggregate-index/runtime';
 import { type ColumnBuilder, entityKind } from './builders/column-builder';
 import type { OrmAggregateCapability } from './capabilities';
 import { requireAggregateCapability } from './capabilities';
+import {
+  compileConvexFilter,
+  convexAnd,
+  isConvexEnforceableFilter,
+} from './convex-filter-compiler';
 import { OrmNotFoundError } from './errors';
 import type { EdgeMetadata } from './extractRelationsConfig';
-import type {
-  BinaryExpression,
-  ExpressionVisitor,
-  FilterExpression,
-  LogicalExpression,
-  UnaryExpression,
-} from './filter-expression';
+import type { FilterExpression } from './filter-expression';
 import {
   and,
   arrayContained,
@@ -131,25 +130,6 @@ import {
   type IndexStrategy,
   WhereClauseCompiler,
 } from './where-clause-compiler';
-
-/**
- * Operators that Convex's `.filter()` cannot express, so `_toConvexExpression`
- * compiles them to a `() => true` placeholder and `_evaluatePostFetchFilter`
- * applies the real predicate in JavaScript after the rows are read.
- * Keep in sync with the string/array cases in `_toConvexExpression`.
- */
-const POST_FETCH_ONLY_OPERATORS = new Set([
-  'like',
-  'ilike',
-  'notLike',
-  'notIlike',
-  'startsWith',
-  'endsWith',
-  'contains',
-  'arrayContains',
-  'arrayContained',
-  'arrayOverlaps',
-]);
 
 const DEFAULT_RELATION_FAN_OUT_MAX_KEYS = 1000;
 /**
@@ -962,24 +942,7 @@ export class GelRelationalQuery<
   private _isConvexEnforceableFilter(
     filter: FilterExpression<boolean>
   ): boolean {
-    if (filter.type === 'binary') {
-      return !POST_FETCH_ONLY_OPERATORS.has(filter.operator);
-    }
-    if (filter.type === 'unary') {
-      const [operand] = filter.operands;
-      if (isFieldReference(operand)) {
-        return true;
-      }
-      return this._isConvexEnforceableFilter(
-        operand as FilterExpression<boolean>
-      );
-    }
-    if (filter.type === 'logical') {
-      return filter.operands.every((operand) =>
-        this._isConvexEnforceableFilter(operand)
-      );
-    }
-    return true;
+    return isConvexEnforceableFilter(filter);
   }
 
   /**
@@ -6381,15 +6344,14 @@ export class GelRelationalQuery<
           }
 
           if (convexProbeFilters.length > 0) {
-            probeQuery = probeQuery.filter((q: any) => {
-              let result: any | null = null;
-              for (const filter of convexProbeFilters) {
-                const filterFn = this._toConvexExpression(filter);
-                const expr = filterFn(q);
-                result = result ? q.and(result, expr) : expr;
-              }
-              return result ?? q;
-            });
+            probeQuery = probeQuery.filter((q: any) =>
+              convexAnd(
+                q,
+                convexProbeFilters.map((filter) =>
+                  this._toConvexExpression(filter)(q)
+                )
+              )
+            );
           }
 
           return probeBound === undefined
@@ -6732,15 +6694,14 @@ export class GelRelationalQuery<
       }
 
       if (convexPostFilters.length > 0) {
-        query = query.filter((q: any) => {
-          let result: any | null = null;
-          for (const filter of convexPostFilters) {
-            const filterFn = this._toConvexExpression(filter);
-            const expr = filterFn(q);
-            result = result ? q.and(result, expr) : expr;
-          }
-          return result ?? q;
-        });
+        query = query.filter((q: any) =>
+          convexAnd(
+            q,
+            convexPostFilters.map((filter) =>
+              this._toConvexExpression(filter)(q)
+            )
+          )
+        );
       }
 
       // Apply ORDER BY for pagination (required for stable cursors)
@@ -6825,16 +6786,13 @@ export class GelRelationalQuery<
       (this.rls?.mode !== 'skip' &&
         isRlsEnabled(this.tableConfig.table as any));
     if (convexPostFilters.length > 0) {
-      query = query.filter((q: any) => {
-        // Combine all post-filters with AND logic
-        let result: any | null = null;
-        for (const filter of convexPostFilters) {
-          const filterFn = this._toConvexExpression(filter);
-          const expr = filterFn(q);
-          result = result ? q.and(result, expr) : expr;
-        }
-        return result ?? q;
-      });
+      // Combine all post-filters with AND logic
+      query = query.filter((q: any) =>
+        convexAnd(
+          q,
+          convexPostFilters.map((filter) => this._toConvexExpression(filter)(q))
+        )
+      );
     }
 
     // Execute query with limit - .take() returns Promise<Doc[]>
@@ -7148,11 +7106,10 @@ export class GelRelationalQuery<
     fields: string[],
     values: unknown[]
   ): any {
-    let expression = q.eq(q.field(fields[0]), values[0]);
-    for (let i = 1; i < fields.length; i += 1) {
-      expression = q.and(expression, q.eq(q.field(fields[i]), values[i]));
-    }
-    return expression;
+    return convexAnd(
+      q,
+      fields.map((field, index) => q.eq(q.field(field), values[index]))
+    );
   }
 
   private _queryByFields(
@@ -7241,148 +7198,13 @@ export class GelRelationalQuery<
   private _toConvexExpression(
     expression: FilterExpression<boolean>
   ): (q: any) => any {
-    const visitor: ExpressionVisitor<(q: any) => any> = {
-      visitBinary: (expr: BinaryExpression) => {
-        const [field, value] = expr.operands;
-        if (!isFieldReference(field)) {
-          throw new Error(
-            'Binary expression must have FieldReference as first operand'
-          );
-        }
-
-        const fieldName = field.fieldName;
-        const normalizedValue = this._normalizeComparableValue(
-          fieldName,
-          value
-        );
-
-        // Map our operators to Convex operators
-        switch (expr.operator) {
-          case 'eq':
-            return (q: any) => q.eq(q.field(fieldName), normalizedValue);
-          case 'ne':
-            return (q: any) => q.neq(q.field(fieldName), normalizedValue);
-          case 'gt':
-            return (q: any) => q.gt(q.field(fieldName), normalizedValue);
-          case 'gte':
-            return (q: any) => q.gte(q.field(fieldName), normalizedValue);
-          case 'lt':
-            return (q: any) => q.lt(q.field(fieldName), normalizedValue);
-          case 'lte':
-            return (q: any) => q.lte(q.field(fieldName), normalizedValue);
-          case 'inArray': {
-            // inArray: field must be in the provided array
-            const values = normalizedValue as any[];
-            return (q: any) => {
-              if (values.length === 0) {
-                return q.eq(q.field('_id'), '__better_convex_never__');
-              }
-              // Convert to OR of eq operations
-              const conditions = values.map((v) => q.eq(q.field(fieldName), v));
-              return conditions.reduce((acc, cond) => q.or(acc, cond));
-            };
-          }
-          case 'notInArray': {
-            // notInArray: field must NOT be in the provided array
-            const values = normalizedValue as any[];
-            return (q: any) => {
-              // Convert to AND of neq operations
-              const conditions = values.map((v) =>
-                q.neq(q.field(fieldName), v)
-              );
-              return conditions.reduce((acc, cond) => q.and(acc, cond));
-            };
-          }
-          // M5: String operators (post-filter implementation)
-          case 'like':
-          case 'ilike':
-          case 'notLike':
-          case 'notIlike':
-          case 'startsWith':
-          case 'endsWith':
-          case 'contains':
-          case 'arrayContains':
-          case 'arrayContained':
-          case 'arrayOverlaps':
-            // String operators require post-fetch filtering
-            // They can't work in Convex filter context (no JavaScript string methods on field expressions)
-            // These are handled in _evaluatePostFetchFilter after rows are fetched
-            return () => true; // No-op in Convex filter, will be applied post-fetch
-          default:
-            throw new Error(`Unsupported binary operator: ${expr.operator}`);
-        }
-      },
-
-      visitLogical: (expr: LogicalExpression) => {
-        // Recursively convert operands
-        const operandFns = expr.operands.map((op) => op.accept(visitor));
-
-        if (expr.operator === 'and') {
-          return (q: any) => {
-            let result = operandFns[0](q);
-            for (let i = 1; i < operandFns.length; i++) {
-              result = q.and(result, operandFns[i](q));
-            }
-            return result;
-          };
-        }
-        if (expr.operator === 'or') {
-          return (q: any) => {
-            let result = operandFns[0](q);
-            for (let i = 1; i < operandFns.length; i++) {
-              result = q.or(result, operandFns[i](q));
-            }
-            return result;
-          };
-        }
-
-        throw new Error(`Unsupported logical operator: ${expr.operator}`);
-      },
-
-      visitUnary: (expr: UnaryExpression) => {
-        const operand = expr.operands[0];
-
-        if (expr.operator === 'not') {
-          // not() operates on FilterExpression
-          const operandFn = (operand as FilterExpression<boolean>).accept(
-            visitor
-          );
-          return (q: any) => q.not(operandFn(q));
-        }
-
-        if (expr.operator === 'isNull') {
-          // isNull() operates on FieldReference
-          if (!isFieldReference(operand)) {
-            throw new Error('isNull must operate on a field reference');
-          }
-          const fieldName = operand.fieldName;
-          // Convex represents missing fields as `undefined` in filter contexts.
-          // For SQL-like semantics, treat both `null` and `undefined` as "IS NULL".
-          return (q: any) =>
-            q.or(
-              q.eq(q.field(fieldName), null),
-              q.eq(q.field(fieldName), undefined)
-            );
-        }
-
-        if (expr.operator === 'isNotNull') {
-          // isNotNull() operates on FieldReference
-          if (!isFieldReference(operand)) {
-            throw new Error('isNotNull must operate on a field reference');
-          }
-          const fieldName = operand.fieldName;
-          return (q: any) =>
-            q.and(
-              q.neq(q.field(fieldName), null),
-              q.neq(q.field(fieldName), undefined)
-            );
-        }
-
-        throw new Error(`Unsupported unary operator: ${expr.operator}`);
-      },
-    };
-
-    return expression.accept(visitor);
+    return compileConvexFilter(expression, {
+      normalizeValue: (fieldName, value) =>
+        this._normalizeComparableValue(fieldName, value),
+      // Convex represents missing fields as `undefined` in filter contexts, and
+      // the read path treats "never written" as SQL `NULL`.
+      nullMatchesUndefined: true,
+    });
   }
 
   /**
