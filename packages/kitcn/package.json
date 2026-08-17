@@ -47,6 +47,7 @@
     "intent": "./bin/intent.js"
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
     "skills",
     "bin",

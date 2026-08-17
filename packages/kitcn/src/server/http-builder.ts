@@ -24,6 +24,7 @@ import type {
   Overwrite,
   UnsetMarker,
 } from './types';
+import { parseOutput } from './validation';
 
 // Extract path parameter names from a path template
 export function extractPathParams(path: string): string[] {
@@ -66,6 +67,13 @@ export function handleHttpError(error: unknown): Response {
   const crpcError = toCRPCError(error);
 
   if (crpcError) {
+    const status = getHTTPStatusCodeFromError(crpcError);
+    // The response body deliberately carries only `code` and `message`, so a
+    // server fault would otherwise leave no trace of what actually went wrong.
+    // Log the whole error - including any `data` payload - before discarding it.
+    if (status >= 500) {
+      console.error('HTTP error:', crpcError);
+    }
     return Response.json(
       {
         error: {
@@ -73,7 +81,7 @@ export function handleHttpError(error: unknown): Response {
           message: crpcError.message,
         },
       },
-      { status: getHTTPStatusCodeFromError(crpcError) }
+      { status }
     );
   }
 
@@ -713,7 +721,7 @@ function createProcedure(
 
           // Validate and return JSON response via Hono
           const output = def.outputSchema
-            ? def.outputSchema.parse(result as any)
+            ? await parseOutput(def.outputSchema, result)
             : result;
           return c.json(
             def.functionConfig.transformer.output.serialize(output)

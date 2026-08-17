@@ -853,6 +853,144 @@ describe('server/builder', () => {
     await expect((fn as any)._handler({}, {})).resolves.toBe('fallback');
   });
 
+  test('query.output() parses the handler value without coercing undefined', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    // `.output()` parses exactly what the handler returned, so a nullable schema
+    // rejects `undefined` - the handler owes it an explicit `null`. The low-level
+    // `returns:` option coerces instead; the two paths are not interchangeable.
+    const implicit = c.query
+      .output(z.string().nullable())
+      .query(async () => undefined as any);
+
+    await expect((implicit as any)._handler({}, {})).rejects.toBeInstanceOf(
+      CRPCError
+    );
+
+    const explicit = c.query
+      .output(z.string().nullable())
+      .query(async () => null);
+
+    await expect((explicit as any)._handler({}, {})).resolves.toBeNull();
+  });
+
+  test('output() models an absent value as null, which the Convex validator can express', () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const nullable: any = c.query
+      .output(z.string().nullable())
+      .query(async () => null);
+
+    expect(nullable.exportReturns()).toBe(
+      JSON.stringify({
+        type: 'union',
+        value: [{ type: 'string' }, { type: 'null' }],
+      })
+    );
+
+    // A top-level optional is why `.nullable()` is the documented shape: Convex
+    // serializes an `undefined` return as `null`, and its returns validator
+    // drops top-level optionality, so the published validator would reject that
+    // `null` on every call. Inside an object the optionality survives.
+    const optional: any = c.query
+      .output(z.string().optional())
+      .query(async () => undefined);
+
+    expect(optional.exportReturns()).toBe(JSON.stringify({ type: 'string' }));
+
+    const nested: any = c.query
+      .output(z.object({ name: z.string().optional() }))
+      .query(async () => ({}));
+
+    expect(nested.exportReturns()).toBe(
+      JSON.stringify({
+        type: 'object',
+        value: { name: { fieldType: { type: 'string' }, optional: true } },
+      })
+    );
+  });
+
+  test('query.output() failures surface as a CRPCError carrying the Zod issues', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .output(z.object({ ok: z.boolean() }))
+      .query(async () => ({ ok: 'nope' }) as any);
+
+    // A bare ZodError carries no ConvexError marker, so Convex would redact it to
+    // an opaque `Server Error`. Wrapping keeps the mismatch self-diagnosing, the
+    // way `.input()` failures already are.
+    const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(CRPCError);
+    expect((error as CRPCError).code).toBe('INTERNAL_SERVER_ERROR');
+    expect((error as any).data.ZodError).toEqual([
+      {
+        expected: 'boolean',
+        code: 'invalid_type',
+        path: ['ok'],
+        message: 'Invalid input: expected boolean, received string',
+      },
+    ]);
+  });
+
+  test('output() failures on an int64 schema still report the mismatch', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    // A bound on a bigint puts one in the issue, and `JSON.stringify` throws on
+    // those - which would replace the mismatch with a serialization failure.
+    const fn = c.query.output(z.bigint().min(5n)).query(async () => 1n);
+
+    const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(CRPCError);
+    expect((error as any).data.ZodError[0]).toMatchObject({
+      code: 'too_small',
+      minimum: '5',
+    });
+  });
+
+  test('paginated() output failures surface as a CRPCError', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .paginated({ limit: 10, item: z.object({ id: z.string() }) })
+      .query(async () => ({ isDone: true, page: [{ id: 1 }] }) as any);
+
+    await expect(
+      (fn as any)._handler({}, { cursor: null, limit: 10 })
+    ).rejects.toBeInstanceOf(CRPCError);
+  });
+
+  test('output validation does not swallow a ZodError thrown by the handler', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const cause = new z.ZodError([]);
+    const fn = c.query.output(z.string()).query(async () => {
+      throw cause;
+    });
+
+    await expect((fn as any)._handler({}, {})).rejects.toBe(cause);
+  });
+
   test('paginated() clamps limit and defaults cursor', async () => {
     const c = initCRPC.create({
       query: queryGeneric,

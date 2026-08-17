@@ -44,11 +44,24 @@ describe('server/http-builder', () => {
   });
 
   test('handleHttpError maps every cRPC error code to its canonical status', async () => {
-    for (const [code, status] of Object.entries(CRPC_ERROR_CODE_TO_HTTP)) {
-      const resp = handleHttpError(
-        new CRPCError({ code: code as keyof typeof CRPC_ERROR_CODE_TO_HTTP })
-      );
-      expect([code, resp.status]).toEqual([code, status]);
+    // Server faults are logged, so the 5xx codes in this sweep would otherwise
+    // print for every iteration.
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      for (const [code, status] of Object.entries(CRPC_ERROR_CODE_TO_HTTP)) {
+        const resp = handleHttpError(
+          new CRPCError({ code: code as keyof typeof CRPC_ERROR_CODE_TO_HTTP })
+        );
+        expect([code, resp.status]).toEqual([code, status]);
+        expect([code, errorSpy.mock.calls.length > 0]).toEqual([
+          code,
+          status >= 500,
+        ]);
+        errorSpy.mockClear();
+      }
+    } finally {
+      errorSpy.mockRestore();
     }
   });
 
@@ -223,13 +236,29 @@ describe('server/http-builder', () => {
         {},
         new Request('https://example.com/x')
       );
+
+      // A server fault, so the status stays 500 - but the response names the
+      // mismatch instead of the generic unhandled-error message.
       expect(resp.status).toBe(500);
       await expect(resp.json()).resolves.toEqual({
         error: {
           code: 'INTERNAL_SERVER_ERROR',
-          message: 'An unexpected error occurred',
+          message: 'Output validation failed',
         },
       });
+
+      // The body cannot carry the Zod issues without leaking server internals,
+      // so the failing path must still reach the server log.
+      expect(errorSpy).toHaveBeenCalled();
+      const logged = errorSpy.mock.calls[0]?.[1] as any;
+      expect(logged.data.ZodError).toEqual([
+        {
+          expected: 'boolean',
+          code: 'invalid_type',
+          path: ['ok'],
+          message: 'Invalid input: expected boolean, received string',
+        },
+      ]);
     } finally {
       errorSpy.mockRestore();
     }
