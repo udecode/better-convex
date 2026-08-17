@@ -75,6 +75,37 @@ const parseAuthConfig = (authConfig: AuthConfig, opts: { jwks?: string }) => {
   return providerConfig;
 };
 
+// oidcProviderPlugin() builds a complete endpoint table and captures nothing
+// request-scoped: its whole input is the site URL and the base path. The
+// convex() factory re-runs on every evaluation of the user's auth definition,
+// so the instance is keyed on those two strings and reused for the isolate.
+const oidcProviderCache = new Map<
+  string,
+  ReturnType<typeof oidcProviderPlugin>
+>();
+
+const getOidcProvider = (basePath: string) => {
+  const siteUrl = `${process.env.CONVEX_SITE_URL}`;
+  const key = `${siteUrl}|${basePath}`;
+  const cached = oidcProviderCache.get(key);
+
+  if (cached) {
+    return cached;
+  }
+
+  const oidcProvider = oidcProviderPlugin({
+    loginPage: '/not-used',
+    metadata: {
+      issuer: siteUrl,
+      jwks_uri: `${siteUrl}${basePath}/convex/jwks`,
+    },
+    __skipDeprecationWarning: true,
+  });
+  oidcProviderCache.set(key, oidcProvider);
+
+  return oidcProvider;
+};
+
 export const convex = (opts: {
   authConfig: AuthConfig;
   jwks?: string;
@@ -94,14 +125,7 @@ export const convex = (opts: {
 }) => {
   const jwtExpirationSeconds =
     opts.jwt?.expirationSeconds ?? opts.jwtExpirationSeconds ?? 60 * 15;
-  const oidcProvider = oidcProviderPlugin({
-    loginPage: '/not-used',
-    metadata: {
-      issuer: `${process.env.CONVEX_SITE_URL}`,
-      jwks_uri: `${process.env.CONVEX_SITE_URL}${opts.options?.basePath ?? '/api/auth'}/convex/jwks`,
-    },
-    __skipDeprecationWarning: true,
-  });
+  const oidcProvider = getOidcProvider(opts.options?.basePath ?? '/api/auth');
   const providerConfig = parseAuthConfig(opts.authConfig, opts);
 
   const jwtOptions = {

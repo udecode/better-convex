@@ -3,8 +3,7 @@ import {
   createAdapterFactory,
   type DBAdapterDebugLogOption,
 } from 'better-auth/adapters';
-import { type BetterAuthDBSchema, getAuthTables } from 'better-auth/db';
-import type { BetterAuthOptions } from 'better-auth/minimal';
+import type { BetterAuthDBSchema } from 'better-auth/db';
 import type { Where } from 'better-auth/types';
 import type {
   GenericDataModel,
@@ -30,7 +29,11 @@ export const handlePagination = async (
   }) => Promise<
     SetOptional<PaginationResult<any>, 'page'> & { count?: number }
   >,
-  { limit, numItems }: { limit?: number; numItems?: number } = {}
+  {
+    countOnly,
+    limit,
+    numItems,
+  }: { countOnly?: boolean; limit?: number; numItems?: number } = {}
 ) => {
   const state: {
     count: number;
@@ -52,6 +55,15 @@ export const handlePagination = async (
     state.cursor = result.continueCursor;
 
     if (result.page) {
+      // Callers that only need a total must not retain every document body for
+      // the whole loop.
+      if (countOnly) {
+        state.count += result.page.length;
+        state.isDone = (limit && state.count >= limit) || result.isDone;
+
+        return;
+      }
+
       state.docs.push(...result.page);
       state.isDone = (limit && state.docs.length >= limit) || result.isDone;
 
@@ -70,14 +82,13 @@ export const handlePagination = async (
 
   do {
     const cursorBeforePage = state.cursor;
+    const consumed = countOnly ? state.count : state.docs.length;
     const result = await next({
       paginationOpts: {
         cursor: state.cursor,
         numItems: Math.min(
           numItems ?? 200,
-          limit === undefined
-            ? Number.POSITIVE_INFINITY
-            : limit - state.docs.length,
+          limit === undefined ? Number.POSITIVE_INFINITY : limit - consumed,
           200
         ),
       },
@@ -331,10 +342,11 @@ export const httpAdapter = <
                 ...data,
                 paginationOpts,
                 where: parseWhere(data.where),
-              })
+              }),
+            { countOnly: true }
           );
 
-          return result.docs.length;
+          return result.count;
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {
@@ -476,26 +488,10 @@ export const httpAdapter = <
           );
 
           if (isValidWhere) {
-            // Validate exactly 1 match before updating
-            const countResult = await handlePagination(
-              async ({ paginationOpts }) =>
-                await ctx.runQuery(authFunctions.findMany, {
-                  model: data.model,
-                  paginationOpts,
-                  where: parseWhere(data.where),
-                }),
-              { limit: 2 }
-            );
-
-            if (countResult.docs.length === 0) {
-              throw new Error(`No ${data.model} found matching criteria`);
-            }
-            if (countResult.docs.length > 1) {
-              throw new Error(
-                `Multiple ${data.model} found matching criteria. Expected exactly 1.`
-              );
-            }
-
+            // updateOne asserts the "exactly 1 match" contract inside the
+            // mutation, on the read it already performs. Asserting it here
+            // would cost a second transaction and still guarantee nothing,
+            // because the write happens in a later one.
             return await ctx.runMutation(authFunctions.updateOne, {
               input: {
                 model: data.model as any,
@@ -557,18 +553,20 @@ export const dbAdapter = <
   Schema extends SchemaDefinition<any, any>,
 >(
   ctx: GenericCtx<DataModel>,
-  getAuthOptions: (ctx: any) => BetterAuthOptions,
   {
     authFunctions,
     debugLogs,
+    getBetterAuthSchema,
     schema,
   }: {
     authFunctions: AuthFunctions;
+    /** Ctx-free Better Auth table schema, memoized by the caller. */
+    getBetterAuthSchema: () => BetterAuthDBSchema;
     schema: Schema;
     debugLogs?: DBAdapterDebugLogOption;
   }
 ) => {
-  const betterAuthSchema = getAuthTables(getAuthOptions({} as any));
+  const betterAuthSchema = getBetterAuthSchema();
 
   return createAdapterFactory({
     config: {
@@ -654,10 +652,11 @@ export const dbAdapter = <
                 },
                 schema,
                 betterAuthSchema
-              )
+              ),
+            { countOnly: true }
           );
 
-          return result.docs.length;
+          return result.count;
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {
@@ -814,34 +813,12 @@ export const dbAdapter = <
           );
 
           if (isValidWhere) {
-            // Validate exactly 1 match before updating
-            const countResult = await handlePagination(
-              async ({ paginationOpts }) =>
-                await findManyHandler(
-                  ctx,
-                  {
-                    model: data.model,
-                    paginationOpts,
-                    where: parseWhere(data.where),
-                  },
-                  schema,
-                  betterAuthSchema
-                ),
-              { limit: 2 }
-            );
-
-            if (countResult.docs.length === 0) {
-              throw new Error(`No ${data.model} found matching criteria`);
-            }
-            if (countResult.docs.length > 1) {
-              throw new Error(
-                `Multiple ${data.model} found matching criteria. Expected exactly 1.`
-              );
-            }
             if (!('runMutation' in ctx)) {
               throw new Error('ctx is not a mutation ctx');
             }
 
+            // updateOne asserts the "exactly 1 match" contract inside the
+            // mutation, on the read it already performs.
             return await ctx.runMutation(authFunctions.updateOne, {
               input: {
                 model: data.model as any,
