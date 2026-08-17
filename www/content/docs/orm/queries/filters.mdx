@@ -33,7 +33,7 @@ Most filtering should stay in plain `findMany`. Use `select()` composition when 
 This example uses a union + interleave (internal merged-stream semantics), then applies `filter` and `map` before returning the page:
 
 ```ts title="convex/functions/messages.ts" showLineNumbers {17-37}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicQuery } from '../lib/crpc';
 
 const MessageSchema = z.object({
@@ -108,7 +108,7 @@ export default defineSchema(tables, { strict: false });
 Basic search query:
 
 ```ts title="convex/functions/articles.ts" showLineNumbers {7-11}
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicQuery } from '../lib/crpc';
 
 export const search = publicQuery

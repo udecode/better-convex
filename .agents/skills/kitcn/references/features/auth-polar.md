@@ -388,7 +388,7 @@ webhooks({
 // convex/functions/polarCustomer.ts
 import '../lib/polar-polyfills';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction, privateMutation } from '../lib/crpc';
 import { getPolarClient } from '../lib/polar-client';
 
@@ -434,7 +434,7 @@ export const updateUserPolarCustomerId = privateMutation
 // convex/functions/polarSubscription.ts
 import '../lib/polar-polyfills';
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateMutation, privateQuery } from '../lib/crpc';
 import { authAction } from '../lib/crpc-action';
 import { getPolarClient } from '../lib/polar-client';

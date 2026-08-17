@@ -88,7 +88,7 @@ export const authMutation = c.mutation.use(async ({ ctx, next }) => {
 Now when you use `authQuery` or `authMutation`, `ctx.user` and `ctx.userId` are guaranteed to exist:
 
 ```ts title="convex/functions/session.ts" showLineNumbers {1-4,6-16}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation } from '../lib/crpc';
 import { session } from './schema';
 

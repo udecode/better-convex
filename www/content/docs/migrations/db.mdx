@@ -125,7 +125,7 @@ Now we'll migrate the read paths you use every day: single-row lookups, lists, a
   </CompareItem>
   <CompareItem title="After (ORM + cRPC)">
     ```ts title="convex/functions/users.ts" showLineNumbers {2-4,7-11}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicQuery } from '../lib/crpc';
 
     export const getById = publicQuery
@@ -371,7 +371,7 @@ Next we'll migrate pagination. The mapping is straightforward: native `paginate`
   </CompareItem>
   <CompareItem title="After (`findMany({ cursor, limit })`)">
     ```ts title="convex/functions/posts.ts" showLineNumbers {2-4,8-12}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicQuery } from '../lib/crpc';
 
     export const list = publicQuery
@@ -466,7 +466,7 @@ Vector search in native Convex is action-only. The migration keeps that shape: r
   </CompareItem>
   <CompareItem title="After (ORM + cRPC)">
     ```ts title="convex/functions/posts.ts" showLineNumbers {2-7,16-28}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicAction, privateQuery } from '../lib/crpc';
     import { createPostsCaller } from './generated/posts.runtime';
 
@@ -528,7 +528,7 @@ Now we'll map writes carefully, because semantics differ most here.
   </CompareItem>
   <CompareItem title="After (ORM + cRPC)">
     ```ts title="convex/functions/users.ts" showLineNumbers {2-6,11-18}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicMutation } from '../lib/crpc';
     import { users } from '../schema';
 

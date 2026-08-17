@@ -1,5 +1,5 @@
 import { createEnv } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 
 const envSchema = z.object({
   DEPLOY_ENV: z.string().default('production'),

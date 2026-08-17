@@ -98,7 +98,7 @@ Format: `minute hour day-of-month month day-of-week`
 Handler functions that cron jobs call:
 
 ```ts title="convex/functions/crons.ts" showLineNumbers {5-13,15-25}
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateMutation, privateAction } from '../lib/crpc';
 import { createAnalyticsCaller } from './generated/analytics.runtime';
 import { createReportsCaller } from './generated/reports.runtime';
@@ -154,7 +154,7 @@ Key behavioral constraints: scheduling from mutations is atomic (failure cancels
 Use `schedule.after(delayMs)` to schedule a function to run after a delay (in milliseconds):
 
 ```ts title="convex/functions/orders.ts" showLineNumbers {3,12-14}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authMutation } from '../lib/crpc';
 import { createOrdersCaller } from './generated/orders.runtime';
 

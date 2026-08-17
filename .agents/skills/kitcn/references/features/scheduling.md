@@ -66,7 +66,7 @@ Format: `minute hour day-of-month month day-of-week`. Runs in **UTC**. Minimum i
 
 ```ts
 // convex/functions/crons.ts
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateMutation, privateAction } from '../lib/crpc';
 import { createAnalyticsCaller } from './generated/analytics.runtime';
 import { createReportsCaller } from './generated/reports.runtime';

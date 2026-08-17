@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicQuery } from '../../lib/crpc';
 
 export const list = publicQuery

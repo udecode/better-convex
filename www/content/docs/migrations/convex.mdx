@@ -78,7 +78,7 @@ Base context properties work identically:
   </CompareItem>
   <CompareItem title="After (cRPC)">
     ```ts showLineNumbers {1-3,5-7}
-    import { z } from 'zod';
+    import * as z from 'zod';
     import { publicQuery } from '../lib/crpc';
 
     export const get = publicQuery

@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "dist",
+    "incremental": true,
+    // Outside `outDir`: `tsdown` cleans `dist`, which would drop the cache on
+    // every package build.
+    "tsBuildInfoFile": "./.tsbuildinfo",
     "declaration": false,
     "jsx": "react-jsx",
     "lib": ["dom", "dom.iterable", "esnext"]

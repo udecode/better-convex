@@ -359,7 +359,7 @@ export const renderEnvHelperContent = (
     const readOptionalRuntimeEnvOption = renderReadOptionalRuntimeEnvOption(
       readOptionalRuntimeEnvKeys
     );
-    return `import { createEnv } from 'kitcn/server';\nimport { z } from 'zod';\n\nconst envSchema = z.object({\n${fieldLines}\n});\n\nexport const getEnv = createEnv({\n${readOptionalRuntimeEnvOption}  schema: envSchema,\n});\n`;
+    return `import { createEnv } from 'kitcn/server';\nimport * as z from 'zod';\n\nconst envSchema = z.object({\n${fieldLines}\n});\n\nexport const getEnv = createEnv({\n${readOptionalRuntimeEnvOption}  schema: envSchema,\n});\n`;
   }
 
   const match = existingContent.match(ENV_SCHEMA_RE);

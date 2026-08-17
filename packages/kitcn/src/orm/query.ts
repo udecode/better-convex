@@ -9,6 +9,7 @@
 
 import type { GenericDatabaseReader } from 'convex/server';
 import { compareValues } from 'convex/values';
+import { mapWithConcurrency } from '../internal/concurrency';
 import {
   AGGREGATE_ERROR,
   COUNT_ERROR,
@@ -130,7 +131,6 @@ import {
   type IndexStrategy,
   WhereClauseCompiler,
 } from './where-clause-compiler';
-import { mapWithConcurrency } from './write-fanout';
 
 /**
  * Operators that Convex's `.filter()` cannot express, so `_toConvexExpression`

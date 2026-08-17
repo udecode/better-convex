@@ -14,6 +14,7 @@ import {
   enforceUniqueIndexes,
   evaluateFilter,
   extractPrimaryIdLookup,
+  getForeignKeys,
   getMutationAsyncDelayMs,
   getMutationCollectionLimits,
   getMutationExecutionMode,
@@ -50,6 +51,7 @@ import type {
 } from './types';
 import { isUnsetToken } from './unset-token';
 import { WhereClauseCompiler } from './where-clause-compiler';
+import { hasLifecycleHooks } from './write-fanout';
 
 const applyIndexFilter = (query: any, filter: FilterExpression<boolean>) => {
   if (filter.type !== 'binary') {
@@ -639,17 +641,94 @@ export class ConvexUpdateBuilder<
     };
     const fkBatchSize = isPaginated ? pagination.limit : batchSize;
 
+    // One statement writes one `set()`, so the changed-field set is invariant
+    // across the affected rows.
+    const changedFields = new Set(Object.keys(writeSet as any));
+
+    const incomingForeignKeys =
+      foreignKeyGraph.incomingByTable.get(tableName) ?? [];
+    // Every document this loop can write to. A hook on any of them runs
+    // arbitrary user code against the whole database mid-loop, which is exactly
+    // what the two memos below assume cannot happen.
+    const hooksCanWriteMidLoop =
+      hasLifecycleHooks(this.db, tableName) ||
+      incomingForeignKeys.some((foreignKey) =>
+        hasLifecycleHooks(this.db, foreignKey.sourceTableName)
+      );
+    // A self-referencing cascade patches rows of this same table, so the stored
+    // document is not necessarily `{ ...row, ...writeSet }` by the time we read.
+    const cascadeTargetsThisTable = incomingForeignKeys.some(
+      (foreignKey) => foreignKey.sourceTableName === tableName
+    );
+    const canDerivePostImage = !(
+      hooksCanWriteMidLoop || cascadeTargetsThisTable
+    );
+    // `patch` drops these keys; `{ ...row, ...writeSet }` keeps them as
+    // `undefined`, which `hydrateDateFieldsForRead` would emit.
+    const unsetFields = Object.keys(writeSet as any).filter(
+      (field) => (writeSet as any)[field] === undefined
+    );
+    const derivePostImage = (
+      candidate: Record<string, unknown>
+    ): Record<string, unknown> => {
+      if (unsetFields.length === 0) {
+        return candidate;
+      }
+      const postImage = { ...candidate };
+      for (const field of unsetFields) {
+        delete postImage[field];
+      }
+      return postImage;
+    };
+
+    /**
+     * A single-column `references()` FK to `_id` whose column is supplied by
+     * `set()` probes a byte-identical id on every row, and nothing in this loop
+     * can delete that document. Probe it once, then hide those columns from
+     * `enforceForeignKeys` so the remaining keys still get their per-row check.
+     * Composite FKs read columns off `row`, so they genuinely vary.
+     */
+    const memoizedFkColumns = new Set<string>();
+    const perRowFkColumns = new Set<string>();
+    for (const foreignKey of getForeignKeys(this.table)) {
+      const isInvariantIdProbe =
+        !hooksCanWriteMidLoop &&
+        foreignKey.columns.length === 1 &&
+        foreignKey.foreignColumns.length === 1 &&
+        foreignKey.foreignColumns[0] === '_id' &&
+        changedFields.has(foreignKey.columns[0]);
+      if (isInvariantIdProbe) {
+        memoizedFkColumns.add(foreignKey.columns[0]);
+        continue;
+      }
+      for (const column of foreignKey.columns) {
+        perRowFkColumns.add(column);
+      }
+    }
+    // A column shared with a per-row FK must stay visible or that FK is skipped.
+    for (const column of perRowFkColumns) {
+      memoizedFkColumns.delete(column);
+    }
+    const residualChangedFields =
+      memoizedFkColumns.size === 0
+        ? changedFields
+        : new Set(
+            [...changedFields].filter((field) => !memoizedFkColumns.has(field))
+          );
+    let foreignKeysProbed = false;
+
     for (const { row, updatedRow, decision } of updates) {
       if (!decision.allowed) {
         continue;
       }
-      enforcePolymorphicWrite(this.table, updatedRow, {
-        changedFields: new Set(Object.keys(writeSet as any)),
-      });
+      enforcePolymorphicWrite(this.table, updatedRow, { changedFields });
       enforceCheckConstraints(this.table, updatedRow);
       await enforceForeignKeys(this.db, this.table, updatedRow, {
-        changedFields: new Set(Object.keys(writeSet as any)),
+        changedFields: foreignKeysProbed
+          ? residualChangedFields
+          : changedFields,
       });
+      foreignKeysProbed = true;
 
       await applyIncomingForeignKeyActionsOnUpdate(
         this.db,
@@ -671,9 +750,11 @@ export class ConvexUpdateBuilder<
           delayMs,
         }
       );
+      // Not hoistable: this queries the table being patched, and Convex
+      // mutations read their own writes, so row N must see rows 1..N-1.
       await enforceUniqueIndexes(this.db, this.table, updatedRow, {
         currentId: (row as any)._id,
-        changedFields: new Set(Object.keys(writeSet as any)),
+        changedFields,
       });
       await this.db.patch(tableName, (row as any)._id, writeSet as any);
       numAffected++;
@@ -682,7 +763,14 @@ export class ConvexUpdateBuilder<
         continue;
       }
 
-      const updated = await this.db.get((row as any)._id);
+      // The patch wrote exactly `writeSet` and nothing else can touch this
+      // document, so the post-image is already in hand.
+      const updated = canDerivePostImage
+        ? derivePostImage(updatedRow)
+        : ((await this.db.get((row as any)._id)) as Record<
+            string,
+            unknown
+          > | null);
       if (!updated) {
         continue;
       }

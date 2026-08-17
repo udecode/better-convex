@@ -442,7 +442,7 @@ Function examples use the ORM (`ctx.orm`).
 import '../lib/polar-polyfills';
 
 import { CRPCError } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction, privateMutation } from '../lib/crpc';
 import { getPolarClient } from '../lib/polar-client';
 

@@ -18,7 +18,7 @@ import {
   queryGeneric,
 } from 'convex/server';
 import { ConvexError, type Value } from 'convex/values';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   type DataTransformerOptions,
   getTransformer,

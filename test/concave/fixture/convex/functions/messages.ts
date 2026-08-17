@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicMutation, publicQuery } from '../lib/crpc';
 
 export const create = publicMutation

@@ -296,3 +296,57 @@ export const run = authAction.action(async () => null);
     expect(state.showHelp).toBe(true);
   });
 });
+
+describe('cli/analyze entry sweep concurrency', () => {
+  test('mapWithConcurrency keeps results in input order', async () => {
+    const items = [50, 5, 30, 1, 20, 0, 40];
+    const results = await __test.mapWithConcurrency(
+      items,
+      4,
+      async (item: number) => {
+        await new Promise((done) => setTimeout(done, item));
+        return item * 2;
+      }
+    );
+
+    expect(results).toEqual(items.map((item) => item * 2));
+  });
+
+  test('mapWithConcurrency runs entries in parallel up to the cap', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const startedAt = Date.now();
+
+    await __test.mapWithConcurrency(
+      Array.from({ length: 12 }, (_, index) => index),
+      4,
+      async (item: number) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((done) => setTimeout(done, 20));
+        inFlight -= 1;
+        return item;
+      }
+    );
+
+    // Serial execution would peak at 1 and take ~240ms.
+    expect(peak).toBe(4);
+    expect(Date.now() - startedAt).toBeLessThan(200);
+  });
+
+  test('mapWithConcurrency handles empty input and cap larger than input', async () => {
+    expect(await __test.mapWithConcurrency([], 8, async () => 1)).toEqual([]);
+    expect(
+      await __test.mapWithConcurrency([1, 2], 99, async (item: number) => item)
+    ).toEqual([1, 2]);
+  });
+
+  test('resolveAnalyzeConcurrency stays bounded', () => {
+    expect(__test.resolveAnalyzeConcurrency(0)).toBe(1);
+    expect(__test.resolveAnalyzeConcurrency(1)).toBe(1);
+    expect(__test.resolveAnalyzeConcurrency(2)).toBeLessThanOrEqual(2);
+    const many = __test.resolveAnalyzeConcurrency(200);
+    expect(many).toBeGreaterThanOrEqual(1);
+    expect(many).toBeLessThanOrEqual(8);
+  });
+});

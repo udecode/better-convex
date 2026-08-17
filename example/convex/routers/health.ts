@@ -2,7 +2,7 @@
  * Health Check Endpoint
  */
 
-import { z } from 'zod';
+import * as z from 'zod';
 import { publicRoute } from '../lib/crpc';
 
 // GET /api/health - Simple health check (no input)

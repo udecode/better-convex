@@ -125,7 +125,7 @@ export const list = publicQuery
 Use `.mutation()` for write operations. Mutations are transactional - if any part fails, the entire operation rolls back.
 
 ```ts showLineNumbers {1-4,6-17}
-import { z } from 'zod';
+import * as z from 'zod';
 import { eq } from 'kitcn/orm';
 import { user } from './schema';
 
@@ -169,7 +169,7 @@ When one procedure needs to call another, use the module runtime factory from
 </Callout>
 
 ```ts title="convex/functions/teams.ts" showLineNumbers {3,7-9}
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateQuery } from '../lib/crpc';
 import { createTeamsHandler } from './generated/teams.runtime';
 
@@ -231,7 +231,7 @@ await caller.schedule.now.reindex({ force: true });
 For internal composition where the caller already validated inputs, use `create<Module>Handler(ctx)`. It bypasses input validation, middleware, and output validation — calling the raw handler directly.
 
 ```ts title="convex/functions/organization.ts" showLineNumbers {3,7-8}
-import { z } from 'zod';
+import * as z from 'zod';
 import { authQuery } from '../lib/crpc';
 import { createOrganizationHandler } from './generated/organization.runtime';
 

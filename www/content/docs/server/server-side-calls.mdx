@@ -103,7 +103,7 @@ factories are unavailable.
 
 
 ```ts title="convex/functions/teams.ts" showLineNumbers {3,7-9}
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateQuery } from '../lib/crpc';
 import { createTeamsHandler } from './generated/teams.runtime';
 

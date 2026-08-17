@@ -16,7 +16,7 @@ import {
   Text,
 } from '@react-email/components';
 import { render } from '@react-email/render';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateAction } from '${PROJECT_CRPC_IMPORT_PLACEHOLDER}';
 ${PROJECT_GET_ENV_IMPORT_PLACEHOLDER}
 import { createResendCaller } from '${FUNCTIONS_DIR_IMPORT_PLACEHOLDER}/generated/plugins/resend.runtime';

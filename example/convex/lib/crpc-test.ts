@@ -9,7 +9,7 @@
 
 /* biome-ignore-all lint: type test file with intentional expressions */
 import { requireActionCtx, requireSchedulerCtx } from 'kitcn/server';
-import { z } from 'zod';
+import * as z from 'zod';
 import {
   createAuthCaller,
   createAuthHandler,

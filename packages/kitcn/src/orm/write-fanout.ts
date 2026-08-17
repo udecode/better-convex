@@ -1,48 +1,16 @@
 /**
- * Shared primitives for fanning out independent writes.
+ * Lifecycle bookkeeping for the ORM write path.
  *
  * Deliberately dependency-free: `mutation-utils`, `lifecycle` and `query` all
- * import it, and Convex bundles every static import of a function entry.
+ * import it, and Convex bundles every static import of a function entry. The
+ * bounded fan-out primitive itself lives in `internal/concurrency` so the CLI
+ * can share it without dragging this module in.
  */
 
 const ORMLIFECYCLE_HOOKED_TABLES = Symbol.for('kitcn:OrmLifecycleHookedTables');
 
 /** Matches the ORM's relation-loading default. */
 export const DEFAULT_WRITE_FANOUT_CONCURRENCY = 25;
-
-/**
- * Runs `worker` over `items` with at most `limit` in flight. Results keep input
- * order. Unbounded `Promise.all` is not an option here: a fan-out is bounded
- * only by `mutationMaxRows` (10,000), and that many simultaneous in-flight
- * syscalls is its own failure mode.
- */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  if (items.length === 0) {
-    return [];
-  }
-  const width = Math.max(1, Math.min(limit, items.length));
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  const runWorker = async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= items.length) {
-        return;
-      }
-      results[index] = await worker(items[index], index);
-    }
-  };
-
-  await Promise.all(Array.from({ length: width }, () => runWorker()));
-
-  return results;
-}
 
 /**
  * Records which tables the lifecycle writer intercepts, so write fan-out can

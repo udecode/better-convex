@@ -4,6 +4,7 @@ import type {
   SchedulableFunctionReference,
   Scheduler,
 } from 'convex/server';
+import { mapWithConcurrency } from '../internal/concurrency';
 import type {
   ColumnBuilder,
   ForeignKeyAction,
@@ -51,7 +52,6 @@ import {
 import {
   DEFAULT_WRITE_FANOUT_CONCURRENCY,
   hasLifecycleHooks,
-  mapWithConcurrency,
 } from './write-fanout';
 
 type UniqueIndexDefinition = {
