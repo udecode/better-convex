@@ -135,18 +135,18 @@ Blocked condition:
 Task state:
 - task_type: PR closeout for an existing cross-package performance refactor
 - task_complexity: normal, non-trivial, measurable
-- current_phase: review repair
-- current_phase_status: in_progress
-- next_phase: focused proof, push, thread resolution, remote gates, merge/release
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: exact merge and release read-back
+- goal_status: complete after external merge/release receipts
 
 Current verdict:
-- verdict: repair in progress
+- verdict: ready to merge
 - confidence: 92%; capped below 95% because timing benchmarks were not rerun and
   the approved browser backends were unavailable
-- next owner: autoclosure
-- reason: prior delivery proof passes, but two unresolved review threads remain
-  and one requires a canonical rule exception before merge.
+- next owner: GitHub delivery
+- reason: canonical rule/mirrors, refreshed fixtures, full check, full-branch
+  review, both thread replies/resolutions, and exact remote gates pass.
 
 Implementation readiness:
 - verdict: repair-source
@@ -406,8 +406,8 @@ Phase / pass table:
 | Intake and source read | completed | PR, comments, doctrine, owners, and prior evidence read | implementation |
 | Implementation | completed | ratelimit owner/output, skill source/mirror, and stale concurrency import repaired | verification |
 | Verification | completed | focused RED/GREEN, builds, fixture parity, audits, and full check pass | commit/review |
-| Commit / PR / GitHub sync | completed | commits pushed; compliant body applied; PR reopened and remote head/body/state read back | closeout |
-| Closeout | completed | plan receipt finalized for a documentation-only fast-forward and final remote read-back | final response |
+| Commit / PR / GitHub sync | completed | repair pushed; threads resolved; task body and auto-release verified | closeout |
+| Closeout | completed | exact source head gates green; final receipt fast-forward precedes merge | merge/release |
 
 Findings:
 - PR #352 reads `OPEN` and `MERGEABLE` on the rebased branch. GitHub initially
@@ -521,6 +521,9 @@ Verification evidence:
   `843d0ecf77a2182d963237145e01c380b9f0e341` before this final plan-only receipt.
 - The remote content API returned this exact date-prefixed plan at the PR head;
   `git ls-remote` matched local HEAD before the final receipt fast-forward.
+- Current repair `12c924df` passed CI run `32047952153` in 6m07s,
+  Vercel, and auto-release; both review threads were replied to, resolved, and
+  re-fetched empty. Full-branch autoreview is clean at 0.96.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -539,10 +542,10 @@ Source-listed case matrix:
 | Reopen/read-back | PR #352 returns to reviewable state | REST reopen then `gh pr view` | `CLOSED`, conflicting old head | `OPEN`, expected head/body/base | Read-back returned `OPEN`, expected branch/body/base/head, and `MERGEABLE` | passed |
 
 Final handoff contract:
-- Commit line: implementation/review receipts through `843d0ecf`; this final
-  plan-only receipt is the branch tip and receives a post-push OID audit
-- PR line: https://github.com/udecode/kitcn/pull/352; `OPEN` on
-  `refactor/cut-deployed-bundle-and-orm-reads`; final OID re-read after receipt push
+- Commit line: implementation receipts through `843d0ecf`; review/fixture repair
+  `12c924df`; final plan receipt follows
+- PR line: https://github.com/udecode/kitcn/pull/352; compliant, `OPEN`, source
+  gates green, auto-release enabled, zero unresolved threads
 - Issue line: N/A: no separate issue; PR #352 is the tracker
 - Confidence line: 92%; fresh correctness gates passed, but historical timing
   claims and unavailable direct browser proof cap confidence below 95%
@@ -620,17 +623,15 @@ Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Closeout complete |
-| Where am I going? | Final response after the plan-only receipt fast-forward and one final GitHub read-back |
+| Where am I going? | Exact merge, release, npm, and post-release read-back |
 | What is the goal? | Close the rebased bundle/read performance refactor with repaired owners, passing checks, compliant evidence, pushed head, and `OPEN` read-back |
 | What have I learned? | Rebase also left the template owner, skill snippets, and one concurrency consumer stale; Conductor proxy affects local readiness fetches |
-| What have I done? | Repaired owners, proved focused and full behavior, synced generated artifacts, and recorded browser/proxy caveats |
+| What have I done? | Repaired owners and standards, synced fixtures/mirrors, proved full behavior, resolved feedback, and passed remote gates |
 
 Open risks:
-- Final autoreview may identify a branch-level finding that requires another
-  focused proof loop.
 - Benchmark numbers remain prior PR evidence and direct Browser proof remains
   unavailable; confidence stays at 92%.
-- Force-push must target only `origin/refactor/cut-deployed-bundle-and-orm-reads`.
+- Merge/release receipts are external state and cannot be committed after merge.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
