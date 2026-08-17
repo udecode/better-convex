@@ -2,18 +2,20 @@
 "kitcn": minor
 ---
 
-## Breaking changes
+## Features
 
-- Preserve function-form `enabled` predicates in `kitcn/solid` query options so
+- Support stable identity values from custom Solid auth providers.
+
+## Patches
+
+- Fix function-form `enabled` predicates in `kitcn/solid` query options so
   they gate both requests and live subscriptions.
-- Reject unauthenticated `auth: "required"` Solid action queries locally with
+- Fix unauthenticated `auth: "required"` Solid action queries to reject locally with
   `CRPCClientError`, matching the React bindings.
-- Clear auth-bound cached data on identity transitions. Unobserved entries are
+- Fix auth-bound cached data crossing identity transitions. Unobserved entries are
   removed; mounted entries are rebuilt without their previous `initialData`,
   return to pending without prior-account placeholder data, and refetch for the
   new account.
-
-## Patches
 
 - Fix `kitcn/solid` paginated lists on an `auth: 'required'` function never
   issuing a query. Auth state is tracked, so a list mounted before sign-in loads
