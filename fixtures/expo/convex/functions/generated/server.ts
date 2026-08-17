@@ -20,6 +20,7 @@ import type {
 } from '../_generated/server';
 import { httpAction, internalMutation } from '../_generated/server';
 import schema from '../schema';
+import { procedureNames } from './procedure-names.gen';
 
 
 const ormFunctions: OrmFunctions = {
@@ -31,12 +32,7 @@ const ormFunctions: OrmFunctions = {
 };
 const ormSchema = schema;
 
-registerProcedureNameLookup(
-  {
-  "messages.ts": [{ column: 3, line: 32, name: "messages:create" }, { column: 3, line: 15, name: "messages:list" }],
-},
-  "convex/functions"
-);
+registerProcedureNameLookup(procedureNames, "convex/functions");
 
 export const orm = createOrm({
   schema: ormSchema,
