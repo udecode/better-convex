@@ -19,7 +19,7 @@ Applied packs:
 
 Task source:
 - type: user workflow requirement
-- id / link: current Codex task
+- id / link: https://github.com/udecode/kitcn/pull/364
 - title: Autoclose PRs without task
 - acceptance criteria: define verifiable task evidence; comment before close;
   recommend GPT-5.6 with high-or-higher reasoning effort; verify comment and
@@ -253,7 +253,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Source/mirror/template audit, reviews, full check | all pass |
-| Exact per-PR task ownership | yes | Record one not-yet-created single-PR slice | this plan owns the workflow PR and will be updated with its number |
+| Exact per-PR task ownership | yes | Record exact PR and dedicated plan | this plan owns PR #364 |
 | Pre-solution issue challenge verdict | yes | Record claim, repro, verdict, boundary | valid route-back-only gap; hard cut authorized |
 | Repro escalation ladder | yes | Source-level proof; higher layers N/A | current rule leaves noncompliant PR open |
 | Bug reproduced before fix | yes | Record source repro | autoclosure step 1 routed to task without comment/close |
