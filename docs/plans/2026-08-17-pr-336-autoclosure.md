@@ -71,7 +71,7 @@ Closure matrix:
 | agent workflow | no | no rule/helper/workflow behavior | N/A |
 | cleanup/review | yes | deslop and autoreview | complete |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, pinned checks, merge/release | pending |
+| GitHub delivery | yes | feedback, pinned checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
@@ -79,7 +79,7 @@ Work Checklist:
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
 - [x] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 - [x] Residual blocker/waiver has exact evidence and next owner.
 
 Error attempts:
@@ -100,9 +100,9 @@ Completion Gates:
 | Agent-native reviewer | yes | docs/skill mirror audit | capability map passes; no workflow action delta |
 | Final lint | yes | run `bun lint:fix` | 904 files clean |
 | Repository check | yes | run `bun check` | exit 0 after released-main merge |
-| GitHub delivery | pending | push, feedback, pinned checks, merge/release | pending |
+| GitHub delivery | complete | push, feedback, pinned checks, merge/release | PR head `a6daae00` passed CI `31979448915` and Vercel; merged `aba33f55`; release #351 merged `14f6eced`; v0.19.0 published; post-release CI `31980556174` passed |
 | Autoreview | yes | final branch review | P1 clean; patch correct (0.82) |
-| Goal plan complete | yes | run checker | pending |
+| Goal plan complete | yes | run checker | complete |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -110,8 +110,8 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback, released main | repair |
 | Repair | complete | docs scope and iterator cleanup repaired | review/checks |
 | Review/checks | complete | focused/package/docs/skill/deslop/lint/full/review green | delivery |
-| Delivery | in_progress | final local branch ready | push, feedback, pinned checks |
-| Closeout | pending | | final |
+| Delivery | complete | exact remote gates, merge, release, and publication receipts | closeout |
+| Closeout | complete | goal checker passes | final |
 
 Verification evidence:
 - The contributor branch is substantial, owner-local performance work rather
@@ -144,22 +144,32 @@ Verification evidence:
   v0.18.0 main, including fresh fixtures and runtime scenarios.
 - Fresh branch P1 autoreview is clean with no accepted/actionable findings;
   patch-correct confidence is 0.82 and its parallel 61-test lane passed.
+- Exact PR head `a6daae003e6b36a26641a124acc842f315ee9528`
+  passed CI `31979448915` and Vercel, then squash-merged as
+  `aba33f55f1eacacdf36c8408391068a7e3868132`.
+- Release PR #351 exact head `ddcd28b8c3f78bc0b6a0f0a1e38ecaf90f86b2ea`
+  passed Convex Matrix `31979787296` and Vercel, then squash-merged as
+  `14f6ecedf1b77c567a89e71d1f862993886e6127`.
+- Release workflow `31980556149` published `kitcn@0.19.0`,
+  `@kitcn/resend@0.19.0`, and GitHub `v0.19.0` at the exact release commit.
+  Post-release CI `31980556174` passed that same commit.
 
 Timeline:
 - 2026-08-17 PR #336 merged current main, resolved source/generated docs, and
   passed its first focused/package baseline.
 - 2026-08-17 Repaired claim scope and iterator cleanup; all local closure gates
   pass against released v0.18.0 main.
+- 2026-08-17 Merged exact PR and release heads, published v0.19.0, and verified
+  post-release CI on the release commit.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Delivery |
-| Where am I going? | Push, feedback, pinned checks, merge, release |
+| Where am I? | Closed |
+| Where am I going? | Next ordered PR |
 | What is the goal? | Ship only proven bounded stream and ID-list behavior. |
 | What have I learned? | The stream fixes are credible; the docs overstate the lazy path. |
-| What have I done? | Repaired two claim gaps and four cleanup paths; all local gates pass. |
+| What have I done? | Repaired, merged, released, and verified v0.19.0. |
 
 Open risks:
-- Remote exact-head checks, merge, release publication, and post-release CI
-  remain unproven until delivery completes.
+- None within PR #336's declared boundary.

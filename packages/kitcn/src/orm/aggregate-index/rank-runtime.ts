@@ -357,35 +357,61 @@ const getRankMemberByDoc = async (
   return rows[0] ?? null;
 };
 
-const listRankMembers = async (
+const takeRankMembers = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<RankMemberRow[]> =>
-  (await db
-    .query(AGGREGATE_MEMBER_TABLE)
-    .withIndex('by_kind_table_index', (q: any) =>
-      q
-        .eq('kind', RANK_MEMBER_KIND)
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-    )
-    .collect()) as RankMemberRow[];
+  (await (
+    db
+      .query(AGGREGATE_MEMBER_TABLE)
+      .withIndex('by_kind_table_index', (q: any) =>
+        q
+          .eq('kind', RANK_MEMBER_KIND)
+          .eq('tableKey', tableName)
+          .eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as RankMemberRow[];
 
 const rankCtx = (db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>) =>
   ({ db, orm: undefined }) as any;
 
-export const clearRankIndexData = async (
+/** Trees dropped per invocation once every rank member has been removed. */
+const RANK_TREE_DROP_BATCH = 16;
+
+/**
+ * Removes at most `batchSize` rank members and reports whether anything is
+ * left. Each member is removed from the btree before its row is dropped, so the
+ * tree stays consistent with the members that remain and a partially drained
+ * clear can safely resume in a later mutation.
+ */
+export const clearRankIndexChunk = async (
   db: GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
-): Promise<void> => {
+  indexName: string,
+  batchSize: number
+): Promise<{ done: boolean; processed: number }> => {
   const aggregate = rankAggregate(tableName, indexName);
-  await aggregate.clearAll(rankCtx(db));
-  const members = await listRankMembers(db, tableName, indexName);
-  for (const member of members) {
-    await db.delete(AGGREGATE_MEMBER_TABLE, member._id as any);
+  const ctx = rankCtx(db);
+  const members = await takeRankMembers(db, tableName, indexName, batchSize);
+
+  if (members.length > 0) {
+    for (const member of members) {
+      if (member.rankKey !== undefined) {
+        await aggregate.deleteIfExists(ctx, {
+          id: member.docId,
+          key: member.rankKey as any,
+          namespace: member.rankNamespace as any,
+        });
+      }
+      await db.delete(AGGREGATE_MEMBER_TABLE, member._id as any);
+    }
+    return { done: false, processed: members.length };
   }
+
+  const done = await aggregate.deleteTrees(ctx, RANK_TREE_DROP_BATCH);
+  return { done, processed: done ? 0 : RANK_TREE_DROP_BATCH };
 };
 
 export const reconcileRankMembership = async (
@@ -435,9 +461,8 @@ export const reconcileRankMembership = async (
     stableEquals(existing.rankKey, key) &&
     (existing.rankSumValue ?? 0) === sumValue
   ) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      updatedAt: now,
-    });
+    // Member row is value-identical. Nothing reads `updatedAt`, so writing it
+    // would be a document write carrying no information.
     return;
   }
 
@@ -553,15 +578,12 @@ const toPublicRankItem = (
   sumValue: item.sumValue,
 });
 
-export const readRankAt = async (
+const readRankAtWithCount = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan,
-  offset: number
+  offset: number,
+  count: number
 ): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
-  const aggregate = rankAggregate(plan.tableName, plan.indexName);
-  const count = await aggregate.count(rankCtx(db), {
-    namespace: plan.namespace as any,
-  });
   if (count <= 0) {
     return null;
   }
@@ -569,11 +591,19 @@ export const readRankAt = async (
   if (normalizedOffset < 0 || normalizedOffset >= count) {
     return null;
   }
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
   const item = await aggregate.at(rankCtx(db), offset, {
     namespace: plan.namespace as any,
   });
   return toPublicRankItem(plan, item as any);
 };
+
+export const readRankAt = async (
+  db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
+  plan: RankQueryPlan,
+  offset: number
+): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
+  await readRankAtWithCount(db, plan, offset, await readRankCount(db, plan));
 
 export const readRankIndexOf = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
@@ -626,14 +656,24 @@ export const readRankPaginate = async (
 export const readRankMin = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan
-): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
-  await readRankAt(db, plan, 0);
+): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
+  const item = await aggregate.min(rankCtx(db), {
+    namespace: plan.namespace as any,
+  });
+  return item ? toPublicRankItem(plan, item as any) : null;
+};
 
 export const readRankMax = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: RankQueryPlan
-): Promise<{ id: string; key: unknown; sumValue: number } | null> =>
-  await readRankAt(db, plan, -1);
+): Promise<{ id: string; key: unknown; sumValue: number } | null> => {
+  const aggregate = rankAggregate(plan.tableName, plan.indexName);
+  const item = await aggregate.max(rankCtx(db), {
+    namespace: plan.namespace as any,
+  });
+  return item ? toPublicRankItem(plan, item as any) : null;
+};
 
 export const readRankRandom = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
@@ -644,5 +684,5 @@ export const readRankRandom = async (
     return null;
   }
   const offset = Math.floor(Math.random() * count);
-  return await readRankAt(db, plan, offset);
+  return await readRankAtWithCount(db, plan, offset, count);
 };

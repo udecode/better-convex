@@ -33,6 +33,8 @@ Linked plans:
   ORM limit/order pushdown and relation index selection.
 - [PR #336 autoclosure](docs/plans/2026-08-17-pr-336-autoclosure.md) -
   ORM stream amplification and ID-list pagination.
+- [PR #337 autoclosure](docs/plans/2026-08-17-pr-337-autoclosure.md) -
+  Aggregate-index read bounds, maintenance, and extrema budget accounting.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -118,8 +120,8 @@ PR disposition ledger:
 | #333 | correct Turbo/CI inputs and delete dead work | credible tooling cleanup | 0 threads | before #342; ride 0.18 release | closed: merged `413d4068`, remote gates green |
 | #334 | reduce example/www client work and reads | mixed but mostly real; three proof/owner defects were slop and repaired | both threads resolved | codegen fix released in 0.17.4 | closed: merged `6bc8d1ca`, released 0.17.4 |
 | #335 | push ORM limit/order into indexes | valuable but high-risk; advertised index preference was missing | 3 GitHub P1s plus 2 accepted local P1s repaired; 1 local P1 rejected with owner proof | before #336/#337/#342 | closed: merged `9b3494de`, released v0.18.0, post-release CI green |
-| #336 | bound streams and id-list pagination | credible, not slop; release/docs claims overstated and iterator cleanup incomplete | first P2 repaired upstream; second accepted locally; four local cleanup regressions repaired | after #335 | local focused/package/docs/skill/deslop/full/review gates green; delivery pending |
-| #337 | bound aggregate reads and clearing | valuable but high-risk | 2 P1 threads | before #342 | repair pending |
+| #336 | bound streams and id-list pagination | credible, not slop; release/docs claims overstated and iterator cleanup incomplete | first P2 repaired upstream; second accepted locally; four local cleanup regressions repaired | after #335 | closed: merged `aba33f55`, released v0.19.0, post-release CI green |
+| #337 | bound aggregate reads and clearing | valuable but high-risk; duplicate helper, budget, discovery, and clearing-race gaps repaired | first P1 fixed upstream; five local P1 blockers repaired across two bounded review cycles | before #342 | all local gates green; delivery pending |
 | #338 | cache auth schema and repair session restore | credible, breaking | 3 P1 threads | after #337 by release plan | repair pending |
 | #339 | restore Solid/React parity | credible but broad | 4 outdated threads | after #329/#332 | verify/repair pending |
 | #340 | validate cRPC output once | credible, silent contract risk | 3 P1 threads | after #339 by release plan | repair pending |
