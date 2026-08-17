@@ -6,8 +6,11 @@ const EXACT_VERSION_RE = /^(\d+)\.(\d+)\.\d+$/;
 const VERSION_IN_SPEC_RE = /(\d+)\.(\d+)(?:\.\d+)?/;
 const PLAIN_VERSION_SPEC_RE = /^[\^~]?v?\d+\.\d+(?:\.\d+)?$/;
 const UPPER_BOUND_RE = /(?:^|\s)<={0,1}\s*v?(\d+)\.(\d+)(?:\.\d+)?/g;
+const LOWER_BOUND_RE = /(?:^|\s)>={0,1}\s*v?(\d+)\.(\d+)(?:\.\d+)?/g;
 const SUPPORTED_CONCAVE_CLI_VERSION = '0.0.1-alpha.14';
-const SUPPORTED_CONVEX_VERSION = '1.42.3';
+const SUPPORTED_CONVEX_VERSION = '1.44.0';
+const SUPPORTED_CONVEX_MIN_VERSION = '1.42';
+const SUPPORTED_CONVEX_MIN_TYPE_VERSION = '1.42.3';
 const SUPPORTED_BETTER_AUTH_VERSION = '1.6.18';
 const SUPPORTED_BETTER_AUTH_MIN_VERSION = '1.6.11';
 const SUPPORTED_HONO_VERSION = '4.12.9';
@@ -43,6 +46,17 @@ export function getMinorVersionPeerRange(
   }
 
   return `>=${minimumVersion} <${match[1]}.${Number(match[2]) + 1}.0`;
+}
+
+function getNextMinorVersion(version: string): string {
+  const match = EXACT_VERSION_RE.exec(version);
+  if (!match) {
+    throw new Error(
+      `Unsupported exact version "${version}". Expected x.y.z format.`
+    );
+  }
+
+  return `${match[1]}.${Number(match[2]) + 1}.0`;
 }
 
 export function getPackageNameFromInstallSpec(spec: string): string {
@@ -137,8 +151,14 @@ export function resolveScaffoldInstallSpec(
 export const SUPPORTED_DEPENDENCY_VERSIONS = {
   convex: {
     exact: SUPPORTED_CONVEX_VERSION,
+    minimumType: SUPPORTED_CONVEX_MIN_TYPE_VERSION,
     range: `^${SUPPORTED_CONVEX_VERSION}`,
-    minimum: getMinimumVersionRange(SUPPORTED_CONVEX_VERSION),
+    minimum: `>=${SUPPORTED_CONVEX_MIN_VERSION}`,
+    maximumExclusive: getNextMinorVersion(SUPPORTED_CONVEX_VERSION),
+    peer: getMinorVersionPeerRange(
+      SUPPORTED_CONVEX_MIN_VERSION,
+      SUPPORTED_CONVEX_VERSION
+    ),
   },
   betterAuth: {
     exact: SUPPORTED_BETTER_AUTH_VERSION,
@@ -195,7 +215,7 @@ type PackageJsonWithDependencies = {
 export type SupportedDependencyWarning = {
   packageName: string;
   current: string;
-  minimum: string;
+  supported: string;
   installSpec: string;
 };
 
@@ -258,13 +278,15 @@ function compareMajorMinor(
   return aMinor - bMinor;
 }
 
-function isConcreteVersionSpecBelowMinimum(
+function isConcreteVersionSpecOutsideRange(
   spec: string,
-  minimum: string
+  minimum: string,
+  maximumExclusive: string
 ): boolean {
   const specMatch = VERSION_IN_SPEC_RE.exec(spec);
   const minimumMatch = VERSION_IN_SPEC_RE.exec(minimum);
-  if (!specMatch || !minimumMatch) {
+  const maximumMatch = VERSION_IN_SPEC_RE.exec(maximumExclusive);
+  if (!specMatch || !minimumMatch || !maximumMatch) {
     return false;
   }
 
@@ -272,33 +294,54 @@ function isConcreteVersionSpecBelowMinimum(
   const specMinor = Number(specMatch[2]);
   const minimumMajor = Number(minimumMatch[1]);
   const minimumMinor = Number(minimumMatch[2]);
+  const maximumMajor = Number(maximumMatch[1]);
+  const maximumMinor = Number(maximumMatch[2]);
 
   return (
-    compareMajorMinor(specMajor, specMinor, minimumMajor, minimumMinor) < 0
+    compareMajorMinor(specMajor, specMinor, minimumMajor, minimumMinor) < 0 ||
+    compareMajorMinor(specMajor, specMinor, maximumMajor, maximumMinor) >= 0
   );
 }
 
-function isDeclaredVersionSpecBelowMinimum(
+function isDeclaredVersionSpecOutsideRange(
   spec: string,
-  minimum: string
+  minimum: string,
+  maximumExclusive: string
 ): boolean {
   const normalized = spec.trim();
   if (PLAIN_VERSION_SPEC_RE.test(normalized)) {
-    return isConcreteVersionSpecBelowMinimum(normalized, minimum);
+    return isConcreteVersionSpecOutsideRange(
+      normalized,
+      minimum,
+      maximumExclusive
+    );
   }
 
   const minimumMatch = VERSION_IN_SPEC_RE.exec(minimum);
-  if (!minimumMatch) {
+  const maximumMatch = VERSION_IN_SPEC_RE.exec(maximumExclusive);
+  if (!minimumMatch || !maximumMatch) {
     return false;
   }
   const minimumMajor = Number(minimumMatch[1]);
   const minimumMinor = Number(minimumMatch[2]);
+  const maximumMajor = Number(maximumMatch[1]);
+  const maximumMinor = Number(maximumMatch[2]);
 
   for (const match of normalized.matchAll(UPPER_BOUND_RE)) {
     const upperMajor = Number(match[1]);
     const upperMinor = Number(match[2]);
     if (
       compareMajorMinor(upperMajor, upperMinor, minimumMajor, minimumMinor) <= 0
+    ) {
+      return true;
+    }
+  }
+
+  for (const match of normalized.matchAll(LOWER_BOUND_RE)) {
+    const lowerMajor = Number(match[1]);
+    const lowerMinor = Number(match[2]);
+    if (
+      compareMajorMinor(lowerMajor, lowerMinor, maximumMajor, maximumMinor) >= 0
     ) {
       return true;
     }
@@ -324,16 +367,17 @@ export function resolveSupportedDependencyWarnings(
   );
   if (
     installedConvexVersion &&
-    isConcreteVersionSpecBelowMinimum(
+    isConcreteVersionSpecOutsideRange(
       installedConvexVersion,
-      SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum
+      SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+      SUPPORTED_DEPENDENCY_VERSIONS.convex.maximumExclusive
     )
   ) {
     return [
       {
         packageName: 'convex',
         current: installedConvexVersion,
-        minimum: SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+        supported: SUPPORTED_DEPENDENCY_VERSIONS.convex.peer,
         installSpec: PINNED_CONVEX_INSTALL_SPEC,
       },
     ];
@@ -342,9 +386,10 @@ export function resolveSupportedDependencyWarnings(
   const convexVersion = readDependencyVersion(packageJson, 'convex');
   if (
     !convexVersion ||
-    !isDeclaredVersionSpecBelowMinimum(
+    !isDeclaredVersionSpecOutsideRange(
       convexVersion,
-      SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum
+      SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+      SUPPORTED_DEPENDENCY_VERSIONS.convex.maximumExclusive
     )
   ) {
     return [];
@@ -354,7 +399,7 @@ export function resolveSupportedDependencyWarnings(
     {
       packageName: 'convex',
       current: convexVersion,
-      minimum: SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+      supported: SUPPORTED_DEPENDENCY_VERSIONS.convex.peer,
       installSpec: PINNED_CONVEX_INSTALL_SPEC,
     },
   ];

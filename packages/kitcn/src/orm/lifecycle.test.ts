@@ -59,6 +59,7 @@ const createWriter = () => {
         });
       },
       system: {},
+      vars: { commitTs: { placeholder: true } },
     },
   };
 };
@@ -77,6 +78,19 @@ const createUsersSchema = (
 };
 
 describe('orm lifecycle hooks', () => {
+  test('orm.with(ctx) forwards database vars', () => {
+    const { schema } = createUsersSchema(
+      'users_lifecycle_vars_test',
+      { name: text().notNull() },
+      {}
+    );
+    const orm = createOrm({ schema });
+    const { writer } = createWriter();
+    const ctx = orm.with({ db: writer } as any);
+
+    expect(ctx.db.vars).toBe(writer.vars);
+  });
+
   test('orm.with(ctx) wraps raw db writes and dispatches operation hooks', async () => {
     const events: string[] = [];
 

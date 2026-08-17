@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "noEmit": true,
+    "paths": {
+      "convex/server": [
+        "node_modules/convex-min-type-test/dist/esm-types/server/index.d.ts"
+      ],
+      "convex/values": [
+        "node_modules/convex-min-type-test/dist/esm-types/values/index.d.ts"
+      ]
+    }
+  },
+  "exclude": [],
+  "include": [
+    "type-tests/convex-minimum.test-d.ts",
+    "../../tooling/global.d.ts"
+  ]
+}

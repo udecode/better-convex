@@ -661,6 +661,11 @@ function writerWithHooks(
     patch,
     replace,
     delete: delete_,
+    vars: (
+      innerDb as typeof innerDb & {
+        vars: typeof innerDb extends { vars: infer Vars } ? Vars : never;
+      }
+    ).vars,
     system: innerDb.system,
     get: innerDb.get.bind(innerDb),
     query: innerDb.query.bind(innerDb),

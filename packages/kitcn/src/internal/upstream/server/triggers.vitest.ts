@@ -52,6 +52,7 @@ describe('Triggers (vendored)', () => {
         });
       },
       system: {},
+      vars: { commitTs: { placeholder: true } },
     };
 
     const triggers = new Triggers<any>();
@@ -82,5 +83,6 @@ describe('Triggers (vendored)', () => {
     const created = docs.get(insertedId as string);
 
     expect(created?.fullName).toBe('Ada Lovelace');
+    expect(wrapped.vars).toBe(innerDb.vars);
   });
 });

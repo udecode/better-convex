@@ -57,6 +57,8 @@ const PACKAGE_JSON_TARGETS: PackageJsonTarget[] = [
       },
       devDependencies: {
         'better-auth': SUPPORTED_DEPENDENCY_VERSIONS.betterAuth.exact,
+        'convex-min-type-test': `npm:convex@${SUPPORTED_DEPENDENCY_VERSIONS.convex.minimumType}`,
+        'convex-type-test': `npm:convex@${SUPPORTED_DEPENDENCY_VERSIONS.convex.exact}`,
       },
     },
   },
@@ -65,7 +67,7 @@ const PACKAGE_JSON_TARGETS: PackageJsonTarget[] = [
     updates: {
       peerDependencies: {
         'better-auth': SUPPORTED_DEPENDENCY_VERSIONS.betterAuth.peer,
-        convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+        convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.peer,
         hono: SUPPORTED_DEPENDENCY_VERSIONS.hono.exact,
       },
     },
@@ -74,7 +76,7 @@ const PACKAGE_JSON_TARGETS: PackageJsonTarget[] = [
     path: 'packages/resend/package.json',
     updates: {
       peerDependencies: {
-        convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.minimum,
+        convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.peer,
       },
     },
   },
@@ -96,6 +98,14 @@ const PACKAGE_JSON_TARGETS: PackageJsonTarget[] = [
     updates: {
       dependencies: {
         convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.exact,
+      },
+    },
+  },
+  {
+    path: 'tooling/scenario-fixtures/raw-start-auth-adoption/package.json',
+    updates: {
+      dependencies: {
+        convex: SUPPORTED_DEPENDENCY_VERSIONS.convex.range,
       },
     },
   },

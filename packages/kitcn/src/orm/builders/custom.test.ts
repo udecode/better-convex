@@ -77,6 +77,17 @@ const getTableExportWithoutName = (
 };
 
 describe('custom array/object sugar', () => {
+  test('arrayOf supports optional commit timestamp validators', () => {
+    const events = convexTable('events_commit_timestamp_test', {
+      commitTimestamps: arrayOf(v.optional(v.commitTs())).notNull(),
+    });
+
+    const commitTimestamps = (events.validator as any).json.value
+      .commitTimestamps;
+    expect(commitTimestamps.optional).toBe(false);
+    expect(commitTimestamps.fieldType.value.type).toBe('commitTs');
+  });
+
   test('arrayOf(objectOf(...)) matches custom(v.array(v.object(...))) for timeline schemas', () => {
     const customProductions = createProductionsWithCustom(
       'productions_custom_timeline_test'

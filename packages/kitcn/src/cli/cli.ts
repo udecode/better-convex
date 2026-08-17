@@ -215,7 +215,7 @@ function warnSupportedDependencyIssues(command: string) {
       warning.installSpec,
     ]);
     logger.warn(
-      `⚠️  kitcn expects ${warning.packageName} ${warning.minimum}; found ${warning.current}. Run \`${installCommand}\` when you can.`
+      `⚠️  kitcn expects ${warning.packageName} ${warning.supported}; found ${warning.current}. Run \`${installCommand}\` when you can.`
     );
   }
 }

@@ -605,6 +605,14 @@ export function zodOutputToConvexFields<Fields extends ZodFields>(
 
 // #region Convex → Zod
 
+function isCommitTsPlaceholder(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.getPrototypeOf(value)?.constructor?.name === 'CommitTsPlaceholder'
+  );
+}
+
 /**
  * Turns a Convex validator into a Zod validator.
  *
@@ -641,6 +649,12 @@ export function convexToZod<V extends GenericValidator>(
       break;
     case 'int64':
       zodValidator = z.bigint();
+      break;
+    case 'commitTs':
+      zodValidator = z.union([
+        z.bigint(),
+        z.custom(isCommitTsPlaceholder),
+      ]);
       break;
     case 'boolean':
       zodValidator = z.boolean();
@@ -696,7 +710,6 @@ export function convexToZod<V extends GenericValidator>(
     case 'bytes':
       throw new Error('v.bytes() is not supported');
     default:
-      kind satisfies never;
       throw new Error(`Unknown convex validator type: ${kind}`);
   }
 
@@ -1843,6 +1856,11 @@ export type ZodFromValidatorBase<V extends GenericValidator> =
         ? BrandIfBranded<T, z.ZodNumber>
         : V extends VInt64<any>
           ? z.ZodBigInt
+          : V extends {
+                readonly kind: 'commitTs';
+                readonly type: infer Type;
+              }
+            ? z.ZodType<NotUndefined<Type>>
           : V extends VBoolean<any>
             ? z.ZodBoolean
             : V extends VNull<any>

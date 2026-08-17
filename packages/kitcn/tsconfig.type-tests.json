@@ -6,9 +6,12 @@
     "paths": {
       "convex/server": [
         "node_modules/convex-type-test/dist/esm-types/server/index.d.ts"
+      ],
+      "convex/values": [
+        "node_modules/convex-type-test/dist/esm-types/values/index.d.ts"
       ]
     }
   },
   "exclude": [],
-  "include": ["src/**/*.test-d.ts", "../../tooling/global.d.ts"]
+  "include": ["type-tests/**/*.test-d.ts", "../../tooling/global.d.ts"]
 }

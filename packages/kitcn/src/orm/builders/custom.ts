@@ -18,12 +18,18 @@ import {
   entityKind,
 } from './convex-column-builder';
 
-type AnyValidator = Validator<any, any, any>;
+export interface ConvexValidatorLike {
+  readonly fieldPaths: string;
+  readonly isConvexValidator: true;
+  readonly isOptional: 'optional' | 'required';
+  readonly kind: string;
+  readonly type: unknown;
+}
 type AnyColumnBuilder = ColumnBuilder<any, any, any>;
 interface NestedShapeInput {
   [key: string]: NestedInput;
 }
-type NestedInput = AnyValidator | AnyColumnBuilder | NestedShapeInput;
+type NestedInput = ConvexValidatorLike | AnyColumnBuilder | NestedShapeInput;
 
 type InferBuilderNestedValue<TBuilder extends AnyColumnBuilder> =
   TBuilder['_'] extends {
@@ -36,15 +42,13 @@ type InferBuilderNestedValue<TBuilder extends AnyColumnBuilder> =
         : TData | null
       : never;
 
-type InferValidatorNestedValue<TValidator extends AnyValidator> = Exclude<
-  TValidator['type'],
-  undefined
->;
+type InferValidatorNestedValue<TValidator extends ConvexValidatorLike> =
+  Exclude<TValidator['type'], undefined>;
 
 type InferNestedValue<TInput extends NestedInput> =
   TInput extends AnyColumnBuilder
     ? InferBuilderNestedValue<TInput>
-    : TInput extends AnyValidator
+    : TInput extends ConvexValidatorLike
       ? InferValidatorNestedValue<TInput>
       : TInput extends NestedShapeInput
         ? InferObjectShape<TInput>
@@ -56,7 +60,7 @@ type InferObjectShape<TShape extends NestedShapeInput> = {
 
 type InferObjectValue<TInput extends NestedInput> = TInput extends
   | AnyColumnBuilder
-  | AnyValidator
+  | ConvexValidatorLike
   ? Record<string, InferNestedValue<TInput>>
   : TInput extends NestedShapeInput
     ? InferObjectShape<TInput>
@@ -66,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isValidator(value: unknown): value is AnyValidator {
+function isValidator(value: unknown): value is ConvexValidatorLike {
   return (
     isRecord(value) &&
     typeof value.kind === 'string' &&
@@ -78,22 +82,28 @@ function isColumnBuilder(value: unknown): value is AnyColumnBuilder {
   return isRecord(value) && (value as any)[entityKind] === 'ColumnBuilder';
 }
 
-function toRequiredValidator(validator: AnyValidator): AnyValidator {
+function toRequiredValidator(
+  validator: ConvexValidatorLike
+): ConvexValidatorLike {
   return validator.isOptional === 'optional'
-    ? (vRequired(validator as any) as AnyValidator)
+    ? (vRequired(validator as any) as ConvexValidatorLike)
     : validator;
 }
 
-function toRequiredBuilderValidator(validator: AnyValidator): AnyValidator {
+function toRequiredBuilderValidator(
+  validator: ConvexValidatorLike
+): ConvexValidatorLike {
   const requiredValidator = toRequiredValidator(validator);
 
   if (requiredValidator.kind !== 'union') {
     return requiredValidator;
   }
 
-  const nonNullMembers = requiredValidator.members.filter(
-    (member) => member.kind !== 'null'
-  );
+  const nonNullMembers = (
+    requiredValidator as ConvexValidatorLike & {
+      members: ConvexValidatorLike[];
+    }
+  ).members.filter((member) => member.kind !== 'null');
 
   if (nonNullMembers.length !== 1) {
     return requiredValidator;
@@ -101,7 +111,7 @@ function toRequiredBuilderValidator(validator: AnyValidator): AnyValidator {
 
   const [member] = nonNullMembers;
   if (member.kind === 'object' || member.kind === 'array') {
-    return member as AnyValidator;
+    return member as ConvexValidatorLike;
   }
 
   return requiredValidator;
@@ -119,24 +129,24 @@ function formatInvalidInput(path: string, value: unknown): string {
 function objectShapeToValidator(
   shape: NestedShapeInput,
   path: string
-): AnyValidator {
-  const fields: Record<string, AnyValidator> = {};
+): ConvexValidatorLike {
+  const fields: Record<string, ConvexValidatorLike> = {};
   for (const [key, value] of Object.entries(shape)) {
     fields[key] = nestedInputToValidator(
       value as NestedInput,
       `${path}.${key}`
     );
   }
-  return v.object(fields);
+  return v.object(fields as Record<string, Validator<any, any, any>>);
 }
 
 function nestedInputToValidator(
   input: NestedInput,
   path: string
-): AnyValidator {
+): ConvexValidatorLike {
   if (isColumnBuilder(input)) {
     return toRequiredBuilderValidator(
-      (input as any).convexValidator as AnyValidator
+      (input as any).convexValidator as ConvexValidatorLike
     );
   }
 
@@ -153,7 +163,7 @@ function nestedInputToValidator(
 
 export type ConvexCustomBuilderInitial<
   TName extends string,
-  TValidator extends AnyValidator,
+  TValidator extends ConvexValidatorLike,
 > = ConvexCustomBuilder<
   {
     name: TName;
@@ -168,7 +178,7 @@ export type ConvexCustomBuilderInitial<
 
 export class ConvexCustomBuilder<
   T extends ColumnBuilderBaseConfig<'any', 'ConvexCustom'>,
-  TValidator extends AnyValidator,
+  TValidator extends ConvexValidatorLike,
 > extends ConvexColumnBuilder<T, { validator: TValidator }> {
   static override readonly [entityKind]: string = 'ConvexCustomBuilder';
 
@@ -180,9 +190,11 @@ export class ConvexCustomBuilder<
   get convexValidator(): Validator<any, any, any> {
     const validator = this.config.validator;
     if (this.config.notNull) {
-      return validator;
+      return validator as unknown as Validator<any, any, any>;
     }
-    return v.optional(v.union(v.null(), validator));
+    return v.optional(
+      v.union(v.null(), validator as unknown as Validator<any, 'required', any>)
+    );
   }
 
   override build(): Validator<any, any, any> {
@@ -190,18 +202,24 @@ export class ConvexCustomBuilder<
   }
 }
 
-export function custom<TValidator extends AnyValidator>(
+export function custom<TValidator extends ConvexValidatorLike>(
   validator: TValidator
 ): ConvexCustomBuilderInitial<'', TValidator>;
-export function custom<TName extends string, TValidator extends AnyValidator>(
+export function custom<
+  TName extends string,
+  TValidator extends ConvexValidatorLike,
+>(
   name: TName,
   validator: TValidator
 ): ConvexCustomBuilderInitial<TName, TValidator>;
-export function custom(a: string | AnyValidator, b?: AnyValidator) {
+export function custom(
+  a: string | ConvexValidatorLike,
+  b?: ConvexValidatorLike
+) {
   if (b !== undefined) {
     return new ConvexCustomBuilder(a as string, b);
   }
-  return new ConvexCustomBuilder('', a as AnyValidator);
+  return new ConvexCustomBuilder('', a as ConvexValidatorLike);
 }
 
 /**
@@ -211,7 +229,11 @@ export function custom(a: string | AnyValidator, b?: AnyValidator) {
  */
 export function arrayOf<TElement extends NestedInput>(element: TElement) {
   const validator = v.array(
-    nestedInputToValidator(element, 'arrayOf(element)')
+    nestedInputToValidator(element, 'arrayOf(element)') as Validator<
+      any,
+      'required',
+      any
+    >
   );
   return custom(validator).$type<InferNestedValue<TElement>[]>();
 }
@@ -226,7 +248,13 @@ export function unionOf<
     nestedInputToValidator(member, `unionOf(members[${index}])`)
   );
   return custom(
-    v.union(...(validators as [AnyValidator, AnyValidator, ...AnyValidator[]]))
+    v.union(
+      ...(validators as [
+        Validator<any, 'required', any>,
+        Validator<any, 'required', any>,
+        ...Validator<any, 'required', any>[],
+      ])
+    )
   ).$type<InferNestedValue<TMembers[number]>>();
 }
 
@@ -240,7 +268,14 @@ export function unionOf<
 export function objectOf<TInput extends NestedInput>(input: TInput) {
   if (isColumnBuilder(input) || isValidator(input)) {
     return custom(
-      v.record(v.string(), nestedInputToValidator(input, 'objectOf(value)'))
+      v.record(
+        v.string(),
+        nestedInputToValidator(input, 'objectOf(value)') as Validator<
+          any,
+          'required',
+          any
+        >
+      )
     ).$type<InferObjectValue<TInput>>();
   }
 

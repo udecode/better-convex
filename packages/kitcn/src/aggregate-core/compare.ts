@@ -1,5 +1,11 @@
 import type { Value } from 'convex/values';
 
+function isCommitTsPlaceholder(value: object): boolean {
+  return (
+    Object.getPrototypeOf(value)?.constructor?.name === 'CommitTsPlaceholder'
+  );
+}
+
 // Returns -1 if k1 < k2
 // Returns 0 if k1 === k2
 // Returns 1 if k1 > k2
@@ -81,8 +87,14 @@ function makeComparable(v: Value | undefined): [number, unknown] {
   if (Array.isArray(v)) {
     return [7, v.map(makeComparable)];
   }
+  if (isCommitTsPlaceholder(v)) {
+    throw new Error(
+      'Commit timestamp placeholders cannot be compared before commit.'
+    );
+  }
   // Otherwise, it's an POJO.
   const keys = Object.keys(v).sort();
-  const pojo: Value[] = keys.map((k) => [k, v[k]!]);
+  const record = v as Record<string, Value | undefined>;
+  const pojo: Value[] = keys.map((k) => [k, record[k]!]);
   return [8, pojo.map(makeComparable)];
 }
