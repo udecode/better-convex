@@ -21,6 +21,11 @@
 
 - **Git:** Never git add, commit, push, or create PR unless the user explicitly asks, or the active command/skill explicitly requires it.
 - **Task PR default:** The `task` and `major-task` skills explicitly require verified code-changing work to be committed, pushed, and opened/updated as a PR unless the user explicitly says not to, the work has no local patch, or a real blocker is recorded. Do not treat the lack of a separate "open a PR" user sentence as a blocker.
+- **One PR, one task:** Every PR an agent authors, reviews, repairs, or merges
+  requires its own `task` invocation and dedicated task plan. A batch plan may
+  order PRs, but one batch-level `task`, `auto`, or `autoclosure` run never
+  substitutes for the per-PR task. Use `autoclosure` only inside or after that
+  PR's task contract is established.
 - **Push scope:** When you do commit and push, include unrelated dirty files outside src; those are often manual user changes or synced skill/docs updates, so do not silently leave them behind.
 - **PR:** Before creating or updating a PR, run `check`. If it fails, stop and fix it or report the blocker. Do not open a PR with failing `check` unless the user explicitly says to.
 - **PR branch:** If the user explicitly says to open or create a PR, do not ask for confirmation. If the current branch is `main`, create a new `codex/` branch first, then commit/push/open the PR. If already on a non-`main` branch, proceed directly.
@@ -74,7 +79,8 @@ Use those skills when relevant:
   `milestone`, `prd`, timed, or review-until work. `auto full` continues through
   local task packets, implementation, proof, sync, review, checks, and GitHub
   PR delivery.
-- `task` for normal repo task execution.
+- `task` for normal repo task execution. It is mandatory once per PR an agent
+  authors, reviews, repairs, or merges, including every PR inside a batch.
 - `walkthrough` after final proof whenever a task, major task, or auto run
   changes UI or rendered output. Show the annotated images in the final
   handoff.
@@ -86,7 +92,8 @@ Use those skills when relevant:
 - `to-prd` for an implementation-ready local capability source.
 - `architecture-cleanup` for public exports, package boundaries, Convex import
   graphs, plugins, CLI/scaffolds, generated ownership, and navigation cost.
-- `autoclosure` to finish the current tree without creating new product scope.
+- `autoclosure` to finish the current tree without creating new product scope,
+  after the current PR has its own `task` invocation and task plan.
 - `design` for live `www`/`example` UI decisions and Browser proof.
 - `react-query` for cRPC query/mutation options, live subscription ownership,
   RSC preloading, and bounded invalidation.

@@ -33,6 +33,8 @@ bun run test
 bun run lint
 ```
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the PR workflow.
+
 ## Example App
 
 The canonical reference app lives in [example](./example). It demonstrates current best-practice usage across auth, cRPC, ORM, HTTP routes, and TanStack Query.

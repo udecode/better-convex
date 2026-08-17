@@ -27,6 +27,9 @@ they earn their keep, and verify before calling the task done.
 - Verify the actual result before claiming done.
 - Do not default to research swarms, review swarms, browser proof, GitHub
   comments, or compounding.
+- Every GitHub PR an agent authors, reviews, repairs, or merges requires a
+  dedicated `task` invocation and task plan for that exact PR. A batch-level
+  task, plan, `auto`, or `autoclosure` run does not satisfy this requirement.
 - For verified code-changing work, commit, push, and create or update a PR by
   default. The `task` skill is the explicit git permission. Only skip that path
   when the user explicitly says not to, the work has no local patch, the task is
@@ -88,7 +91,9 @@ they earn their keep, and verify before calling the task done.
 10. If testing or coverage work, load `testing` before `tdd` and choose the
     smallest honest slice.
 11. If program or batch work, restate the ordered scope and finish one slice at
-    a time unless the user asked for a broader sweep.
+    a time unless the user asked for a broader sweep. For a PR batch, invoke or
+    resume `task` separately for every exact PR and create or resume its
+    dedicated task plan before review, repair, merge, or `autoclosure`.
 12. For any GitHub source, record source type/id/title, task type, acceptance
     criteria, caveats, likely files/routes/packages, browser surface, and likely
     root-cause layer in the plan when a plan exists.
@@ -317,8 +322,12 @@ real closeout pressure.
 ### Program Or Batch Work
 
 1. Respect explicit order.
-2. Define done for the current slice before implementation.
-3. Complete one slice cleanly unless the user asks for a broader sweep.
+2. For every GitHub PR, invoke `task` with that exact PR and use a dedicated
+   per-PR task plan. A coordinating batch plan may link those plans but cannot
+   replace them.
+3. Define done for the current slice before implementation.
+4. Complete one `task` -> optional `autoclosure` slice cleanly before moving to
+   the next PR unless the user explicitly requested parallel work.
 
 ### Refactor Or Chore
 
@@ -455,6 +464,8 @@ with `gh pr view --json body` before final handoff.
 - Testing work loaded the testing policy before implementation.
 - Only necessary skills were loaded.
 - Batch work did not sprawl without explicit instruction.
+- Every agent-processed PR in a batch has its own `task` invocation and task
+  plan; no aggregate `autoclosure` was used as a substitute.
 - Verification matched change scope.
 - Verified code-changing work was committed and PR'd, or the user explicitly
   declined that path, the work had no local patch, or a real blocker was
