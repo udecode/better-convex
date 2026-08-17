@@ -918,9 +918,7 @@ export class ProcedureBuilder<
           // generate the Convex `returns` validator, which the backend
           // enforces against the serialized payload.
           const validatedOutput = outputSchema
-            ? await outputSchema.parseAsync(
-                result.output === undefined ? null : result.output
-              )
+            ? await outputSchema.parseAsync(result.output)
             : result.output;
           return functionConfig.transformer.output.serialize(validatedOutput);
         } catch (cause) {
@@ -1118,7 +1116,7 @@ export class QueryProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1129,7 +1127,7 @@ export class QueryProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TClientInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 
@@ -1273,7 +1271,7 @@ export class MutationProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1284,7 +1282,7 @@ export class MutationProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 
@@ -1423,7 +1421,7 @@ export class ActionProcedureBuilder<
     handler: (opts: {
       ctx: Overwrite<TContext, TContextOverrides>;
       input: InferInput<TInput>;
-    }) => Promise<TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult>
+    }) => Promise<TOutput extends z.ZodTypeAny ? z.input<TOutput> : TResult>
   ) {
     const fn = this._createFunction(
       handler,
@@ -1434,7 +1432,7 @@ export class ActionProcedureBuilder<
     return fn as typeof fn &
       CRPCFunctionTypeHint<
         InferClientInput<TInput>,
-        TOutput extends z.ZodTypeAny ? z.infer<TOutput> : TResult
+        TOutput extends z.ZodTypeAny ? z.output<TOutput> : TResult
       >;
   }
 

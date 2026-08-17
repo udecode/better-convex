@@ -831,15 +831,26 @@ describe('server/builder', () => {
     const iso = '2023-11-14T22:13:20.000Z';
     const fn = c.query
       .output(z.object({ at: z.string().transform((s) => new Date(s)) }))
-      // `.output()` types the handler by the schema output, so the
-      // pre-transform value needs the cast.
-      .query(async () => ({ at: iso }) as any);
+      .query(async () => ({ at: iso }));
 
     // The transform produces a Date, so the transformer must still get a
     // chance to encode it.
     await expect((fn as any)._handler({}, {})).resolves.toEqual(
       encodeWire({ at: new Date(iso) })
     );
+  });
+
+  test('query.output() validates undefined before wire normalization', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+
+    const fn = c.query
+      .output(z.string().default('fallback'))
+      .query(async () => undefined);
+
+    await expect((fn as any)._handler({}, {})).resolves.toBe('fallback');
   });
 
   test('paginated() clamps limit and defaults cursor', async () => {

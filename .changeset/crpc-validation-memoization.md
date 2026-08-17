@@ -8,7 +8,8 @@
   instead of against its wire encoding. Schemas that transform a value into a
   `Date` (or into any type a custom wire codec owns) now encode correctly
   instead of being rejected, and `.output()` schemas using async refinements
-  work.
+  work. Procedure handlers return the schema input type; generated clients
+  receive its output type.
 
 ```ts
 const at = c.query
