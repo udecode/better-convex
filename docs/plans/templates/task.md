@@ -48,6 +48,9 @@ Constraints:
   N/A reason for verified code-changing task work.
 - A PR created by this task must use the PR #270 emoji task-style PR body
   contract below, not a generic summary/body from a git helper skill.
+- A task-run PR body must include
+  `🧭 Task plan: docs/plans/<plan>.md`; the plan must exist at the PR head and
+  identify the exact PR before autoclosure.
 - Do not add broad ceremony when the task is trivial or docs-only.
 
 Boundaries:
@@ -130,6 +133,7 @@ Start Gates:
 | Browser tool decision for browser surface | pending | pending |
 | Commit / PR expectation decision | pending | For verified code-changing work, default is commit, push, and PR because `task` explicitly requires it; N/A only for explicit user decline, no local patch, analytical/blocked/inconclusive work, or recorded blocker. |
 | Task-style PR body decision | pending | pending |
+| Task-plan PR body evidence | pending | Record plan line, head file, and exact PR owner |
 | GitHub issue sync expectation decision | pending | pending |
 | Output budget strategy recorded | pending | pending |
 
@@ -142,9 +146,9 @@ Work Checklist:
 - [ ] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [ ] Every agent-processed GitHub PR has its own task plan. This plan owns one
-      exact PR, owns a not-yet-created PR slice, or records N/A because no PR is
-      in scope; a batch plan is not used as a substitute.
+- [ ] Every GitHub PR in scope has its own task plan. This plan owns one exact
+      PR, owns a not-yet-created PR slice, or records N/A because no PR is in
+      scope; a batch plan is not used as a substitute.
 - [ ] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason.
 - [ ] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -180,6 +184,8 @@ Work Checklist:
       "User did not separately ask for a PR" is not a valid blocker.
 - [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
+- [ ] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
+      exists at the PR head, and it identifies the exact PR before autoclosure.
 - [ ] Branch handling recorded for code-changing work: dedicated branch used,
       new branch needed, or N/A with reason.
 - [ ] Local-env-rot retry policy recorded for any surprising repo-wide failure:
@@ -224,6 +230,7 @@ Completion Gates:
 | Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
 | PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
 | Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
+| PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
 | PR proof image hosting | pending | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | pending |
 | GitHub issue sync-back | pending | Post concise issue sync after PR exists, or record N/A/blocker | pending |
 | Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
@@ -290,7 +297,8 @@ Task-style PR body contract:
   part of the diff and repo policy expects auto release, include that block.
 - Use the accepted PR #270 visual format. The body starts with an emoji
   issue/fix line, for example `🐛 Fixes #123` or `🐛 Fixes ➖ N/A`, then
-  an emoji confidence line like `🟢 95-100% confidence`.
+  `🧭 Task plan: docs/plans/<plan>.md`, then an emoji confidence line like
+  `🟢 95-100% confidence`.
 - Use this exact table header: `| Phase | 🧪 Tests | 🌐 Browser |`.
 - Use `Reproduced` and `Verified` rows. Mark passing proof with `🟢`, repro or
   failing proof with `🔴`, and non-applicable cells with `➖ N/A`.

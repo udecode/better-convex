@@ -2,12 +2,14 @@
 
 ## One PR, one task
 
-Human contributors can open PRs normally. Whenever an agent authors, reviews,
-repairs, or merges a PR, invoke `task` for that exact PR and keep a dedicated
-task plan under `docs/plans/**`.
+Every PR requires a dedicated `task` invocation and task plan under
+`docs/plans/**`.
 
 Invoke `$kitcn:task <PR URL or #>` for an existing PR. For a new PR, invoke
 `$kitcn:task <issue, spec, or single-PR task>` before editing.
+
+The PR body must include `🧭 Task plan: docs/plans/<plan>.md`. The plan must
+exist at the PR head and identify the exact PR before autoclosure.
 
 - A batch plan can choose dependency order, but it cannot replace per-PR task
   plans.
@@ -16,6 +18,11 @@ Invoke `$kitcn:task <PR URL or #>` for an existing PR. For a new PR, invoke
   PR unless parallel work was explicitly requested.
 - Use the task-style PR body and record exact checks, merge, release, and
   read-back receipts when they apply.
+
+Autoclosure comments on and closes PRs without valid task evidence before any
+code review or repair. Its remediation comment recommends GPT-5.6 with
+high-or-higher reasoning effort. The comment must be visible before the PR is
+closed.
 
 ## Verification
 

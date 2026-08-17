@@ -39,6 +39,7 @@ Start Gates:
 | Gate | Applies | Evidence |
 | --- | --- | --- |
 | Dedicated task invocation and plan for exact PR | pending | pending |
+| Task evidence verified at PR head | pending | body path + head file + exact PR owner |
 | Active source/plan reconstructed | pending | pending |
 | Intended delta and exclusions recorded | pending | pending |
 | Closure matrix classified | pending | pending |
@@ -49,6 +50,7 @@ Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
 | per-PR task ownership | pending | exact PR + dedicated task plan | pending |
+| noncompliant close | pending | required comment + `CLOSED` read-back | pending |
 | source behavior | pending | pending | pending |
 | package/API/build | pending | pending | pending |
 | generated output | pending | pending | pending |
@@ -61,8 +63,11 @@ Closure matrix:
 | GitHub delivery | pending | pending | pending |
 
 Work Checklist:
-- [ ] Each agent-processed PR has its own `task` invocation and dedicated task
-      plan; a batch plan or aggregate autoclosure is not used as a substitute.
+- [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
+      plan or aggregate autoclosure is not used as a substitute.
+- [ ] Task evidence was verified from the PR body, fetched head, and exact PR
+      ownership; otherwise the required comment and `CLOSED` state were read
+      back and no source review, repair, merge, or release work continued.
 - [ ] Intended behavior and exclusions are reconstructed from real sources.
 - [ ] Each lane is proven or N/A with a concrete reason.
 - [ ] Generated output was changed through its owner and regenerated.
@@ -80,6 +85,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
 | Per-PR task ownership | pending | Record exact PR and dedicated task-plan path | pending |
+| Noncompliant PR disposition | pending | Verify task evidence or comment then close and read back | pending |
 | Targeted behavior proof | pending | Run smallest missing owning proof | pending |
 | Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
 | Package/docs/scenario closure | pending | Run every applicable local contract | pending |
