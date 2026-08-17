@@ -66,3 +66,13 @@
 - Fix prefetched optional pagination queries fetching while authentication is
   loading. Hydrated data remains readable, but its observer stays disabled
   until the auth binding settles.
+- Fix overlapping auth transitions restoring stale observer options or letting
+  an older settlement refetch during a newer identity change. Only the latest
+  transition can restore and refetch, and option updates made while observers
+  are suspended remain authoritative.
+- Keep auth-bound queries mounted during a Solid identity transition disabled
+  until Convex confirms the new identity. Both one-shot requests and live
+  subscriptions wait behind the same client-owned settlement barrier.
+- Ignore Convex auth-settlement callbacks from superseded bindings. A late
+  callback from an older account cannot republish that identity or reopen the
+  query barrier during a newer transition.

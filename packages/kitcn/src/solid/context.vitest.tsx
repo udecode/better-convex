@@ -19,10 +19,19 @@ describe('context (solid)', () => {
   const mockProxy = { user: { get: { queryOptions: vi.fn() } } };
   const mockVanillaClient = { user: { get: { query: vi.fn() } } };
   const mockMeta = { users: { get: { type: 'query' } } };
-  const createMockConvexQueryClient = () => ({
-    resetAuthQueries: vi.fn(async () => {}),
-    updateAuthStore: vi.fn(),
-  });
+  const createMockConvexQueryClient = () => {
+    let authGeneration = 0;
+    return {
+      resetAuthQueries: vi.fn(
+        async (options?: { generation?: number; refetch?: boolean }) => {
+          if (options?.generation !== undefined) return options.generation;
+          authGeneration += 1;
+          return authGeneration;
+        }
+      ),
+      updateAuthStore: vi.fn(),
+    };
+  };
 
   beforeEach(() => {
     _buildMetaIndexSpy = vi
@@ -181,7 +190,100 @@ describe('context (solid)', () => {
     await vi.waitFor(() => {
       expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(3);
     });
-    expect(convexQueryClient.resetAuthQueries).toHaveBeenLastCalledWith();
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenLastCalledWith({
+      generation: 2,
+    });
+  });
+
+  test('does not settle an older transition after a newer one starts', async () => {
+    const [bridge, setBridge] = createSignal({
+      identity: 'account-a' as string | null,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+    vi.spyOn(authStoreModule, 'useConvexAuthBridge').mockImplementation(
+      () =>
+        ({
+          get identity() {
+            return bridge().identity;
+          },
+          get isAuthenticated() {
+            return bridge().isAuthenticated;
+          },
+          get isLoading() {
+            return bridge().isLoading;
+          },
+        }) as any
+    );
+    vi.spyOn(authStoreModule, 'useSafeConvexAuth').mockReturnValue({
+      identity: null,
+      isAuthenticated: false,
+      isLoading: false,
+    } as any);
+
+    let resolveFirstClear: (generation: number) => void = () => {};
+    const firstClear = new Promise<number>((resolve) => {
+      resolveFirstClear = resolve;
+    });
+    let clearCalls = 0;
+    const resetAuthQueries = vi.fn(
+      async (options?: { generation?: number; refetch?: boolean }) => {
+        if (options?.generation !== undefined) return options.generation;
+        if (options?.refetch === false) {
+          clearCalls += 1;
+          return clearCalls === 1 ? firstClear : 3;
+        }
+        return 1;
+      }
+    );
+    const convexQueryClient = {
+      resetAuthQueries,
+      updateAuthStore: vi.fn(),
+    };
+    const { CRPCProvider, useCRPC } = createCRPCContext({ api: {} as any });
+
+    renderHook(() => useCRPC(), {
+      wrapper: (props: any) => (
+        <CRPCProvider
+          convexClient={{} as any}
+          convexQueryClient={convexQueryClient as any}
+        >
+          {props.children}
+        </CRPCProvider>
+      ),
+    });
+
+    setBridge({
+      identity: 'account-a',
+      isAuthenticated: true,
+      isLoading: true,
+    });
+    setBridge({
+      identity: 'account-b',
+      isAuthenticated: true,
+      isLoading: false,
+    });
+    setBridge({
+      identity: 'account-b',
+      isAuthenticated: true,
+      isLoading: true,
+    });
+
+    resolveFirstClear(2);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resetAuthQueries).not.toHaveBeenCalledWith({ generation: 2 });
+
+    setBridge({
+      identity: 'account-c',
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    await vi.waitFor(() => {
+      expect(resetAuthQueries).toHaveBeenCalledWith({ generation: 3 });
+    });
   });
 
   test('useCRPCClient returns vanilla client inside provider', () => {

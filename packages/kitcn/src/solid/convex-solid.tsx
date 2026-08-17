@@ -117,9 +117,11 @@ export function ConvexProviderWithAuth(
       ? Symbol('legacy-auth-transition')
       : snapshot.identity;
   });
+  let authBindingGeneration = 0;
 
   createEffect(
     on([isAuthLoading, isAuthenticated, fetchAccessToken, identity], () => {
+      const generation = ++authBindingGeneration;
       if (isAuthLoading()) {
         setIsConvexLoading(true);
         return;
@@ -135,12 +137,14 @@ export function ConvexProviderWithAuth(
       }
 
       client.setAuth(fetchAccessToken(), (isAuth: boolean) => {
+        if (generation !== authBindingGeneration) return;
         settleAuth(nextIdentity, isAuth);
       });
     })
   );
 
   onCleanup(() => {
+    authBindingGeneration += 1;
     client.clearAuth();
   });
 

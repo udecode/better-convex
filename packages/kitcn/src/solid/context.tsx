@@ -152,9 +152,11 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     let previousAuth:
       | { identity: unknown; isAuthenticated: boolean; isLoading: boolean }
       | undefined;
-    let transitionClear: Promise<void> | undefined;
+    let authGeneration = 0;
+    let transitionClear: Promise<number> | undefined;
 
     createEffect(() => {
+      const generation = ++authGeneration;
       const currentAuth = {
         identity: auth.identity,
         isAuthenticated: auth.isAuthenticated,
@@ -176,8 +178,11 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
         const pendingClear = transitionClear;
         transitionClear = undefined;
         void (async () => {
-          await pendingClear;
-          await props.convexQueryClient.resetAuthQueries();
+          const clientGeneration = await pendingClear;
+          if (generation !== authGeneration) return;
+          await props.convexQueryClient.resetAuthQueries({
+            generation: clientGeneration,
+          });
         })();
         return;
       }

@@ -189,8 +189,17 @@ export class ConvexQueryClient {
   /** Auth store for checking auth state */
   private authStore?: AuthStore;
 
-  /** Observers held disabled while Convex changes account identity. */
-  private restoreAuthObservers?: () => void;
+  /** In-flight clear shared by overlapping account identity transitions. */
+  private authBarrierClear?: Promise<() => void>;
+
+  /** Blocks auth-bound work created while Convex is changing identity. */
+  private authSettlementBarrier?: {
+    promise: Promise<void>;
+    resolve: () => void;
+  };
+
+  /** Latest account transition allowed to restore and refetch observers. */
+  private authResetGeneration = 0;
 
   /** Delay before unsubscribing when query has no observers */
   private unsubscribeDelay: number;
@@ -281,7 +290,9 @@ export class ConvexQueryClient {
   private shouldSkipSubscription(
     authType: 'optional' | 'required' | undefined
   ) {
-    if (!authType || !this.authStore) return false;
+    if (!authType) return false;
+    if (this.authSettlementBarrier) return true;
+    if (!this.authStore) return false;
 
     const authState = this.getAuthState();
     // Wait for auth to settle before subscribing
@@ -290,6 +301,25 @@ export class ConvexQueryClient {
     if (authType === 'required' && !authState?.isAuthenticated) return true;
 
     return false;
+  }
+
+  /** Hold new auth-bound requests until the latest Convex identity settles. */
+  private beginAuthSettlementBarrier() {
+    if (this.authSettlementBarrier) return;
+
+    let resolve = () => {};
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    this.authSettlementBarrier = { promise, resolve };
+  }
+
+  /** Wait through overlapping barriers and stop canceled requests. */
+  private async waitForAuthSettlement(signal?: AbortSignal) {
+    while (this.authSettlementBarrier) {
+      await this.authSettlementBarrier.promise;
+    }
+    signal?.throwIfAborted();
   }
 
   /** Get QueryClient, throwing if not connected */
@@ -426,12 +456,14 @@ export class ConvexQueryClient {
   }
 
   /** Refetch and resubscribe auth-bound queries after Convex settles. */
-  private async refetchAuthQueries() {
+  private async refetchAuthQueries(generation: number) {
     const queryCache = this.queryClient.getQueryCache();
     await this.queryClient.refetchQueries({
       predicate: (query) => isAuthBoundQuery(query),
       type: 'active',
     });
+
+    if (generation !== this.authResetGeneration) return;
 
     for (const query of queryCache.getAll()) {
       if (isAuthBoundQuery(query)) {
@@ -445,19 +477,31 @@ export class ConvexQueryClient {
    * Call after an identity transition when no separate settlement barrier owns
    * the clear/refetch phases.
    */
-  async resetAuthQueries(options: { refetch?: boolean } = {}) {
+  async resetAuthQueries(
+    options: { generation?: number; refetch?: boolean } = {}
+  ): Promise<number> {
     if (options.refetch === false) {
-      if (!this.restoreAuthObservers) {
-        this.restoreAuthObservers = await this.clearAuthQueries();
-      }
-      return;
+      const generation = ++this.authResetGeneration;
+      this.beginAuthSettlementBarrier();
+      this.authBarrierClear ??= this.clearAuthQueries();
+      await this.authBarrierClear;
+      return generation;
     }
 
-    const restoreObservers =
-      this.restoreAuthObservers ?? (await this.clearAuthQueries());
-    this.restoreAuthObservers = undefined;
+    const generation = options.generation ?? ++this.authResetGeneration;
+    if (generation !== this.authResetGeneration) return generation;
+
+    this.authBarrierClear ??= this.clearAuthQueries();
+    const restoreObservers = await this.authBarrierClear;
+    if (generation !== this.authResetGeneration) return generation;
+
+    this.authBarrierClear = undefined;
+    const settlementBarrier = this.authSettlementBarrier;
+    this.authSettlementBarrier = undefined;
+    settlementBarrier?.resolve();
     restoreObservers();
-    await this.refetchAuthQueries();
+    await this.refetchAuthQueries(generation);
+    return generation;
   }
 
   /**
@@ -718,6 +762,10 @@ export class ConvexQueryClient {
     ): Promise<FunctionReturnType<T>> => {
       const { queryKey, meta: rawMeta } = context;
       const meta = rawMeta as ConvexQueryMeta | undefined;
+
+      if (!isServer && meta?.authType) {
+        await this.waitForAuthSettlement(context.signal);
+      }
 
       // Skipped queries should never run (enabled: false)
       if (isConvexSkipped(queryKey)) {

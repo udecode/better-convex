@@ -103,6 +103,28 @@ describe('useSafeConvexAuth / useAuth', () => {
     });
   });
 
+  test('useSafeConvexAuth keeps Convex settlement authoritative with AuthProvider', () => {
+    const wrapper = (props: { children: JSX.Element }) => (
+      <AuthProvider initialValues={{ isAuthenticated: true, isLoading: false }}>
+        <ConvexAuthBridge
+          identity="account-a"
+          isAuthenticated={false}
+          isLoading={true}
+        >
+          {props.children}
+        </ConvexAuthBridge>
+      </AuthProvider>
+    );
+
+    const { result } = renderHook(() => useSafeConvexAuth(), { wrapper });
+
+    expect(result).toEqual({
+      identity: 'account-a',
+      isAuthenticated: false,
+      isLoading: true,
+    });
+  });
+
   test('useAuthValue reads the custom Convex auth epoch without AuthProvider', () => {
     const wrapper = (props: { children: JSX.Element }) => (
       <ConvexAuthBridge

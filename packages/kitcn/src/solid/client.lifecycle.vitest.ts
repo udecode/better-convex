@@ -358,6 +358,86 @@ describe('ConvexQueryClient (client mode lifecycle)', () => {
     unsubscribe();
   });
 
+  test('ignores settlement from an obsolete auth transition', async () => {
+    const authStoreState: Record<string, unknown> = {
+      authEpoch: 0,
+      isAuthenticated: true,
+      isLoading: false,
+      isUnauthorized: () => false,
+      onQueryUnauthorized: () => {},
+    };
+    const authStore = {
+      get: (key: string) => authStoreState[key],
+      set: (key: string, value: unknown) => {
+        authStoreState[key] = value;
+      },
+    } as any;
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(createMockConvexClient(), {
+      authStore,
+      queryClient,
+      unsubscribeDelay: 0,
+    });
+    const queryKey = ['convexQuery', 'viewer:optional', {}] as const;
+    let fetches = 0;
+    const observer = new QueryObserver(queryClient as any, {
+      initialData: 'ACCOUNT_A',
+      meta: { authType: 'optional', subscribe: true },
+      queryFn: async () => {
+        fetches += 1;
+        return 'ACCOUNT_C';
+      },
+      queryKey,
+      staleTime: Number.POSITIVE_INFINITY,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    const firstGeneration = await client.resetAuthQueries({ refetch: false });
+    const latestGeneration = await client.resetAuthQueries({ refetch: false });
+
+    await client.resetAuthQueries({ generation: firstGeneration });
+    expect(fetches).toBe(0);
+
+    await client.resetAuthQueries({ generation: latestGeneration });
+    expect(fetches).toBe(1);
+    expect(queryClient.getQueryData(queryKey as any)).toBe('ACCOUNT_C');
+
+    unsubscribe();
+  });
+
+  test('holds queries mounted during an auth transition until settlement', async () => {
+    const convexClient = createMockConvexClient();
+    const query = vi
+      .spyOn(convexClient, 'query')
+      .mockResolvedValue('ACCOUNT_B');
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(convexClient, {
+      queryClient,
+      unsubscribeDelay: 0,
+    });
+
+    const generation = await client.resetAuthQueries({ refetch: false });
+    const queryKey = ['convexQuery', 'viewer:optional', {}] as const;
+    const observer = new QueryObserver(queryClient as any, {
+      meta: { authType: 'optional', subscribe: true },
+      queryFn: client.queryFn(),
+      queryKey,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    await Promise.resolve();
+    expect(query).not.toHaveBeenCalled();
+    expect(Object.keys(client.subscriptions)).toHaveLength(0);
+
+    await client.resetAuthQueries({ generation });
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(queryKey as any)).toBe('ACCOUNT_B');
+    expect(Object.keys(client.subscriptions)).toHaveLength(1);
+
+    unsubscribe();
+  });
+
   test('onUpdateQueryKeyHash keeps existing data for undefined but accepts null subscription values', () => {
     const queryClient = new QueryClient();
     const convexClient = createMockConvexClient();

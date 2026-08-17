@@ -229,13 +229,13 @@ export function useSafeConvexAuth(): ConvexAuthResult {
       return bridgeAuth?.identity ?? null;
     },
     get isAuthenticated() {
-      if (authStore.store) return authStore.get('isAuthenticated');
       if (bridgeAuth !== null) return bridgeAuth.isAuthenticated;
+      if (authStore.store) return authStore.get('isAuthenticated');
       return false;
     },
     get isLoading() {
-      if (authStore.store) return authStore.get('isLoading');
       if (bridgeAuth !== null) return bridgeAuth.isLoading;
+      if (authStore.store) return authStore.get('isLoading');
       return false;
     },
   };

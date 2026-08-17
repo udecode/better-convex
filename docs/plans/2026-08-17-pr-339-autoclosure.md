@@ -105,9 +105,9 @@ Completion Gates:
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
-| Repository check | yes | run `bun check` | passed again after late review repairs |
+| Repository check | yes | run `bun check` | pending final repaired source |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final whole-branch review | clean; patch correct (0.87) |
+| Autoreview | yes | final whole-branch review | pending after two final P1 repairs |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -115,8 +115,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | released-main merge plus provider identity owner | focused proof |
-| Review/checks | complete | focused/package/deslop, autoreview, full check green | delivery |
-| Delivery | in_progress | local branch ready | push, checks, merge/release |
+| Review/checks | in_progress | 137 focused tests and package build/typecheck green | final review/check |
+| Delivery | pending | | push, checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -171,6 +171,25 @@ Verification evidence:
   after settlement, Solid sign-out cannot bypass the provider barrier, and
   React/Solid page observers remain disabled while auth loads. The red shared,
   client-lifecycle, mutation, and hydration regressions now pass.
+- The following convergence review found two remaining races in that barrier:
+  an obsolete settlement could refetch after a newer transition started, and
+  restoring the observer snapshot could overwrite option changes made while it
+  was suspended. The Solid client now gives every transition a generation and
+  only the latest generation can restore, refetch, or resubscribe. The shared
+  reset owner restores only its temporary suspension fields while retaining
+  newer observer options. The two red regressions pass with 137 focused tests,
+  package typecheck, and package build.
+- The next review found queries mounted after the clear snapshot could bypass
+  the barrier. Convex bridge settlement is now authoritative over the ready
+  Better Auth store, and the Solid client blocks both one-shot requests and
+  live subscriptions created mid-transition. The two red owner regressions and
+  the 37-test focused auth/context/client group pass.
+- The next review repeated two findings already disproven by the current source:
+  observer restoration spreads current options and restores only the temporary
+  `enabled` gate, while context and client both reject obsolete generations.
+  Its third finding was valid: a delayed Convex callback could publish an older
+  identity. Binding callbacks now carry their own generation, and the red
+  superseded-callback regression passes with the surrounding 27-test owner set.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.

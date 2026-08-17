@@ -126,6 +126,47 @@ describe('ConvexProviderWithAuth', () => {
     expect(result?.isLoading).toBe(false);
   });
 
+  test('ignores settlement callbacks from a superseded auth binding', () => {
+    const callbacks: Array<(isAuthenticated: boolean) => void> = [];
+    const client = {
+      clearAuth: () => {},
+      setAuth: (
+        _fetchToken: AuthTokenFetcher,
+        onChange: (isAuthenticated: boolean) => void
+      ) => callbacks.push(onChange),
+    };
+    const fetchAccessToken: AuthTokenFetcher = async () => 'token';
+    const [identity, setIdentity] = createSignal('account-a');
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexProviderWithAuth
+        client={client as any}
+        useAuth={() => ({
+          fetchAccessToken,
+          identity: identity(),
+          isAuthenticated: true,
+          isLoading: false,
+        })}
+      >
+        {props.children}
+      </ConvexProviderWithAuth>
+    );
+
+    const { result } = renderHook(() => useConvexAuthBridge(), { wrapper });
+
+    setIdentity('account-b');
+    callbacks[0](true);
+
+    expect(result?.identity).toBeNull();
+    expect((result as any)?.authEpoch).toBe(0);
+    expect(result?.isLoading).toBe(true);
+
+    callbacks[1](true);
+
+    expect(result?.identity).toBe('account-b');
+    expect((result as any)?.authEpoch).toBe(1);
+    expect(result?.isLoading).toBe(false);
+  });
+
   test('does not rebind when a token write leaves the fetcher identity alone', () => {
     const { client, setAuthCalls } = makeClient();
     const [token, setToken] = createSignal('token-a');

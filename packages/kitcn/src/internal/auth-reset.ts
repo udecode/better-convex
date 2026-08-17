@@ -54,13 +54,26 @@ export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
     cache.remove(query);
 
     for (const observer of observers) {
-      const restoredOptions = {
+      const previousOptions = observer.options as Record<string, unknown>;
+      observer.setOptions({
         ...observer.options,
+        enabled: false,
         initialData: undefined,
         placeholderData: undefined,
-      };
-      observer.setOptions({ ...restoredOptions, enabled: false });
-      restoreObservers.push(() => observer.setOptions(restoredOptions));
+      });
+      const suspendedOptions = observer.options;
+      restoreObservers.push(() => {
+        const currentOptions = observer.options as Record<string, unknown>;
+        observer.setOptions({
+          ...currentOptions,
+          enabled:
+            observer.options === suspendedOptions
+              ? previousOptions.enabled
+              : currentOptions.enabled,
+          initialData: undefined,
+          placeholderData: undefined,
+        });
+      });
     }
   }
 
