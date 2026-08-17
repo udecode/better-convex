@@ -213,12 +213,12 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
+- [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
-- [ ] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
+- [x] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
       exists at the PR head, and it identifies the exact PR before autoclosure.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
       new branch needed, or N/A with reason.
@@ -273,13 +273,13 @@ Completion Gates:
 | High-risk mini gate | yes | Prove destructive ordering/authority/idempotency | comment success precedes close; retry reuses comment; closed state stops |
 | Agent-native review for agent/tooling changes | yes | Capability/safety review | pass after two accepted findings |
 | Local install corruption suspected | no | N/A | no corruption signal |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
-| PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
+| Commit created | yes | Stage whole checkout and commit | `117d699e`; exact PR binding `60319be3` |
+| PR create or update | yes | Push and create/update PR | PR #364 open on dedicated branch |
+| Task-style PR body verified | yes | Read back exact body | required issue, plan, confidence, table, and sections present; no self-link |
+| PR task evidence verified | yes | Verify body line, fetched head file, exact owner | exactly one line; `refs/pr/364` contains plan identifying PR #364 |
 | PR proof image hosting | no | N/A | no browser images |
 | GitHub issue sync-back | no | N/A | no issue source |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill exact PR/confidence/proof/outcome/caveat/design | complete below |
 | Final lint | yes | Run `bun lint:fix` | pass; 929 files, no fixes |
 | Output budget discipline | yes | Scope/cap noisy commands | pass |
 | Timed checkpoint | no | N/A | no duration |
@@ -301,7 +301,7 @@ Phase / pass table:
 | Intake and source read | complete | user source, skills, owners, docs read | implementation |
 | Implementation | complete | evidence gate, comment/close path, templates, docs, mirrors | verification |
 | Verification | complete | source/mirror/intent/reviews and `bun check` pass | commit/PR |
-| Commit / PR / GitHub sync | pending | | final response |
+| Commit / PR / GitHub sync | complete | PR #364 body and task evidence read back | remote gates |
 | Closeout | pending | | final response |
 
 Findings:
@@ -338,6 +338,8 @@ Verification evidence:
 - Autoreview local is clean at 0.98 with no actionable findings.
 - `bun check` passes, including every fresh fixture comparison and runtime
   scenario.
+- PR #364 body contains exactly one task-plan line. Its exact fetched head
+  contains this plan, which identifies PR #364 in task source and ownership.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -351,22 +353,22 @@ Source-listed case matrix:
 | already closed | no action needed | initial state read-back | duplicate comment possible | record and stop | non-open state rule | pass |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: `117d699e docs: close PRs without task evidence`
+- PR line: #364 opened and exact task evidence verified at `60319be3`
+- Issue line: N/A
+- Confidence line: 98%
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: source policy red, browser N/A
+  - Verified: source/mirror/template/review/check/PR evidence green, browser N/A
+- Browser check: N/A
+- Outcome: noncompliant PRs get one verified explanation, then close/read-back
+- Caveat: policy is not bulk-applied during this task
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: autoclosure intake plus task evidence and plan templates
+  - Why not quick patch: AGENTS-only prose would not define proof or destructive ordering
+  - Why not broader change: no CI can prove an unrecorded model invocation
+- Verified: install, intent, parity, reviews, full check, exact PR evidence
+- PR body verified: `gh pr view 364 --json body`; exact evidence smoke passes
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -390,11 +392,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
-- Browser proof: pending
-- Caveats: pending
+- Commit: `117d699e`, `60319be3`
+- PR: https://github.com/udecode/kitcn/pull/364
+- Issue: N/A
+- Browser proof: N/A
+- Caveats: no bulk-close in this implementation PR
 
 Timeline:
 - 2026-08-17T08:55:01.517Z Task goal plan created.
@@ -402,14 +404,14 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Intake and source read |
-| Where am I going? | Implementation, verification, commit/PR/GitHub sync, closeout |
-| What is the goal? | TODO: Fill from Objective |
-| What have I learned? | See Findings |
-| What have I done? | See Timeline |
+| Where am I? | Remote closeout |
+| Where am I going? | Exact #364 gates and merge |
+| What is the goal? | Comment and close PRs without verifiable task evidence |
+| What have I learned? | Destructive enforcement needs immutable evidence and idempotent ordering |
+| What have I done? | Patched sources/templates/docs, regenerated, reviewed, checked, opened compliant #364 |
 
 Open risks:
-- Pending.
+- Required remote gates and exact merge remain for PR #364.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
