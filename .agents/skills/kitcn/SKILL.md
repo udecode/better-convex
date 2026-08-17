@@ -231,7 +231,7 @@ Builder rules that matter:
 ### 3) Query + Mutation Procedure Template
 
 ```ts
-import { z } from "zod";
+import * as z from "zod";
 import { eq } from "kitcn/orm";
 import { CRPCError } from "kitcn/server";
 import { authMutation, authQuery } from "../lib/crpc";

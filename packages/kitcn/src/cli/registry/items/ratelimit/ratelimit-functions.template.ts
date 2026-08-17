@@ -1,7 +1,7 @@
 const PROJECT_CRPC_IMPORT_PLACEHOLDER = '__KITCN_PROJECT_CRPC_IMPORT__';
 
 export const RATELIMIT_FUNCTIONS_TEMPLATE = `import { cleanupRatelimitState } from "kitcn/ratelimit";
-import { z } from "zod";
+import * as z from "zod";
 import { privateMutation } from "${PROJECT_CRPC_IMPORT_PLACEHOLDER}";
 
 const DEFAULT_BATCH_SIZE = 500;

@@ -397,7 +397,7 @@ When multiple Convex functions and libs share env values (auth, billing, dev gua
 
 ```ts
 import { createEnv } from "kitcn/server";
-import { z } from "zod";
+import * as z from "zod";
 
 export const getEnv = createEnv({
   schema: z.object({
@@ -447,7 +447,7 @@ If you want the same operational model as the scaffolded baseline, use these can
 **Create:** `convex/functions/init.ts`
 
 ```ts
-import { z } from "zod";
+import * as z from "zod";
 
 import { createUser } from "../lib/auth/auth-helpers";
 import { privateMutation } from "../lib/crpc";
@@ -499,7 +499,7 @@ export default privateMutation
 /** biome-ignore-all lint/suspicious/noExplicitAny: dev */
 import { eq } from "kitcn/orm";
 import { CRPCError } from "kitcn/server";
-import { z } from "zod";
+import * as z from "zod";
 
 import { privateAction, privateMutation } from "../lib/crpc";
 import { getEnv } from "../lib/get-env";

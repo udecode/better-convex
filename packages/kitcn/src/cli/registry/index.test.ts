@@ -102,6 +102,7 @@ describe('cli/registry', () => {
       })
     );
     expect(cleanup?.content).toContain('cleanupRatelimitState');
+    expect(cleanup?.content).toContain('import * as z from "zod";');
     expect(
       descriptor.presets.find((preset) => preset.key === 'server-first')
         ?.templateIds

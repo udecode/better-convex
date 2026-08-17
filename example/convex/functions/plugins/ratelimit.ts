@@ -1,5 +1,5 @@
 import { cleanupRatelimitState } from 'kitcn/ratelimit';
-import { z } from 'zod';
+import * as z from 'zod';
 import { privateMutation } from '../../lib/crpc';
 
 const DEFAULT_BATCH_SIZE = 500;
