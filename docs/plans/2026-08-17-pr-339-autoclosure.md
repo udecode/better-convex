@@ -107,7 +107,7 @@ Completion Gates:
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
 | Repository check | yes | run `bun check` | pending final repaired source |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final whole-branch review | pending after two final P1 repairs |
+| Autoreview | yes | final whole-branch review | clean at `ebbbedcf`; patch correct (0.86) |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -190,6 +190,8 @@ Verification evidence:
   Its third finding was valid: a delayed Convex callback could publish an older
   identity. Binding callbacks now carry their own generation, and the red
   superseded-callback regression passes with the surrounding 27-test owner set.
+- The committed-head whole-branch P1 review is clean with no actionable P0/P1
+  findings and reports the patch correct at 0.86 confidence.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.
