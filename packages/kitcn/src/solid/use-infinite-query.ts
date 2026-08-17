@@ -31,7 +31,7 @@ import { type EnabledFn, resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useMeta } from './auth';
-import { useAuthStore, useAuthValue, useSafeConvexAuth } from './auth-store';
+import { useAuthValue, useSafeConvexAuth } from './auth-store';
 import { createQueriesResults } from './create-queries-results';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
 
@@ -389,7 +389,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     options;
 
   const safeAuth = useSafeConvexAuth();
-  const authStore = useAuthStore();
+  const authEpoch = () => useAuthValue('authEpoch');
   const meta = useMeta();
   const queryClient = useQueryClient();
 
@@ -446,7 +446,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     JSON.stringify({
       query: getFunctionName(query),
       args: argsObject(),
-      ...(authType ? { authEpoch: authStore.get('authEpoch') } : {}),
+      ...(authType ? { authEpoch: authEpoch() } : {}),
     })
   );
 

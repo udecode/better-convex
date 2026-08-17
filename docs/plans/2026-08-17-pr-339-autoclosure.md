@@ -93,6 +93,7 @@ Error attempts:
 | Auth epochs accumulated pagination IDs in a process-wide map | 1 | retain IDs solely in persisted QueryClient pagination state | React/Solid pagination suites pass |
 | Custom auth had no pagination epoch owner | 1 | publish the epoch from the settled Convex bridge when no Better Auth store exists | red bridge epoch regression plus Solid pagination suite pass |
 | Provider reset could refetch before Convex changed identity | 1 | clear immediately, publish identity only after Convex confirms it, then refetch | red settlement and two-phase reset regressions pass |
+| Pagination bypassed the new bridge-aware epoch accessor | 1 | read the epoch through `useAuthValue` inside the reactive store-key memo | red custom-auth pagination regression passes |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -157,6 +158,11 @@ Verification evidence:
   confirmation. Fifty-nine focused Solid and forty React owner tests pass;
   package typecheck/build and zero-net deslop pass. Full check and final review
   must rerun on this source.
+- The convergence review then found the infinite-query store key still read the
+  fallback store directly. After the required two-cycle pause, this remained
+  the same in-scope account-isolation blocker. The existing transition test was
+  rewritten against the bridge-aware accessor, failed on the old wire, and now
+  passes with all 59 focused Solid tests plus package typecheck/build/deslop.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.

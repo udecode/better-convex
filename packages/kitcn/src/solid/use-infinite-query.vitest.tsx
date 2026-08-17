@@ -307,16 +307,10 @@ describe('useInfiniteQuery', () => {
 
   test('restarts an auth-bound cursor chain after an account transition', async () => {
     const [authState, setAuthState] = createStore({ authEpoch: 0 });
-    const useAuthStoreSpy = vi
-      .spyOn(authStoreModule, 'useAuthStore')
-      .mockImplementation(
-        () =>
-          ({
-            get: (key: string) => (authState as any)[key],
-            set: () => {},
-            store: authState,
-          }) as any
-      );
+    useAuthValueSpy.mockImplementation((key: any) => {
+      if (key === 'authEpoch') return authState.authEpoch as any;
+      return (() => {}) as any;
+    });
     const queryClient = makeQueryClient((args) =>
       args.cursor === null
         ? {
@@ -360,8 +354,6 @@ describe('useInfiniteQuery', () => {
         expect.objectContaining({ cursor: null }),
       ])
     );
-
-    useAuthStoreSpy.mockRestore();
   });
 
   test('prefetched first page hydrates while auth is still loading', () => {
