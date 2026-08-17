@@ -22,11 +22,27 @@ Completion threshold:
   full check, final review, exact remote gates, merge, release, and remote
   read-back all pass.
 
+Verification surface:
+- Released-main diff, HTTP/RSC keys, anonymous identifiers, deny-list store,
+  manual cleanup mutation, scaffold regeneration, fixtures, docs/skill sync,
+  package typecheck/build, focused tests, deslop, full check, autoreview,
+  exact-head gates, release matrix, npm, and post-release CI.
+
+Constraints:
+- Keep retained state bounded and preserve database enforcement if the local
+  optimization evicts a cold block.
+- No cron, recurring workflow, or schedule may be introduced.
+
 Boundaries:
 - intended delta: PR #341 rate-limit identifiers/options and HTTP/RSC cache keys
 - allowed repairs: deny-list safety, manual cleanup, review feedback,
   docs/skill/changeset sync, proof, and mergeability
 - non-goals: recurring cleanup, auth redesign, ORM capability injection (#342)
+
+Blocked condition:
+- Stop only if the deny-list bound or manual cleanup owner cannot be proven by
+  focused runtime/scaffold tests, or maintainer delivery remains unavailable
+  after the documented retry path.
 
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
@@ -42,7 +58,7 @@ Closure matrix:
 | repository check | yes | `bun check`; explicit `bun run test:runtime` rerun | complete |
 | GitHub delivery | yes | exact head, gates, merge, release, read-back | complete |
 
-Work checklist:
+Work Checklist:
 - [x] Exact released-main diff and four review threads reconstructed.
 - [x] Two upstream threads verified fixed in the submitted source.
 - [x] Rolling-window, bounded blocked-state, and long-key regressions reproduced.
@@ -51,6 +67,16 @@ Work checklist:
 - [x] Scaffold, docs, skill, generated output, and changeset are synchronized.
 - [x] Focused, package, full-check, and final-review proof passes.
 - [x] Feedback is resolved and exact remote delivery completes.
+
+Completion Gates:
+| Gate | Applies | Evidence |
+| --- | --- | --- |
+| Targeted/package proof | yes | 99 focused tests, typechecks, and build pass |
+| Generated/docs/skill proof | yes | scaffold, fixtures, intent, and mirrors pass |
+| Cleanup/review | yes | zero-net deslop and clean P1 review at 0.92 |
+| Repository check | yes | `bun check` and explicit runtime scenarios pass |
+| GitHub delivery | yes | exact merge, v0.24.0, matrix, npm, and CI read-back |
+| Goal plan complete | yes | batch completion audit passes |
 
 Verification evidence:
 - The PR is mixed but substantive, not wholesale slop. Exact HTTP keys, shared
@@ -94,3 +120,15 @@ Phase / pass table:
 | Review/checks | complete | focused/package/fixture/full gates; P1 review clean | delivery |
 | Delivery | complete | exact head merged and released | closeout |
 | Closeout | complete | npm/tag/matrix/post-release CI read back | done |
+
+Reboot status:
+| Question | Answer |
+| --- | --- |
+| Where am I? | Complete |
+| Where am I going? | Done |
+| What is the goal? | Ship bounded rate limits with manual cleanup only. |
+| What have I learned? | The request-key work was real; recurring cleanup and the original deny-list bounds were unsafe. |
+| What have I done? | Repaired, proved, merged, released v0.24.0, and read back all gates without a cron. |
+
+Open risks:
+- None remaining inside PR #341 scope.

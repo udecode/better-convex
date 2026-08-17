@@ -67,7 +67,7 @@ State capsule:
 - active candidate: merged capability graph plus isolated aggregate maintenance
 - last proven fact: focused tests, package build, regenerated fixtures, intent,
   and example typecheck pass
-- next proof: exact remote gates, merge, and release read-back
+- next proof: none; exact remote gates, merge, release, and npm read-back pass
 - open blocker: none
 
 Start Gates:
@@ -90,7 +90,7 @@ Work Checklist:
 - [x] Live review defects pass bounded red/green tests.
 - [x] Old runtime exports/routes and stale generated output are absent.
 - [x] Package, fixture, docs/skill, changeset, review, and repository gates pass.
-- [ ] Exact GitHub merge/release/read-back completes.
+- [x] Exact GitHub merge/release/read-back completes.
 
 Owner / candidate map:
 | Candidate | Current owner | Target owner | Public impact | Bundle impact | Generated impact | Decision |
@@ -107,7 +107,7 @@ Implementation packets:
 | graph | ORM capabilities, subpath entries, lifecycle/query | root graph excludes optional runtimes and all write barriers remain | root value imports/types | package build | graph/capability/ORM tests | complete |
 | maintenance | codegen and aggregate CLI | prune runs after final index removal from isolated entry | conditional prune skip/shared route | codegen + fixture sync | red/green CLI/codegen tests | complete |
 | fingerprint | CLI backend owner | partition order changes fingerprint | sorted rank partitions | N/A | red/green fingerprint test | complete |
-| closeout | docs/skill/changeset/plans | current concise contract and exact proof | stale release essay/claims | skill sync + fixtures | intent/check/review/remote | in_progress |
+| closeout | docs/skill/changeset/plans | current concise contract and exact proof | stale release essay/claims | skill sync + fixtures | intent/check/review/remote | complete |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -123,7 +123,7 @@ Completion Gates:
 | Agent-native reviewer | yes | CLI/source/generated/skill map | pass: command to owner to artifact map |
 | Final lint/check | yes | lint and `bun check` | pass after bounded tree cleanup repair |
 | Autoreview | yes | Resolve every accepted actionable finding | pass: clean exact branch P1 review at 0.87 |
-| Goal plan complete | yes | Run plan completion audit | pending |
+| Goal plan complete | yes | Run plan completion audit | pass |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -132,7 +132,7 @@ Phase / pass table:
 | Candidate selection | complete | split retained; two behavior repairs accepted | implementation |
 | Implementation | complete | conflicts and two review defects repaired | verification |
 | Verification | complete | full check and clean exact branch P1 review | closeout |
-| Closeout | in_progress | local candidate committed | remote delivery |
+| Closeout | complete | exact merge/release/npm/workflow read-back | done |
 
 Decisions and tradeoffs:
 - Drizzle-style leaf entries support the public subpath split; codegen hides
@@ -183,20 +183,25 @@ Verification evidence:
   runtime smoke scenarios.
 - Exact `origin/main...HEAD` P1 autoreview is clean at 0.87 confidence after
   the accepted repair; no actionable finding remains.
+- Exact head `cb3322c8` passed CI `32006113457`, Vercel, and auto-release,
+  then squash-merged as `3aff976a`. Release PR #360 merged as `f3a602b8` and
+  published GitHub plus npm `v0.25.0` for both packages with that exact
+  `gitHead`. Post-release CI `32006568741`, skill audit `32006530625`, and
+  Convex Matrix `32006560638` passed, including runtime scenarios.
 
 Timeline:
 - 2026-08-17 Architecture/autoclosure plan created after #341 release.
+- 2026-08-17 PR #342 merged, v0.25.0 published, and all post-release gates
+  passed.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Implementation |
-| Where am I going? | TDD repairs, regeneration, proof, review, delivery |
+| Where am I? | Complete |
+| Where am I going? | Done |
 | What is the goal? | Ship the real graph split without cleanup or correctness regressions |
 | What have I learned? | Core direction is sound; release story and two edge cases are slop |
-| What have I done? | Resolved conflicts, repaired two defects with TDD, regenerated outputs, and passed focused/package/skill gates |
+| What have I done? | Repaired, proved, merged, released, and read back the exact artifacts and remote gates |
 
 Open risks:
-- Generated maintenance isolation changes internal Convex function routes.
-- Capability boundaries touch write barriers, relation-count caches, and
-  aggregate lifecycle behavior merged after the contributor branch diverged.
+- None remaining inside PR #342 scope.

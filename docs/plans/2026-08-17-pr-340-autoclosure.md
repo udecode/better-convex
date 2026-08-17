@@ -19,11 +19,26 @@ Completion threshold:
 - Focused tests, package typecheck/build, full check, final review, exact remote
   gates, merge, release, npm/tag, and post-release CI all pass.
 
+Verification surface:
+- Released-main diff, cRPC transformer/builders, Zod transform and default
+  regressions, package typecheck/build, changeset, docs/skill audit, deslop,
+  lint, full check, autoreview, exact-head CI/Vercel, release matrix, and npm.
+
+Constraints:
+- Parse output once without weakening custom codec validation or changing the
+  handler-input/client-output contract.
+- Keep auth, rate-limit, and ORM capability work outside this PR.
+
 Boundaries:
 - intended delta: PR #340 cRPC validation and memoization work
 - allowed repairs: output contract, review feedback, docs/skill/changeset sync,
   proof, and mergeability
 - non-goals: auth parity (#339), rate limits (#341), ORM capabilities (#342)
+
+Blocked condition:
+- Stop only if the owning transformed-output contract cannot be proven by the
+  focused type/runtime tests or maintainer delivery remains unavailable after
+  the documented retry path.
 
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
@@ -39,7 +54,7 @@ Closure matrix:
 | repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | exact head, merge, release, read-back | complete |
 
-Work checklist:
+Work Checklist:
 - [x] Exact released-main diff and three review threads reconstructed.
 - [x] Two upstream threads verified fixed by source and tests.
 - [x] Handler/client transformed-output mismatch reproduced and repaired.
@@ -47,6 +62,15 @@ Work checklist:
 - [x] Focused and package proof passes.
 - [x] Deslop, lint, full check, and final whole-branch review pass.
 - [x] Feedback is resolved and exact remote delivery completes.
+
+Completion Gates:
+| Gate | Applies | Evidence |
+| --- | --- | --- |
+| Targeted/package proof | yes | focused tests, typecheck, and build pass |
+| Cleanup/review | yes | zero-net deslop and clean P1 reviews |
+| Repository check | yes | `bun check` passes |
+| GitHub delivery | yes | exact merge, release, matrix, npm, and CI read-back |
+| Goal plan complete | yes | batch completion audit passes |
 
 Verification evidence:
 - The branch is broad but substantive, not generated slop. It removes repeated
@@ -81,3 +105,15 @@ Phase / pass table:
 | Review/checks | complete | focused/package/full gates; whole-branch review clean | delivery |
 | Delivery | complete | exact head merged and released | closeout |
 | Closeout | complete | npm/tag/post-release CI read back | done |
+
+Reboot status:
+| Question | Answer |
+| --- | --- |
+| Where am I? | Complete |
+| Where am I going? | Done |
+| What is the goal? | Ship proven single-pass cRPC validation and typing. |
+| What have I learned? | Performance work was real; transformed/defaulted output contracts required repair. |
+| What have I done? | Repaired, proved, merged, released v0.23.0, and read back all gates. |
+
+Open risks:
+- None remaining inside PR #340 scope.

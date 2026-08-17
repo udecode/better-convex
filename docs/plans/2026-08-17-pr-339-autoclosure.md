@@ -65,14 +65,14 @@ Closure matrix:
 | agent workflow | no | no agent workflow changes | N/A |
 | cleanup/review | yes | deslop and autoreview | clean |
 | repository check | yes | `bun check` | complete |
-| GitHub delivery | yes | feedback, exact checks, merge/release | pending |
+| GitHub delivery | yes | feedback, exact checks, merge/release | complete |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
 - [x] Each focused local lane is proven or N/A with a concrete reason.
 - [x] Package/changeset ownership is closed.
 - [x] Accepted cleanup and review findings are closed locally.
-- [ ] PR body and check state match the final evidence.
+- [x] PR body and check state match the final evidence.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -106,9 +106,9 @@ Completion Gates:
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
 | Repository check | yes | run `bun check` | passed on `f2445ea1` |
-| GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
+| GitHub delivery | yes | push, feedback, exact checks, merge/release | pass |
 | Autoreview | yes | final whole-branch review | clean at `ebbbedcf`; patch correct (0.86) |
-| Goal plan complete | yes | run checker | pending |
+| Goal plan complete | yes | run checker | pass from batch closeout |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -116,8 +116,8 @@ Phase / pass table:
 | Inventory | complete | exact diff, owners, feedback | repair |
 | Repair | complete | released-main merge plus provider identity owner | focused proof |
 | Review/checks | complete | focused/package/deslop, final autoreview, full check green | delivery |
-| Delivery | in_progress | local branch ready | push, checks, merge/release |
-| Closeout | pending | | final |
+| Delivery | complete | exact head merged and released | closeout |
+| Closeout | complete | v0.22.1 correction and post-release CI read back | done |
 
 Verification evidence:
 - The branch is broad but substantive, not disposable slop. Its four P1 review
@@ -194,13 +194,13 @@ Verification evidence:
   findings and reports the patch correct at 0.86 confidence.
 
 Open risks:
-- Exact-head remote checks, merge, release, and read-back remain.
+- None remaining inside PR #339 scope.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Exact-head GitHub delivery |
-| Where am I going? | Exact-head delivery and release |
+| Where am I? | Complete |
+| Where am I going? | Done |
 | What is the goal? | Ship only proven Solid/React parity. |
 | What have I learned? | Mutation-only resets miss provider transitions, and resets need the provider's auth-store owner. |
-| What have I done? | Merged released owners, removed changeset slop, and closed all reviewed identity/cache privacy gaps. |
+| What have I done? | Repaired, merged, corrected, released v0.22.1, and read back exact remote gates. |

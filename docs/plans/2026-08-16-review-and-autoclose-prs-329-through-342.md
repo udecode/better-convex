@@ -41,6 +41,10 @@ Linked plans:
   Solid/React auth and query parity.
 - [PR #340 autoclosure](docs/plans/2026-08-17-pr-340-autoclosure.md) -
   Single-pass cRPC validation and definition-time schema plans.
+- [PR #341 autoclosure](docs/plans/2026-08-17-pr-341-autoclosure.md) -
+  Request-keyed anonymous rate limits with manual cleanup only.
+- [PR #342 autoclosure](docs/plans/2026-08-17-pr-342-autoclosure.md) -
+  Explicit ORM capabilities and isolated optional runtime graphs.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,
@@ -105,16 +109,16 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | exact invariant plus focused tests/runtime per PR | inventory pending |
-| package/API/build | conditional | public exports/types/build per touched package | inventory pending |
-| generated output | conditional | owner plus regeneration/diff | inventory pending |
-| fixtures/scenarios | conditional | sync/check/runtime proof | inventory pending |
-| docs/package skill | conditional | paired owner audit | inventory pending |
-| changeset | conditional | package delta coverage | inventory pending |
-| agent workflow | conditional | source/mirror/lock/helper proof | inventory pending |
-| cleanup/review | yes | deslop, agent-native reviewer, autoreview | inventory pending |
-| repository check | yes | `bun check` | pending |
-| GitHub delivery | yes | source-backed merge or close plus remote read-back | pending |
+| source behavior | yes | exact invariant plus focused tests/runtime per PR | pass |
+| package/API/build | conditional | public exports/types/build per touched package | pass where applicable |
+| generated output | conditional | owner plus regeneration/diff | pass where applicable |
+| fixtures/scenarios | conditional | sync/check/runtime proof | pass where applicable |
+| docs/package skill | conditional | paired owner audit | pass where applicable |
+| changeset | conditional | package delta coverage | pass where applicable |
+| agent workflow | conditional | source/mirror/lock/helper proof | pass where applicable |
+| cleanup/review | yes | deslop, agent-native reviewer, autoreview | pass |
+| repository check | yes | `bun check` | pass |
+| GitHub delivery | yes | source-backed merge or close plus remote read-back | pass |
 
 PR disposition ledger:
 | PR | Intended invariant | Initial slop verdict | Feedback | Dependency / order | Status |
@@ -132,7 +136,7 @@ PR disposition ledger:
 | #339 | restore Solid/React parity | credible but broad; stale changeset story was slop and removed | 4 outdated threads plus accepted local privacy findings | after #329/#332 | closed: merged `ed72944a`, corrected and released v0.22.1, post-release CI green |
 | #340 | validate cRPC output once | credible; not slop, but handler/client output typing was wrong | 2 upstream repairs plus 1 accepted local P1 | after released #339 | closed: merged `13fbae32`, released v0.23.0, post-release CI green |
 | #341 | key anonymous rate limits per request | mixed but substantive; deny-list safety and recurring cleanup proposal were slop | 2 upstream fixes plus 2 accepted P1s | after released #340 | closed: merged `c255ae2a`, released v0.24.0, post-release gates green; manual cleanup only |
-| #342 | inject ORM capabilities to cut bundle graphs | potentially valuable architecture change, far too large for trust-by-CI | 4 threads | last; depends on #330/#331/#333/#335/#337/#341 | deep review pending |
+| #342 | inject ORM capabilities to cut bundle graphs | substantive, not wholesale slop; release claims and two unbounded/cleanup edge cases required repair | 4 threads resolved plus 1 accepted local P1 | last; depends on #330/#331/#333/#335/#337/#341 | closed: merged `3aff976a`, released v0.25.0, post-release gates green |
 
 Dependency-safe order:
 - Release 0.17.2: #329.
@@ -140,26 +144,25 @@ Dependency-safe order:
 - Released 0.17.5: #332.
 - Release 0.19.x: #335 then #336.
 - Released 0.20.0: #337.
-- Next isolated package release: #338.
-- Subsequent candidates: #339 then #340, each rebased on released main.
-- Later isolated candidates: #341, then #342 only after explicit high-risk proof.
+- Released in order after #337: #338, #339, #340, #341, then #342 after the
+  explicit high-risk proof recorded below.
 
 Work Checklist:
-- [ ] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
+- [x] Intended behavior and exclusions are reconstructed from real sources.
+- [x] Each lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner: none.
+- [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
+- [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
+- [x] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
+- [x] Agent-native pack: installed skills are changed only through
       `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
+- [x] Agent-native pack: routing, required receipts, placeholder failure,
       completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -170,30 +173,30 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | pending | Run smallest missing owning proof | pending |
-| Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
-| Package/docs/scenario closure | pending | Run every applicable local contract | pending |
-| Deslop | pending | Run bounded cleanup or N/A | pending |
-| Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
-| Repository check | yes | Run `bun check` | pending |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-16-review-and-autoclose-prs-329-through-342.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Targeted behavior proof | yes | Run smallest missing owning proof | pass per linked PR plans |
+| Source/generated audit | yes | Prove correct source and regenerated mirrors | pass per applicable PR plans |
+| Package/docs/scenario closure | yes | Run every applicable local contract | pass |
+| Deslop | yes | Run bounded cleanup or N/A | pass per PR |
+| Agent-native reviewer | yes | Run for workflow changes or N/A | pass for applicable CLI/workflow changes |
+| Final lint | yes | Run `bun lint:fix` | pass per delivered PR |
+| Repository check | yes | Run `bun check` | pass; post-release CI `32006568741` green |
+| GitHub delivery | yes | Merge/release and read back every PR | pass |
+| Autoreview | yes | Resolve every accepted actionable finding | pass per PR |
+| Goal plan complete | yes | Run completion checker | pass after final receipt update |
+| Agent source / generated sync | no | No source-rule change in final delta | N/A |
+| Installed lock audit | no | No installed-skill lock change | N/A |
+| Agent action discoverability | yes | Audit CLI/source/generated/skill route | pass for #342 |
+| Helper and template smoke | no | No helper/template delta in closeout | N/A |
+| Agent-native review | yes | Close applicable agent-native findings | pass |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
-| Inventory | in_progress | plan created | missing proof |
-| Repair | pending | | review |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Inventory | complete | all 14 exact heads, owners, overlaps, and threads recorded | repair |
+| Repair | complete | accepted correctness, ownership, and proof defects fixed | review |
+| Review/checks | complete | focused/full gates and final reviews pass | delivery |
+| Delivery | complete | every PR merged and applicable releases published | final audit |
+| Closeout | complete | exact #342/release/npm/workflow read-back | done |
 
 Verification evidence:
 - GitHub snapshot: 14 contributor PRs #329-#342; every head had green CI and
@@ -310,21 +313,29 @@ Verification evidence:
   arbitrary update. The mutation now continues inside the same transaction
   until terminal or two matches; 101 focused auth tests pass. Final whole-
   branch P1 review is clean at 0.87 and the exact full-gate retry passes.
+- #342 exact head `cb3322c8` passed CI `32006113457`, Vercel, and the
+  auto-release gate, then squash-merged as `3aff976a`. Release PR #360 merged
+  as `f3a602b8` and published GitHub plus npm `v0.25.0` for `kitcn` and
+  `@kitcn/resend`, both with exact `gitHead` `f3a602b8`. Post-release CI
+  `32006568741`, skill audit `32006530625`, and Convex Matrix
+  `32006560638` all passed; the latter includes the full version matrix and
+  runtime scenarios. No cron or recurring workflow was added.
 
 Timeline:
 - 2026-08-16T18:31:28.829Z Autoclosure plan created.
 - 2026-08-16 Froze #329-#342, fetched local refs, audited PR bodies/files/checks,
   mapped overlaps, and retrieved every unresolved feedback thread.
+- 2026-08-17 Closed all 14 PRs in dependency-safe order and verified the final
+  v0.25.0 release, npm provenance, post-release CI, and Convex matrix.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Inventory |
-| Where am I going? | Repair, review/checks, delivery, final audit |
+| Where am I? | Complete |
+| Where am I going? | Done; PR #352 remains outside this frozen batch |
 | What is the goal? | Give every PR #329-#342 an honest slop verdict and final disposition, then autoclose each viable PR. |
-| What have I learned? | Thirteen contributor PRs are green but blocked on review; overlap and intent remain unproven. |
-| What have I done? | Frozen the batch, excluded #343, recorded authority, constraints, proof standards, and delivery rules. |
+| What have I learned? | The batch was mostly substantive but repeatedly mixed real work with stale claims, unsafe bounds, and incomplete ownership. |
+| What have I done? | Repaired, reviewed, merged, released, and remotely verified all 14 frozen PRs without adding recurring automation. |
 
 Open risks:
-- The batch is highly overlapping across ORM/Solid/runtime/performance surfaces;
-  green heads may become stale or redundant as earlier PRs merge.
+- None inside the frozen #329-#342 batch. PR #352 is explicitly outside scope.
