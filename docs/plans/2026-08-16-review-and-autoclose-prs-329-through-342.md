@@ -35,6 +35,8 @@ Linked plans:
   ORM stream amplification and ID-list pagination.
 - [PR #337 autoclosure](docs/plans/2026-08-17-pr-337-autoclosure.md) -
   Aggregate-index read bounds, maintenance, and extrema budget accounting.
+- [PR #338 autoclosure](docs/plans/2026-08-17-pr-338-autoclosure.md) -
+  Auth runtime hot paths and bounded persisted-session recovery.
 
 Completion threshold:
 - All 14 frozen PRs (#329-#342) have a recorded intent, overlap/dependency map,

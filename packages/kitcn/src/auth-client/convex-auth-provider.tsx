@@ -103,6 +103,26 @@ const hasActiveSessionData = (session: unknown) => {
   return Boolean((session as { session?: unknown }).session);
 };
 
+const getSessionId = (sessionData: unknown) => {
+  if (!sessionData || typeof sessionData !== 'object') {
+    return;
+  }
+  const session = (sessionData as { session?: unknown }).session;
+  if (!session || typeof session !== 'object') {
+    return;
+  }
+  const id = (session as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
+};
+
+const isSameSession = (left: unknown, right: unknown) => {
+  if (left === right) {
+    return true;
+  }
+  const leftId = getSessionId(left);
+  return leftId !== undefined && leftId === getSessionId(right);
+};
+
 const wait = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -155,8 +175,38 @@ const fetchPersistedSession = async (
             headers: { Authorization: `Bearer ${token}` },
           },
         }));
-  } catch {
-    return;
+  } catch (error) {
+    return { data: undefined, error };
+  }
+};
+
+const fetchPersistedSessionBeforeDeadline = async (
+  authClient: AuthClientFetch,
+  token: string,
+  deadline: number
+): Promise<{ result: unknown; status: 'result' } | { status: 'deadline' }> => {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return { status: 'deadline' };
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadlineResult = new Promise<{ status: 'deadline' }>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ status: 'deadline' }), remaining);
+  });
+
+  try {
+    return await Promise.race([
+      fetchPersistedSession(authClient, token).then((result) => ({
+        result,
+        status: 'result' as const,
+      })),
+      deadlineResult,
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 };
 
@@ -189,9 +239,15 @@ const getSessionFromPersistedToken = async (
       return { status: 'unknown' };
     }
 
-    const { data, errored } = readAuthResult(
-      await fetchPersistedSession(authClient, token)
+    const request = await fetchPersistedSessionBeforeDeadline(
+      authClient,
+      token,
+      deadline
     );
+    if (request.status === 'deadline') {
+      return { status: 'unknown' };
+    }
+    const { data, errored } = readAuthResult(request.result);
 
     if (data) {
       return { data, status: 'session' };
@@ -411,17 +467,16 @@ function ConvexAuthProviderInner({
       { deadline: graceUntil, shouldStop }
     )
       .then((outcome) => {
-        if (!isMountedRef.current) {
+        const hasCompetingSession =
+          hasActiveSessionData(sessionRef.current) &&
+          !isSameSession(sessionRef.current, persistedSessionData);
+        if (!isMountedRef.current || !ownsToken() || hasCompetingSession) {
           return;
         }
 
         if (outcome.status === 'session') {
           syncSessionAtom(authClient, outcome.data);
           writeAuthSessionFallbackData(outcome.data);
-          return;
-        }
-
-        if (!ownsToken() || hasActiveSessionData(sessionRef.current)) {
           return;
         }
 

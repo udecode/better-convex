@@ -874,6 +874,222 @@ describe('ConvexAuthProvider', () => {
     expect(result.current.store.get('token')).toBe(jwt);
   });
 
+  test('ignores a restored session after the persisted token loses ownership', async () => {
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-token',
+      'persisted-session-token'
+    );
+
+    const client = {
+      setAuth: () => {},
+      clearAuth: () => {},
+    };
+    const restored = {
+      session: { id: 'stale-session' },
+      user: { email: 'stale@example.com' },
+    };
+    let resolveFetch!: (value: { data: typeof restored }) => void;
+    const authFetch = mock(
+      () =>
+        new Promise<{ data: typeof restored }>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const authClient = {
+      useSession: () => ({ data: null, isPending: false }),
+      $fetch: authFetch,
+      convex: { token: mock(async () => ({ data: { token: null } })) },
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {children}
+      </ConvexAuthProvider>
+    );
+    const { result } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.set('token', null);
+      result.current.set('expiresAt', null);
+      result.current.set('sessionSyncGraceUntil', null);
+    });
+    await act(async () => {
+      resolveFetch({ data: restored });
+      await Promise.resolve();
+    });
+
+    expect(result.current.get('token')).toBeNull();
+    expect(window.sessionStorage.getItem('kitcn.auth.session-data')).toBeNull();
+  });
+
+  test('accepts a restored session when the seeded session was cloned', async () => {
+    const persisted = {
+      session: { id: 'persisted-session' },
+      user: { email: 'persisted@example.com' },
+    };
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-token',
+      'persisted-session-token'
+    );
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-data',
+      JSON.stringify(persisted)
+    );
+
+    const client = {
+      setAuth: () => {},
+      clearAuth: () => {},
+    };
+    const restored = {
+      session: { id: 'persisted-session' },
+      user: { email: 'fresh@example.com' },
+    };
+    let currentSession: unknown = null;
+    let resolveFetch!: (value: { data: typeof restored }) => void;
+    const authFetch = mock(
+      () =>
+        new Promise<{ data: typeof restored }>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const sessionAtom = {
+      get: () => ({ refetch: async () => {} }),
+      set: mock((value: { data: unknown }) => {
+        currentSession = structuredClone(value.data);
+      }),
+    };
+    const authClient = {
+      $store: { atoms: { session: sessionAtom } },
+      useSession: () => ({ data: currentSession, isPending: false }),
+      $fetch: authFetch,
+      convex: { token: mock(async () => ({ data: { token: null } })) },
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {children}
+      </ConvexAuthProvider>
+    );
+    const { rerender } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    rerender();
+    await act(async () => {
+      resolveFetch({ data: restored });
+      await Promise.resolve();
+    });
+
+    expect(window.sessionStorage.getItem('kitcn.auth.session-data')).toBe(
+      JSON.stringify(restored)
+    );
+  });
+
+  test('ignores a restored session after a different session takes over', async () => {
+    const persisted = {
+      session: { id: 'persisted-session' },
+      user: { email: 'persisted@example.com' },
+    };
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-token',
+      'persisted-session-token'
+    );
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-data',
+      JSON.stringify(persisted)
+    );
+
+    const client = {
+      setAuth: () => {},
+      clearAuth: () => {},
+    };
+    const stale = {
+      session: { id: 'persisted-session' },
+      user: { email: 'stale@example.com' },
+    };
+    let currentSession: unknown = null;
+    let resolveFetch!: (value: { data: typeof stale }) => void;
+    const authFetch = mock(
+      () =>
+        new Promise<{ data: typeof stale }>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const authClient = {
+      useSession: () => ({ data: currentSession, isPending: false }),
+      $fetch: authFetch,
+      convex: { token: mock(async () => ({ data: { token: null } })) },
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {children}
+      </ConvexAuthProvider>
+    );
+    const { rerender } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    currentSession = {
+      session: { id: 'new-session' },
+      user: { email: 'new@example.com' },
+    };
+    rerender();
+    await act(async () => {
+      resolveFetch({ data: stale });
+      await Promise.resolve();
+    });
+
+    expect(window.sessionStorage.getItem('kitcn.auth.session-data')).toBe(
+      JSON.stringify(persisted)
+    );
+  });
+
+  test('expires persisted-token recovery when a request never settles', async () => {
+    window.sessionStorage.setItem(
+      'kitcn.auth.session-token',
+      'persisted-session-token'
+    );
+
+    const client = {
+      setAuth: () => {},
+      clearAuth: () => {},
+    };
+    const authFetch = mock(() => new Promise(() => {}));
+    const authClient = {
+      useSession: () => ({ data: null, isPending: false }),
+      $fetch: authFetch,
+      convex: { token: mock(async () => ({ data: { token: null } })) },
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConvexAuthProvider authClient={authClient as any} client={client as any}>
+        {children}
+      </ConvexAuthProvider>
+    );
+
+    jest.useFakeTimers();
+    let result: {
+      current: { auth: ReturnType<typeof useAuth>; store: AuthStore };
+    };
+    try {
+      result = renderHook(() => ({ auth: useAuth(), store: useAuthStore() }), {
+        wrapper,
+      }).result;
+      await advanceSeconds(40);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(result.current.auth.isLoading).toBe(false);
+    expect(result.current.store.get('token')).toBeNull();
+    expect(result.current.store.get('sessionSyncGraceUntil')).toBeNull();
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
   test('keeps a cached JWT when a later token refresh returns null', async () => {
     const client = {
       setAuth: () => {},
