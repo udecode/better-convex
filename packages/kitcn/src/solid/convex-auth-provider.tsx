@@ -143,7 +143,10 @@ function ConvexAuthProviderInner(
       tokenSessionId = undefined;
       tokenSessionInitialized = false;
     } else if (hasActiveSessionData(session)) {
-      if (tokenSessionInitialized && sessionId !== tokenSessionId) {
+      if (
+        (!tokenSessionInitialized && authStore.get('token') !== null) ||
+        (tokenSessionInitialized && sessionId !== tokenSessionId)
+      ) {
         authStore.set('token', null);
         authStore.set('expiresAt', null);
       }

@@ -78,6 +78,45 @@ describe('ConvexAuthProvider', () => {
     expect(convexToken).toHaveBeenCalledTimes(0);
   });
 
+  test('does not assign an unowned SSR token to the hydrated session', async () => {
+    const ssrToken = makeJwt(3600, { sub: 'user-1' });
+    const hydratedToken = makeJwt(7200, { sub: 'user-2' });
+    const convexToken = vi.fn(async () => ({
+      data: { token: hydratedToken },
+    }));
+    const client = {
+      setAuth: (
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
+      ) => {
+        void fetchToken({ forceRefreshToken: false });
+      },
+      clearAuth: () => {},
+    };
+    const authClient = {
+      useSession: () =>
+        makeSessionAccessor({ session: { id: 'session-2' } }, false),
+      convex: { token: convexToken },
+      getSession: async () => null,
+      updateSession: () => {},
+      crossDomain: { oneTimeToken: { verify: async () => ({ data: {} }) } },
+    };
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthProvider
+        authClient={authClient as any}
+        client={client as any}
+        initialToken={ssrToken}
+      >
+        {props.children}
+      </ConvexAuthProvider>
+    );
+    const { result } = renderHook(() => useAuthStore(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.get('token')).toBe(hydratedToken);
+    });
+    expect(convexToken).toHaveBeenCalledTimes(1);
+  });
+
   test('passes throw=false when fetching a fresh token', async () => {
     const client = {
       setAuth: () => {},

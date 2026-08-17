@@ -83,11 +83,12 @@ Error attempts:
 | Session ID masked JWT tenant/role changes | 1 | combine stable session and non-volatile claim identity while ignoring routine rotation | red same-session claim regression passes; 129 Solid tests green |
 | New session reused the previous session's valid JWT | 1 | bind cached tokens to their session and invalidate before the replacement session authenticates | red cross-session token regression passes |
 | New session inherited the previous session's in-flight token request | 1 | scope pending requests and late writes to the initiating session | red deferred-request race passes |
+| First hydrated session claimed an unowned SSR JWT | 1 | keep SSR tokens pending-only and fetch after a client session is confirmed | red hydration account-switch regression passes |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 130 Solid tests pass |
+| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 131 Solid tests pass |
 | Package/docs/scenario closure | pending | typecheck/build/full check | package typecheck/build green; final full check rerun pending |
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
@@ -124,7 +125,8 @@ Verification evidence:
   so tenant or role changes inside one session rebind without treating routine
   expiry rotation as a transition. Replacing a session clears its token owner
   and abandons prior-session in-flight requests before fetching the replacement
-  JWT. All 130 Solid tests pass; package typecheck/build pass.
+  JWT. A confirmed hydrated session also replaces any unowned SSR token. All
+  131 Solid tests pass; package typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.
