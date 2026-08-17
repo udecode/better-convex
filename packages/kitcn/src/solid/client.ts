@@ -63,11 +63,17 @@ import {
   getTransformer,
 } from '../crpc/transformer';
 import type { ConvexQueryMeta } from '../crpc/types';
+import { clearAuthBoundQueries } from '../internal/auth-reset';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
+import {
+  canSubscribeQuery,
+  isAuthBoundQuery,
+} from '../internal/subscription-gate';
 import type { AuthStore } from './auth-store';
 
 const isServer = typeof window === 'undefined';
+type TanstackQuery = ReturnType<QueryCache['getAll']>[number];
 
 // ============================================================================
 // Type Guards for Query Key Format
@@ -183,6 +189,18 @@ export class ConvexQueryClient {
   /** Auth store for checking auth state */
   private authStore?: AuthStore;
 
+  /** In-flight clear shared by overlapping account identity transitions. */
+  private authBarrierClear?: Promise<() => void>;
+
+  /** Blocks auth-bound work created while Convex is changing identity. */
+  private authSettlementBarrier?: {
+    promise: Promise<void>;
+    resolve: () => void;
+  };
+
+  /** Latest account transition allowed to restore and refetch observers. */
+  private authResetGeneration = 0;
+
   /** Delay before unsubscribing when query has no observers */
   private unsubscribeDelay: number;
 
@@ -222,6 +240,33 @@ export class ConvexQueryClient {
     delete this.subscriptions[queryHash];
   }
 
+  /**
+   * Open a Convex subscription for a query, if the shared gate allows it.
+   * Single owner of the subscribe preconditions for every cache-event branch.
+   */
+  private subscribeQuery(query: TanstackQuery) {
+    const allowed = canSubscribeQuery(query, {
+      isSubscribed: !!this.subscriptions[query.queryHash],
+      shouldSkipSubscription: (authType) =>
+        this.shouldSkipSubscription(authType),
+    });
+    if (!allowed) {
+      return;
+    }
+
+    const [, funcName, args] = query.queryKey;
+    this.createSubscription(
+      query.queryHash,
+      funcName as string,
+      args as Record<string, unknown>,
+      query.queryKey as unknown as [
+        'convexQuery',
+        string,
+        Record<string, unknown>,
+      ]
+    );
+  }
+
   /** Update auth store (for HMR where store may reset) */
   updateAuthStore(authStore?: AuthStore) {
     this.authStore = authStore;
@@ -245,7 +290,9 @@ export class ConvexQueryClient {
   private shouldSkipSubscription(
     authType: 'optional' | 'required' | undefined
   ) {
-    if (!authType || !this.authStore) return false;
+    if (!authType) return false;
+    if (this.authSettlementBarrier) return true;
+    if (!this.authStore) return false;
 
     const authState = this.getAuthState();
     // Wait for auth to settle before subscribing
@@ -254,6 +301,25 @@ export class ConvexQueryClient {
     if (authType === 'required' && !authState?.isAuthenticated) return true;
 
     return false;
+  }
+
+  /** Hold new auth-bound requests until the latest Convex identity settles. */
+  private beginAuthSettlementBarrier() {
+    if (this.authSettlementBarrier) return;
+
+    let resolve = () => {};
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    this.authSettlementBarrier = { promise, resolve };
+  }
+
+  /** Wait through overlapping barriers and stop canceled requests. */
+  private async waitForAuthSettlement(signal?: AbortSignal) {
+    while (this.authSettlementBarrier) {
+      await this.authSettlementBarrier.promise;
+    }
+    signal?.throwIfAborted();
   }
 
   /** Get QueryClient, throwing if not connected */
@@ -357,6 +423,85 @@ export class ConvexQueryClient {
         this.unsubscribeQueryByHash(queryHash);
       }
     }
+  }
+
+  /**
+   * Advance the account generation published by the auth store.
+   * Client state that only makes sense inside one account's result set —
+   * paginated cursor chains — keys on it, so it is rebuilt instead of reused.
+   */
+  private bumpAuthEpoch() {
+    if (!this.authStore) return;
+    this.authStore.set('authEpoch', this.authStore.get('authEpoch') + 1);
+  }
+
+  /** Drop auth-bound data without fetching while Convex changes identity. */
+  private async clearAuthQueries(): Promise<() => void> {
+    const queryCache = this.queryClient.getQueryCache();
+
+    for (const query of queryCache.getAll()) {
+      if (!isAuthBoundQuery(query)) continue;
+
+      this.cancelPendingUnsubscribe(query.queryHash);
+      this.unsubscribeQueryByHash(query.queryHash);
+    }
+
+    this.bumpAuthEpoch();
+
+    // Clear between the loops: a live watch would re-seed the entry it just
+    // cleared through onUpdateQueryKeyHash's hydration guard.
+    return clearAuthBoundQueries(queryCache, (query) =>
+      isAuthBoundQuery(query)
+    );
+  }
+
+  /** Refetch and resubscribe auth-bound queries after Convex settles. */
+  private async refetchAuthQueries(generation: number) {
+    const queryCache = this.queryClient.getQueryCache();
+    await this.queryClient.refetchQueries({
+      predicate: (query) => isAuthBoundQuery(query),
+      type: 'active',
+    });
+
+    if (generation !== this.authResetGeneration) return;
+
+    for (const query of queryCache.getAll()) {
+      if (isAuthBoundQuery(query)) {
+        this.subscribeQuery(query);
+      }
+    }
+  }
+
+  /**
+   * Drop every auth-bound cache entry and resubscribe.
+   * Call after an identity transition when no separate settlement barrier owns
+   * the clear/refetch phases.
+   */
+  async resetAuthQueries(
+    options: { generation?: number; refetch?: boolean } = {}
+  ): Promise<number> {
+    if (options.refetch === false) {
+      const generation = ++this.authResetGeneration;
+      this.beginAuthSettlementBarrier();
+      this.authBarrierClear ??= this.clearAuthQueries();
+      await this.authBarrierClear;
+      return generation;
+    }
+
+    const generation = options.generation ?? ++this.authResetGeneration;
+    if (generation !== this.authResetGeneration) return generation;
+
+    this.authBarrierClear ??= this.clearAuthQueries();
+    const restoreObservers = await this.authBarrierClear;
+    if (generation !== this.authResetGeneration) return generation;
+
+    this.authBarrierClear = undefined;
+    const settlementBarrier = this.authSettlementBarrier;
+    this.authSettlementBarrier = undefined;
+    settlementBarrier?.resolve();
+    restoreObservers();
+    await this.refetchAuthQueries(generation);
+    return generation;
   }
 
   /**
@@ -484,34 +629,7 @@ export class ConvexQueryClient {
 
         // Query added to cache -> create Convex subscription
         case 'added': {
-          // Skip subscription if meta.subscribe === false (one-off query mode)
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription if query has no observers
-          if (event.query.getObserversCount() === 0) {
-            break;
-          }
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
 
@@ -519,40 +637,7 @@ export class ConvexQueryClient {
         case 'observerAdded': {
           // Cancel any pending unsubscribe
           this.cancelPendingUnsubscribe(event.query.queryHash);
-
-          // Skip if already subscribed
-          if (this.subscriptions[event.query.queryHash]) {
-            break;
-          }
-
-          // Skip subscription if query is disabled
-          if ((event.query.options as any).enabled === false) {
-            break;
-          }
-
-          // Skip subscription if meta.subscribe === false
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
 
@@ -592,7 +677,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false <-> true)
         case 'observerOptionsUpdated': {
-          const isDisabled = (event.query.options as any).enabled === false;
+          const isDisabled = event.query.isDisabled();
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true -> false: unsubscribe
@@ -607,29 +692,7 @@ export class ConvexQueryClient {
             break;
           }
 
-          // Skip subscription if meta.subscribe === false
-          const meta = event.query.meta as ConvexQueryMeta | undefined;
-          if (meta?.subscribe === false) {
-            break;
-          }
-
-          const [, funcName, args] = event.query.queryKey;
-
-          // Skip subscription while auth is loading or unauthenticated (for required)
-          if (this.shouldSkipSubscription(meta?.authType)) {
-            break;
-          }
-
-          this.createSubscription(
-            event.query.queryHash,
-            funcName as string,
-            args as Record<string, unknown>,
-            event.query.queryKey as [
-              'convexQuery',
-              string,
-              Record<string, unknown>,
-            ]
-          );
+          this.subscribeQuery(event.query);
           break;
         }
       }
@@ -699,6 +762,10 @@ export class ConvexQueryClient {
     ): Promise<FunctionReturnType<T>> => {
       const { queryKey, meta: rawMeta } = context;
       const meta = rawMeta as ConvexQueryMeta | undefined;
+
+      if (!isServer && meta?.authType) {
+        await this.waitForAuthSettlement(context.signal);
+      }
 
       // Skipped queries should never run (enabled: false)
       if (isConvexSkipped(queryKey)) {

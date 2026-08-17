@@ -224,7 +224,7 @@ describe('createCRPCContext', () => {
     }
   });
 
-  test('resets auth queries only when auth transitions reach a real JWT or logout null', () => {
+  test('resets auth queries on an account change but not on a token refresh', () => {
     const api = {} as any;
     const convexClient = {} as any;
     const convexQueryClient = {
@@ -249,9 +249,15 @@ describe('createCRPCContext', () => {
       </CRPCProvider>
     );
 
-    const jwt = `a.${Buffer.from(
-      JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })
-    ).toString('base64')}.b`;
+    let serial = 0;
+    const makeJwt = (sub: string) =>
+      `a.${Buffer.from(
+        JSON.stringify({
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          jti: `token-${++serial}`,
+          sub,
+        })
+      ).toString('base64')}.b`;
 
     const hook = renderHook(() => useMeta(), { wrapper });
     expect(convexQueryClient.resetAuthQueries).not.toHaveBeenCalled();
@@ -265,17 +271,36 @@ describe('createCRPCContext', () => {
 
     authState = {
       isAuthenticated: true,
-      token: jwt,
+      token: makeJwt('account-a'),
     };
     hook.rerender();
     expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
+
+    // A scheduled refresh mints a new JWT for the same account. Treating that
+    // as a transition would drop every auth-bound entry — and every paginated
+    // cursor chain keyed on the account — once an hour.
+    authState = {
+      isAuthenticated: true,
+      token: makeJwt('account-a'),
+    };
+    hook.rerender();
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
+
+    // Signing in as someone else without signing out first keeps
+    // `isAuthenticated` true, so the account is the only thing that changed.
+    authState = {
+      isAuthenticated: true,
+      token: makeJwt('account-b'),
+    };
+    hook.rerender();
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(2);
 
     authState = {
       isAuthenticated: false,
       token: null,
     };
     hook.rerender();
-    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(2);
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(3);
   });
 
   test('ignores token rotation but resets when identity claims change', () => {

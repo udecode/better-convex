@@ -27,6 +27,7 @@ import { createStore } from 'solid-js/store';
 import { CRPCClientError, isCRPCClientError } from '../crpc/error';
 import { convexQuery } from '../crpc/query-options';
 import { type ExtractPaginatedItem, FUNC_REF_SYMBOL } from '../crpc/types';
+import { type EnabledFn, resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useMeta } from './auth';
@@ -47,9 +48,16 @@ type ReservedInfiniteOptions =
 /** Base options for infinite query internal hook */
 type InfiniteQueryOptions<TItem> = {
   limit?: number;
+  /** Auth binding of the paginated function, from the caller's cRPC meta. */
+  authType?: 'optional' | 'required';
+  /**
+   * Accessor, not a value: the gate is re-read inside the hook's memos so auth
+   * transitions and a caller predicate both keep working after mount.
+   */
+  enabled?: () => boolean | EnabledFn;
 } & DistributiveOmit<
   SolidQueryOptions<TItem[], DefaultError>,
-  ReservedInfiniteOptions
+  ReservedInfiniteOptions | 'enabled'
 >;
 
 /**
@@ -83,21 +91,9 @@ export type PaginationState = {
 // Query key prefix for pagination state storage
 const PAGINATION_KEY_PREFIX = '__pagination__' as const;
 
-// Pagination ID store - persists across mounts for cache reuse
-// Key: query name + args, Value: pagination ID
-const paginationIdStore = new Map<string, number>();
 let paginationIdCounter = 0;
 
-const getOrCreatePaginationId = (storeKey: string): number => {
-  const existing = paginationIdStore.get(storeKey);
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const newId = ++paginationIdCounter;
-  paginationIdStore.set(storeKey, newId);
-  return newId;
-};
+const createPaginationId = (): number => ++paginationIdCounter;
 
 export type PaginationStatus =
   | 'CanLoadMore'
@@ -389,13 +385,20 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   options: InfiniteQueryOptions<PaginatedQueryItem<Query>>
 ): UseInfiniteQueryResult<PaginatedQueryItem<Query>> => {
   // Extract our custom options, the rest are TanStack Query options for page queries
-  const { limit, enabled, placeholderData, ...queryOptions } = options;
+  const { limit, authType, enabled, placeholderData, ...queryOptions } =
+    options;
 
   const safeAuth = useSafeConvexAuth();
+  const authEpoch = () => useAuthValue('authEpoch');
   const meta = useMeta();
   const queryClient = useQueryClient();
 
-  // Look up server-prefetched data using server-compatible queryKey
+  // Look up server-prefetched data using server-compatible queryKey.
+  // This is a mount-time gate only ("did the server give us page 0?"), never
+  // page 0's `initialData`: the prefetch is written under page 0's own query
+  // key, so TanStack already serves it, while `initialData` would additionally
+  // freeze it into the query's `initialState` — where an identity transition
+  // resurrects the previous account's page.
   const prefetchedFirstPage = createMemo(() => {
     const serverQueryKey = [
       'convexQuery',
@@ -410,9 +413,11 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     return data ?? null;
   });
 
-  // Don't skip if we have prefetched data - use it for instant hydration
+  // Don't skip if we have prefetched data - use it for instant hydration.
+  // `enabled` is read through the accessor so both reads stay tracked.
   const skip = createMemo(
-    () => !prefetchedFirstPage() && (safeAuth.isLoading || enabled === false)
+    () =>
+      !prefetchedFirstPage() && (safeAuth.isLoading || enabled?.() === false)
   );
 
   // Helper to get/set pagination state from queryClient with gcTime: Infinity
@@ -432,14 +437,22 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     () => (skip() ? {} : args) as Record<string, unknown>
   );
 
-  // Stable store key for pagination ID persistence across mounts
+  // Stable store key for pagination ID persistence across mounts.
+  // Cursors index into one account's result set, so an auth-bound list carries
+  // the account generation: a transition re-keys it, which routes the hook
+  // through its existing "args changed" reset instead of restoring the previous
+  // account's page chain and paging from its cursors.
   const storeKey = createMemo(() =>
-    JSON.stringify({ query: getFunctionName(query), args: argsObject() })
+    JSON.stringify({
+      query: getFunctionName(query),
+      args: argsObject(),
+      ...(authType ? { authEpoch: authEpoch() } : {}),
+    })
   );
 
   // Helper to create initial state
   const createInitialState = (): PaginationState => {
-    const id = getOrCreatePaginationId(storeKey());
+    const id = createPaginationId();
     return {
       id,
       nextPageKey: 1,
@@ -562,14 +575,17 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
 
       return {
         ...convexQuery(query, convexArgs as any, meta),
-        enabled: !skip() && !!state().queries[key],
+        // Resolve the caller's `enabled` here so a predicate is evaluated
+        // per page instead of being collapsed into a boolean upstream.
+        enabled: resolveEnabled(
+          !skip() &&
+            !!state().queries[key] &&
+            (!authType || !safeAuth.isLoading),
+          enabled?.()
+        ),
         structuralSharing: false,
         // Apply TanStack Query options to all pages
         ...(queryOptions ?? {}),
-        // Use server-prefetched data for first page (hydration)
-        ...(index === 0 && prefetchedFirstPage()
-          ? { initialData: prefetchedFirstPage() }
-          : {}),
         // Use placeholder data for first page (wrapped in pagination format)
         ...(index === 0 && placeholderData
           ? {
@@ -774,7 +790,9 @@ export function useInfiniteQuery<
   const onQueryUnauthorized = useAuthValue('onQueryUnauthorized');
   const safeAuth = useSafeConvexAuth();
 
-  // Extract metadata and query options from infiniteOptions
+  // Extract metadata and query options from infiniteOptions.
+  // `enabled` is pulled out of the rest so a frozen value never reaches a page
+  // query; it is read lazily through `factoryEnabled()` below.
   const {
     queryKey: _queryKey,
     staleTime: _staleTime,
@@ -782,7 +800,7 @@ export function useInfiniteQuery<
     refetchOnMount: _refetchOnMount,
     refetchOnReconnect: _refetchOnReconnect,
     refetchOnWindowFocus: _refetchOnWindowFocus,
-    enabled: factoryEnabled,
+    enabled: _enabled,
     meta,
     ...queryOptions
   } = infiniteOptions;
@@ -791,19 +809,30 @@ export function useInfiniteQuery<
   // Default skipUnauth to false (throws CRPCClientError)
   const skipUnauthFinal = skipUnauth ?? false;
 
+  // Read through the options object so the factory's `enabled` getter runs in
+  // a tracking scope. A Solid component body is not one, so reading it here
+  // would pin the value to whatever auth was at mount.
+  const factoryEnabled = () => infiniteOptions.enabled;
+
   // Auth required but user not authenticated (after auth loads)
-  const isUnauthorized =
-    authType === 'required' && !safeAuth.isLoading && !safeAuth.isAuthenticated;
+  const isUnauthorized = createMemo(
+    () =>
+      authType === 'required' &&
+      !safeAuth.isLoading &&
+      !safeAuth.isAuthenticated
+  );
 
   // Determine if we should skip the query
-  const shouldSkip =
-    factoryEnabled === false ||
-    (authType === 'required' && safeAuth.isLoading) ||
-    (authType === 'required' && !safeAuth.isAuthenticated);
+  const shouldSkip = createMemo(
+    () =>
+      factoryEnabled() === false ||
+      (authType === 'required' && safeAuth.isLoading) ||
+      (authType === 'required' && !safeAuth.isAuthenticated)
+  );
 
   // Create error when unauthorized (unless skipUnauth)
   const authError = createMemo(() => {
-    if (isUnauthorized && !skipUnauthFinal) {
+    if (isUnauthorized() && !skipUnauthFinal) {
       return new CRPCClientError({
         code: 'UNAUTHORIZED',
         functionName: queryName,
@@ -812,32 +841,38 @@ export function useInfiniteQuery<
     return null;
   });
 
-  // Call callback in createEffect (not during render) to avoid setState-in-render
+  // Call callback in createEffect (not during render) to avoid setState-in-render.
+  // `isUnauthorized` is a memo, so this fires once per real auth transition.
   createEffect(() => {
-    if (isUnauthorized && !skipUnauthFinal) {
+    if (isUnauthorized() && !skipUnauthFinal) {
       onQueryUnauthorized({ queryName });
     }
   });
 
   const result = useInfiniteQueryInternal(query as any, args as any, {
+    authType,
     limit,
     ...(queryOptions as any),
-    // Internal hook handles prefetch detection and will bypass skip if data exists
-    enabled: !shouldSkip,
+    // Internal hook handles prefetch detection and will bypass skip if data
+    // exists. Forward an accessor so auth transitions reach the page gate, and
+    // a caller predicate survives to be resolved per page.
+    enabled: () => resolveEnabled(!shouldSkip(), factoryEnabled()),
   });
 
   // Include auth loading in loading state for optional and required types
   const authLoadingApplies = authType === 'optional' || authType === 'required';
 
   // When skipUnauth + unauthorized: return empty data, not placeholder
-  const isSkippedUnauth = isUnauthorized && skipUnauthFinal;
+  const isSkippedUnauth = createMemo(() => isUnauthorized() && skipUnauthFinal);
 
   return {
     get data() {
-      return isSkippedUnauth ? ([] as TItem[]) : (result.data as TItem[]);
+      return isSkippedUnauth() ? ([] as TItem[]) : (result.data as TItem[]);
     },
     get pages() {
-      return isSkippedUnauth ? ([] as TItem[][]) : (result.pages as TItem[][]);
+      return isSkippedUnauth()
+        ? ([] as TItem[][])
+        : (result.pages as TItem[][]);
     },
     get error() {
       const ae = authError();
@@ -847,14 +882,14 @@ export function useInfiniteQuery<
       return authError() ? true : result.isError;
     },
     get isPlaceholderData() {
-      return isSkippedUnauth ? false : result.isPlaceholderData;
+      return isSkippedUnauth() ? false : result.isPlaceholderData;
     },
     get isLoading() {
       const ae = authError();
       const isClientError = isCRPCClientError(result.error);
       return (
         (authLoadingApplies && safeAuth.isLoading) ||
-        (!isClientError && !ae && !isSkippedUnauth && result.isLoading)
+        (!isClientError && !ae && !isSkippedUnauth() && result.isLoading)
       );
     },
     get isFetching() {

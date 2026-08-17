@@ -77,8 +77,13 @@ import {
   getTransformer,
 } from '../crpc/transformer';
 import type { ConvexQueryMeta } from '../crpc/types';
+import { clearAuthBoundQueries } from '../internal/auth-reset';
 import { createHashFn } from '../internal/hash';
 import { isConvexQuery } from '../internal/query-key';
+import {
+  canSubscribeQuery,
+  isAuthBoundQuery,
+} from '../internal/subscription-gate';
 import type { AuthStore } from './auth-store';
 
 const isServer = typeof window === 'undefined';
@@ -281,27 +286,13 @@ export class ConvexQueryClient {
     delete this.subscriptions[queryHash];
   }
 
-  private isAuthBoundQuery(query: TanstackQuery) {
-    const meta = query.meta as ConvexQueryMeta | undefined;
-    return meta?.authType === 'required' || meta?.authType === 'optional';
-  }
-
   private subscribeQuery(query: TanstackQuery) {
-    if (this.subscriptions[query.queryHash]) {
-      return;
-    }
-
-    const meta = query.meta as ConvexQueryMeta | undefined;
-    if (meta?.subscribe === false) {
-      return;
-    }
-    if (query.getObserversCount() === 0) {
-      return;
-    }
-    if (query.isDisabled()) {
-      return;
-    }
-    if (this.shouldSkipSubscription(meta?.authType)) {
+    const allowed = canSubscribeQuery(query, {
+      isSubscribed: !!this.subscriptions[query.queryHash],
+      shouldSkipSubscription: (authType) =>
+        this.shouldSkipSubscription(authType),
+    });
+    if (!allowed) {
       return;
     }
 
@@ -460,23 +451,42 @@ export class ConvexQueryClient {
     }
   }
 
-  async resetAuthQueries() {
-    const authQueries = this.queryClient
-      .getQueryCache()
-      .getAll()
-      .filter((query) => this.isAuthBoundQuery(query));
+  /**
+   * Advance the account generation published by the auth store.
+   * Client state that only makes sense inside one account's result set —
+   * paginated cursor chains — keys on it, so it is rebuilt instead of reused.
+   */
+  private bumpAuthEpoch() {
+    if (!this.authStore) return;
+    this.authStore.set('authEpoch', this.authStore.get('authEpoch') + 1);
+  }
 
-    for (const query of authQueries) {
+  async resetAuthQueries() {
+    const queryCache = this.queryClient.getQueryCache();
+
+    for (const query of queryCache.getAll()) {
+      if (!isAuthBoundQuery(query)) continue;
+
       this.cancelPendingUnsubscribe(query.queryHash);
       this.unsubscribeQueryByHash(query.queryHash);
     }
 
-    await this.queryClient.resetQueries({
-      predicate: (query) => this.isAuthBoundQuery(query),
+    this.bumpAuthEpoch();
+
+    // Clear between the loops: a live watch would re-seed the entry it just
+    // cleared through onUpdateQueryKeyHash's hydration guard.
+    const restoreObservers = await clearAuthBoundQueries(queryCache, (query) =>
+      isAuthBoundQuery(query)
+    );
+    restoreObservers();
+
+    await this.queryClient.refetchQueries({
+      predicate: (query) => isAuthBoundQuery(query),
+      type: 'active',
     });
 
-    for (const query of this.queryClient.getQueryCache().getAll()) {
-      if (this.isAuthBoundQuery(query)) {
+    for (const query of queryCache.getAll()) {
+      if (isAuthBoundQuery(query)) {
         this.subscribeQuery(query);
       }
     }

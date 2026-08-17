@@ -235,6 +235,63 @@ describe('ConvexQueryClient (client mode lifecycle)', () => {
     unsubPublic();
   });
 
+  test('resetAuthQueries drops auth-bound entries nobody renders and advances the account generation', async () => {
+    const ConvexQueryClient =
+      await getClientConvexQueryClient('reset-unmounted');
+
+    const authStoreState: Record<string, unknown> = {
+      isLoading: false,
+      isAuthenticated: true,
+      onQueryUnauthorized: () => {},
+      isUnauthorized: () => false,
+      authEpoch: 0,
+    };
+    const authStore = {
+      get: (key: string) => authStoreState[key],
+      set: (key: string, value: unknown) => {
+        authStoreState[key] = value;
+      },
+    };
+
+    const queryClient = new QueryClient();
+    const client = new ConvexQueryClient(
+      {
+        watchQuery: () => ({
+          localQueryResult: () => undefined,
+          onUpdate: () => () => {},
+        }),
+      },
+      { authStore, queryClient, unsubscribeDelay: 0 }
+    );
+
+    const queryKey = ['convexQuery', 'viewer:required', {}] as const;
+    const observer = new QueryObserver(queryClient as any, {
+      // An SSR-hydrated page arrives as `initialData`, which query-core bakes
+      // into the query's initialState and never re-derives.
+      initialData: 'ACCOUNT_A',
+      meta: { authType: 'required', subscribe: true },
+      queryFn: async () => 'ACCOUNT_B',
+      queryKey,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+      staleTime: Number.POSITIVE_INFINITY,
+    });
+    // Rendered once, then unmounted: the entry lingers for gcTime holding the
+    // previous account's rows and nothing is left to refetch it, so resetting
+    // it to initialState would serve them to the next account.
+    observer.subscribe(() => {})();
+
+    expect(queryClient.getQueryData(queryKey as any)).toBe('ACCOUNT_A');
+
+    await client.resetAuthQueries();
+
+    expect(queryClient.getQueryData(queryKey as any)).toBeUndefined();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(Object.keys(client.subscriptions)).toHaveLength(0);
+    expect(authStoreState.authEpoch).toBe(1);
+  });
+
   test('onUpdateQueryKeyHash keeps existing data for undefined but accepts null subscription values', async () => {
     const ConvexQueryClient = await getClientConvexQueryClient('update-values');
 

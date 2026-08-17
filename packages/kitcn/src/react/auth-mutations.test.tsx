@@ -209,7 +209,7 @@ describe('createAuthMutations', () => {
     expect(result.current.store.get('token')).toBe('returned-sign-in-token');
     expect(result.current.store.get('isAuthenticated')).toBe(true);
     expect(authClient.signIn.email).toHaveBeenCalledTimes(1);
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
   });
 
   test('signIn(username): calls the requested sign-in method', async () => {
@@ -266,7 +266,7 @@ describe('createAuthMutations', () => {
       },
     });
     expect(authClient.signIn.email).not.toHaveBeenCalled();
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
   });
 
   test('signIn(custom): throws when the sign-in method is missing', async () => {
@@ -357,7 +357,7 @@ describe('createAuthMutations', () => {
         disableSignal: true,
       },
     });
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
   });
 
   test('signUp(email): hydrates Better Auth session state from the returned bearer token', async () => {

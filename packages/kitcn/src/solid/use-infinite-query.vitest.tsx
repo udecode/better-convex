@@ -5,6 +5,7 @@ import { renderHook } from '@solidjs/testing-library';
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query';
 import { makeFunctionReference } from 'convex/server';
 import type { JSX } from 'solid-js';
+import { createStore } from 'solid-js/store';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CRPCClientError } from '../crpc/error';
 import { convexInfiniteQueryOptions } from '../crpc/query-options';
@@ -58,7 +59,7 @@ describe('useInfiniteQuery', () => {
 
   function createOptions(opts: {
     args?: Record<string, unknown>;
-    enabled?: boolean;
+    enabled?: boolean | ((query: unknown) => boolean);
     limit?: number;
     skipUnauth?: boolean;
   }) {
@@ -250,7 +251,112 @@ describe('useInfiniteQuery', () => {
     expect(onQueryUnauthorized).toHaveBeenCalledTimes(0);
   });
 
-  test('prefetched first page hydrates while auth is still loading', () => {
+  test('keeps a function-form enabled predicate on the real page observer', () => {
+    const predicate = vi.fn(() => false);
+    const fetchPage = vi.fn(() => ({
+      page: [],
+      isDone: true,
+      continueCursor: null,
+    }));
+    const queryClient = makeQueryClient(fetchPage);
+    const wrapper = makeWrapper(queryClient);
+
+    renderHook(
+      () => useInfiniteQuery(createOptions({ enabled: predicate, limit: 2 })),
+      { wrapper }
+    );
+
+    const [pageQuery] = queryClient
+      .getQueryCache()
+      .getAll()
+      .filter((query) => (query.queryKey as unknown[])[0] === 'convexQuery');
+
+    expect(typeof pageQuery?.options.enabled).toBe('function');
+    expect(fetchPage).not.toHaveBeenCalled();
+    expect(predicate).toHaveBeenCalled();
+  });
+
+  test('starts querying when required auth settles after mount', async () => {
+    const [auth, setAuth] = createStore({
+      isLoading: true,
+      isAuthenticated: false,
+    });
+    useSafeConvexAuthSpy.mockImplementation(() => auth as any);
+
+    const fetchPage = vi.fn(() => ({
+      page: [{ _id: 'post-1' }],
+      isDone: true,
+      continueCursor: null,
+    }));
+    const queryClient = makeQueryClient(fetchPage);
+    const wrapper = makeWrapper(queryClient);
+
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 2 })),
+      { wrapper }
+    );
+
+    expect(fetchPage).not.toHaveBeenCalled();
+
+    setAuth({ isLoading: false, isAuthenticated: true });
+
+    await vi.waitFor(() => expect(result.status).toBe('Exhausted'));
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+    expect(result.data.map((item: any) => item._id)).toEqual(['post-1']);
+  });
+
+  test('restarts an auth-bound cursor chain after an account transition', async () => {
+    const [authState, setAuthState] = createStore({ authEpoch: 0 });
+    useAuthValueSpy.mockImplementation((key: any) => {
+      if (key === 'authEpoch') return authState.authEpoch as any;
+      return (() => {}) as any;
+    });
+    const queryClient = makeQueryClient((args) =>
+      args.cursor === null
+        ? {
+            page: [{ _id: 'post-1' }],
+            isDone: false,
+            continueCursor: 'cursor-a',
+          }
+        : {
+            page: [{ _id: 'post-2' }],
+            isDone: true,
+            continueCursor: null,
+          }
+    );
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(
+      () => useInfiniteQuery(createOptions({ limit: 1 })),
+      { wrapper }
+    );
+
+    await vi.waitFor(() => expect(result.status).toBe('CanLoadMore'));
+    result.fetchNextPage();
+    await vi.waitFor(() => expect(result.status).toBe('Exhausted'));
+
+    const activePageArgs = () =>
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .filter(
+          (query) =>
+            (query.queryKey as unknown[])[0] === 'convexQuery' &&
+            query.getObserversCount() > 0
+        )
+        .map((query) => (query.queryKey as unknown[])[2] as PageArgs);
+
+    expect(activePageArgs()).toHaveLength(2);
+
+    setAuthState('authEpoch', 1);
+
+    await vi.waitFor(() =>
+      expect(activePageArgs()).toEqual([
+        expect.objectContaining({ cursor: null }),
+      ])
+    );
+  });
+
+  test('prefetched optional first page hydrates without fetching while auth loads', () => {
     useSafeConvexAuthSpy.mockImplementation(
       () =>
         ({
@@ -265,6 +371,7 @@ describe('useInfiniteQuery', () => {
     const wrapper = makeWrapper(queryClient);
 
     const options = createOptions({ limit: 2 });
+    options.meta.authType = 'optional';
     queryClient.setQueryData(options.queryKey, {
       page: [{ _id: 'u1', name: 'Alice' }],
       isDone: false,
