@@ -86,10 +86,10 @@ Blocked condition:
 Task state:
 - task_type: agent workflow and contributor-doc repair
 - task_complexity: non-trivial
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: commit and PR
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: done
+- goal_status: complete after exact merge read-back
 
 Current verdict:
 - verdict: valid
@@ -269,7 +269,7 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | yes | Run capability review | PASS; no findings after task-template gate repair |
 | Local install corruption suspected | no | N/A | no corruption signal |
 | Commit created | yes | Stage whole checkout and commit | `c72bbfd5` initial workflow commit; final plan receipt commit follows |
-| PR create or update | yes | Push and create/update PR | PR #363 open from dedicated branch after full check |
+| PR create or update | yes | Push and create/update PR | PR #363 exact head `f6c9549b` passed CI `32011406464`, Vercel, and auto-release |
 | Task-style PR body verified | yes | Read back exact PR #270 emoji body | `gh pr view 363 --json body` matches all required fields and has no self-link |
 | PR proof image hosting | no | N/A | no browser proof images |
 | GitHub issue sync-back | no | N/A | no issue source |
@@ -278,7 +278,7 @@ Completion Gates:
 | Output budget discipline | yes | Verify scoped/capped output | pass; one broad full-check stream belongs to prior #362 task, not this run |
 | Timed checkpoint | no | N/A | no duration |
 | Autoreview for non-trivial implementation changes | yes | Run dirty local review | clean, correct 0.99, no actionable findings |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-require-task-per-pr.md` | final audit pending after this receipt update |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-require-task-per-pr.md` | pass after final receipt update |
 | Docs source-backed claim audit | yes | Verify contributor claims against rules | pass |
 | Docs links / routes / previews | yes | Verify README leaf link | `CONTRIBUTING.md` exists at linked path |
 | Docs MDX/content parser | no | N/A | no MDX/www change |
@@ -296,7 +296,7 @@ Phase / pass table:
 | Implementation | complete | canonical rules, templates, mirrors, contributor docs | verification |
 | Verification | complete | intent, source/mirror audit, reviews, and `bun check` pass | commit/PR |
 | Commit / PR / GitHub sync | complete | commit pushed; PR #363 task body read back | remote gates/merge |
-| Closeout | in_progress | local proof complete | exact remote gates and merge |
+| Closeout | complete | exact source head gates green; final receipt-only head will be merged | done |
 
 Findings:
 - The old workflow recommended `task` but did not require one invocation and
@@ -331,6 +331,8 @@ Verification evidence:
 - Local autoreview is clean at 0.99 with no actionable findings.
 - `bun check` passes on the final workflow source, mirrors, templates, plans,
   and contributor docs, including all fixtures and runtime scenarios.
+- PR #363 head `f6c9549b` passed CI run `32011406464` in 6m03s,
+  Vercel, and auto-release run `32011406411` with no release requested.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -342,8 +344,8 @@ Source-listed case matrix:
 | human-only author | submitting without Codex remains allowed | CONTRIBUTING audit | ambiguous scope could burden external contributors | agent mandate only | CONTRIBUTING opening paragraph | pass |
 
 Final handoff contract:
-- Commit line: `c72bbfd5 docs: require task per PR`
-- PR line: #363 opened from dedicated task branch; final plan receipt follows
+- Commit line: `c72bbfd5 docs: require task per PR`; `f6c9549b` records PR
+- PR line: #363 exact source head gates green; final receipt-only head follows
 - Issue line: N/A
 - Confidence line: 99%
 - Flow table:
@@ -382,8 +384,8 @@ Task-style PR body contract:
 
 Final handoff / sync:
 - Commit: `c72bbfd5`
-- PR: https://github.com/udecode/kitcn/pull/363
-- Issue: pending
+- PR: https://github.com/udecode/kitcn/pull/363; exact source gates green
+- Issue: N/A
 - Browser proof: N/A
 - Caveats: #362 was already sealed; #363 is the technically necessary follow-up
 
@@ -394,13 +396,14 @@ Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Remote closeout |
-| Where am I going? | Exact #363 gates and merge |
+| Where am I going? | Final receipt-only head gates and exact merge |
 | What is the goal? | Require one task invocation and plan per agent-processed PR |
 | What have I learned? | Rules need plan gates; prose alone did not prevent aggregate autoclosure |
 | What have I done? | Patched sources/templates/docs, regenerated mirrors, proved locally, opened #363 |
 
 Open risks:
-- Required remote gates and merge remain for PR #363.
+- None in the workflow repair. Final merge read-back is an external GitHub
+  receipt and cannot be committed inside the PR after it merges.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
