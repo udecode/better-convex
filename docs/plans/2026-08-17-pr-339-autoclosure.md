@@ -91,6 +91,8 @@ Error attempts:
 | Sign-in mutations reset before Convex adopted the new identity | 1 | leave sign-in resets to the settled provider transition | red React/Solid mutation regressions pass |
 | Custom Convex auth installed the always-loading fallback store | 1 | install only a real Better Auth store into the query client | red custom-provider regression passes |
 | Auth epochs accumulated pagination IDs in a process-wide map | 1 | retain IDs solely in persisted QueryClient pagination state | React/Solid pagination suites pass |
+| Custom auth had no pagination epoch owner | 1 | publish the epoch from the settled Convex bridge when no Better Auth store exists | red bridge epoch regression plus Solid pagination suite pass |
+| Provider reset could refetch before Convex changed identity | 1 | clear immediately, publish identity only after Convex confirms it, then refetch | red settlement and two-phase reset regressions pass |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -148,6 +150,13 @@ Verification evidence:
   repairs; package typecheck/build, deslop, changeset status, lint, and the full
   repository gate pass again. A fresh whole-branch review remains required
   because these findings changed source after the earlier clean review.
+- That fresh review found custom auth still lacked an epoch owner and the reset
+  could refetch before Convex settled. Both are in-scope privacy failures. The
+  bridge now publishes identity and epoch only after Convex confirmation; the
+  query client clears data at transition start and defers refetch until that
+  confirmation. Fifty-nine focused Solid and forty React owner tests pass;
+  package typecheck/build and zero-net deslop pass. Full check and final review
+  must rerun on this source.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.

@@ -8,6 +8,7 @@
 
 import type { AuthTokenFetcher, ConvexClient } from 'convex/browser';
 import {
+  batch,
   createContext,
   createEffect,
   createMemo,
@@ -76,8 +77,19 @@ export function ConvexProviderWithAuth(
   }>
 ) {
   const client = props.client as unknown as IConvexClient;
+  const [authEpoch, setAuthEpoch] = createSignal(0);
+  const [convexIdentity, setConvexIdentity] = createSignal<unknown>(null);
   const [isConvexLoading, setIsConvexLoading] = createSignal(true);
   const [isConvexAuthenticated, setIsConvexAuthenticated] = createSignal(false);
+
+  const settleAuth = (nextIdentity: unknown, isAuthenticated: boolean) => {
+    batch(() => {
+      setConvexIdentity(nextIdentity);
+      setAuthEpoch((epoch) => epoch + 1);
+      setIsConvexAuthenticated(isAuthenticated);
+      setIsConvexLoading(false);
+    });
+  };
 
   // Memoize the provider's booleans, fetcher, and stable identity separately so
   // a token-only write stops here. Run the body through `on` so the synchronous
@@ -108,18 +120,22 @@ export function ConvexProviderWithAuth(
 
   createEffect(
     on([isAuthLoading, isAuthenticated, fetchAccessToken, identity], () => {
-      if (isAuthLoading()) return;
+      if (isAuthLoading()) {
+        setIsConvexLoading(true);
+        return;
+      }
+
+      const nextIdentity = identity();
+      setIsConvexLoading(true);
 
       if (!isAuthenticated()) {
         client.clearAuth();
-        setIsConvexLoading(false);
-        setIsConvexAuthenticated(false);
+        settleAuth(nextIdentity, false);
         return;
       }
 
       client.setAuth(fetchAccessToken(), (isAuth: boolean) => {
-        setIsConvexLoading(false);
-        setIsConvexAuthenticated(isAuth);
+        settleAuth(nextIdentity, isAuth);
       });
     })
   );
@@ -131,7 +147,8 @@ export function ConvexProviderWithAuth(
   return (
     <ConvexContext.Provider value={props.client}>
       <ConvexAuthBridge
-        identity={identity()}
+        authEpoch={authEpoch()}
+        identity={convexIdentity()}
         isAuthenticated={isConvexAuthenticated()}
         isLoading={isConvexLoading()}
       >

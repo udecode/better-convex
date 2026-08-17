@@ -14,6 +14,7 @@ import {
   Unauthenticated,
   useAuth,
   useAuthGuard,
+  useAuthValue,
   useSafeConvexAuth,
 } from './auth-store';
 
@@ -100,6 +101,23 @@ describe('useSafeConvexAuth / useAuth', () => {
       isAuthenticated: true,
       isLoading: false,
     });
+  });
+
+  test('useAuthValue reads the custom Convex auth epoch without AuthProvider', () => {
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexAuthBridge
+        authEpoch={7}
+        identity="account-b"
+        isAuthenticated={true}
+        isLoading={false}
+      >
+        {props.children}
+      </ConvexAuthBridge>
+    );
+
+    const { result } = renderHook(() => useAuthValue('authEpoch'), { wrapper });
+
+    expect(result).toBe(7);
   });
 
   test('useAuth (AuthProvider): hasSession reflects token and reads auth state', () => {

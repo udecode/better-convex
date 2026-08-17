@@ -1,11 +1,12 @@
 /** @jsxImportSource solid-js */
 /** biome-ignore-all lint/suspicious/noExplicitAny: testing */
 
-import { render } from '@solidjs/testing-library';
+import { render, renderHook } from '@solidjs/testing-library';
 import type { AuthTokenFetcher } from 'convex/browser';
 import { createSignal, type JSX } from 'solid-js';
 import { describe, expect, test } from 'vitest';
 
+import { useConvexAuthBridge } from './auth-store';
 import { ConvexProviderWithAuth } from './convex-solid';
 
 describe('ConvexProviderWithAuth', () => {
@@ -73,6 +74,56 @@ describe('ConvexProviderWithAuth', () => {
     setIdentity('account-b');
 
     expect(setAuthCalls).toEqual([fetchAccessToken, fetchAccessToken]);
+  });
+
+  test('publishes identity and epoch only after Convex auth settles', () => {
+    const callbacks: Array<(isAuthenticated: boolean) => void> = [];
+    const client = {
+      clearAuth: () => {},
+      setAuth: (
+        _fetchToken: AuthTokenFetcher,
+        onChange: (isAuthenticated: boolean) => void
+      ) => callbacks.push(onChange),
+    };
+    const fetchAccessToken: AuthTokenFetcher = async () => 'token';
+    const [identity, setIdentity] = createSignal('account-a');
+    const wrapper = (props: { children: JSX.Element }) => (
+      <ConvexProviderWithAuth
+        client={client as any}
+        useAuth={() => ({
+          fetchAccessToken,
+          identity: identity(),
+          isAuthenticated: true,
+          isLoading: false,
+        })}
+      >
+        {props.children}
+      </ConvexProviderWithAuth>
+    );
+
+    const { result } = renderHook(() => useConvexAuthBridge(), { wrapper });
+
+    expect(result?.identity).toBeNull();
+    expect((result as any)?.authEpoch).toBe(0);
+    expect(result?.isLoading).toBe(true);
+
+    callbacks[0](true);
+
+    expect(result?.identity).toBe('account-a');
+    expect((result as any)?.authEpoch).toBe(1);
+    expect(result?.isLoading).toBe(false);
+
+    setIdentity('account-b');
+
+    expect(result?.identity).toBe('account-a');
+    expect((result as any)?.authEpoch).toBe(1);
+    expect(result?.isLoading).toBe(true);
+
+    callbacks[1](true);
+
+    expect(result?.identity).toBe('account-b');
+    expect((result as any)?.authEpoch).toBe(2);
+    expect(result?.isLoading).toBe(false);
   });
 
   test('does not rebind when a token write leaves the fetcher identity alone', () => {

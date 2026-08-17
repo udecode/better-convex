@@ -94,9 +94,12 @@ describe('ConvexAuthProvider', () => {
     );
     const client = {
       setAuth: (
-        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
+        fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>,
+        onChange: (isAuthenticated: boolean) => void
       ) => {
-        void fetchToken({ forceRefreshToken: false });
+        void fetchToken({ forceRefreshToken: false }).then(() =>
+          onChange(true)
+        );
       },
       clearAuth: () => {},
     };
@@ -125,12 +128,15 @@ describe('ConvexAuthProvider', () => {
     await waitFor(() => {
       expect(convexToken).toHaveBeenCalledTimes(1);
     });
-    expect(result.auth.identity).toBe('session-2');
+    expect(result.auth.identity).toBeNull();
 
     resolveHydratedToken({ data: { token: hydratedToken } });
 
     await waitFor(() => {
       expect(result.store.get('token')).toBe(hydratedToken);
+    });
+    await waitFor(() => {
+      expect(result.auth.identity).toBe('session-2');
     });
     expect(convexToken).toHaveBeenCalledTimes(1);
   });

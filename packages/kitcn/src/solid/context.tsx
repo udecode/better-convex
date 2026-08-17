@@ -15,6 +15,7 @@ import { buildMetaIndex } from '../shared/meta-utils';
 import { MetaContext } from './auth';
 import {
   useAuthStore,
+  useConvexAuthBridge,
   useFetchAccessToken,
   useSafeConvexAuth,
 } from './auth-store';
@@ -141,7 +142,9 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     convexQueryClient: ConvexQueryClient;
   }) {
     const authStore = useAuthStore();
-    const auth = useSafeConvexAuth();
+    const bridgeAuth = useConvexAuthBridge();
+    const safeAuth = useSafeConvexAuth();
+    const auth = bridgeAuth ?? safeAuth;
     const fetchAccessToken = useFetchAccessToken();
     props.convexQueryClient.updateAuthStore(
       authStore.store ? authStore : undefined
@@ -149,6 +152,7 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
     let previousAuth:
       | { identity: unknown; isAuthenticated: boolean; isLoading: boolean }
       | undefined;
+    let transitionClear: Promise<void> | undefined;
 
     createEffect(() => {
       const currentAuth = {
@@ -159,12 +163,29 @@ export function createCRPCContext<TApi extends Record<string, unknown>>(
       const previous = previousAuth;
       previousAuth = currentAuth;
 
+      if (currentAuth.isLoading) {
+        if (!previous?.isLoading) {
+          transitionClear = props.convexQueryClient.resetAuthQueries({
+            refetch: false,
+          });
+        }
+        return;
+      }
+
+      if (previous?.isLoading) {
+        const pendingClear = transitionClear;
+        transitionClear = undefined;
+        void (async () => {
+          await pendingClear;
+          await props.convexQueryClient.resetAuthQueries();
+        })();
+        return;
+      }
+
       if (
-        !currentAuth.isLoading &&
-        (!previous ||
-          previous.isLoading ||
-          previous.identity !== currentAuth.identity ||
-          previous.isAuthenticated !== currentAuth.isAuthenticated)
+        !previous ||
+        previous.identity !== currentAuth.identity ||
+        previous.isAuthenticated !== currentAuth.isAuthenticated
       ) {
         void props.convexQueryClient.resetAuthQueries();
       }

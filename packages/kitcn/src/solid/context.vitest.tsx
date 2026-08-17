@@ -125,6 +125,65 @@ describe('context (solid)', () => {
     expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(2);
   });
 
+  test('clears immediately but waits for Convex settlement before refetching', async () => {
+    const [bridge, setBridge] = createSignal({
+      identity: 'account-a' as string | null,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+    vi.spyOn(authStoreModule, 'useConvexAuthBridge').mockImplementation(
+      () =>
+        ({
+          get identity() {
+            return bridge().identity;
+          },
+          get isAuthenticated() {
+            return bridge().isAuthenticated;
+          },
+          get isLoading() {
+            return bridge().isLoading;
+          },
+        }) as any
+    );
+    vi.spyOn(authStoreModule, 'useSafeConvexAuth').mockReturnValue({
+      identity: null,
+      isAuthenticated: false,
+      isLoading: false,
+    } as any);
+    const convexQueryClient = createMockConvexQueryClient();
+    const { CRPCProvider, useCRPC } = createCRPCContext({ api: {} as any });
+
+    renderHook(() => useCRPC(), {
+      wrapper: (props: any) => (
+        <CRPCProvider
+          convexClient={{} as any}
+          convexQueryClient={convexQueryClient as any}
+        >
+          {props.children}
+        </CRPCProvider>
+      ),
+    });
+
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(1);
+
+    setBridge({
+      identity: 'account-a',
+      isAuthenticated: true,
+      isLoading: true,
+    });
+
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenLastCalledWith({
+      refetch: false,
+    });
+
+    setBridge({ identity: null, isAuthenticated: false, isLoading: false });
+
+    await vi.waitFor(() => {
+      expect(convexQueryClient.resetAuthQueries).toHaveBeenCalledTimes(3);
+    });
+    expect(convexQueryClient.resetAuthQueries).toHaveBeenLastCalledWith();
+  });
+
   test('useCRPCClient returns vanilla client inside provider', () => {
     const { CRPCProvider, useCRPCClient } = createCRPCContext({
       api: {} as any,

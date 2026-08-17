@@ -402,15 +402,8 @@ export class ConvexQueryClient {
     this.authStore.set('authEpoch', this.authStore.get('authEpoch') + 1);
   }
 
-  /**
-   * Drop every auth-bound cache entry and resubscribe.
-   * Call on an identity transition (sign-in, sign-up, sign-out): Convex query
-   * options set `staleTime: Infinity` with every refetch trigger off, so
-   * without this the next account renders the previous account's rows as
-   * authoritative `success` data — permanently for non-subscribed entries
-   * (actions, `subscribe: false`), which have no push to correct them.
-   */
-  async resetAuthQueries() {
+  /** Drop auth-bound data without fetching while Convex changes identity. */
+  private async clearAuthQueries() {
     const queryCache = this.queryClient.getQueryCache();
 
     for (const query of queryCache.getAll()) {
@@ -425,7 +418,11 @@ export class ConvexQueryClient {
     // Clear between the loops: a live watch would re-seed the entry it just
     // cleared through onUpdateQueryKeyHash's hydration guard.
     await clearAuthBoundQueries(queryCache, (query) => isAuthBoundQuery(query));
+  }
 
+  /** Refetch and resubscribe auth-bound queries after Convex settles. */
+  private async refetchAuthQueries() {
+    const queryCache = this.queryClient.getQueryCache();
     await this.queryClient.refetchQueries({
       predicate: (query) => isAuthBoundQuery(query),
       type: 'active',
@@ -436,6 +433,19 @@ export class ConvexQueryClient {
         this.subscribeQuery(query);
       }
     }
+  }
+
+  /**
+   * Drop every auth-bound cache entry and resubscribe.
+   * Call after an identity transition when no separate settlement barrier owns
+   * the clear/refetch phases.
+   */
+  async resetAuthQueries(options: { refetch?: boolean } = {}) {
+    await this.clearAuthQueries();
+    if (options.refetch === false) {
+      return;
+    }
+    await this.refetchAuthQueries();
   }
 
   /**

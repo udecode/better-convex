@@ -52,11 +52,13 @@
   authorization identity change clears it, including tenant or role claims
   changing inside the same Better Auth session.
 - Fix sign-in and sign-up mutations clearing auth-bound queries before Convex
-  adopts the new identity. The settled provider transition owns the reset, so
-  active queries cannot refill the cache from the previous account in between.
+  adopts the new identity. The provider clears previous-account data while the
+  binding changes, then refetches only after Convex reports the transition as
+  settled.
 - Fix custom Solid Convex auth being replaced by the fallback Better Auth
-  store. Query subscriptions follow the custom provider instead of remaining
-  permanently blocked by fallback loading state.
+  store. Query subscriptions follow the custom provider, settled identity and
+  account epoch instead of remaining blocked or reusing another account's
+  pagination state.
 - Fix account transitions retaining obsolete pagination ID entries. Pagination
   state in the QueryClient remains the persistence owner without a second
   process-wide key map.
