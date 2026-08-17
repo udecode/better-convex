@@ -356,7 +356,7 @@ describe('useInfiniteQuery', () => {
     );
   });
 
-  test('prefetched first page hydrates while auth is still loading', () => {
+  test('prefetched optional first page hydrates without fetching while auth loads', () => {
     useSafeConvexAuthSpy.mockImplementation(
       () =>
         ({
@@ -371,6 +371,7 @@ describe('useInfiniteQuery', () => {
     const wrapper = makeWrapper(queryClient);
 
     const options = createOptions({ limit: 2 });
+    options.meta.authType = 'optional';
     queryClient.setQueryData(options.queryKey, {
       page: [{ _id: 'u1', name: 'Alice' }],
       isDone: false,

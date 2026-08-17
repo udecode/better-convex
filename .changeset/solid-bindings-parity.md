@@ -53,8 +53,9 @@
   changing inside the same Better Auth session.
 - Fix sign-in and sign-up mutations clearing auth-bound queries before Convex
   adopts the new identity. The provider clears previous-account data while the
-  binding changes, then refetches only after Convex reports the transition as
-  settled.
+  binding changes, holds mounted observers idle, then restores and refetches
+  only after Convex reports the transition as settled. Sign-out follows the
+  same provider-owned transition.
 - Fix custom Solid Convex auth being replaced by the fallback Better Auth
   store. Query subscriptions follow the custom provider, settled identity and
   account epoch instead of remaining blocked or reusing another account's
@@ -62,3 +63,6 @@
 - Fix account transitions retaining obsolete pagination ID entries. Pagination
   state in the QueryClient remains the persistence owner without a second
   process-wide key map.
+- Fix prefetched optional pagination queries fetching while authentication is
+  loading. Hydrated data remains readable, but its observer stays disabled
+  until the auth binding settles.

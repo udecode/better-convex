@@ -475,7 +475,10 @@ export class ConvexQueryClient {
 
     // Clear between the loops: a live watch would re-seed the entry it just
     // cleared through onUpdateQueryKeyHash's hydration guard.
-    await clearAuthBoundQueries(queryCache, (query) => isAuthBoundQuery(query));
+    const restoreObservers = await clearAuthBoundQueries(queryCache, (query) =>
+      isAuthBoundQuery(query)
+    );
+    restoreObservers();
 
     await this.queryClient.refetchQueries({
       predicate: (query) => isAuthBoundQuery(query),

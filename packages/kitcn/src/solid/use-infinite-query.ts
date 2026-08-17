@@ -577,7 +577,12 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
         ...convexQuery(query, convexArgs as any, meta),
         // Resolve the caller's `enabled` here so a predicate is evaluated
         // per page instead of being collapsed into a boolean upstream.
-        enabled: resolveEnabled(!skip() && !!state().queries[key], enabled?.()),
+        enabled: resolveEnabled(
+          !skip() &&
+            !!state().queries[key] &&
+            (!authType || !safeAuth.isLoading),
+          enabled?.()
+        ),
         structuralSharing: false,
         // Apply TanStack Query options to all pages
         ...(queryOptions ?? {}),

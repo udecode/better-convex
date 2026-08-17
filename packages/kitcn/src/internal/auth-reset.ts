@@ -41,8 +41,9 @@ export type AuthResetCache<TQuery> = {
 export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
   cache: AuthResetCache<TQuery>,
   isAuthBound: (query: TQuery) => boolean
-): Promise<void> {
+): Promise<() => void> {
   const authQueries = cache.getAll().filter((query) => isAuthBound(query));
+  const restoreObservers: Array<() => void> = [];
 
   // Cancel first: a fetch issued under the previous identity would otherwise
   // resolve after the clear and re-seed the entry it just emptied.
@@ -53,11 +54,19 @@ export async function clearAuthBoundQueries<TQuery extends AuthResetQuery>(
     cache.remove(query);
 
     for (const observer of observers) {
-      observer.setOptions({
+      const restoredOptions = {
         ...observer.options,
         initialData: undefined,
         placeholderData: undefined,
-      });
+      };
+      observer.setOptions({ ...restoredOptions, enabled: false });
+      restoreObservers.push(() => observer.setOptions(restoredOptions));
     }
   }
+
+  return () => {
+    for (const restoreObserver of restoreObservers) {
+      restoreObserver();
+    }
+  };
 }

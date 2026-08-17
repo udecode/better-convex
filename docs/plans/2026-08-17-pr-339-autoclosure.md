@@ -94,6 +94,8 @@ Error attempts:
 | Custom auth had no pagination epoch owner | 1 | publish the epoch from the settled Convex bridge when no Better Auth store exists | red bridge epoch regression plus Solid pagination suite pass |
 | Provider reset could refetch before Convex changed identity | 1 | clear immediately, publish identity only after Convex confirms it, then refetch | red settlement and two-phase reset regressions pass |
 | Pagination bypassed the new bridge-aware epoch accessor | 1 | read the epoch through `useAuthValue` inside the reactive store-key memo | red custom-auth pagination regression passes |
+| Clear-only observer rebinding still fetched immediately | 1 | rebuild observers disabled and restore them only at settlement | red shared helper and Solid client lifecycle regressions pass |
+| Prefetched optional pages bypassed auth-loading gates | 1 | keep hydration state but gate every auth-bound page observer while loading | red React/Solid optional hydration regressions pass |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -163,6 +165,12 @@ Verification evidence:
   the same in-scope account-isolation blocker. The existing transition test was
   rewritten against the bridge-aware accessor, failed on the old wire, and now
   passes with all 59 focused Solid tests plus package typecheck/build/deslop.
+- The next full review proved the clear-only phase was not truly idle: query-core
+  fetched when observers rebound, and optional prefetched pages bypassed the
+  loading gate. The shared reset owner now restores disabled observers only
+  after settlement, Solid sign-out cannot bypass the provider barrier, and
+  React/Solid page observers remain disabled while auth loads. The red shared,
+  client-lifecycle, mutation, and hydration regressions now pass.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.

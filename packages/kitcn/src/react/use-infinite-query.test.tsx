@@ -210,6 +210,35 @@ describe('useInfiniteQuery', () => {
     expect((firstCall.queries[0] as any).enabled).toBe(false);
   });
 
+  test('prefetched optional first page stays disabled while auth loads', () => {
+    useSafeConvexAuthSpy.mockImplementation(() => ({
+      isLoading: true,
+      isAuthenticated: false,
+    }));
+    const optionalMeta = {
+      posts: { list: { auth: 'optional' } },
+    } as any;
+    const options = convexInfiniteQueryOptions(
+      fn,
+      { tag: 'x' },
+      { limit: 2 },
+      optionalMeta
+    ) as any;
+    options[FUNC_REF_SYMBOL] = fn;
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(options.queryKey, {
+      page: [{ _id: 'u1' }],
+      isDone: false,
+      continueCursor: 'c1',
+    });
+
+    renderHook(() => useInfiniteQuery(options), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    expect((useQueriesCalls.at(-1)!.queries[0] as any).enabled).toBe(false);
+  });
+
   test('rebuilds an auth-bound list from its first page after an account transition', () => {
     let authEpoch = 0;
     useAuthValueSpy.mockImplementation((key: any) => {

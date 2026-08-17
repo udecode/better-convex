@@ -189,6 +189,9 @@ export class ConvexQueryClient {
   /** Auth store for checking auth state */
   private authStore?: AuthStore;
 
+  /** Observers held disabled while Convex changes account identity. */
+  private restoreAuthObservers?: () => void;
+
   /** Delay before unsubscribing when query has no observers */
   private unsubscribeDelay: number;
 
@@ -403,7 +406,7 @@ export class ConvexQueryClient {
   }
 
   /** Drop auth-bound data without fetching while Convex changes identity. */
-  private async clearAuthQueries() {
+  private async clearAuthQueries(): Promise<() => void> {
     const queryCache = this.queryClient.getQueryCache();
 
     for (const query of queryCache.getAll()) {
@@ -417,7 +420,9 @@ export class ConvexQueryClient {
 
     // Clear between the loops: a live watch would re-seed the entry it just
     // cleared through onUpdateQueryKeyHash's hydration guard.
-    await clearAuthBoundQueries(queryCache, (query) => isAuthBoundQuery(query));
+    return clearAuthBoundQueries(queryCache, (query) =>
+      isAuthBoundQuery(query)
+    );
   }
 
   /** Refetch and resubscribe auth-bound queries after Convex settles. */
@@ -441,10 +446,17 @@ export class ConvexQueryClient {
    * the clear/refetch phases.
    */
   async resetAuthQueries(options: { refetch?: boolean } = {}) {
-    await this.clearAuthQueries();
     if (options.refetch === false) {
+      if (!this.restoreAuthObservers) {
+        this.restoreAuthObservers = await this.clearAuthQueries();
+      }
       return;
     }
+
+    const restoreObservers =
+      this.restoreAuthObservers ?? (await this.clearAuthQueries());
+    this.restoreAuthObservers = undefined;
+    restoreObservers();
     await this.refetchAuthQueries();
   }
 

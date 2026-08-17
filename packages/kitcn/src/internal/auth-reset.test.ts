@@ -72,6 +72,37 @@ describe('clearAuthBoundQueries', () => {
     unsubscribe();
   });
 
+  test('keeps an enabled observer suspended until the auth transition settles', async () => {
+    const queryClient = new QueryClient();
+    const queryKey = ['convexQuery', 'viewer:optional', {}] as const;
+    let fetches = 0;
+    const observer = new QueryObserver(queryClient, {
+      ...frozen,
+      initialData: 'ACCOUNT_A',
+      meta: { authType: 'optional' },
+      queryFn: async () => {
+        fetches += 1;
+        return 'ACCOUNT_B';
+      },
+      queryKey,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    const restore = (await clearAuthBoundQueries(
+      queryClient.getQueryCache(),
+      isAuthBound
+    )) as unknown as () => void;
+
+    expect(fetches).toBe(0);
+    expect(observer.getCurrentResult().fetchStatus).toBe('idle');
+
+    restore();
+
+    await Promise.resolve();
+    expect(fetches).toBe(1);
+    unsubscribe();
+  });
+
   test('leaves queries with no auth binding untouched', async () => {
     const queryClient = new QueryClient();
     const queryKey = ['convexQuery', 'messages:list', {}] as const;

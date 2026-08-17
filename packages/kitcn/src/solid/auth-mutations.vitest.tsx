@@ -76,7 +76,7 @@ describe('createAuthMutations', () => {
     return {} as any;
   }
 
-  test('signOut: sets isAuthenticated=false, unsubscribes auth queries, and clears auth state after success', async () => {
+  test('signOut clears local auth but leaves cache reset to the provider transition', async () => {
     const unsubscribeAuthQueries = vi.fn(() => {});
     const resetAuthQueries = vi.fn(async () => {});
     useConvexQueryClientSpy = vi
@@ -115,9 +115,7 @@ describe('createAuthMutations', () => {
     expect(res).toMatchObject({ ok: true });
 
     expect(unsubscribeAuthQueries).toHaveBeenCalledTimes(1);
-    // Unsubscribing alone leaves the previous account's rows in the TanStack
-    // cache; Convex query options never refetch them away on their own.
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
     expect(authClient.signOut).toHaveBeenCalledTimes(1);
     expect(authClient.signOut).toHaveBeenCalledWith({ reason: 'logout' });
 

@@ -199,7 +199,6 @@ export function createAuthMutations<T extends AuthClient>(
         }
         authStoreApi.set('token', null);
         authStoreApi.set('expiresAt', null);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };
