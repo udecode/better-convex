@@ -359,7 +359,7 @@ Completion Gates:
 | High-risk mini gate | yes | Record failure modes and boundary | Zod graph, ORM row semantics, and ordered concurrency risks/proof recorded above |
 | Agent-native review for agent/tooling changes | yes | Review action parity and mirrors | Reviewer checklist found no action/routing change and no actionable finding |
 | Local install corruption suspected | no | N/A when failure is proven external | N/A: failed runtime probe was Conductor proxy routing; focused and full reruns passed with `NO_PROXY` |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
+| Commit created | yes | Stage the entire verified checkout and commit | `54f911a8 fix(cli,orm): preserve rebased performance owners`; plan-only receipts follow in branch history |
 | PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
 | Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
 | PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
@@ -468,6 +468,7 @@ Error attempts:
 | First package build warned that `mapWithConcurrency` was missing from `write-fanout` | 1 | Audit every helper consumer and repair the owner import | Rebuild exited 0 without the warning |
 | Browser and Chrome backends unavailable | 2 | Escalate Browser to Chrome, then use source/dev-server/build proof | Static route returned 200 and `www` built; screenshot caveat retained |
 | Start runtime readiness timed out through Conductor proxy | 2 | Inspect listener/fetch path, add local hosts to `NO_PROXY`, rerun focused then full gate | Focused scenario and full `bun check` exited 0 |
+| Autoreview prerequisite missing | 1 | Install required scanner through the repo-proven Homebrew path | TruffleHog 3.97.0 installed; rerun queued |
 
 Verification evidence:
 - RED: `bun test packages/kitcn/src/cli/registry/index.test.ts` failed because
@@ -571,6 +572,8 @@ Timeline:
   repairs completed with focused tests, regeneration, builds, and static audits.
 - 2026-08-17 Browser and Chrome escalation exhausted; dev route/build substitute
   recorded. Proxy cause isolated; focused runtime and final full check passed.
+- 2026-08-17 verified checkout committed as `54f911a8`; required TruffleHog
+  prerequisite installed after autoreview failed closed before engine invocation.
 
 Reboot status:
 | Question | Answer |
