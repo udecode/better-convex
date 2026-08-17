@@ -50,7 +50,7 @@ Timed checkpoint:
 - initial confidence score: N/A: binary artifact and command gates apply.
 - improvement loop: fix accepted review findings, rerun affected proof, then
   close only after GitHub read-back.
-- final score / loop closure: N/A until all binary gates pass.
+- final score / loop closure: N/A: all binary delivery gates passed.
 
 Completion threshold:
 - Exactly one plan at
@@ -129,18 +129,18 @@ Blocked condition:
 Task state:
 - task_type: PR closeout for an existing cross-package performance refactor
 - task_complexity: normal, non-trivial, measurable
-- current_phase: commit and review
-- current_phase_status: in_progress
-- next_phase: GitHub sync
-- goal_status: active
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: final response
+- goal_status: complete
 
 Current verdict:
-- verdict: verified-local
+- verdict: delivered
 - confidence: 92%; capped below 95% because timing benchmarks were not rerun and
   the approved browser backends were unavailable
-- next owner: autoreview, then GitHub sync
-- reason: owner repairs, focused proof, package/docs builds, fixture parity, and
-  the full repository gate pass; commit, review, push, body, and read-back remain.
+- next owner: maintainer
+- reason: owner repairs, focused proof, package/docs builds, fixture parity, the
+  full repository gate, review, push, compliant body, reopen, and read-back pass.
 
 Implementation readiness:
 - verdict: repair-source
@@ -210,7 +210,7 @@ Start Gates:
 | Browser tool decision for browser surface | yes | Use repo-approved Browser on representative changed docs route |
 | Commit / PR expectation decision | yes | Commit all checkout changes, force-push rebased branch, update and reopen PR #352 |
 | Task-style PR body decision | yes | Replace generic body with required PR #270 task-style shape while preserving auto-release block |
-| Task-plan PR body evidence | yes | Exact local plan is ready; body line, remote-head file, and PR ownership read-back remain |
+| Task-plan PR body evidence | yes | PR body names this exact plan; GitHub's remote content API reads the plan at the PR head and the plan identifies only PR #352 |
 | GitHub issue sync expectation decision | no | N/A: PR #352 is the tracker; no separate issue linked |
 | Output budget strategy recorded | yes | Exact paths/bounded searches/capped logs recorded above |
 | Docs pack selected | yes | Supporting docs changed; docs are not dominant risk |
@@ -279,12 +279,12 @@ Work Checklist:
       N/A with reason.
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
+- [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
+- [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
       recorded, or blocker recorded.
-- [ ] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
+- [x] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
       exists at the PR head, and it identifies the exact PR before autoclosure.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
       new branch needed, or N/A with reason.
@@ -360,17 +360,17 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | yes | Review action parity and mirrors | Reviewer checklist found no action/routing change and no actionable finding |
 | Local install corruption suspected | no | N/A when failure is proven external | N/A: failed runtime probe was Conductor proxy routing; focused and full reruns passed with `NO_PROXY` |
 | Commit created | yes | Stage the entire verified checkout and commit | `54f911a8 fix(cli,orm): preserve rebased performance owners`; plan-only receipts follow in branch history |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
-| PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Existing PR #352 updated, reopened, and read back `OPEN` on the verified branch head |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, confidence, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 352 --json body` preserved the auto-release block and returned every required section with no current-PR self-link |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | Body contains the exact date-prefixed plan line; remote content read-back found this plan at the head; this plan names only PR #352 |
 | PR proof image hosting | no | N/A when body has no proof image | N/A: no screenshot artifact exists and body will state the caveat |
 | GitHub issue sync-back | no | N/A when no separate issue exists | N/A: PR #352 is the sole tracker |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
+| Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | Filled below with PR, confidence, tests, browser caveat, outcome, design, and verification evidence |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` exited 0; final `bun check` lint also passed |
 | Output budget discipline | yes | Bound output and searches | Searches were path-bounded; required full-check output was polled with caps and summarized |
 | Timed checkpoint | no | N/A when no duration requested | N/A: one-shot goal |
 | Autoreview for non-trivial implementation changes | yes | Run branch review and close accepted findings | TruffleHog clean; nested Codex helper hit external 401 twice; isolated same-model `gpt-5.6-sol`/high review covered all 100 files with no P0 findings at 94% |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-cut-deployed-bundle-and-orm-reads.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-cut-deployed-bundle-and-orm-reads.md` | Final receipt contains no open state; checker exits 0 before the receipt commit is pushed |
 | Docs source-backed claim audit | yes | Verify changed claims against source | Import-only examples match runtime/scaffold namespace form |
 | Docs links / routes / previews | no | N/A when no link/route/preview target changed | N/A: only import forms changed; representative route itself returned 200 |
 | Docs MDX/content parser | yes | Run relevant docs build | `bun --cwd www build` generated 189 static pages |
@@ -400,13 +400,13 @@ Phase / pass table:
 | Intake and source read | completed | PR, comments, doctrine, owners, and prior evidence read | implementation |
 | Implementation | completed | ratelimit owner/output, skill source/mirror, and stale concurrency import repaired | verification |
 | Verification | completed | focused RED/GREEN, builds, fixture parity, audits, and full check pass | commit/review |
-| Commit / PR / GitHub sync | in_progress | local proof complete | commit, autoreview, push, body, reopen/read-back |
-| Closeout | pending | | final response |
+| Commit / PR / GitHub sync | completed | commits pushed; compliant body applied; PR reopened and remote head/body/state read back | closeout |
+| Closeout | completed | plan receipt finalized for a documentation-only fast-forward and final remote read-back | final response |
 
 Findings:
-- PR #352 is closed with `mergeable: CONFLICTING` only because GitHub still
-  points at pre-rebase commit `d54c886c`; local rebased HEAD is `678f82ad` on
-  current `origin/main` `56b3e6ba`.
+- PR #352 reads `OPEN` and `MERGEABLE` on the rebased branch. GitHub initially
+  retained pre-rebase head `d54c886c`; the verified delivery head before this
+  final plan-only receipt was `843d0ecf` on current `origin/main` `56b3e6ba`.
 - The only pre-existing working-tree edit is the requested
   `example/convex/functions/plugins/ratelimit.ts` import change.
 - PR comments contain the changeset bot, Vercel preview, and maintainer closure
@@ -470,6 +470,7 @@ Error attempts:
 | Start runtime readiness timed out through Conductor proxy | 2 | Inspect listener/fetch path, add local hosts to `NO_PROXY`, rerun focused then full gate | Focused scenario and full `bun check` exited 0 |
 | Autoreview prerequisite missing | 1 | Install required scanner through the repo-proven Homebrew path | TruffleHog 3.97.0 installed; rerun queued |
 | Nested Codex autoreview engine unauthorized | 2 | Keep the required engine/model; use an isolated same-model/high read-only reviewer without changing auth | TruffleHog clean; equivalent full-branch review found no P0 issue at 94% |
+| GitHub refused to reopen after the closed PR branch was force-pushed | 2 | Restore the recorded old head with an explicit lease, reopen, then force-push the verified rebased head while the PR is open | REST reopen returned `open`; verified head then pushed and read back `OPEN` and `MERGEABLE` |
 
 Verification evidence:
 - RED: `bun test packages/kitcn/src/cli/registry/index.test.ts` failed because
@@ -496,6 +497,11 @@ Verification evidence:
   100 changed files and commits with no P0 finding at 94% confidence.
 - Browser setup and Chrome fallback were unavailable; the representative docs
   dev route returned HTTP 200 and the production docs build generated 189 pages.
+- GitHub read-back returned PR #352 `OPEN`, base `main`, the expected branch,
+  `mergeable: MERGEABLE`, `closedAt: null`, the compliant body, and remote head
+  `843d0ecf77a2182d963237145e01c380b9f0e341` before this final plan-only receipt.
+- The remote content API returned this exact date-prefixed plan at the PR head;
+  `git ls-remote` matched local HEAD before the final receipt fast-forward.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -507,15 +513,17 @@ Source-listed case matrix:
 | Toolchain | One npm pack, no fixture repack, incremental tsc | Package/tooling tests, fixture checks, root check | Repeated pack/cache loss | Memoized pack path and retained incremental state | Package tests, explicit fixtures, and full gate passed | passed |
 | Concurrency owner | Deduplicate ordered lane pool | Source audit and root check | Two copies | `internal/concurrency.ts` owns helper | Stale aggregate consumer repaired; package build and full check passed | passed |
 | Rebase repair | New ratelimit scaffold and generated entry must not repin locales | Registry-render test, regeneration, and final import audit | Main added `import { z }` to template/output | Template and generated entry use `import * as z` | RED/GREEN, CLI regeneration, audit, and fixtures passed | passed |
-| Per-PR plan | PR #352 needs dedicated task evidence | File and remote-head audit | No plan at old PR head | This plan exists and names PR #352 | Local plan created; remote audit pending | in progress |
-| PR body | Body must include plan line and task-style receipts | `gh pr view --json body` | Generic body; no plan line | Required emoji shape and exact plan path | pending | pending |
+| Per-PR plan | PR #352 needs dedicated task evidence | File and remote-head audit | No plan at old PR head | This plan exists and names PR #352 | Remote content API returned this plan at the PR head; it names only PR #352 | passed |
+| PR body | Body must include plan line and task-style receipts | `gh pr view --json body` | Generic body; no plan line | Required emoji shape and exact plan path | Exact plan line, table, required sections, and auto-release block read back | passed |
 | Repository gate | Rebased final checkout passes | `bun check` in workspace root | Prior reported pass before current plan/import | Exit 0 after final changes | Final proxy-safe full gate exited 0 | passed |
-| Remote branch | Rebased branch replaces old remote head | Git local/remote OID audit | Remote `d54c886c`; local rebased `678f82ad` plus closeout commit | Remote equals final local HEAD | pending | pending |
-| Reopen/read-back | PR #352 returns to reviewable state | `gh pr reopen` then `gh pr view` | `CLOSED`, conflicting old head | `OPEN`, expected head/body/base | pending | pending |
+| Remote branch | Rebased branch replaces old remote head | Git local/remote OID audit | Remote `d54c886c`; local rebased `678f82ad` plus closeout commits | Remote equals final local HEAD | `git ls-remote` matched local delivery HEAD; final receipt is a fast-forward on the same branch | passed |
+| Reopen/read-back | PR #352 returns to reviewable state | REST reopen then `gh pr view` | `CLOSED`, conflicting old head | `OPEN`, expected head/body/base | Read-back returned `OPEN`, expected branch/body/base/head, and `MERGEABLE` | passed |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
+- Commit line: implementation/review receipts through `843d0ecf`; this final
+  plan-only receipt is the branch tip and receives a post-push OID audit
+- PR line: https://github.com/udecode/kitcn/pull/352; `OPEN` on
+  `refactor/cut-deployed-bundle-and-orm-reads`; final OID re-read after receipt push
 - Issue line: N/A: no separate issue; PR #352 is the tracker
 - Confidence line: 92%; fresh correctness gates passed, but historical timing
   claims and unavailable direct browser proof cap confidence below 95%
@@ -535,8 +543,9 @@ Final handoff contract:
   - Why not broader change: implementation was already complete and rebased;
     only source/review-proven closeout gaps were in scope
 - Verified: focused TDD, package/docs builds, fixtures, static audits, full check;
-  TruffleHog clean and same-model review clean; GitHub read-back pending
-- PR body verified: pending
+  TruffleHog clean, same-model review clean, and GitHub state/body/head read back
+- PR body verified: exact date-prefixed plan line, required task-style sections,
+  test/browser table, and preserved auto-release block returned by GitHub
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -560,8 +569,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
+- Commit: implementation, verification, review, and final plan receipts committed
+- PR: #352 updated and reopened; GitHub returned `OPEN`, correct body/base/branch,
+  and a mergeable verified delivery head before the final receipt fast-forward
 - Issue: N/A: no separate issue
 - Browser proof: exact unavailable-backend caveat; route 200 and 189-page build
 - Caveats: benchmark reruns and direct Browser screenshot are outside earned proof
@@ -581,12 +591,17 @@ Timeline:
 - 2026-08-17 TruffleHog preflight passed; nested Codex auth failed with 401 on
   two attempts. Same `gpt-5.6-sol`/high isolated review completed with no P0
   finding at 94% across the full branch.
+- 2026-08-17 compliant PR body applied. After GitHub rejected reopening the
+  force-pushed closed head, the old head was restored with an explicit lease,
+  PR #352 reopened, and the verified rebased head force-pushed while open.
+- 2026-08-17 GitHub read back `OPEN`, `MERGEABLE`, correct body/base/branch/head,
+  and the exact date-prefixed plan at the remote PR head.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Commit and review |
-| Where am I going? | Autoreview, force-push, compliant body, reopen/read-back, closeout |
+| Where am I? | Closeout complete |
+| Where am I going? | Final response after the plan-only receipt fast-forward and one final GitHub read-back |
 | What is the goal? | Close the rebased bundle/read performance refactor with repaired owners, passing checks, compliant evidence, pushed head, and `OPEN` read-back |
 | What have I learned? | Rebase also left the template owner, skill snippets, and one concurrency consumer stale; Conductor proxy affects local readiness fetches |
 | What have I done? | Repaired owners, proved focused and full behavior, synced generated artifacts, and recorded browser/proxy caveats |
