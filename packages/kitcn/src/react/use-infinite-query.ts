@@ -505,6 +505,8 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
       meta,
       queryOptions,
       placeholderData,
+      authType,
+      isAuthLoading,
     ]
   );
 
