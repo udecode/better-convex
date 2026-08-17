@@ -1681,14 +1681,14 @@ export default { tables: { scores } };
       if (isConvexInitCommand(args)) {
         return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
       }
-      if (args.includes('generated/server:aggregateBackfill')) {
+      if (args.includes('generated/aggregate:aggregateBackfill')) {
         return Promise.resolve({
           exitCode: 0,
           stdout: '{"targets":0,"scheduled":0}\n',
           stderr: '',
         });
       }
-      if (args.includes('generated/server:aggregateBackfillStatus')) {
+      if (args.includes('generated/aggregate:aggregateBackfillStatus')) {
         return Promise.resolve({
           exitCode: 0,
           stdout: '[]\n',
@@ -1729,7 +1729,7 @@ export default { tables: { scores } };
       expect(
         execaStub.mock.calls.some((call) => {
           const [, args] = call as unknown as [string, string[]];
-          return args.includes('generated/server:aggregateBackfill');
+          return args.includes('generated/aggregate:aggregateBackfill');
         })
       ).toBe(false);
 
@@ -1738,7 +1738,7 @@ export default { tables: { scores } };
       await waitFor(() =>
         execaStub.mock.calls.some((call) => {
           const [, args] = call as unknown as [string, string[]];
-          return args.includes('generated/server:aggregateBackfill');
+          return args.includes('generated/aggregate:aggregateBackfill');
         })
       );
 

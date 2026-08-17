@@ -89,6 +89,29 @@ describe('cli/registry', () => {
     expect(descriptor.packageInstallSpec).toBe('@kitcn/resend');
   });
 
+  test('scaffolds on-demand ratelimit cleanup with the server preset', () => {
+    const descriptor = getPluginCatalogEntry('ratelimit');
+    const cleanup = descriptor.templates.find(
+      (template) => template.id === 'ratelimit-functions'
+    );
+
+    expect(cleanup).toEqual(
+      expect.objectContaining({
+        path: 'ratelimit.ts',
+        target: 'functions',
+      })
+    );
+    expect(cleanup?.content).toContain('cleanupRatelimitState');
+    expect(
+      descriptor.presets.find((preset) => preset.key === 'server-first')
+        ?.templateIds
+    ).toContain('ratelimit-functions');
+    expect(
+      descriptor.presets.find((preset) => preset.key === 'schema-only')
+        ?.templateIds
+    ).not.toContain('ratelimit-functions');
+  });
+
   test('keeps supported plugin keys in registry order', () => {
     expect(getSupportedPluginKeys()).toEqual(['auth', 'resend', 'ratelimit']);
   });

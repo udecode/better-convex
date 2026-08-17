@@ -2,7 +2,7 @@ import { definePlugin } from '../plugins';
 import { CRPCError } from '../server';
 import { requireMutationCtx } from '../server/context-utils';
 import { Ratelimit } from './ratelimit';
-import type { LimitRequest, ResolvedAlgorithm } from './types';
+import type { LimitRequest, RatelimitConfig, ResolvedAlgorithm } from './types';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -18,7 +18,8 @@ type TierName<TBuckets extends RatelimitBuckets> = Extract<
   string
 >;
 
-type RatelimitResolvedArgs<
+/** What is known before request signals are resolved. */
+type RatelimitRequestArgs<
   TCtx,
   TMeta extends object,
   TUser,
@@ -29,6 +30,24 @@ type RatelimitResolvedArgs<
   user: TUser;
   bucket: BucketName<TBuckets>;
   tier: TierName<TBuckets>;
+};
+
+/** Signals are resolved once per request and reused as the identifier input. */
+type RatelimitIdentifierArgs<
+  TCtx,
+  TMeta extends object,
+  TUser,
+  TBuckets extends RatelimitBuckets,
+> = RatelimitRequestArgs<TCtx, TMeta, TUser, TBuckets> & {
+  signals: LimitRequest | undefined;
+};
+
+type RatelimitResolvedArgs<
+  TCtx,
+  TMeta extends object,
+  TUser,
+  TBuckets extends RatelimitBuckets,
+> = RatelimitIdentifierArgs<TCtx, TMeta, TUser, TBuckets> & {
   identifier: string;
 };
 
@@ -44,16 +63,23 @@ export type RatelimitPluginOptions<
     meta: TMeta;
   }) => MaybePromise<BucketName<TBuckets>>;
   getUser: (args: { ctx: TCtx; meta: TMeta }) => MaybePromise<TUser>;
-  getIdentifier: (args: {
-    ctx: TCtx;
-    meta: TMeta;
-    user: TUser;
-    bucket: BucketName<TBuckets>;
-  }) => MaybePromise<string>;
   getTier: (user: TUser) => MaybePromise<TierName<TBuckets>>;
+  /**
+   * Resolved once per request, before `getIdentifier`, and reused for the limit
+   * call. Read request metadata here rather than in `getIdentifier`, so a
+   * guarded mutation pays at most one `ctx.meta.getRequestMetadata()` syscall.
+   */
   getSignals: (
-    args: RatelimitResolvedArgs<TCtx, TMeta, TUser, TBuckets>
+    args: RatelimitRequestArgs<TCtx, TMeta, TUser, TBuckets>
   ) => MaybePromise<LimitRequest | undefined>;
+  /**
+   * The rate-limit partition key. Everything sharing a value shares one budget
+   * and one `ratelimitState` document, so key unauthenticated traffic by
+   * `signals.ip` rather than a constant.
+   */
+  getIdentifier: (
+    args: RatelimitIdentifierArgs<TCtx, TMeta, TUser, TBuckets>
+  ) => MaybePromise<string>;
   prefix?:
     | string
     | ((
@@ -62,6 +88,17 @@ export type RatelimitPluginOptions<
   failureMode?: 'closed' | 'open';
   enableProtection?: boolean;
   denyListThreshold?: number;
+  denyList?: RatelimitConfig['denyList'];
+  dynamicLimits?: boolean;
+  timeout?: number;
+  /**
+   * Block cache backing store. The plugin builds one `Ratelimit` per guarded
+   * mutation, so the default per-instance cache never outlives a request. Pass
+   * a longer-lived `Map` only if you accept that a stale block can deny a
+   * request a refilled shard could have served, and that a mutation replayed
+   * after an OCC conflict can observe entries its first attempt wrote.
+   */
+  ephemeralCache?: RatelimitConfig['ephemeralCache'];
   message?:
     | string
     | ((
@@ -136,18 +173,24 @@ export const RatelimitPlugin = definePlugin<
         meta,
       });
       const tier = await options.getTier(user);
-      const identifier = await options.getIdentifier({
-        ctx,
-        meta,
-        user,
-        bucket,
-      });
-      const args = {
+      const requestArgs = {
         ctx,
         meta,
         user,
         bucket,
         tier,
+      } satisfies RatelimitRequestArgs<any, any, any, any>;
+
+      // Resolved once: `getIdentifier` keys on the same signals the limiter
+      // uses, so reading request metadata costs one syscall per mutation.
+      const signals = await options.getSignals(requestArgs);
+      const identifier = await options.getIdentifier({
+        ...requestArgs,
+        signals,
+      });
+      const args = {
+        ...requestArgs,
+        signals,
         identifier,
       } satisfies RatelimitResolvedArgs<any, any, any, any>;
 
@@ -158,11 +201,12 @@ export const RatelimitPlugin = definePlugin<
         failureMode: options.failureMode,
         enableProtection: options.enableProtection,
         denyListThreshold: options.denyListThreshold,
+        denyList: options.denyList,
+        dynamicLimits: options.dynamicLimits,
+        timeout: options.timeout,
+        ephemeralCache: options.ephemeralCache,
       });
-      const status = await limiter.limit(
-        identifier,
-        await options.getSignals(args)
-      );
+      const status = await limiter.limit(identifier, signals);
 
       if (!status.success) {
         throw new CRPCError({

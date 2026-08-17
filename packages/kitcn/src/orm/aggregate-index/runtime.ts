@@ -11,6 +11,7 @@ import {
   usesSystemCreatedAtAlias,
 } from '../timestamp-mode';
 import type { TableRelationalConfig, TablesRelationalConfig } from '../types';
+import { mapWithConcurrency } from '../write-fanout';
 import type {
   AggregateIndexDefinition,
   CountIndexDefinition,
@@ -48,6 +49,9 @@ const FLOAT64_MASK = (1n << 64n) - 1n;
 const DEFAULT_AGGREGATE_CARTESIAN_MAX_KEYS = 4096;
 const DEFAULT_AGGREGATE_WORK_BUDGET = 16_384;
 const RANGE_PREFIX_WORK_UNIT_BASE = 2;
+// Independent aggregate storage reads are issued through a bounded pool rather
+// than serially; the cap keeps in-flight buffers small at the 4096-key ceiling.
+const AGGREGATE_BUCKET_READ_CONCURRENCY = 25;
 const PUBLIC_ID_FIELD = 'id';
 const INTERNAL_ID_FIELD = '_id';
 export const AGGREGATE_STATE_KIND_METRIC = 'metric';
@@ -55,6 +59,8 @@ export const AGGREGATE_STATE_KIND_RANK = 'rank';
 
 export const COUNT_STATUS_BUILDING = 'BUILDING';
 export const COUNT_STATUS_READY = 'READY';
+/** Stored state is being drained before a rebuild, across several mutations. */
+export const COUNT_STATUS_CLEARING = 'CLEARING';
 
 type ErrorCodes = {
   FILTER_UNSUPPORTED: string;
@@ -151,6 +157,17 @@ type CountBucketRow = {
   nonNullCountValues: Record<string, number>;
 };
 
+const RANGE_WORK_STATE = Symbol('aggregateRangeWorkState');
+
+type RangeWorkState = {
+  scannedBuckets: number;
+  reservedExtremaReads: number;
+};
+
+type CountBucketRows = CountBucketRow[] & {
+  [RANGE_WORK_STATE]?: RangeWorkState;
+};
+
 type CountExtremaRow = {
   _id: GenericId<any>;
   tableKey: string;
@@ -163,17 +180,23 @@ type CountExtremaRow = {
   count: number;
 };
 
+export type AggregateRangeConstraint = {
+  fieldName: string;
+  comparisons: RangeComparison[];
+  prefixFields: string[];
+  /** Max aggregate buckets the prefix scan may read before it throws. */
+  workBudget?: number;
+  filterErrorCode?: string;
+  methodName?: string;
+};
+
 export type CountQueryPlan = {
   tableName: string;
   indexName: string;
   indexFields: string[];
   fieldValues: Record<string, unknown[]>;
   keyCandidates?: unknown[][];
-  rangeConstraint: {
-    fieldName: string;
-    comparisons: RangeComparison[];
-    prefixFields: string[];
-  } | null;
+  rangeConstraint: AggregateRangeConstraint | null;
   postFieldValues: Record<string, unknown[]>;
 };
 
@@ -183,11 +206,7 @@ export type AggregateQueryPlan = {
   indexFields: string[];
   fieldValues: Record<string, unknown[]>;
   keyCandidates?: unknown[][];
-  rangeConstraint: {
-    fieldName: string;
-    comparisons: RangeComparison[];
-    prefixFields: string[];
-  } | null;
+  rangeConstraint: AggregateRangeConstraint | null;
   postFieldValues: Record<string, unknown[]>;
   metric: AggregateMetricRequest;
 };
@@ -1684,6 +1703,9 @@ const compileAggregatePlan = (
       fieldName: rangeFieldName,
       comparisons: rangeComparisons,
       prefixFields: rangeIndex.prefixFields,
+      workBudget: getAggregateWorkBudget(tableConfig),
+      filterErrorCode: codes.FILTER_UNSUPPORTED,
+      methodName,
     },
     postFieldValues,
     metric,
@@ -1858,23 +1880,35 @@ const getBucketByKey = async (
   );
 };
 
+/** A prefix scan, resumable from the last `keyHash` a previous page returned. */
+type PrefixScanCursor = {
+  prefixParts: unknown[];
+  start: string;
+  end: string;
+  after?: string;
+};
+
 const listBucketsByHashPrefix = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
   indexName: string,
-  prefixStart: string,
-  prefixEnd: string
+  scan: PrefixScanCursor,
+  limit: number
 ): Promise<CountBucketRow[]> =>
-  (await db
-    .query(AGGREGATE_BUCKET_TABLE)
-    .withIndex('by_table_index_hash', (q: any) =>
-      q
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-        .gte('keyHash', prefixStart)
-        .lt('keyHash', prefixEnd)
-    )
-    .collect()) as CountBucketRow[];
+  (await (
+    db
+      .query(AGGREGATE_BUCKET_TABLE)
+      .withIndex('by_table_index_hash', (q: any) => {
+        const scoped = q.eq('tableKey', tableName).eq('indexName', indexName);
+        // Lower bound before upper bound: the index range builder only accepts
+        // them in that order.
+        const lowerBounded =
+          scan.after === undefined
+            ? scoped.gte('keyHash', scan.start)
+            : scoped.gt('keyHash', scan.after);
+        return lowerBounded.lt('keyHash', scan.end);
+      }) as any
+  ).take(limit)) as CountBucketRow[];
 
 const getExtremaByValue = async (
   db: GenericDatabaseWriter<any>,
@@ -1899,44 +1933,50 @@ const getExtremaByValue = async (
   return rows.find((row) => deepEquals(row.value, value)) ?? null;
 };
 
-const listMembersForIndex = async (
+const takeMembersForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountMemberRow[]> =>
-  (await db
-    .query(AGGREGATE_MEMBER_TABLE)
-    .withIndex('by_kind_table_index', (q: any) =>
-      q
-        .eq('kind', AGGREGATE_STATE_KIND_METRIC)
-        .eq('tableKey', tableName)
-        .eq('indexName', indexName)
-    )
-    .collect()) as CountMemberRow[];
+  (await (
+    db
+      .query(AGGREGATE_MEMBER_TABLE)
+      .withIndex('by_kind_table_index', (q: any) =>
+        q
+          .eq('kind', AGGREGATE_STATE_KIND_METRIC)
+          .eq('tableKey', tableName)
+          .eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as CountMemberRow[];
 
-const listBucketsForIndex = async (
+const takeBucketsForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountBucketRow[]> =>
-  (await db
-    .query(AGGREGATE_BUCKET_TABLE)
-    .withIndex('by_table_index', (q: any) =>
-      q.eq('tableKey', tableName).eq('indexName', indexName)
-    )
-    .collect()) as CountBucketRow[];
+  (await (
+    db
+      .query(AGGREGATE_BUCKET_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as CountBucketRow[];
 
-const listExtremaForIndex = async (
+const takeExtremaForIndex = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
+  indexName: string,
+  limit: number
 ): Promise<CountExtremaRow[]> =>
-  (await db
-    .query(AGGREGATE_EXTREMA_TABLE)
-    .withIndex('by_table_index', (q: any) =>
-      q.eq('tableKey', tableName).eq('indexName', indexName)
-    )
-    .collect()) as CountExtremaRow[];
+  (await (
+    db
+      .query(AGGREGATE_EXTREMA_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      ) as any
+  ).take(limit)) as CountExtremaRow[];
 
 const applyBucketDelta = async (
   db: GenericDatabaseWriter<any>,
@@ -2097,30 +2137,6 @@ const applyExtremaDelta = async (
   });
 };
 
-const applyExtremaValuesDelta = async (
-  db: GenericDatabaseWriter<any>,
-  tableName: string,
-  indexName: string,
-  keyHash: string,
-  values: Record<string, unknown>,
-  delta: number
-): Promise<void> => {
-  if (delta === 0) {
-    return;
-  }
-  for (const [fieldName, value] of Object.entries(values)) {
-    await applyExtremaDelta(
-      db,
-      tableName,
-      indexName,
-      keyHash,
-      fieldName,
-      value,
-      delta
-    );
-  }
-};
-
 const buildKeyHashPrefixBounds = (
   prefixParts: unknown[]
 ): { start: string; end: string } => {
@@ -2144,6 +2160,45 @@ const matchesKeyPrefix = (
 ): boolean =>
   prefixParts.every((value, index) => deepEquals(keyParts[index], value));
 
+/**
+ * A prefix scan only bounds the key tuple's leading equality fields, so every
+ * bucket it returns still has to clear the range predicate and any equality
+ * field that sits after the range field in the index.
+ */
+const matchesRangePlanBucket = (options: {
+  bucket: CountBucketRow;
+  prefixParts: unknown[];
+  indexFields: string[];
+  rangeFieldIndex: number;
+  comparisons: RangeComparison[];
+  postFieldSets: Record<string, Map<string, unknown>>;
+}): boolean => {
+  const { bucket, indexFields } = options;
+  if (!matchesKeyPrefix(bucket.keyParts, options.prefixParts)) {
+    return false;
+  }
+  if (
+    !matchesRangeComparisons(
+      bucket.keyParts[options.rangeFieldIndex],
+      options.comparisons
+    )
+  ) {
+    return false;
+  }
+
+  for (const [field, allowedValues] of Object.entries(options.postFieldSets)) {
+    const fieldIndex = indexFields.indexOf(field);
+    if (fieldIndex < 0) {
+      return false;
+    }
+    if (!allowedValues.has(serializeStable(bucket.keyParts[fieldIndex]))) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const readPlanBuckets = async (
   db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
   plan: CountQueryPlan | AggregateQueryPlan
@@ -2152,22 +2207,18 @@ export const readPlanBuckets = async (
     const keyCandidates =
       plan.keyCandidates ??
       buildCandidateKeys(plan.indexFields, plan.fieldValues);
-    const matched: CountBucketRow[] = [];
 
-    for (const keyParts of keyCandidates) {
-      const bucket = await getBucketByKey(
-        db,
-        plan.tableName,
-        plan.indexName,
-        keyParts
-      );
-      if (!bucket) {
-        continue;
-      }
-      matched.push(bucket);
-    }
+    // Independent point lookups: bounded fan-out, gathered by index so the
+    // result order (and therefore the read set) is unchanged.
+    const candidateBuckets = await mapWithConcurrency(
+      keyCandidates,
+      AGGREGATE_BUCKET_READ_CONCURRENCY,
+      (keyParts) => getBucketByKey(db, plan.tableName, plan.indexName, keyParts)
+    );
 
-    return matched;
+    return candidateBuckets.filter(
+      (bucket): bucket is CountBucketRow => bucket !== null
+    );
   }
 
   const prefixCandidates = buildCandidateKeys(
@@ -2188,50 +2239,93 @@ export const readPlanBuckets = async (
     ])
   ) as Record<string, Map<string, unknown>>;
 
+  // The range predicate cannot be pushed into `keyHash` (JSON ordering is
+  // lexicographic), so the equality prefix is scanned and filtered in JS. One
+  // budget covers every prefix: what has to fit inside Convex's transaction
+  // read limit is the whole range read, not each `IN` prefix on its own.
+  const workBudget =
+    plan.rangeConstraint.workBudget ?? DEFAULT_AGGREGATE_WORK_BUDGET;
+  const scanLimit = workBudget + 1;
+
+  let pending: PrefixScanCursor[] = prefixCandidates.map((prefixParts) => ({
+    prefixParts,
+    ...buildKeyHashPrefixBounds(prefixParts),
+  }));
+
   const matchedById = new Map<string, CountBucketRow>();
-  for (const prefixParts of prefixCandidates) {
-    const { start, end } = buildKeyHashPrefixBounds(prefixParts);
-    const buckets = await listBucketsByHashPrefix(
-      db,
-      plan.tableName,
-      plan.indexName,
-      start,
-      end
+  let scanned = 0;
+
+  while (pending.length > 0 && scanned < scanLimit) {
+    const remaining = scanLimit - scanned;
+    const batch = pending.slice(
+      0,
+      Math.min(AGGREGATE_BUCKET_READ_CONCURRENCY, remaining)
+    );
+    // Split what is left of the shared budget across the batch, so a round can
+    // never read more than the budget however many prefixes fan out. Only the
+    // final round can overshoot, by at most one row per in-flight scan.
+    const share = Math.floor(remaining / batch.length);
+    const pages = await mapWithConcurrency(
+      batch,
+      AGGREGATE_BUCKET_READ_CONCURRENCY,
+      (scan) =>
+        listBucketsByHashPrefix(db, plan.tableName, plan.indexName, scan, share)
     );
 
-    for (const bucket of buckets) {
-      if (!matchesKeyPrefix(bucket.keyParts, prefixParts)) {
-        continue;
-      }
-      const rangeValue = bucket.keyParts[rangeFieldIndex];
-      if (
-        !matchesRangeComparisons(rangeValue, plan.rangeConstraint.comparisons)
-      ) {
-        continue;
-      }
+    const next = pending.slice(batch.length);
+    for (let index = 0; index < batch.length; index += 1) {
+      const scan = batch[index] as PrefixScanCursor;
+      const page = pages[index] as CountBucketRow[];
+      scanned += page.length;
 
-      let matchesPostFields = true;
-      for (const [field, allowedValues] of Object.entries(postFieldSets)) {
-        const fieldIndex = plan.indexFields.indexOf(field);
-        if (fieldIndex < 0) {
-          matchesPostFields = false;
-          break;
-        }
-        const value = bucket.keyParts[fieldIndex];
-        if (!allowedValues.has(serializeStable(value))) {
-          matchesPostFields = false;
-          break;
+      for (const bucket of page) {
+        if (
+          matchesRangePlanBucket({
+            bucket,
+            prefixParts: scan.prefixParts,
+            indexFields: plan.indexFields,
+            rangeFieldIndex,
+            comparisons: plan.rangeConstraint.comparisons,
+            postFieldSets,
+          })
+        ) {
+          matchedById.set(String(bucket._id), bucket);
         }
       }
-      if (!matchesPostFields) {
+
+      const lastBucket = page.at(-1);
+      if (page.length < share || !lastBucket) {
         continue;
       }
-
-      matchedById.set(String(bucket._id), bucket);
+      // A full page may have left rows behind, so requeue the prefix after
+      // the last `keyHash` it returned. `keyHash` losslessly serializes the
+      // key tuple, so it is unique per bucket and resuming skips nothing.
+      next.push({ ...scan, after: lastBucket.keyHash });
     }
+    pending = next;
   }
 
-  return [...matchedById.values()];
+  if (scanned > workBudget) {
+    // The budget is spent across the whole fan-out, so name it: with an `IN`
+    // on the equality prefix the fix is usually a shorter list, not a narrower
+    // prefix.
+    const fanOut =
+      prefixCandidates.length > 1
+        ? ` across ${prefixCandidates.length} equality-prefix combinations`
+        : '';
+    throw createError(
+      plan.rangeConstraint.filterErrorCode ??
+        AGGREGATE_ERROR.FILTER_UNSUPPORTED,
+      `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' scans more than ${workBudget} aggregate buckets${fanOut} on aggregateIndex '${plan.indexName}'. Narrow the equality prefix, shrink the IN lists it expands to, reduce the range field's cardinality, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+    );
+  }
+
+  const buckets = [...matchedById.values()] as CountBucketRows;
+  buckets[RANGE_WORK_STATE] = {
+    scannedBuckets: scanned,
+    reservedExtremaReads: 0,
+  };
+  return buckets;
 };
 
 const sortFieldValueRecord = (
@@ -2415,14 +2509,39 @@ export const readExtremaFromBuckets = async (
   let selected: unknown | null = null;
 
   const buckets = await readPlanBucketsWithCache(db, plan, bucketCache);
-  for (const bucket of buckets) {
-    const value = await readKeyExtrema(db, {
-      tableName: plan.tableName,
-      indexName: plan.indexName,
-      keyHash: bucket.keyHash,
-      fieldName: plan.metric.field,
-      kind: plan.metric.kind,
-    });
+  const metric = plan.metric;
+  const rangeWork = (buckets as CountBucketRows)[RANGE_WORK_STATE];
+  if (rangeWork && plan.rangeConstraint) {
+    const workBudget =
+      plan.rangeConstraint.workBudget ?? DEFAULT_AGGREGATE_WORK_BUDGET;
+    const requestedWork = buckets.length;
+    const totalWork =
+      rangeWork.scannedBuckets + rangeWork.reservedExtremaReads + requestedWork;
+    if (totalWork > workBudget) {
+      throw createError(
+        plan.rangeConstraint.filterErrorCode ??
+          AGGREGATE_ERROR.FILTER_UNSUPPORTED,
+        `${plan.rangeConstraint.methodName ?? 'aggregate()'} range filter on '${plan.rangeConstraint.fieldName}' needs ${totalWork} aggregate work units (${rangeWork.scannedBuckets} bucket reads and ${rangeWork.reservedExtremaReads + requestedWork} extrema reads), exceeding aggregateWorkBudget (${workBudget}) on aggregateIndex '${plan.indexName}'. Narrow the range, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+      );
+    }
+    rangeWork.reservedExtremaReads += requestedWork;
+  }
+  // One indexed read per matched bucket, issued through a bounded pool. The
+  // fold below is order-independent, so results stay deterministic.
+  const values = await mapWithConcurrency(
+    buckets,
+    AGGREGATE_BUCKET_READ_CONCURRENCY,
+    (bucket) =>
+      readKeyExtrema(db, {
+        tableName: plan.tableName,
+        indexName: plan.indexName,
+        keyHash: bucket.keyHash,
+        fieldName: metric.field,
+        kind: metric.kind as 'min' | 'max',
+      })
+  );
+
+  for (const value of values) {
     if (value === null || value === undefined) {
       continue;
     }
@@ -2528,8 +2647,67 @@ export const computeAggregateMetricValues = (
   };
 };
 
-export const reconcileAggregateMembership = async (
-  db: GenericDatabaseWriter<any>,
+export type AggregateBucketDelta = {
+  keyHash: string;
+  keyParts: unknown[];
+  deltaCount: number;
+  deltaSums: Record<string, number>;
+  deltaNonNullCounts: Record<string, number>;
+};
+
+export type AggregateExtremaDelta = {
+  keyHash: string;
+  fieldName: string;
+  value: unknown;
+  delta: number;
+};
+
+export type AggregateMemberWrite =
+  | { kind: 'none' }
+  | { kind: 'delete'; id: GenericId<any> }
+  | { kind: 'patch'; id: GenericId<any>; doc: Record<string, unknown> }
+  | { kind: 'insert'; doc: Record<string, unknown> };
+
+export type AggregateMembershipDelta = {
+  buckets: AggregateBucketDelta[];
+  extrema: AggregateExtremaDelta[];
+  member: AggregateMemberWrite;
+};
+
+const toExtremaDeltas = (
+  keyHash: string,
+  values: Record<string, unknown>,
+  delta: number
+): AggregateExtremaDelta[] =>
+  Object.entries(values).map(([fieldName, value]) => ({
+    keyHash,
+    fieldName,
+    value,
+    delta,
+  }));
+
+const accumulateNumberValues = (
+  target: Record<string, number>,
+  source: Record<string, number>
+): void => {
+  for (const [field, value] of Object.entries(source)) {
+    const next = (target[field] ?? 0) + value;
+    if (next === 0) {
+      delete target[field];
+      continue;
+    }
+    target[field] = next;
+  }
+};
+
+/**
+ * Pure half of aggregate reconciliation: works out what a single document's
+ * membership change implies, without touching the database. Callers batch these
+ * and flush once so a page of documents sharing a key tuple writes its bucket
+ * one time instead of once per document.
+ */
+const computeMembershipDelta = (
+  existing: CountMemberRow | null,
   params: {
     tableName: string;
     indexName: string;
@@ -2537,34 +2715,32 @@ export const reconcileAggregateMembership = async (
     keyParts: unknown[] | null;
     metricValues: AggregateMetricValues | null;
   }
-): Promise<void> => {
+): AggregateMembershipDelta => {
   const { tableName, indexName, docId, keyParts, metricValues } = params;
-  const existing = await getMemberByDoc(db, tableName, indexName, docId);
 
   if (!keyParts || !metricValues) {
-    if (existing) {
-      await applyBucketDelta(
-        db,
-        tableName,
-        indexName,
-        existing.keyParts,
-        -1,
-        negateSumValues(normalizeSumValues(existing.sumValues)),
-        negateCountValues(
-          normalizeNonNullCountValues(existing.nonNullCountValues)
-        )
-      );
-      await applyExtremaValuesDelta(
-        db,
-        tableName,
-        indexName,
+    if (!existing) {
+      return { buckets: [], extrema: [], member: { kind: 'none' } };
+    }
+    return {
+      buckets: [
+        {
+          keyHash: serializeCountKeyParts(existing.keyParts),
+          keyParts: existing.keyParts,
+          deltaCount: -1,
+          deltaSums: negateSumValues(normalizeSumValues(existing.sumValues)),
+          deltaNonNullCounts: negateCountValues(
+            normalizeNonNullCountValues(existing.nonNullCountValues)
+          ),
+        },
+      ],
+      extrema: toExtremaDeltas(
         existing.keyHash,
         normalizeExtremaValues(existing.extremaValues),
         -1
-      );
-      await db.delete(AGGREGATE_MEMBER_TABLE, existing._id as any);
-    }
-    return;
+      ),
+      member: { kind: 'delete', id: existing._id },
+    };
   }
 
   const normalizedKeyParts = keyParts.map((part) => normalizeUndefined(part));
@@ -2596,77 +2772,200 @@ export const reconcileAggregateMembership = async (
       normalizedNextExtremaValues
     )
   ) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      updatedAt: now,
-    });
-    return;
+    // Member row is value-identical. Nothing reads `updatedAt`, so writing it
+    // would be a document write carrying no information.
+    return { buckets: [], extrema: [], member: { kind: 'none' } };
   }
 
+  const buckets: AggregateBucketDelta[] = [];
+  const extrema: AggregateExtremaDelta[] = [];
+
   if (existing) {
-    await applyBucketDelta(
-      db,
-      tableName,
-      indexName,
-      existing.keyParts,
-      -1,
-      negateSumValues(normalizeSumValues(existing.sumValues)),
-      negateCountValues(
+    buckets.push({
+      keyHash: serializeCountKeyParts(existing.keyParts),
+      keyParts: existing.keyParts,
+      deltaCount: -1,
+      deltaSums: negateSumValues(normalizeSumValues(existing.sumValues)),
+      deltaNonNullCounts: negateCountValues(
         normalizeNonNullCountValues(existing.nonNullCountValues)
+      ),
+    });
+    extrema.push(
+      ...toExtremaDeltas(
+        existing.keyHash,
+        normalizeExtremaValues(existing.extremaValues),
+        -1
       )
     );
-    await applyExtremaValuesDelta(
-      db,
-      tableName,
-      indexName,
-      existing.keyHash,
-      normalizeExtremaValues(existing.extremaValues),
-      -1
-    );
   }
 
-  await applyBucketDelta(
-    db,
-    tableName,
-    indexName,
-    normalizedKeyParts,
-    1,
-    normalizedNextSumValues,
-    normalizedNextNonNullCountValues
-  );
-  await applyExtremaValuesDelta(
-    db,
-    tableName,
-    indexName,
+  buckets.push({
     keyHash,
-    normalizedNextExtremaValues,
-    1
-  );
+    keyParts: normalizedKeyParts,
+    deltaCount: 1,
+    deltaSums: normalizedNextSumValues,
+    deltaNonNullCounts: normalizedNextNonNullCountValues,
+  });
+  extrema.push(...toExtremaDeltas(keyHash, normalizedNextExtremaValues, 1));
 
-  if (existing) {
-    await db.patch(AGGREGATE_MEMBER_TABLE, existing._id as any, {
-      kind: AGGREGATE_STATE_KIND_METRIC,
-      keyHash,
-      keyParts: normalizedKeyParts,
-      sumValues: normalizedNextSumValues,
-      nonNullCountValues: normalizedNextNonNullCountValues,
-      extremaValues: normalizedNextExtremaValues,
-      updatedAt: now,
-    });
-    return;
-  }
-
-  await db.insert(AGGREGATE_MEMBER_TABLE, {
+  const memberFields = {
     kind: AGGREGATE_STATE_KIND_METRIC,
-    tableKey: tableName,
-    indexName,
-    docId,
     keyHash,
     keyParts: normalizedKeyParts,
     sumValues: normalizedNextSumValues,
     nonNullCountValues: normalizedNextNonNullCountValues,
     extremaValues: normalizedNextExtremaValues,
     updatedAt: now,
-  });
+  };
+
+  return {
+    buckets,
+    extrema,
+    member: existing
+      ? { kind: 'patch', id: existing._id, doc: memberFields }
+      : {
+          kind: 'insert',
+          doc: {
+            ...memberFields,
+            tableKey: tableName,
+            indexName,
+            docId,
+          },
+        },
+  };
+};
+
+export const computeAggregateMembershipDelta = async (
+  db: GenericDatabaseWriter<any>,
+  params: {
+    tableName: string;
+    indexName: string;
+    docId: string;
+    keyParts: unknown[] | null;
+    metricValues: AggregateMetricValues | null;
+  }
+): Promise<AggregateMembershipDelta> => {
+  const existing = await getMemberByDoc(
+    db,
+    params.tableName,
+    params.indexName,
+    params.docId
+  );
+  return computeMembershipDelta(existing, params);
+};
+
+/**
+ * Write half of aggregate reconciliation. Folds bucket deltas by key tuple and
+ * extrema deltas by (keyHash, field, value) so each storage document is read and
+ * written once regardless of how many source documents contributed to it.
+ */
+export const flushAggregateMembershipDeltas = async (
+  db: GenericDatabaseWriter<any>,
+  tableName: string,
+  indexName: string,
+  deltas: AggregateMembershipDelta[]
+): Promise<void> => {
+  const bucketDeltas = new Map<string, AggregateBucketDelta>();
+  const extremaDeltas = new Map<string, AggregateExtremaDelta>();
+
+  for (const delta of deltas) {
+    for (const bucket of delta.buckets) {
+      const current = bucketDeltas.get(bucket.keyHash);
+      if (!current) {
+        bucketDeltas.set(bucket.keyHash, {
+          keyHash: bucket.keyHash,
+          keyParts: bucket.keyParts,
+          deltaCount: bucket.deltaCount,
+          deltaSums: { ...bucket.deltaSums },
+          deltaNonNullCounts: { ...bucket.deltaNonNullCounts },
+        });
+        continue;
+      }
+      current.deltaCount += bucket.deltaCount;
+      accumulateNumberValues(current.deltaSums, bucket.deltaSums);
+      accumulateNumberValues(
+        current.deltaNonNullCounts,
+        bucket.deltaNonNullCounts
+      );
+    }
+
+    for (const entry of delta.extrema) {
+      const cacheKey = serializeStable([
+        entry.keyHash,
+        entry.fieldName,
+        serializeStable(entry.value),
+      ]);
+      const current = extremaDeltas.get(cacheKey);
+      if (!current) {
+        extremaDeltas.set(cacheKey, { ...entry });
+        continue;
+      }
+      current.delta += entry.delta;
+    }
+  }
+
+  for (const bucket of bucketDeltas.values()) {
+    await applyBucketDelta(
+      db,
+      tableName,
+      indexName,
+      bucket.keyParts,
+      bucket.deltaCount,
+      bucket.deltaSums,
+      bucket.deltaNonNullCounts
+    );
+  }
+
+  for (const entry of extremaDeltas.values()) {
+    await applyExtremaDelta(
+      db,
+      tableName,
+      indexName,
+      entry.keyHash,
+      entry.fieldName,
+      entry.value,
+      entry.delta
+    );
+  }
+
+  for (const delta of deltas) {
+    const member = delta.member;
+    if (member.kind === 'delete') {
+      await db.delete(AGGREGATE_MEMBER_TABLE, member.id as any);
+      continue;
+    }
+    if (member.kind === 'patch') {
+      await db.patch(
+        AGGREGATE_MEMBER_TABLE,
+        member.id as any,
+        member.doc as any
+      );
+      continue;
+    }
+    if (member.kind === 'insert') {
+      await db.insert(AGGREGATE_MEMBER_TABLE, member.doc as any);
+    }
+  }
+};
+
+/**
+ * Single-document reconciliation. Flushes eagerly so user code reading an
+ * aggregate later in the same mutation sees its own writes.
+ */
+export const reconcileAggregateMembership = async (
+  db: GenericDatabaseWriter<any>,
+  params: {
+    tableName: string;
+    indexName: string;
+    docId: string;
+    keyParts: unknown[] | null;
+    metricValues: AggregateMetricValues | null;
+  }
+): Promise<void> => {
+  const delta = await computeAggregateMembershipDelta(db, params);
+  await flushAggregateMembershipDeltas(db, params.tableName, params.indexName, [
+    delta,
+  ]);
 };
 
 export const computeCountKeyParts = (
@@ -2774,6 +3073,41 @@ export const getCountState = async (
   };
 };
 
+export const assertAggregateIndexesWritable = async (
+  db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
+  tableName: string,
+  metricIndexNames: readonly string[],
+  rankIndexNames: readonly string[]
+): Promise<void> => {
+  const clearingStates = (await db
+    .query(AGGREGATE_STATE_TABLE)
+    .withIndex('by_table_status', (q: any) =>
+      q.eq('tableKey', tableName).eq('status', COUNT_STATUS_CLEARING)
+    )
+    .collect()) as CountStateRow[];
+  const metricNames = new Set(metricIndexNames);
+  const rankNames = new Set(rankIndexNames);
+  const blockingState = clearingStates.find((state) =>
+    state.kind === AGGREGATE_STATE_KIND_RANK
+      ? rankNames.has(state.indexName)
+      : metricNames.has(state.indexName)
+  );
+  if (!blockingState) {
+    return;
+  }
+
+  const indexType =
+    blockingState.kind === AGGREGATE_STATE_KIND_RANK
+      ? 'rankIndex'
+      : 'aggregateIndex';
+  throw createError(
+    blockingState.kind === AGGREGATE_STATE_KIND_RANK
+      ? 'RANK_INDEX_BUILDING'
+      : AGGREGATE_ERROR.INDEX_BUILDING,
+    `${indexType} '${tableName}.${blockingState.indexName}' is CLEARING. Retry the write after aggregateBackfill reaches BUILDING or READY.`
+  );
+};
+
 export const setCountState = async (
   db: GenericDatabaseWriter<any>,
   nextState: Omit<CountState, '_id'>,
@@ -2824,7 +3158,12 @@ export const setCountStateError = async (
   }
 
   await db.patch(AGGREGATE_STATE_TABLE, existing._id as any, {
-    status: COUNT_STATUS_BUILDING,
+    // Keep the phase. Flipping a half-drained CLEARING index to BUILDING would
+    // resume a build over stale buckets and produce silently wrong counts.
+    status:
+      existing.status === COUNT_STATUS_CLEARING
+        ? COUNT_STATUS_CLEARING
+        : COUNT_STATUS_BUILDING,
     updatedAt: now,
     keyDefinitionHash: existing.keyDefinitionHash,
     metricDefinitionHash: existing.metricDefinitionHash,
@@ -2832,23 +3171,77 @@ export const setCountStateError = async (
   });
 };
 
-export const clearCountIndexData = async (
+export type ClearIndexChunkResult = {
+  /** True when nothing is left to clear for this index. */
+  done: boolean;
+  processed: number;
+};
+
+/**
+ * Removes at most `batchSize` documents of an aggregate index's stored state and
+ * reports whether anything is left. Callers drive it to completion across
+ * transactions, so clearing a large index never has to fit in one mutation.
+ *
+ * Members are removed through the normal delta machinery rather than raw
+ * deletes, so buckets and extrema stay consistent with the members that remain
+ * at every intermediate step. That keeps concurrent writers correct while the
+ * clear drains. Residual bucket/extrema rows (drift with no member behind them)
+ * are swept only once no members are left, and the loop re-checks members
+ * afterwards.
+ */
+export const clearCountIndexChunk = async (
   db: GenericDatabaseWriter<any>,
   tableName: string,
-  indexName: string
-): Promise<void> => {
-  const members = await listMembersForIndex(db, tableName, indexName);
-  for (const member of members) {
-    await db.delete(AGGREGATE_MEMBER_TABLE, member._id as any);
+  indexName: string,
+  batchSize: number
+): Promise<ClearIndexChunkResult> => {
+  const members = await takeMembersForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
+  if (members.length > 0) {
+    const deltas = members.map((member) =>
+      computeMembershipDelta(member, {
+        tableName,
+        indexName,
+        docId: member.docId,
+        keyParts: null,
+        metricValues: null,
+      })
+    );
+    await flushAggregateMembershipDeltas(db, tableName, indexName, deltas);
+    return { done: false, processed: members.length };
   }
-  const buckets = await listBucketsForIndex(db, tableName, indexName);
-  for (const bucket of buckets) {
-    await db.delete(AGGREGATE_BUCKET_TABLE, bucket._id as any);
+
+  const buckets = await takeBucketsForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
+  if (buckets.length > 0) {
+    for (const bucket of buckets) {
+      await db.delete(AGGREGATE_BUCKET_TABLE, bucket._id as any);
+    }
+    return { done: false, processed: buckets.length };
   }
-  const extrema = await listExtremaForIndex(db, tableName, indexName);
-  for (const entry of extrema) {
-    await db.delete(AGGREGATE_EXTREMA_TABLE, entry._id as any);
+
+  const extrema = await takeExtremaForIndex(
+    db,
+    tableName,
+    indexName,
+    batchSize
+  );
+  if (extrema.length > 0) {
+    for (const entry of extrema) {
+      await db.delete(AGGREGATE_EXTREMA_TABLE, entry._id as any);
+    }
+    return { done: false, processed: extrema.length };
   }
+
+  return { done: true, processed: 0 };
 };
 
 export const listCountStates = async (

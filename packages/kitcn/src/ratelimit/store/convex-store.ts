@@ -135,6 +135,28 @@ export class ConvexRatelimitStore {
     });
   }
 
+  async deleteStatesBefore(
+    before: number,
+    limit: number
+  ): Promise<{ deleted: number; hasMore: boolean }> {
+    return this.withSetupGuidance(async () => {
+      const db = this.getWriter();
+      const rows = (await db
+        .query(RATE_LIMIT_STATE_TABLE)
+        .withIndex('by_ts', (q: any) => q.lt('ts', before))
+        .take(limit + 1)) as RatelimitRow[];
+      const selected = rows.slice(0, limit);
+
+      for (const row of selected) {
+        await db.delete(RATE_LIMIT_STATE_TABLE, row._id);
+      }
+
+      this.dedupe.clear();
+      this.listDedupe.clear();
+      return { deleted: selected.length, hasMore: rows.length > limit };
+    });
+  }
+
   async getDynamicLimit(prefix: string): Promise<number | null> {
     return this.withSetupGuidance(async () => {
       const db = this.getReader();

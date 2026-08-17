@@ -8,9 +8,12 @@
 
 import type { AuthTokenFetcher, ConvexClient } from 'convex/browser';
 import {
+  batch,
   createContext,
   createEffect,
+  createMemo,
   createSignal,
+  on,
   onCleanup,
   type ParentProps,
   useContext,
@@ -65,6 +68,8 @@ export function ConvexProviderWithAuth(
   props: ParentProps<{
     client: ConvexClient;
     useAuth: () => {
+      /** Stable account/session identity. Token refreshes must keep this value. */
+      identity?: string | null;
       isLoading: boolean;
       isAuthenticated: boolean;
       fetchAccessToken: AuthTokenFetcher;
@@ -72,38 +77,82 @@ export function ConvexProviderWithAuth(
   }>
 ) {
   const client = props.client as unknown as IConvexClient;
+  const [authEpoch, setAuthEpoch] = createSignal(0);
+  const [convexIdentity, setConvexIdentity] = createSignal<unknown>(null);
   const [isConvexLoading, setIsConvexLoading] = createSignal(true);
   const [isConvexAuthenticated, setIsConvexAuthenticated] = createSignal(false);
 
-  // Track auth changes — call useAuth() inside the effect so that
-  // reactive reads (signals/stores) within it are tracked by Solid.
-  createEffect(() => {
-    const auth = props.useAuth();
-    const loading = auth.isLoading;
-    const authenticated = auth.isAuthenticated;
-
-    if (loading) return;
-
-    if (!authenticated) {
-      client.clearAuth();
+  const settleAuth = (nextIdentity: unknown, isAuthenticated: boolean) => {
+    batch(() => {
+      setConvexIdentity(nextIdentity);
+      setAuthEpoch((epoch) => epoch + 1);
+      setIsConvexAuthenticated(isAuthenticated);
       setIsConvexLoading(false);
-      setIsConvexAuthenticated(false);
-      return;
-    }
-
-    client.setAuth(auth.fetchAccessToken, (isAuth: boolean) => {
-      setIsConvexLoading(false);
-      setIsConvexAuthenticated(isAuth);
     });
+  };
+
+  // Memoize the provider's booleans, fetcher, and stable identity separately so
+  // a token-only write stops here. Run the body through `on` so the synchronous
+  // `fetchAccessToken` call inside `setAuth` cannot add the JWT and expiry as
+  // dependencies. Both leaks re-enter `setAuth`, pause the socket, and
+  // re-execute every live subscription server-side.
+  //
+  // `fetchAccessToken` is a source, not just a value read in the body: a custom
+  // `useAuth` may hand back a new fetcher when its session state changes, and
+  // Convex would otherwise keep refreshing through the fetcher bound to the
+  // previous account. Memo equality is referential, so a fetcher that stays the
+  // same function across a token write still stops here.
+  const authSnapshot = createMemo(() => props.useAuth(), undefined, {
+    equals: false,
   });
+  const isAuthLoading = createMemo(() => authSnapshot().isLoading);
+  const isAuthenticated = createMemo(() => authSnapshot().isAuthenticated);
+  const fetchAccessToken = createMemo(() => authSnapshot().fetchAccessToken);
+  const identity = createMemo(() => {
+    const snapshot = authSnapshot();
+    // Existing custom providers do not publish an identity. Preserve their
+    // safe legacy behavior: any reactive auth change rebinds Convex. Providers
+    // that supply a stable identity avoid rebinding for token-only writes.
+    return snapshot.identity === undefined
+      ? Symbol('legacy-auth-transition')
+      : snapshot.identity;
+  });
+  let authBindingGeneration = 0;
+
+  createEffect(
+    on([isAuthLoading, isAuthenticated, fetchAccessToken, identity], () => {
+      const generation = ++authBindingGeneration;
+      if (isAuthLoading()) {
+        setIsConvexLoading(true);
+        return;
+      }
+
+      const nextIdentity = identity();
+      setIsConvexLoading(true);
+
+      if (!isAuthenticated()) {
+        client.clearAuth();
+        settleAuth(nextIdentity, false);
+        return;
+      }
+
+      client.setAuth(fetchAccessToken(), (isAuth: boolean) => {
+        if (generation !== authBindingGeneration) return;
+        settleAuth(nextIdentity, isAuth);
+      });
+    })
+  );
 
   onCleanup(() => {
+    authBindingGeneration += 1;
     client.clearAuth();
   });
 
   return (
     <ConvexContext.Provider value={props.client}>
       <ConvexAuthBridge
+        authEpoch={authEpoch()}
+        identity={convexIdentity()}
         isAuthenticated={isConvexAuthenticated()}
         isLoading={isConvexLoading()}
       >

@@ -25,6 +25,7 @@ import { ConvexInsertBuilder } from './insert';
 import { getOrmLifecycleInnerDb } from './lifecycle';
 import {
   buildForeignKeyGraph,
+  type ForeignKeyGraph,
   type OrmContextValue,
   resolveOrmRuntimeDefaults,
 } from './mutation-utils';
@@ -90,6 +91,55 @@ export type OrmWriter<TSchema extends TablesRelationalConfig> =
   DatabaseWithMutations<TSchema> & {
     skipRules: DatabaseWithMutations<TSchema>;
   };
+
+/**
+ * `createDatabase` runs on every Convex query and mutation entry, but the
+ * foreign-key graph and the per-table edge partition are pure functions of the
+ * schema and edge metadata, both fixed for the process lifetime. Caching them
+ * on the identity of those objects keeps the per-request work proportional to
+ * the table count instead of `tables x edges`.
+ *
+ * Both caches are only sound because their inputs are module-level immutables:
+ * nothing in the ORM mutates a schema or an edge list after construction.
+ */
+const foreignKeyGraphCache = new WeakMap<object, ForeignKeyGraph>();
+const edgesBySourceTableCache = new WeakMap<
+  object,
+  Map<string, EdgeMetadata[]>
+>();
+const NO_EDGES: EdgeMetadata[] = [];
+
+function getForeignKeyGraph(schema: TablesRelationalConfig): ForeignKeyGraph {
+  const cached = foreignKeyGraphCache.get(schema);
+  if (cached) {
+    return cached;
+  }
+  // Only cached on success, so a dangling foreign key keeps throwing rather
+  // than poisoning the entry.
+  const graph = buildForeignKeyGraph(schema);
+  foreignKeyGraphCache.set(schema, graph);
+  return graph;
+}
+
+function getEdgesBySourceTable(
+  edgeMetadata: EdgeMetadata[]
+): Map<string, EdgeMetadata[]> {
+  const cached = edgesBySourceTableCache.get(edgeMetadata);
+  if (cached) {
+    return cached;
+  }
+  const grouped = new Map<string, EdgeMetadata[]>();
+  for (const edge of edgeMetadata) {
+    const existing = grouped.get(edge.sourceTable);
+    if (existing) {
+      existing.push(edge);
+    } else {
+      grouped.set(edge.sourceTable, [edge]);
+    }
+  }
+  edgesBySourceTableCache.set(edgeMetadata, grouped);
+  return grouped;
+}
 
 export type CreateDatabaseOptions = {
   /** Optional subsystems registered at `createOrm()`. See `./capabilities`. */
@@ -162,7 +212,7 @@ export function createDatabase<TSchema extends TablesRelationalConfig>(
     });
     const ormContext: OrmContextValue = {
       capabilities: options?.capabilities,
-      foreignKeyGraph: buildForeignKeyGraph(schema),
+      foreignKeyGraph: getForeignKeyGraph(schema),
       schema,
       edgeMetadata,
       relationLoading: options?.relationLoading,
@@ -182,13 +232,12 @@ export function createDatabase<TSchema extends TablesRelationalConfig>(
     }) as unknown as GenericDatabaseWriter<any>;
 
     const query: any = {};
+    const edgesBySourceTable = getEdgesBySourceTable(edgeMetadata);
 
     // Create query builder for each table in schema
     for (const [tableName, tableConfig] of Object.entries(schema)) {
-      // Filter edges to only those originating from this table
-      const tableEdges = edgeMetadata.filter(
-        (edge) => edge.sourceTable === tableConfig.name
-      );
+      // Edges originating from this table, partitioned once per edge list.
+      const tableEdges = edgesBySourceTable.get(tableConfig.name) ?? NO_EDGES;
 
       query[tableName] = new RelationalQueryBuilder(
         schema,
@@ -302,13 +351,22 @@ export function createDatabase<TSchema extends TablesRelationalConfig>(
   };
 
   const table = buildDatabase(options?.rls);
-  const skipRulesTable = buildDatabase({
-    ...(options?.rls ?? {}),
-    mode: 'skip',
-  });
 
-  return {
-    ...table,
-    skipRules: skipRulesTable,
-  } as OrmReader<TSchema>;
+  // `skipRules` is an escape hatch almost no request touches, and building it
+  // costs a second full query-builder graph. Build it on first access instead,
+  // memoized for the life of this ORM (i.e. this request), the same shape
+  // `withoutTriggers` already uses.
+  let skipRulesTable: ReturnType<typeof buildDatabase> | undefined;
+
+  return Object.defineProperty({ ...table }, 'skipRules', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      skipRulesTable ??= buildDatabase({
+        ...(options?.rls ?? {}),
+        mode: 'skip',
+      });
+      return skipRulesTable;
+    },
+  }) as OrmReader<TSchema>;
 }

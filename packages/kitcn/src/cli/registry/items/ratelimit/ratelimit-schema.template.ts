@@ -21,6 +21,7 @@ export const ratelimitStateTable = convexTable(
   (t) => [
     index("by_name_key_shard").on(t.name, t.key, t.shard),
     index("by_name_key").on(t.name, t.key),
+    index("by_ts").on(t.ts),
   ],
 );
 

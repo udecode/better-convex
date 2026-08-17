@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import {
+  CommandFailedError,
   generateFreshApp,
   installLocalPackage,
   log,
@@ -257,6 +258,18 @@ const patchFixtureTsconfigPaths = (
   }
 };
 
+export class FixtureDriftError extends Error {
+  readonly templateKey: TemplateKey;
+
+  constructor(templateKey: TemplateKey) {
+    super(
+      `Fixture drift detected in "${templateKey}". Run \`bun run fixtures:sync\` and commit the updated snapshots.`
+    );
+    this.name = 'FixtureDriftError';
+    this.templateKey = templateKey;
+  }
+}
+
 export const parseTemplateArgs = (
   argv: string[]
 ): {
@@ -417,8 +430,10 @@ export const checkTemplate = async (
   params: {
     backend?: TemplateBackend;
     generateTemplateFn?: typeof generateTemplate;
+    installLocalPackageFn?: typeof installLocalPackage;
     logFn?: typeof log;
     normalizeTemplateFn?: typeof normalizeTemplateSnapshot;
+    packLocalPackageFn?: typeof packLocalPackage;
     projectRoot?: string;
     runCommand?: typeof run;
     scope?: FixtureCheckScope;
@@ -441,12 +456,17 @@ export const checkTemplate = async (
   });
 
   try {
-    const kitcnPackageSpec = packLocalPackage(tempRoot);
-    await installLocalPackage(generatedAppDir, {
-      kitcnPackageSpec,
-      packageName: getValidationPackageName(templateKey),
-      runCommand,
-    });
+    const kitcnPackageSpec = (params.packLocalPackageFn ?? packLocalPackage)(
+      tempRoot
+    );
+    await (params.installLocalPackageFn ?? installLocalPackage)(
+      generatedAppDir,
+      {
+        kitcnPackageSpec,
+        packageName: getValidationPackageName(templateKey),
+        runCommand,
+      }
+    );
     await (params.validateAppFn ?? runAppValidation)(
       generatedAppDir,
       runCommand,
@@ -471,37 +491,37 @@ export const checkTemplate = async (
       params.scope ?? DEFAULT_FIXTURE_CHECK_SCOPE
     );
 
-    const diffExitCode = await runCommand(
-      [
-        'git',
-        '--no-pager',
-        'diff',
-        '--no-index',
-        '--no-ext-diff',
-        '--',
-        fixtureDiffDir,
-        generatedAppDir,
-      ],
-      params.projectRoot ?? PROJECT_ROOT,
-      {
-        allowNonZeroExit: true,
-      }
-    );
+    const diffCommand = [
+      'git',
+      '--no-pager',
+      'diff',
+      '--no-index',
+      '--no-ext-diff',
+      '--',
+      fixtureDiffDir,
+      generatedAppDir,
+    ];
+    const diffCwd = params.projectRoot ?? PROJECT_ROOT;
+    const diffExitCode = await runCommand(diffCommand, diffCwd, {
+      allowNonZeroExit: true,
+    });
 
     if (diffExitCode === 0) {
       (params.logFn ?? log)(TEMPLATE_DEFINITIONS[templateKey].successMessage);
       return;
     }
 
+    // Throw rather than exit: `finally` below owns the scaffolded temp tree,
+    // and `process.exit` would skip it and leak a full app plus node_modules.
     if (diffExitCode === 1) {
-      (params.logFn ?? log)('');
-      (params.logFn ?? log)(
-        'Fixture drift detected. Run `bun run fixtures:sync` and commit the updated snapshots.'
-      );
-      process.exit(1);
+      throw new FixtureDriftError(templateKey);
     }
 
-    process.exit(diffExitCode);
+    throw new CommandFailedError({
+      command: diffCommand,
+      cwd: diffCwd,
+      exitCode: diffExitCode,
+    });
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -544,5 +564,19 @@ const main = async () => {
 };
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+    process.exit(0);
+  } catch (error) {
+    // `run` inherits child stdio, so the failing command already printed its
+    // own diagnostics. Report the summary and keep the child's exit code, but
+    // never exit 0: a signal-killed child reports no numeric code.
+    if (error instanceof CommandFailedError) {
+      console.error(error.message);
+      process.exit(error.exitCode || 1);
+    }
+
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }

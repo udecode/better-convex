@@ -357,7 +357,7 @@ Rate limiting is opt-in: scaffold the full starter once.
 bunx kitcn add ratelimit
 ```
 
-This creates `convex/lib/plugins/ratelimit/schema.ts`, `convex/lib/plugins/ratelimit/plugin.ts`, and registers `ratelimitExtension()` in `convex/functions/schema.ts`.
+This creates `convex/lib/plugins/ratelimit/schema.ts`, `convex/lib/plugins/ratelimit/plugin.ts`, `convex/functions/plugins/ratelimit.ts`, and registers `ratelimitExtension()` in `convex/functions/schema.ts`.
 
 ```ts
 import { defineSchema } from "kitcn/orm";
@@ -366,12 +366,18 @@ import { ratelimitExtension } from "../lib/plugins/ratelimit/schema";
 export default defineSchema(tables).extend(ratelimitExtension());
 ```
 
-Create `convex/lib/plugins/ratelimit/plugin.ts` and call `ratelimit.middleware()` from mutation builders. Use the default bucket for normal writes and reserve `.meta({ ratelimit: ... })` for named overrides. Runtime accounting (`shards`, `check()`, snapshots, read accuracy) lives in `features/ratelimit.md`.
+Create `convex/lib/plugins/ratelimit/plugin.ts` and call `ratelimit.middleware()` from mutation builders. Use the default bucket for normal writes; the starter's `interactive` bucket demonstrates a named `.meta({ ratelimit: ... })` override. Rename or remove it to match the application. Runtime accounting (`shards`, `check()`, snapshots, read accuracy) lives in `features/ratelimit.md`.
 
 Use `RatelimitPlugin` from `kitcn/ratelimit`:
 
 ```ts
-import { MINUTE, Ratelimit, RatelimitPlugin } from "kitcn/ratelimit";
+import {
+  type LimitRequest,
+  MINUTE,
+  Ratelimit,
+  RatelimitPlugin,
+  SECOND,
+} from "kitcn/ratelimit";
 import type { MutationCtx } from "../../../functions/generated/server";
 
 const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
@@ -381,6 +387,11 @@ export const ratelimitBuckets = {
     public: fixed(30),
     free: fixed(60),
     premium: fixed(200),
+  },
+  interactive: {
+    public: Ratelimit.fixedWindow(3, 30 * SECOND),
+    free: Ratelimit.fixedWindow(3, 30 * SECOND),
+    premium: Ratelimit.fixedWindow(3, 30 * SECOND),
   },
 } as const;
 
@@ -416,14 +427,27 @@ async function getRequestSignals(ctx: RatelimitCtx) {
   };
 }
 
+function getRequestIdentifier(
+  user: RatelimitUser | null,
+  signals: LimitRequest | undefined
+) {
+  if (user) return user.id;
+  return signals?.ip ? `ip:${signals.ip}` : "ip:unknown";
+}
+
 export const ratelimit = RatelimitPlugin.configure({
   buckets: ratelimitBuckets,
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? "default",
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
-  getIdentifier: ({ user }: { user: RatelimitUser | null }) =>
-    user?.id ?? "anonymous",
   getTier: getUserTier,
   getSignals: ({ ctx }: { ctx: RatelimitCtx }) => getRequestSignals(ctx),
+  getIdentifier: ({
+    user,
+    signals,
+  }: {
+    user: RatelimitUser | null;
+    signals: LimitRequest | undefined;
+  }) => getRequestIdentifier(user, signals),
   prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   failureMode: "closed",
   enableProtection: true,
@@ -432,6 +456,12 @@ export const ratelimit = RatelimitPlugin.configure({
 ```
 
 Use `ctx.meta.getRequestMetadata()` on Convex 1.38.0+ for IP/user-agent signals in mutation rate limits. Convex also exposes this metadata in actions; route action-side enforcement through a mutation when database-backed ratelimit state is required.
+
+The identifier is the partition key: every request resolving to the same string shares one budget and one `ratelimitState` document. Never key unauthenticated traffic to a constant — `fixedWindow(30, MINUTE)` under a constant identifier is 30 req/min for the whole deployment, and 30 consecutive denials arm a 24 h deny-list block against that constant. `getSignals` runs once per request, before `getIdentifier`, so keying on `signals.ip` costs no extra syscall.
+
+Plan for the two consequences: shared NAT/CGNAT addresses share a budget, and calls without request metadata all land on `ip:unknown`. One `ratelimitState` row exists per identifier per `bucket:tier`; run the scaffolded `plugins/ratelimit:cleanup` private mutation on demand, with `olderThanMs` longer than every configured rate-limit window, and repeat while it returns `hasMore: true`.
+
+`RatelimitPlugin.configure` also forwards `failureMode`, `timeout`, `enableProtection`, `denyListThreshold`, `denyList`, `dynamicLimits`, and `ephemeralCache` to the limiter.
 
 ### 9.5 Scheduling gate
 

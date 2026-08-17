@@ -35,6 +35,7 @@ That creates:
 
 - `convex/lib/plugins/ratelimit/schema.ts`
 - `convex/lib/plugins/ratelimit/plugin.ts`
+- `convex/functions/plugins/ratelimit.ts`
 
 and registers `ratelimitExtension()` in `convex/functions/schema.ts`.
 
@@ -51,10 +52,18 @@ export default defineSchema(tables).extend(ratelimitExtension());
 
 ## Create a local ratelimit plugin
 
-Scaffold a local plugin and keep one default bucket for every mutation. Add named buckets only when a procedure genuinely needs stricter behavior.
+Scaffold a local plugin with a default bucket for every mutation and an
+`interactive` example for stricter procedures. Rename or remove the example
+bucket to match your application.
 
-```ts title="convex/lib/plugins/ratelimit/plugin.ts" showLineNumbers {1-4,7-12,38-56}
-import { MINUTE, Ratelimit, RatelimitPlugin } from 'kitcn/ratelimit';
+```ts title="convex/lib/plugins/ratelimit/plugin.ts" showLineNumbers
+import {
+  type LimitRequest,
+  MINUTE,
+  Ratelimit,
+  RatelimitPlugin,
+  SECOND,
+} from 'kitcn/ratelimit';
 import type { MutationCtx } from '../../../functions/generated/server';
 
 const fixed = (rate: number) => Ratelimit.fixedWindow(rate, MINUTE);
@@ -64,6 +73,11 @@ export const ratelimitBuckets = {
     public: fixed(30),
     free: fixed(60),
     premium: fixed(200),
+  },
+  interactive: {
+    public: Ratelimit.fixedWindow(3, 30 * SECOND),
+    free: Ratelimit.fixedWindow(3, 30 * SECOND),
+    premium: Ratelimit.fixedWindow(3, 30 * SECOND),
   },
 } as const;
 
@@ -99,14 +113,27 @@ async function getRequestSignals(ctx: RatelimitCtx) {
   };
 }
 
+function getRequestIdentifier(
+  user: RatelimitUser | null,
+  signals: LimitRequest | undefined
+) {
+  if (user) return user.id;
+  return signals?.ip ? `ip:${signals.ip}` : 'ip:unknown';
+}
+
 export const ratelimit = RatelimitPlugin.configure({
   buckets: ratelimitBuckets,
   getBucket: ({ meta }: { meta: RatelimitMeta }) => meta.ratelimit ?? 'default',
   getUser: ({ ctx }: { ctx: RatelimitCtx }) => ctx.user ?? null,
-  getIdentifier: ({ user }: { user: RatelimitUser | null }) =>
-    user?.id ?? 'anonymous',
   getTier: getUserTier,
   getSignals: ({ ctx }: { ctx: RatelimitCtx }) => getRequestSignals(ctx),
+  getIdentifier: ({
+    user,
+    signals,
+  }: {
+    user: RatelimitUser | null;
+    signals: LimitRequest | undefined;
+  }) => getRequestIdentifier(user, signals),
   prefix: ({ bucket, tier }) => `ratelimit:${bucket}:${tier}`,
   failureMode: 'closed',
   enableProtection: true,
@@ -115,6 +142,49 @@ export const ratelimit = RatelimitPlugin.configure({
 ```
 
 Convex exposes request metadata in mutation and action functions: request ID, client IP, and client user-agent. For `RatelimitPlugin`, read it from mutation middleware. Use it for anonymous flows too — session-based helpers return `{}` when no session exists, which is exactly when IP-aware protection matters most.
+
+### Pick an identifier that partitions
+
+The identifier is the rate-limit partition key. Everything that resolves to the same string shares one budget and one `ratelimitState` document, so a constant like `'anonymous'` makes `fixedWindow(30, MINUTE)` a deployment-wide 30 requests per minute for all unauthenticated traffic — one crawler denies every visitor.
+
+`getSignals` runs once per request, before `getIdentifier`, and its result is passed straight through, so keying on the request IP costs no extra `getRequestMetadata()` syscall.
+
+Two consequences to plan for:
+
+- **Shared IPs share a budget.** NAT, corporate proxies, and mobile CGNAT put many people behind one address. Raise the public-tier budget accordingly, or add a captcha-gated tier.
+- **Calls without request metadata collapse to one key.** They land on `ip:unknown`. Keep them off `publicMutation`, or give them their own bucket.
+
+<Callout icon={<InfoIcon />}>
+  **Retention:** one `ratelimitState` row exists per identifier per `bucket:tier`. Per-IP keys make that row count grow with distinct visitors. The starter includes an indexed, batched private mutation for manual cleanup.
+</Callout>
+
+### Clean up stored state on demand
+
+Choose `olderThanMs` longer than every configured window, refill horizon, or
+reservation period. Run the private mutation manually and repeat only while it
+returns `hasMore: true`:
+
+```bash
+bunx convex run plugins/ratelimit:cleanup '{"olderThanMs":86400000}'
+```
+
+Add `--prod` when targeting production. Each call deletes at most 500 rows by
+default; pass `limit` from 1 through 1000 to change the batch size.
+
+### Plugin options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `buckets` | `Record<bucket, Record<tier, ResolvedAlgorithm>>` | **Required.** Named buckets, each mapping a tier to an algorithm. |
+| `getBucket` | `({ ctx, meta }) => bucket` | **Required.** Picks the bucket, usually from `meta.ratelimit`. |
+| `getUser` | `({ ctx, meta }) => user` | **Required.** Resolves the caller. |
+| `getTier` | `(user) => tier` | **Required.** Picks the tier within the bucket. |
+| `getSignals` | `({ ctx, meta, user, bucket, tier }) => LimitRequest \| undefined` | **Required.** Resolved once per request, before `getIdentifier`. |
+| `getIdentifier` | `({ ctx, meta, user, bucket, tier, signals }) => string` | **Required.** The partition key. |
+| `prefix` | `string \| (args) => string` | Namespaces stored state. Defaults to `ratelimit:<bucket>:<tier>`. |
+| `message` | `string \| (args) => string` | Message on the thrown `TOO_MANY_REQUESTS` error. |
+
+Everything below is forwarded to the limiter and behaves exactly as in [Constructor options](#constructor-options): `failureMode`, `timeout`, `enableProtection`, `denyListThreshold`, `denyList`, `dynamicLimits`, `ephemeralCache`.
 
 <Callout icon={<InfoIcon />}>
   **Note:** `ctx.meta.getRequestMetadata()` requires Convex 1.38.0 or newer.
@@ -301,7 +371,14 @@ If you need precise projected values (for custom gauges), call `check(ts, count)
 
 ## Protection and deny lists
 
-When `enableProtection` is on, the limiter tracks repeated failures per identifier, IP, user-agent, and country. Once a value reaches `denyListThreshold`, it gets blocked for 24 hours — without even checking the database.
+When `enableProtection` is on, the limiter tracks repeated failures per identifier, IP, user-agent, and country. Once a value reaches `denyListThreshold` **within a rolling 10 minute window**, its block is cached for up to 24 hours without checking the database. Failures paced wider than that window decay instead of accumulating, so a shared NAT or carrier IP is not blocked by unrelated users' failures spread over days.
+
+Protection state is a bounded in-memory LRU. It evicts failure histories before
+blocks and refreshes blocks that keep sending requests. Under more than 4,096
+simultaneous blocked values per prefix, the coldest block can be evicted; that
+value falls through to the normal database-backed rate limiter.
+
+A successful request clears the counter for the *identifier* only. IP and user-agent counters survive, because they are attacker-supplied: clearing them on success would let a caller loop `denyListThreshold - 1` failures plus one success forever, and would let anyone reset another client's counter by forging their user-agent.
 
 You can also provide static deny lists to block known bad actors immediately.
 
@@ -346,6 +423,8 @@ const result = await limiter.limit(userId, {
 <Callout icon={<InfoIcon />}>
   **Important:** Deny-list state is in-memory and non-durable. It can survive across warm runtime requests, but is lost on cold starts/deploys. For persistent blocking, use an external deny list or database-backed blocklist.
 </Callout>
+
+Tracked values are capped at 4096 per prefix with least-recently-hit eviction, and values longer than 128 characters are stored truncated, so forged `User-Agent` headers cannot grow the map without bound. Counter increments happen in module memory and are not rolled back when Convex retries a mutation after a write conflict, so a value can count slightly more failures than it was actually served.
 
 ## Dynamic limits
 
@@ -408,7 +487,7 @@ const limiter = new Ratelimit(config: RatelimitConfig);
 | `failureMode` | `'closed' \| 'open'` | `'closed'` | Behavior on timeout. `'closed'` rejects, `'open'` allows. |
 | `timeout` | `number` | `5000` | Milliseconds before triggering `failureMode` behavior. |
 | `enableProtection` | `boolean` | `false` | Enables deny-list tracking on repeated failures. |
-| `denyListThreshold` | `number` | `30` | Consecutive failures before an identifier is blocked (24h). Requires `enableProtection: true`. |
+| `denyListThreshold` | `number` | `30` | Failures inside a rolling 10-minute window before a value is cached as blocked for up to 24 hours. Requires `enableProtection: true`. |
 | `denyList` | `ProtectionLists` | `undefined` | Static deny lists. See [Protection and deny lists](#protection-and-deny-lists). |
 | `ephemeralCache` | `Map<string, number> \| false` | `new Map()` | In-memory block cache. Shared across requests in the same Convex invocation. Pass `false` to disable. |
 

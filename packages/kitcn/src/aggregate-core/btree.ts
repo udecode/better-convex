@@ -25,6 +25,7 @@ type NodeId = GenericId<string>;
 type TreeDoc = {
   aggregateName?: string;
   _id: GenericId<string>;
+  deletionStack?: NodeId[];
   maxNodeSize: number;
   namespace?: Namespace;
   root: NodeId;
@@ -82,7 +83,7 @@ export async function insertHandler(
     true
   );
   const summand = args.summand ?? 0;
-  const pushUp = await insertIntoNode(ctx, args.namespace, tree.root, {
+  const pushUp = await insertIntoNode(ctx, tree.maxNodeSize, tree.root, {
     k: args.key,
     v: args.value,
     s: summand,
@@ -116,7 +117,7 @@ export async function deleteHandler(
     DEFAULT_MAX_NODE_SIZE,
     true
   );
-  await deleteFromNode(ctx, args.namespace, tree.root, args.key);
+  await deleteFromNode(ctx, tree.maxNodeSize, tree.root, args.key);
   const root = (await ctx.db.get(tree.root))!;
   if (root.items.length === 0 && root.subtrees.length === 1) {
     log(
@@ -143,7 +144,7 @@ export async function validateTree(
   if (!tree) {
     return;
   }
-  await validateNode(ctx, args.namespace, tree.root, 0);
+  await validateNode(ctx, tree.maxNodeSize, tree.root, 0);
 }
 
 type ValidationResult = {
@@ -152,28 +153,22 @@ type ValidationResult = {
   height: number;
 };
 
-async function MAX_NODE_SIZE(
-  ctx: { db: DatabaseReader },
-  namespace: Namespace
-) {
-  const tree = await mustGetTree(ctx.db, namespace);
-  return tree.maxNodeSize;
-}
-
-async function MIN_NODE_SIZE(
-  ctx: { db: DatabaseReader },
-  namespace: Namespace
-) {
-  const max = await MAX_NODE_SIZE(ctx, namespace);
-  if (max % 2 !== 0 || max < 4) {
+// `maxNodeSize` is immutable for the life of a tree, so it is read once per
+// handler and threaded through the descent instead of re-queried per node.
+function assertMaxNodeSize(maxNodeSize: number): void {
+  if (maxNodeSize % 2 !== 0 || maxNodeSize < 4) {
     throw new Error('MAX_NODE_SIZE must be even and at least 4');
   }
-  return max / 2;
+}
+
+function minNodeSizeFor(maxNodeSize: number): number {
+  assertMaxNodeSize(maxNodeSize);
+  return maxNodeSize / 2;
 }
 
 async function validateNode(
   ctx: { db: DatabaseReader },
-  namespace: Namespace,
+  maxNodeSize: number,
   node: NodeId,
   depth: number
 ): Promise<ValidationResult> {
@@ -181,10 +176,10 @@ async function validateNode(
   if (!n) {
     throw new ConvexError(`missing node ${node}`);
   }
-  if (n.items.length > (await MAX_NODE_SIZE(ctx, namespace))) {
+  if (n.items.length > maxNodeSize) {
     throw new ConvexError(`node ${node} exceeds max size`);
   }
-  if (depth > 0 && n.items.length < (await MIN_NODE_SIZE(ctx, namespace))) {
+  if (depth > 0 && n.items.length < minNodeSizeFor(maxNodeSize)) {
     throw new ConvexError(`non-root node ${node} has less than min-size`);
   }
   if (n.subtrees.length > 0 && n.items.length + 1 !== n.subtrees.length) {
@@ -201,7 +196,7 @@ async function validateNode(
   }
   const validatedSubtrees = await Promise.all(
     n.subtrees.map((subtree) =>
-      validateNode(ctx, namespace, subtree, depth + 1)
+      validateNode(ctx, maxNodeSize, subtree, depth + 1)
     )
   );
   for (let i = 0; i < n.subtrees.length; i++) {
@@ -281,9 +276,11 @@ async function filterBetween(
   db: DatabaseReader,
   node: NodeId,
   k1?: Key,
-  k2?: Key
+  k2?: Key,
+  // Callers that already hold the node document pass it to skip a re-read.
+  preloaded?: NodeDoc
 ): Promise<WithinBounds[]> {
-  const n = (await db.get(node))!;
+  const n = preloaded ?? (await db.get(node))!;
   const included: (WithinBounds | Promise<WithinBounds[]>)[] = [];
   function includeSubtree(i: number, unboundedRight: boolean) {
     const unboundedLeft = k1 === undefined || included.length > 0;
@@ -450,7 +447,7 @@ export async function offsetUntilHandler(
 // Returns the offset of the smallest key >= the given target key.
 async function deleteFromNode(
   ctx: { db: DatabaseWriter },
-  namespace: Namespace,
+  maxNodeSize: number,
   node: NodeId,
   key: Key
 ): Promise<Item | null> {
@@ -501,7 +498,7 @@ async function deleteFromNode(
       message: `key ${p(key)} not found in node ${n._id}`,
     });
   }
-  const deleted = await deleteFromNode(ctx, namespace, n.subtrees[i], key);
+  const deleted = await deleteFromNode(ctx, maxNodeSize, n.subtrees[i], key);
   if (!deleted) {
     return null;
   }
@@ -517,7 +514,7 @@ async function deleteFromNode(
 
   // Now we need to check if the subtree at index i is too small
   const deficientSubtree = (await ctx.db.get(n.subtrees[i]))!;
-  const minNodeSize = await MIN_NODE_SIZE(ctx, namespace);
+  const minNodeSize = minNodeSizeFor(maxNodeSize);
   if (deficientSubtree.items.length < minNodeSize) {
     log(`deficient subtree ${deficientSubtree._id}`);
     // If the subtree is too small, we need to rebalance
@@ -669,9 +666,10 @@ async function negativeOffsetInNode(
   node: NodeId,
   index: number,
   k1?: Key,
-  k2?: Key
+  k2?: Key,
+  preloaded?: NodeDoc
 ): Promise<Item> {
-  const filtered = await filterBetween(db, node, k1, k2);
+  const filtered = await filterBetween(db, node, k1, k2, preloaded);
   for (const included of filtered.reverse()) {
     if (included.type === 'item') {
       if (index === 0) {
@@ -682,7 +680,14 @@ async function negativeOffsetInNode(
       const subtree = (await db.get(included.subtree))!;
       const subtreeCount = (await nodeAggregate(db, subtree)).count;
       if (index < subtreeCount) {
-        return await negativeOffsetInNode(db, included.subtree, index);
+        return await negativeOffsetInNode(
+          db,
+          included.subtree,
+          index,
+          undefined,
+          undefined,
+          subtree
+        );
       }
       index -= subtreeCount;
     }
@@ -697,9 +702,10 @@ async function atOffsetInNode(
   node: NodeId,
   index: number,
   k1?: Key,
-  k2?: Key
+  k2?: Key,
+  preloaded?: NodeDoc
 ): Promise<Item> {
-  const filtered = await filterBetween(db, node, k1, k2);
+  const filtered = await filterBetween(db, node, k1, k2, preloaded);
   for (const included of filtered) {
     if (included.type === 'item') {
       if (index === 0) {
@@ -710,7 +716,14 @@ async function atOffsetInNode(
       const subtree = (await db.get(included.subtree))!;
       const subtreeCount = (await nodeAggregate(db, subtree)).count;
       if (index < subtreeCount) {
-        return await atOffsetInNode(db, included.subtree, index);
+        return await atOffsetInNode(
+          db,
+          included.subtree,
+          index,
+          undefined,
+          undefined,
+          subtree
+        );
       }
       index -= subtreeCount;
     }
@@ -774,7 +787,7 @@ type PushUp = {
 
 async function insertIntoNode(
   ctx: { db: DatabaseWriter },
-  namespace: Namespace,
+  maxNodeSize: number,
   node: NodeId,
   item: Item
 ): Promise<PushUp | null> {
@@ -791,35 +804,50 @@ async function insertIntoNode(
     }
   }
   // insert key before index i
+  let nextItems: Item[] = n.items;
+  let nextSubtrees: NodeId[] = n.subtrees;
   if (n.subtrees.length > 0) {
     // insert into subtree
-    const pushUp = await insertIntoNode(ctx, namespace, n.subtrees[i], item);
+    const pushUp = await insertIntoNode(ctx, maxNodeSize, n.subtrees[i], item);
     if (pushUp) {
-      await ctx.db.patch(node, {
-        items: [...n.items.slice(0, i), pushUp.item, ...n.items.slice(i)],
-        subtrees: [
-          ...n.subtrees.slice(0, i),
-          pushUp.leftSubtree,
-          pushUp.rightSubtree,
-          ...n.subtrees.slice(i + 1),
-        ],
-      });
+      nextItems = [...n.items.slice(0, i), pushUp.item, ...n.items.slice(i)];
+      nextSubtrees = [
+        ...n.subtrees.slice(0, i),
+        pushUp.leftSubtree,
+        pushUp.rightSubtree,
+        ...n.subtrees.slice(i + 1),
+      ];
     }
   } else {
-    await ctx.db.patch(node, {
-      items: [...n.items.slice(0, i), item, ...n.items.slice(i)],
-    });
+    nextItems = [...n.items.slice(0, i), item, ...n.items.slice(i)];
   }
   const newAggregate = n.aggregate && add(n.aggregate, itemAggregate(item));
+  // Single write per node, and no re-read: the post-write contents are known.
+  const nodePatch: {
+    items?: Item[];
+    subtrees?: NodeId[];
+    aggregate?: Aggregate;
+  } = {};
+  if (nextItems !== n.items) {
+    nodePatch.items = nextItems;
+  }
+  if (nextSubtrees !== n.subtrees) {
+    nodePatch.subtrees = nextSubtrees;
+  }
   if (newAggregate) {
-    await ctx.db.patch(node, {
-      aggregate: newAggregate,
-    });
+    nodePatch.aggregate = newAggregate;
+  }
+  if (Object.keys(nodePatch).length > 0) {
+    await ctx.db.patch(node, nodePatch);
   }
 
-  const newN = (await ctx.db.get(node))!;
-  const maxNodeSize = await MAX_NODE_SIZE(ctx, namespace);
-  const minNodeSize = await MIN_NODE_SIZE(ctx, namespace);
+  const newN: NodeDoc = {
+    ...n,
+    items: nextItems,
+    subtrees: nextSubtrees,
+    aggregate: newAggregate ?? n.aggregate,
+  };
+  const minNodeSize = minNodeSizeFor(maxNodeSize);
   if (newN.items.length > maxNodeSize) {
     if (
       newN.items.length !== maxNodeSize + 1 ||
@@ -914,6 +942,9 @@ export async function getOrCreateTree(
   const originalTree = await getTree(db, namespace);
   const aggregateName = aggregateNameFromNamespace(namespace);
   if (originalTree) {
+    // Check the maxNodeSize is valid. The descent no longer re-derives it from
+    // storage, so this is the only place it can be caught.
+    assertMaxNodeSize(originalTree.maxNodeSize);
     if (originalTree.aggregateName !== aggregateName) {
       await db.patch(originalTree._id, { aggregateName });
       return { ...originalTree, aggregateName };
@@ -929,9 +960,7 @@ export async function getOrCreateTree(
     },
   });
   const effectiveMaxNodeSize =
-    maxNodeSize ??
-    (await MAX_NODE_SIZE({ db }, undefined)) ??
-    DEFAULT_MAX_NODE_SIZE;
+    maxNodeSize ?? (await mustGetTree(db, undefined)).maxNodeSize;
   const effectiveRootLazy =
     rootLazy ?? (await isRootLazy(db, undefined)) ?? true;
   const id = await db.insert(AGGREGATE_TREE_TABLE, {
@@ -942,7 +971,7 @@ export async function getOrCreateTree(
   });
   const newTree = await db.get(id);
   // Check the maxNodeSize is valid.
-  await MIN_NODE_SIZE({ db }, namespace);
+  assertMaxNodeSize(effectiveMaxNodeSize);
   if (effectiveRootLazy) {
     await db.patch(root, { aggregate: undefined });
   }
@@ -972,6 +1001,47 @@ export async function deleteTreeNodes(
     await deleteTreeNodes(db, subtree);
   }
   await db.delete(node);
+}
+
+/**
+ * Deletes up to `limit` nodes from one namespace tree belonging to an
+ * aggregate, returning true once none are left. The traversal stack lives on
+ * the tree document so a large tree resumes across transactions.
+ */
+export async function deleteTreesHandler(
+  ctx: { db: DatabaseWriter },
+  args: { aggregateName: string; limit: number }
+): Promise<boolean> {
+  const trees = (await ctx.db
+    .query(AGGREGATE_TREE_TABLE)
+    .withIndex('by_aggregate_name', (q) =>
+      q.eq('aggregateName', args.aggregateName)
+    )
+    .take(1)) as TreeDoc[];
+  const tree = trees[0];
+  if (!tree) {
+    return true;
+  }
+
+  const stack = [...(tree.deletionStack ?? [tree.root])];
+  let remaining = Math.max(1, Math.floor(args.limit));
+  while (stack.length > 0 && remaining > 0) {
+    const nodeId = stack.pop()!;
+    const node = (await ctx.db.get(nodeId)) as NodeDoc | null;
+    remaining -= 1;
+    if (!node) {
+      continue;
+    }
+    stack.push(...node.subtrees);
+    await ctx.db.delete(nodeId);
+  }
+
+  if (stack.length > 0) {
+    await ctx.db.patch(tree._id, { deletionStack: stack });
+  } else {
+    await ctx.db.delete(tree._id);
+  }
+  return false;
 }
 
 export async function clearTree(

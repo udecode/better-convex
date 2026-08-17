@@ -63,8 +63,7 @@ function createRecursiveProxy(
           throw new Error(`HTTP route not found: ${routeKey}`);
         }
 
-        return (args: unknown = {}) =>
-          buildHttpQueryOptions(route, routeKey, args);
+        return (args?: unknown) => buildHttpQueryOptions(route, routeKey, args);
       }
 
       if (prop === 'queryOptions') {

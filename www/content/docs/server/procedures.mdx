@@ -187,7 +187,7 @@ export const getProjectAndOwner = privateQuery
 
 `create<Module>Caller(ctx)` detects your context type and dispatches accordingly:
 
-- **`QueryCtx` / `MutationCtx`**: invokes the procedure handler directly — same transaction, no extra overhead.
+- **`QueryCtx` / `MutationCtx`**: invokes the procedure handler directly — same transaction, no Convex round trip.
 - **`ActionCtx`**: root calls dispatch via `ctx.runQuery` / `ctx.runMutation` automatically (separate transactions).
 - **`caller.actions.*`**: explicit action dispatch in `ActionCtx` via `ctx.runAction`.
 - **`caller.schedule.*`**: schedule mutation/action procedures via `ctx.scheduler`.

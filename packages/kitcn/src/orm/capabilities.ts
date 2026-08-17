@@ -61,6 +61,7 @@ export type OrmAggregateCapability = {
   // Write-path index maintenance.
   applyAggregateIndexesForChange: AggregateRuntimeModule['applyAggregateIndexesForChange'];
   applyRankIndexesForChange: RankRuntimeModule['applyRankIndexesForChange'];
+  assertAggregateIndexesWritable: AggregateRuntimeModule['assertAggregateIndexesWritable'];
   // `orm.api()` backfill handlers.
   createCountBackfillHandlers: BackfillModule['createCountBackfillHandlers'];
 };

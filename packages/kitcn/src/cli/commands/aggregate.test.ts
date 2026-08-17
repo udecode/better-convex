@@ -98,4 +98,38 @@ describe('cli/commands/aggregate', () => {
       })
     );
   });
+
+  test('handleAggregateCommand(prune) remains available after removing the final index', async () => {
+    const calls: string[][] = [];
+    const execaStub = mock(async (_cmd: string, args: string[]) => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: `${JSON.stringify({ pruned: 1 })}\n`,
+        stderr: '',
+      } as any;
+    });
+    const originalDeployKey = process.env.CONVEX_DEPLOY_KEY;
+    process.env.CONVEX_DEPLOY_KEY = 'prod:demo|secret';
+
+    try {
+      await withSubsystemProject({ aggregateIndexes: false }, async () => {
+        const exitCode = await handleAggregateCommand(
+          ['aggregate', 'prune', '--prod'],
+          {
+            realConvex: '/fake/convex/main.js',
+            execa: execaStub as any,
+            loadCliConfig: (() => createDefaultConfig()) as any,
+          }
+        );
+
+        expect(exitCode).toBe(0);
+      });
+    } finally {
+      process.env.CONVEX_DEPLOY_KEY = originalDeployKey;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('generated/aggregate:aggregateBackfill');
+  });
 });

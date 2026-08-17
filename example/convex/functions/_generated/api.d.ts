@@ -398,6 +398,7 @@ export declare const api: {
         todoCount: number;
       } | null
     >;
+    hasAny: FunctionReference<"query", "public", {}, boolean>;
     leave: FunctionReference<"mutation", "public", { projectId: string }, any>;
     list: FunctionReference<
       "query",
@@ -471,7 +472,27 @@ export declare const api: {
       "query",
       "public",
       { identifier?: string; sampleShards?: number },
-      { config: any; shard: number; ts: number; value: number }
+      {
+        config: any;
+        shard: number;
+        state: {
+          auxTs?: number;
+          auxValue?: number;
+          shards?: Array<{
+            shard: number;
+            state: {
+              auxTs?: number;
+              auxValue?: number;
+              ts: number;
+              value: number;
+            };
+          }>;
+          ts: number;
+          value: number;
+        };
+        ts: number;
+        value: number;
+      }
     >;
     getInteractiveServerTime: FunctionReference<
       "mutation",
@@ -889,6 +910,21 @@ export declare const internal: {
     >;
   };
   generated: {
+    aggregate: {
+      aggregateBackfill: FunctionReference<"mutation", "internal", any, any>;
+      aggregateBackfillChunk: FunctionReference<
+        "mutation",
+        "internal",
+        any,
+        any
+      >;
+      aggregateBackfillStatus: FunctionReference<
+        "mutation",
+        "internal",
+        any,
+        any
+      >;
+    };
     auth: {
       create: FunctionReference<
         "mutation",
@@ -1022,19 +1058,6 @@ export declare const internal: {
       >;
     };
     server: {
-      aggregateBackfill: FunctionReference<"mutation", "internal", any, any>;
-      aggregateBackfillChunk: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
-      aggregateBackfillStatus: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
       migrationCancel: FunctionReference<"mutation", "internal", any, any>;
       migrationRun: FunctionReference<"mutation", "internal", any, any>;
       migrationRunChunk: FunctionReference<"mutation", "internal", any, any>;
@@ -1081,6 +1104,14 @@ export declare const internal: {
           to: string;
         },
         string
+      >;
+    };
+    ratelimit: {
+      cleanup: FunctionReference<
+        "mutation",
+        "internal",
+        { limit?: number; olderThanMs: number },
+        { deleted: number; hasMore: boolean }
       >;
     };
     resend: {

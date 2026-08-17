@@ -1,4 +1,4 @@
-import { parse } from 'dotenv';
+import { loadDotenv } from '../../../utils/lazy-deps.js';
 
 const INIT_NEXT_ENV_LOCAL_DEFAULTS = {
   NEXT_PUBLIC_CONVEX_URL: 'http://127.0.0.1:3210',
@@ -7,7 +7,7 @@ const INIT_NEXT_ENV_LOCAL_DEFAULTS = {
 } as const;
 
 export function renderInitNextEnvLocalTemplate(source?: string): string {
-  const existing = source ? parse(source) : {};
+  const existing = source ? loadDotenv().parse(source) : {};
   const lines = Object.entries(INIT_NEXT_ENV_LOCAL_DEFAULTS).map(
     ([key, value]) => `${key}=${existing[key] ?? value}`
   );

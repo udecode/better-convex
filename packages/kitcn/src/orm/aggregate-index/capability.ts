@@ -24,6 +24,8 @@ export const aggregateCapability = (): OrmCapability => ({
       runtime.applyAggregateIndexesForChange(...args),
     applyRankIndexesForChange: (...args) =>
       rankRuntime.applyRankIndexesForChange(...args),
+    assertAggregateIndexesWritable: (...args) =>
+      runtime.assertAggregateIndexesWritable(...args),
     compileAggregateQueryPlan: (...args) =>
       runtime.compileAggregateQueryPlan(...args),
     compileCountFieldQueryPlan: (...args) =>

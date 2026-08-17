@@ -17,6 +17,7 @@ import {
   type OrmTriggers,
   TriggerCancelledError,
 } from './triggers';
+import { markLifecycleHookedTables } from './write-fanout';
 
 const ORMLIFECYCLE_WRAPPED_DB = Symbol.for('kitcn:OrmLifecycleWrappedDB');
 const ORMLIFECYCLE_INNER_DB = Symbol.for('kitcn:OrmLifecycleInnerDB');
@@ -77,9 +78,14 @@ const isBeforeDataResult = (
 ): value is { data: Partial<AnyRecord> } =>
   typeof value === 'object' && value !== null && 'data' in value;
 
+/**
+ * FIFO mutex. A re-checking spin over one shared promise wakes every waiter on
+ * each release, which costs n(n-1)/2 resumptions for n contenders; handing the
+ * lock to exactly one queued waiter costs n-1.
+ */
 class Lock {
-  promise: Promise<void> | null = null;
-  resolve: (() => void) | null = null;
+  private locked = false;
+  private readonly waiters: (() => void)[] = [];
 
   async withLock<R>(fn: () => Promise<R>): Promise<R> {
     const unlock = await this.acquire();
@@ -91,19 +97,29 @@ class Lock {
   }
 
   private async acquire(): Promise<() => void> {
-    while (this.promise !== null) {
-      await this.promise;
+    if (this.locked) {
+      await new Promise<void>((resolve) => {
+        this.waiters.push(resolve);
+      });
     }
+    this.locked = true;
 
-    let resolve!: () => void;
-    this.promise = new Promise<void>((res) => {
-      resolve = res;
-    });
-    this.resolve = resolve;
-
+    // Single-shot: a second call would pop another waiter and let two holders
+    // run at once, breaking the change-computation invariant this lock exists
+    // to protect.
+    let released = false;
     return () => {
-      this.promise = null;
-      this.resolve?.();
+      if (released) {
+        return;
+      }
+      released = true;
+      const next = this.waiters.shift();
+      if (next) {
+        // Direct handoff: stay locked so no barging waiter can jump the queue.
+        next();
+        return;
+      }
+      this.locked = false;
     };
   }
 }
@@ -159,6 +175,96 @@ const withPublicIdAlias = (doc: AnyRecord, id: string): AnyRecord =>
         ...doc,
         id,
       };
+
+const isPlainRecord = (value: unknown): value is AnyRecord => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+/**
+ * Convex value serialization drops `undefined` at any depth below the top
+ * level, so a document read back from storage never carries a nested
+ * `undefined` key. Mirror that when deriving a document locally, otherwise
+ * `Object.keys(newDoc)` diverges from what a hook would observe.
+ */
+const stripUndefinedDeep = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((entry) => {
+      const stripped = stripUndefinedDeep(entry);
+      if (stripped !== entry) {
+        changed = true;
+      }
+      return stripped;
+    });
+    return changed ? next : value;
+  }
+  if (!isPlainRecord(value)) {
+    return value;
+  }
+  let changed = false;
+  const next: AnyRecord = {};
+  for (const key of Object.keys(value)) {
+    const nested = value[key];
+    if (nested === undefined) {
+      changed = true;
+      continue;
+    }
+    const stripped = stripUndefinedDeep(nested);
+    if (stripped !== nested) {
+      changed = true;
+    }
+    next[key] = stripped;
+  }
+  return changed ? next : value;
+};
+
+/**
+ * Reproduce Convex `1.0/shallowMerge`: a top-level shallow merge where a
+ * top-level `undefined` removes the key. The stored document is fully
+ * determined by the document we already read plus the payload we are about to
+ * write, so re-reading it after the patch buys nothing.
+ */
+const applyPatchLocally = (
+  oldDoc: AnyRecord,
+  payload: AnyRecord
+): AnyRecord => {
+  const payloadKeys = Object.keys(payload);
+  const removed = new Set<string>();
+  for (const key of payloadKeys) {
+    if (payload[key] === undefined) {
+      removed.add(key);
+    }
+  }
+
+  const newDoc: AnyRecord = {};
+  for (const key of Object.keys(oldDoc)) {
+    if (removed.has(key)) {
+      continue;
+    }
+    newDoc[key] = oldDoc[key];
+  }
+  for (const key of payloadKeys) {
+    if (removed.has(key)) {
+      continue;
+    }
+    newDoc[key] = stripUndefinedDeep(payload[key]);
+  }
+  return newDoc;
+};
+
+/** Convex owns these; a replace payload can never carry them forward. */
+const applyReplaceLocally = (
+  oldDoc: AnyRecord,
+  payload: AnyRecord
+): AnyRecord => ({
+  ...(stripUndefinedDeep(payload) as AnyRecord),
+  _id: oldDoc._id,
+  _creationTime: oldDoc._creationTime,
+});
 
 const tableNameFromId = (
   db: GenericDatabaseReader<any>,
@@ -268,7 +374,14 @@ function writerWithHooks(
       hooksByTable,
       isWithinHook,
       async (hookCtx) => {
-        const oldDoc = await innerDb.get(tableName as any, id as any);
+        // Only `update.after` and `change` consume the documents; a table
+        // hooked solely for another operation must not pay a read here.
+        const needsDocuments = Boolean(
+          tableHooks.update?.after || tableHooks.change
+        );
+        const oldDoc = needsDocuments
+          ? await innerDb.get(tableName as any, id as any)
+          : null;
         const updatePayload = await mergeBeforeData(
           tableName,
           'update',
@@ -276,6 +389,13 @@ function writerWithHooks(
           value,
           hookCtx
         );
+        // A before hook can write this document through `innerDb`. Re-read
+        // only in that case so after/change hooks derive from the actual
+        // pre-patch document instead of erasing those raw writes locally.
+        const currentDoc =
+          needsDocuments && tableHooks.update?.before
+            ? await innerDb.get(tableName as any, id as any)
+            : oldDoc;
 
         await innerDb.patch(tableName as any, id as any, updatePayload as any);
 
@@ -283,12 +403,12 @@ function writerWithHooks(
           return { result: undefined, queuedHooks: [] };
         }
 
-        const newDoc = await innerDb.get(tableName as any, id as any);
-        if (!newDoc) {
-          return { result: undefined, queuedHooks: [] };
-        }
+        const newDoc = applyPatchLocally(
+          (currentDoc ?? oldDoc) as AnyRecord,
+          updatePayload as AnyRecord
+        );
         const oldDocWithId = withPublicIdAlias(oldDoc as AnyRecord, id as any);
-        const newDocWithId = withPublicIdAlias(newDoc as AnyRecord, id as any);
+        const newDocWithId = withPublicIdAlias(newDoc, id as any);
 
         const change: OrmTriggerChange<AnyRecord> = {
           operation: 'update',
@@ -345,7 +465,12 @@ function writerWithHooks(
       hooksByTable,
       isWithinHook,
       async (hookCtx) => {
-        const oldDoc = await innerDb.get(tableName as any, id as any);
+        const needsDocuments = Boolean(
+          tableHooks.update?.after || tableHooks.change
+        );
+        const oldDoc = needsDocuments
+          ? await innerDb.get(tableName as any, id as any)
+          : null;
         const updatePayload = await mergeBeforeData(
           tableName,
           'update',
@@ -364,12 +489,12 @@ function writerWithHooks(
           return { result: undefined, queuedHooks: [] };
         }
 
-        const newDoc = await innerDb.get(tableName as any, id as any);
-        if (!newDoc) {
-          return { result: undefined, queuedHooks: [] };
-        }
+        const newDoc = applyReplaceLocally(
+          oldDoc as AnyRecord,
+          updatePayload as AnyRecord
+        );
         const oldDocWithId = withPublicIdAlias(oldDoc as AnyRecord, id as any);
-        const newDocWithId = withPublicIdAlias(newDoc as AnyRecord, id as any);
+        const newDocWithId = withPublicIdAlias(newDoc, id as any);
 
         const change: OrmTriggerChange<AnyRecord> = {
           operation: 'update',
@@ -422,7 +547,12 @@ function writerWithHooks(
       hooksByTable,
       isWithinHook,
       async (hookCtx) => {
-        const oldDoc = await innerDb.get(tableName as any, id as any);
+        // `delete.before`, `delete.after` and `change` are the only consumers
+        // of the pre-image; without one of them the read is pure waste.
+        const needsDocuments = Boolean(tableHooks.delete || tableHooks.change);
+        const oldDoc = needsDocuments
+          ? await innerDb.get(tableName as any, id as any)
+          : null;
         if (!oldDoc) {
           await innerDb.delete(tableName as any, id as any);
           return { result: undefined, queuedHooks: [] };
@@ -487,7 +617,15 @@ function writerWithHooks(
             hookCtx
           );
           const id = await innerDb.insert(table as any, insertPayload as any);
-          const newDoc = await innerDb.get(table as any, id);
+          // Convex `1.0/insert` returns only the id, so `_creationTime` cannot
+          // be synthesized — but the read is only needed when someone consumes
+          // the document.
+          const needsDocument = Boolean(
+            tableHooks.create?.after || tableHooks.change
+          );
+          const newDoc = needsDocument
+            ? await innerDb.get(table as any, id)
+            : null;
 
           if (!newDoc) {
             return { result: id, queuedHooks: [] };
@@ -606,9 +744,38 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
 
     const existing = tableHooks.get(tableConfig.name) ?? {};
     const existingChange = existing.change;
+    const metricIndexNames = aggregateIndexes.map((entry) => entry.name);
+    const rankIndexNames = rankIndexes.map((entry) => entry.name);
+    const prependWriteBarrier =
+      (
+        before?: NonNullable<
+          NormalizedOrmTableTriggers<AnyRecord>['create']
+        >['before']
+      ) =>
+      async (data: AnyRecord, ctx: AnyRecord) => {
+        await aggregate.assertAggregateIndexesWritable(
+          ctx.db as GenericDatabaseWriter<any>,
+          tableConfig.name,
+          metricIndexNames,
+          rankIndexNames
+        );
+        return before?.(data, ctx);
+      };
 
     tableHooks.set(tableConfig.name, {
       ...existing,
+      create: {
+        ...existing.create,
+        before: prependWriteBarrier(existing.create?.before),
+      },
+      update: {
+        ...existing.update,
+        before: prependWriteBarrier(existing.update?.before),
+      },
+      delete: {
+        ...existing.delete,
+        before: prependWriteBarrier(existing.delete?.before),
+      },
       change: async (change, ctx) => {
         if (change.operation === 'delete') {
           if (aggregateIndexes.length > 0) {
@@ -669,6 +836,8 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
     return createNoopLifecycle();
   }
 
+  const hookedTableNames: ReadonlySet<string> = new Set(tableHooks.keys());
+
   return {
     enabled: true,
     wrapDB: <Ctx extends AnyCtx>(ctx: Ctx): Ctx => {
@@ -682,6 +851,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
         tableHooks,
         false
       );
+      markLifecycleHookedTables(wrappedDb, hookedTableNames);
 
       return {
         ...ctx,

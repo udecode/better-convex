@@ -87,6 +87,38 @@ describe('auth/generated-contract', () => {
     ).toBe('generated/auth:updateOne');
   });
 
+  test('getAuth evaluates the auth definition once per call and memoizes the table schema', async () => {
+    let evaluations = 0;
+    const runtime = createAuthRuntime<any, any, any, any, any>({
+      internal: {},
+      moduleName: 'generated/auth',
+      schema: { tables: {} } as any,
+      auth: (() => {
+        evaluations += 1;
+        return {
+          baseURL: 'http://localhost:3000',
+          emailAndPassword: { enabled: true },
+        };
+      }) as any,
+    });
+    // A query ctx routes to the db adapter, which is the path that used to
+    // re-derive the Better Auth table schema from a second full evaluation.
+    const queryCtx = { db: {} } as any;
+
+    const first = runtime.getAuth(queryCtx) as { $context: Promise<unknown> };
+    await first.$context;
+
+    // one request-scoped evaluation + one ctx-free evaluation for the schema
+    expect(evaluations).toBe(2);
+
+    const second = runtime.getAuth(queryCtx) as { $context: Promise<unknown> };
+    await second.$context;
+
+    // the schema is memoized for the isolate, so only the request-scoped
+    // evaluation repeats
+    expect(evaluations).toBe(3);
+  });
+
   test('createAuthRuntime disables rate limiting for Convex jwks routes', async () => {
     const runtime = createAuthRuntime<any, any, any, any, any>({
       internal: {},

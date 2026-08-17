@@ -199,6 +199,88 @@ describe('use-query-options', () => {
     expect(result.current.enabled).toBe(false);
   });
 
+  test('useConvexQueryOptions keeps observer options stable for inline hook options', () => {
+    const fn = makeFunctionReference<'query'>('pets:get');
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { queryFn: async () => null } },
+    });
+    const events: string[] = [];
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      events.push(event.type);
+    });
+
+    // The idiomatic two-argument call passes a fresh options literal on every
+    // render; the returned options must still keep their identity.
+    const { result, rerender } = renderHook(
+      ({ petId }: { petId: string }) =>
+        useConvexQueryOptions(fn, { petId } as any, {
+          skipUnauth: true,
+          subscribe: false,
+        }),
+      { initialProps: { petId: 'p1' } }
+    );
+
+    const observer = new QueryObserver(queryClient, result.current as any);
+    const unobserve = observer.subscribe(() => {});
+    const first = result.current;
+
+    events.length = 0;
+    rerender({ petId: 'p1' });
+    observer.setOptions(result.current as any);
+
+    expect(result.current).toBe(first);
+    expect(events).not.toContain('observerOptionsUpdated');
+
+    // A real args change must still produce new options.
+    rerender({ petId: 'p2' });
+    expect(result.current).not.toBe(first);
+    expect(result.current.queryKey[2]).toEqual({ petId: 'p2' });
+
+    unobserve();
+    unsubscribe();
+    queryClient.clear();
+  });
+
+  test('useConvexActionQueryOptions keeps options stable for inline hook options', () => {
+    const fn = makeFunctionReference<'action'>('ai:analyze');
+
+    const { result, rerender } = renderHook(
+      ({ docId }: { docId: string }) =>
+        useConvexActionQueryOptions(fn, { docId } as any, {
+          skipUnauth: true,
+        }),
+      { initialProps: { docId: 'd1' } }
+    );
+
+    const first = result.current;
+    rerender({ docId: 'd1' });
+    expect(result.current).toBe(first);
+
+    rerender({ docId: 'd2' });
+    expect(result.current).not.toBe(first);
+  });
+
+  test('useConvexQueryOptions stays stable past 500 distinct arg shapes', () => {
+    // Referential stability used to come from a module-global 500-entry LRU.
+    // React renders in tree order, which is LRU's worst case: above the cap
+    // every entry missed on every pass and every query got new options.
+    const fn = makeFunctionReference<'query'>('pets:get');
+    const petIds = Array.from({ length: 600 }, (_, index) => `p${index}`);
+
+    const { result, rerender } = renderHook(() =>
+      petIds.map((petId) => useConvexQueryOptions(fn, { petId } as any))
+    );
+
+    const first = result.current;
+    rerender();
+
+    const unstable = result.current.filter(
+      (options, index) => options !== first[index]
+    );
+
+    expect(unstable).toHaveLength(0);
+  });
+
   test('useConvexQueryOptions does not reuse args mutated in place for an older hash', () => {
     const fn = makeFunctionReference<'query'>('pets:stable');
     const args = { petId: 'p1' };

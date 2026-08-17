@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { type BuildResult, build, type Plugin } from 'esbuild';
+import type { BuildResult, Plugin } from 'esbuild';
 import { isColorEnabled } from './utils/highlighter.js';
+import { loadEsbuild } from './utils/lazy-deps.js';
 import { createProjectJiti } from './utils/project-jiti.js';
 
 const MB = 1024 * 1024;
@@ -822,7 +823,7 @@ const packageFromInputPath = (inputPath: string): string => {
 };
 
 const buildHotspotEntry = (entryPoint: string, externalizeSchema: boolean) =>
-  build({
+  loadEsbuild().build({
     bundle: true,
     entryPoints: [entryPoint],
     external: ['convex', 'convex/*'],
@@ -2444,7 +2445,7 @@ const buildDeployBundle = async (
   entryPoints: string[],
   externalizeSchema: boolean
 ): Promise<BuildResult> =>
-  build({
+  loadEsbuild().build({
     bundle: true,
     entryPoints,
     format: 'esm',

@@ -53,6 +53,20 @@ describe('createOrm type adapters', () => {
     });
   });
 
+  test('builds skipRules on first access and memoizes it', () => {
+    const orm = createOrm({ schema });
+    const db = orm.db(createReader()) as any;
+
+    const descriptor = Object.getOwnPropertyDescriptor(db, 'skipRules');
+    expect(typeof descriptor?.get).toBe('function');
+    expect(descriptor?.enumerable).toBe(true);
+
+    const first = db.skipRules;
+    expect(first).toBe(db.skipRules);
+    expect(first.query.users).toBeDefined();
+    expect(first).not.toBe(db);
+  });
+
   test('resolves async mutation mode when scheduling is wired', () => {
     const orm = createOrm({ schema });
     const db = orm.db(

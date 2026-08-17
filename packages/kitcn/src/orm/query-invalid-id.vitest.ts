@@ -84,11 +84,18 @@ const createIndexedQuery = (rows: Record<string, unknown>[]) => ({
       },
     };
     apply(range);
+    const matching = () =>
+      rows.filter((row) =>
+        filters.every((filter) => row[filter.field] === filter.value)
+      );
     return {
-      collect: async () =>
-        rows.filter((row) =>
-          filters.every((filter) => row[filter.field] === filter.value)
-        ),
+      collect: async () => matching(),
+      take: async (count: number) => matching().slice(0, count),
+      async *[Symbol.asyncIterator]() {
+        for (const row of matching()) {
+          yield row;
+        }
+      },
     };
   },
 });

@@ -81,6 +81,8 @@ type ProcedureNameEntry = {
 
 type ProcedureNameLookup = Record<string, ProcedureNameEntry[]>;
 
+type ProjectJiti = ReturnType<typeof createProjectJiti>;
+
 export type CodegenScope = 'all' | 'auth' | 'orm';
 
 const CODEGEN_SCOPES = new Set<CodegenScope>(['all', 'auth', 'orm']);
@@ -137,9 +139,6 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
 >[] = [
   { exportName: 'scheduledMutationBatch', internal: true, type: 'mutation' },
   { exportName: 'scheduledDelete', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfill', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfillChunk', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfillStatus', internal: true, type: 'mutation' },
   { exportName: 'migrationRun', internal: true, type: 'mutation' },
   { exportName: 'migrationRunChunk', internal: true, type: 'mutation' },
   { exportName: 'migrationStatus', internal: true, type: 'mutation' },
@@ -148,9 +147,23 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
   { exportName: 'reset', internal: true, type: 'action' },
 ];
 
+const GENERATED_AGGREGATE_RUNTIME_PROCEDURES: readonly Omit<
+  ProcedureRegistryEntry,
+  'moduleName' | 'kind'
+>[] = [
+  { exportName: 'aggregateBackfill', internal: true, type: 'mutation' },
+  { exportName: 'aggregateBackfillChunk', internal: true, type: 'mutation' },
+  { exportName: 'aggregateBackfillStatus', internal: true, type: 'mutation' },
+];
+
 function listFilesRecursive(cwd: string, relDir = ''): string[] {
   const absDir = path.join(cwd, relDir);
-  const entries = fs.readdirSync(absDir, { withFileTypes: true });
+  // Sorted by name: emitted api and procedure-lookup ordering derives from
+  // this walk, and readdir order differs between filesystems. Names within a
+  // directory are unique, so the comparison never ties.
+  const entries = fs
+    .readdirSync(absDir, { withFileTypes: true })
+    .sort((a, b) => (a.name > b.name ? 1 : -1));
 
   const files: string[] = [];
   for (const entry of entries) {
@@ -544,6 +557,10 @@ function getGeneratedServerOutputFile(functionsDir: string): string {
   return path.join(functionsDir, GENERATED_DIR, 'server.ts');
 }
 
+function getGeneratedAggregateOutputFile(functionsDir: string): string {
+  return path.join(functionsDir, GENERATED_DIR, 'aggregate.ts');
+}
+
 function getGeneratedOrmOutputFile(functionsDir: string): string {
   return path.join(functionsDir, GENERATED_DIR, 'orm.ts');
 }
@@ -791,14 +808,15 @@ const EMPTY_SCHEMA_METADATA: SchemaMetadataForCodegen = {
 
 async function resolveSchemaMetadataForCodegen(
   functionsDir: string,
-  debug: boolean
+  debug: boolean,
+  createJitiInstance: () => ProjectJiti = createProjectJiti
 ): Promise<SchemaMetadataForCodegen> {
   const schemaPath = path.join(functionsDir, 'schema.ts');
   if (!fs.existsSync(schemaPath)) {
     return EMPTY_SCHEMA_METADATA;
   }
 
-  const jitiInstance = createProjectJiti();
+  const jitiInstance = createJitiInstance();
 
   try {
     const schemaModule = await jitiInstance.import(schemaPath);
@@ -968,6 +986,10 @@ export { httpAction, internalMutation };
   }
 
   const moduleNamespace = getModuleNameFromOutputFile(outputFile, functionsDir);
+  const aggregateModuleNamespace = getModuleNameFromOutputFile(
+    getGeneratedAggregateOutputFile(functionsDir),
+    functionsDir
+  );
   const ormFunctionsDeclaration = `const ormFunctions: OrmFunctions = {
   scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
     `${moduleNamespace}:scheduledMutationBatch`
@@ -976,7 +998,7 @@ export { httpAction, internalMutation };
     `${moduleNamespace}:scheduledDelete`
   )}),
   aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
-    `${moduleNamespace}:aggregateBackfillChunk`
+    `${aggregateModuleNamespace}:aggregateBackfillChunk`
   )}),
   migrationRunChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
     `${moduleNamespace}:migrationRunChunk`
@@ -1045,15 +1067,65 @@ export { httpAction, internalMutation };
 export const {
   scheduledMutationBatch,
   scheduledDelete,
-  aggregateBackfill,
-  aggregateBackfillChunk,
-  aggregateBackfillStatus,
   migrationRun,
   migrationRunChunk,
   migrationStatus,
   migrationCancel,
   resetChunk,
   reset,
+} = orm.api();
+`;
+}
+
+function emitGeneratedAggregateFile(
+  outputFile: string,
+  functionsDir: string
+): string {
+  const schemaImportLiteral = JSON.stringify(
+    getSchemaImportPath(outputFile, functionsDir)
+  );
+  const serverTypesImportLiteral = JSON.stringify(
+    getServerTypesImportPath(outputFile, functionsDir)
+  );
+  const moduleNamespace = getModuleNameFromOutputFile(outputFile, functionsDir);
+  const serverModuleNamespace = getModuleNameFromOutputFile(
+    getGeneratedServerOutputFile(functionsDir),
+    functionsDir
+  );
+
+  return `// biome-ignore-all format: generated
+// This file is auto-generated by kitcn
+// Do not edit manually. Run \`kitcn codegen\` to regenerate.
+
+import { createOrm, type OrmFunctions } from 'kitcn/orm';
+import { aggregateCapability } from 'kitcn/orm/aggregate-index';
+import { createGeneratedFunctionReference } from 'kitcn/server';
+import { internalMutation } from ${serverTypesImportLiteral};
+import schema from ${schemaImportLiteral};
+
+const ormFunctions: OrmFunctions = {
+  scheduledMutationBatch: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${serverModuleNamespace}:scheduledMutationBatch`
+  )}),
+  scheduledDelete: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${serverModuleNamespace}:scheduledDelete`
+  )}),
+  aggregateBackfillChunk: createGeneratedFunctionReference<"mutation", "internal", unknown>(${JSON.stringify(
+    `${moduleNamespace}:aggregateBackfillChunk`
+  )}),
+};
+
+const orm = createOrm({
+  schema,
+  ormFunctions,
+  capabilities: [aggregateCapability()],
+  internalMutation,
+});
+
+export const {
+  aggregateBackfill,
+  aggregateBackfillChunk,
+  aggregateBackfillStatus,
 } = orm.api();
 `;
 }
@@ -1263,6 +1335,31 @@ export function defineMigration(
 `;
 }
 
+function renderRuntimeApiTypesImport(
+  entries: ProcedureRegistryEntry[],
+  importPath: string
+): string {
+  const specifiers: string[] = [];
+
+  if (entries.some((entry) => !entry.internal)) {
+    specifiers.push('api as generatedApi');
+  }
+  if (entries.some((entry) => entry.internal)) {
+    specifiers.push('internal as generatedInternal');
+  }
+
+  if (specifiers.length === 0) {
+    return '';
+  }
+  if (specifiers.length === 1) {
+    return `import type { ${specifiers[0]} } from '${importPath}';\n`;
+  }
+
+  return `import type {\n${specifiers
+    .map((specifier) => `  ${specifier},\n`)
+    .join('')}} from '${importPath}';\n`;
+}
+
 function emitGeneratedModuleRuntimeFile(
   outputFile: string,
   functionsDir: string,
@@ -1292,6 +1389,11 @@ function emitGeneratedModuleRuntimeFile(
   );
   const { callerEntries, handlerEntries } =
     partitionRuntimeEntriesForEmission(procedureEntries);
+  // Handler entries are a subset of caller entries, so caller entries alone
+  // decide which generated api roots the emitted registries reference.
+  const runtimeApiTypesImport = runtimeApiTypesImportPath
+    ? renderRuntimeApiTypesImport(callerEntries, runtimeApiTypesImportPath)
+    : '';
   const callerRegistryLines = emitProcedureRegistryEntries(
     callerEntries,
     outputFile,
@@ -1374,15 +1476,7 @@ import {
     hasHandlerRegistry ? '\n  type GeneratedRegistryHandlerForContext,' : ''
   }
 } from 'kitcn/server';
-${
-  runtimeApiTypesImportPath
-    ? `import type {
-  api as generatedApi,
-  internal as generatedInternal,
-} from '${runtimeApiTypesImportPath}';
-`
-    : ''
-}import type { ActionCtx, MutationCtx, QueryCtx } from '${generatedServerImportPath}';
+${runtimeApiTypesImport}import type { ActionCtx, MutationCtx, QueryCtx } from '${generatedServerImportPath}';
 import type { OrmTriggerContext } from 'kitcn/orm';
 
 const procedureRegistry = {${callerRegistryBody}} as const;
@@ -1679,6 +1773,16 @@ function buildGeneratedOrmRuntimeProcedureEntries(
   }));
 }
 
+function buildGeneratedAggregateRuntimeProcedureEntries(
+  moduleName: string
+): ProcedureRegistryEntry[] {
+  return GENERATED_AGGREGATE_RUNTIME_PROCEDURES.map((entry) => ({
+    ...entry,
+    moduleName,
+    kind: 'dispatch',
+  }));
+}
+
 function partitionRuntimeEntriesForEmission(
   entries: ProcedureRegistryEntry[]
 ): {
@@ -1766,7 +1870,8 @@ function isCRPCHttpRouter(value: unknown): value is {
  */
 async function parseModuleRuntime(
   filePath: string,
-  jitiInstance: ReturnType<typeof createProjectJiti>
+  jitiInstance: ProjectJiti,
+  serverShimSpecifier: string
 ): Promise<{
   meta: ModuleMeta | null;
   httpRoutes: HttpRoutes;
@@ -1779,9 +1884,7 @@ async function parseModuleRuntime(
   // bunx-kitcn-self-resolution-must-not-break-scaffold-codegen-20260407.md.
   const rewrittenSource = source.replaceAll(
     /from\s+(['"])kitcn\/server\1/g,
-    `from ${JSON.stringify(
-      normalizeImportPath(getProjectServerParserShimPath())
-    )}`
+    `from ${JSON.stringify(serverShimSpecifier)}`
   );
   const result: ModuleMeta = {};
   const httpRoutes: HttpRoutes = {};
@@ -1890,6 +1993,7 @@ export async function generateMeta(
   const startTime = Date.now();
   const { functionsDir, outputFile } = getConvexConfig(sharedDir);
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
+  const aggregateOutputFile = getGeneratedAggregateOutputFile(functionsDir);
   const ormOutputFile = getGeneratedOrmOutputFile(functionsDir);
   const crpcOutputFile = getGeneratedCrpcOutputFile(functionsDir);
   const authOutputFile = getGeneratedAuthOutputFile(functionsDir);
@@ -1941,9 +2045,15 @@ export async function generateMeta(
   const hasAuthFile = fs.existsSync(authFilePath);
   const hasAuthDefaultExport = hasDefaultExport(authFilePath);
   const authContract = { hasAuthFile, hasAuthDefaultExport };
+  // One jiti instance per run: the alias map, the tsconfig parse and the parse
+  // shim I/O are rebuilt on every construction.
+  let sharedJitiInstance: ProjectJiti | undefined;
+  const getSharedJitiInstance = () =>
+    (sharedJitiInstance ??= createProjectJiti());
   const schemaMetadata = await resolveSchemaMetadataForCodegen(
     functionsDir,
-    debug
+    debug,
+    getSharedJitiInstance
   );
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
@@ -1988,8 +2098,11 @@ export async function generateMeta(
     (globalThis as Record<string, unknown>).__KITCN_CODEGEN__ = true;
 
     try {
-      // Create jiti instance for importing TypeScript files
-      const jitiInstance = createProjectJiti();
+      const jitiInstance = getSharedJitiInstance();
+      // Resolved once instead of once per parsed module.
+      const serverShimSpecifier = normalizeImportPath(
+        getProjectServerParserShimPath()
+      );
 
       const files = listFilesRecursive(functionsDir).filter(
         (file) => file.endsWith('.ts') && isValidConvexFile(file)
@@ -2007,6 +2120,7 @@ export async function generateMeta(
         ...new Set([
           ...files.map((file) => file.replace(TS_EXTENSION_RE, '')),
           ...(hasOrmSchema ? ['generated/server'] : []),
+          ...(hasOrmSchema ? ['generated/aggregate'] : []),
           ...(generateAuth ? [generatedAuthModuleName] : []),
         ]),
       ];
@@ -2030,7 +2144,11 @@ export async function generateMeta(
             meta: moduleMeta,
             httpRoutes,
             procedures,
-          } = await parseModuleRuntime(filePath, jitiInstance);
+          } = await parseModuleRuntime(
+            filePath,
+            jitiInstance,
+            serverShimSpecifier
+          );
 
           if (moduleMeta) {
             meta[moduleName] = moduleMeta;
@@ -2244,6 +2362,14 @@ ${optionalTypeExports}
   }
 
   writeFileIfChanged(serverOutputFile, serverOutput);
+  if (hasOrmSchema) {
+    writeFileIfChanged(
+      aggregateOutputFile,
+      emitGeneratedAggregateFile(aggregateOutputFile, functionsDir)
+    );
+  } else {
+    fs.rmSync(aggregateOutputFile, { force: true });
+  }
   fs.rmSync(ormOutputFile, { force: true });
   fs.rmSync(crpcOutputFile, { force: true });
 
@@ -2274,6 +2400,9 @@ ${optionalTypeExports}
   const mergedProcedureEntries = dedupeProcedureEntries([
     ...(hasOrmSchema
       ? buildGeneratedOrmRuntimeProcedureEntries('generated/server')
+      : []),
+    ...(hasOrmSchema
+      ? buildGeneratedAggregateRuntimeProcedureEntries('generated/aggregate')
       : []),
     ...(generateApi ? procedureEntries : []),
     ...(generateAuth && hasAuthDefaultExport
@@ -2362,6 +2491,11 @@ ${optionalTypeExports}
         logger.info(`\nRemoved ${outputFile}`);
       }
       logger.success(`Generated ${serverOutputFile}`);
+      if (hasOrmSchema) {
+        logger.success(`Generated ${aggregateOutputFile}`);
+      } else {
+        logger.info(`Removed ${aggregateOutputFile}`);
+      }
       logger.success(`Generated ${migrationsHelperOutputFile}`);
       if (generateAuth) {
         logger.success(`Generated ${authOutputFile}`);

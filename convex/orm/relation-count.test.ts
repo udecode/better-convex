@@ -420,6 +420,78 @@ describe('ORM relation with._count', () => {
     });
   });
 
+  it('reads each shared through target once for a filtered _count', async () => {
+    const { schema, relations } = buildRelationCountFixtures();
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const gets = { count: 0 };
+      const baseGet = baseCtx.db.get.bind(baseCtx.db);
+      (baseCtx.db as any).get = async (id: any) => {
+        gets.count += 1;
+        return await baseGet(id);
+      };
+
+      const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const api = ormClient.api();
+
+      const coreTeamId = await ctx.db.insert('relationCountTeams', {
+        name: 'Core',
+        archived: false,
+      });
+      const opsTeamId = await ctx.db.insert('relationCountTeams', {
+        name: 'Ops',
+        archived: false,
+      });
+
+      for (let i = 0; i < 6; i += 1) {
+        const userId = await ctx.db.insert('relationCountUsers', {
+          name: `user-${i}`,
+        });
+        await ctx.db.insert('relationCountTeamMembers', {
+          userId,
+          teamId: coreTeamId,
+        });
+        await ctx.db.insert('relationCountTeamMembers', {
+          userId,
+          teamId: opsTeamId,
+        });
+      }
+
+      await runBackfillToReady(api as any, baseCtx as any);
+
+      gets.count = 0;
+      const rows = await ctx.orm.query.relationCountUsers.findMany({
+        limit: 10,
+        with: {
+          _count: {
+            memberTeams: { where: { name: 'Core' } },
+          },
+        },
+      });
+
+      expect(rows).toHaveLength(6);
+      expect(rows.map((row) => row._count.memberTeams)).toEqual([
+        1, 1, 1, 1, 1, 1,
+      ]);
+      // Six parents share the same two team documents. Without cross-parent
+      // dedup this is twelve reads.
+      expect(gets.count).toBeLessThanOrEqual(4);
+    });
+  });
+
   it('loads relation _count across rows concurrently', async () => {
     const { schema, relations } = buildRelationCountFixtures();
     const t = convexTest(schema);
@@ -487,7 +559,7 @@ describe('ORM relation with._count', () => {
     });
   });
 
-  it('dedupes relation _count reads by normalized relation+where+parentKey across rows', async () => {
+  it('dedupes relation _count reads by parent key across rows', async () => {
     const { schema, relations } = buildRelationCountFixtures();
     const t = convexTest(schema);
 

@@ -4457,9 +4457,12 @@ describe('cli/cli', () => {
         path.join(dir, 'convex', 'lib', 'plugins', 'ratelimit', 'plugin.ts'),
         'utf8'
       );
-      expect(ratelimitPluginSource).toContain(
-        'import { MINUTE, Ratelimit, RatelimitPlugin } from "kitcn/ratelimit";'
-      );
+      // Asserted per-symbol, not as one line: the template's import wraps once
+      // it carries enough names for the formatter to split it.
+      for (const symbol of ['MINUTE', 'Ratelimit', 'RatelimitPlugin']) {
+        expect(ratelimitPluginSource).toContain(symbol);
+      }
+      expect(ratelimitPluginSource).toContain('from "kitcn/ratelimit";');
       expect(ratelimitPluginSource).toContain(
         'export const ratelimitBuckets = {'
       );
@@ -6691,13 +6694,13 @@ describe('cli/cli', () => {
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -6732,9 +6735,9 @@ describe('cli/cli', () => {
     });
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
     expect(calls[2]?.args).toContain('generated/server:migrationStatus');
-    expect(calls[3]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[3]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[4]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
@@ -6799,7 +6802,7 @@ describe('cli/cli', () => {
               stderr: '',
             } as any;
           }
-          if (args.includes('generated/server:aggregateBackfill')) {
+          if (args.includes('generated/aggregate:aggregateBackfill')) {
             return {
               exitCode: 0,
               stdout: '{"status":"ok"}\n',
@@ -6867,14 +6870,14 @@ describe('cli/cli', () => {
           stderr: '',
         } as any;
       }
-      if (args.includes('generated/server:aggregateBackfill')) {
+      if (args.includes('generated/aggregate:aggregateBackfill')) {
         return {
           exitCode: 0,
           stdout: '{"status":"ok"}\n',
           stderr: '',
         } as any;
       }
-      if (args.includes('generated/server:aggregateBackfillStatus')) {
+      if (args.includes('generated/aggregate:aggregateBackfillStatus')) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       return { exitCode: 0 } as any;
@@ -6905,9 +6908,9 @@ describe('cli/cli', () => {
     });
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
     expect(calls[2]?.args).toContain('generated/server:migrationStatus');
-    expect(calls[3]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[3]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[4]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
@@ -7080,7 +7083,7 @@ describe('cli/cli', () => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return {
           exitCode: 0,
@@ -7106,7 +7109,7 @@ describe('cli/cli', () => {
     expect(calls.length).toBe(3);
     expect(calls[0]?.args[1]).toBe('deploy');
     expect(calls[1]?.args).toContain('generated/server:migrationRun');
-    expect(calls[2]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[2]?.args).toContain('generated/aggregate:aggregateBackfill');
   });
 
   test('run(dev) rejects --scope and instructs using codegen --scope', async () => {
@@ -7161,13 +7164,13 @@ describe('cli/cli', () => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7186,12 +7189,12 @@ describe('cli/cli', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"rebuild"'
     );
     expect(calls[1]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
@@ -7203,13 +7206,13 @@ describe('cli/cli', () => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7228,12 +7231,12 @@ describe('cli/cli', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"resume"'
     );
     expect(calls[1]?.args).toContain(
-      'generated/server:aggregateBackfillStatus'
+      'generated/aggregate:aggregateBackfillStatus'
     );
   });
 
@@ -7245,7 +7248,7 @@ describe('cli/cli', () => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return {
           exitCode: 0,
@@ -7269,7 +7272,7 @@ describe('cli/cli', () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.args).toContain('generated/server:aggregateBackfill');
+    expect(calls[0]?.args).toContain('generated/aggregate:aggregateBackfill');
     expect(calls[0]?.args[calls[0].args.length - 1]).toContain(
       '"mode":"prune"'
     );
@@ -7319,13 +7322,13 @@ describe('cli/cli', () => {
       calls.push({ cmd, args });
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfillStatus')
+        args.includes('generated/aggregate:aggregateBackfillStatus')
       ) {
         return { exitCode: 0, stdout: '[]\n', stderr: '' } as any;
       }
       if (
         args[1] === 'run' &&
-        args.includes('generated/server:aggregateBackfill')
+        args.includes('generated/aggregate:aggregateBackfill')
       ) {
         return { exitCode: 0, stdout: '{"status":"ok"}\n', stderr: '' } as any;
       }
@@ -7362,8 +7365,8 @@ describe('cli/cli', () => {
     expect(runFunctions).toEqual([
       'internal.app.resetHooks:before',
       'generated/server:reset',
-      'generated/server:aggregateBackfill',
-      'generated/server:aggregateBackfillStatus',
+      'generated/aggregate:aggregateBackfill',
+      'generated/aggregate:aggregateBackfillStatus',
       'internal.app.resetHooks:after',
     ]);
     expect(runCalls[1]?.args[runCalls[1].args.length - 1]).toBe('{}');
@@ -7397,13 +7400,13 @@ describe('cli/cli', () => {
         if (cmd === 'bun') return watcherProcess;
         if (
           args[1] === 'run' &&
-          args.includes('generated/server:aggregateBackfillStatus')
+          args.includes('generated/aggregate:aggregateBackfillStatus')
         ) {
           return Promise.resolve({ exitCode: 0, stdout: '[]\n', stderr: '' });
         }
         if (
           args[1] === 'run' &&
-          args.includes('generated/server:aggregateBackfill')
+          args.includes('generated/aggregate:aggregateBackfill')
         ) {
           return Promise.resolve({
             exitCode: 0,
@@ -7431,14 +7434,14 @@ describe('cli/cli', () => {
         calls.some(
           ({ args }) =>
             args[1] === 'run' &&
-            args.includes('generated/server:aggregateBackfill')
+            args.includes('generated/aggregate:aggregateBackfill')
         )
       ).toBe(true);
       expect(
         calls.some(
           ({ args }) =>
             args[1] === 'run' &&
-            args.includes('generated/server:aggregateBackfillStatus')
+            args.includes('generated/aggregate:aggregateBackfillStatus')
         )
       ).toBe(true);
     } finally {

@@ -19,14 +19,8 @@
     "allowJs": true,
     "paths": {
       "*": ["./*"],
-      "kitcn/aggregate": ["../packages/kitcn/src/aggregate/index.ts"],
-      "kitcn/auth": ["../packages/kitcn/src/auth/index.ts"],
-      "kitcn/orm": ["../packages/kitcn/src/orm/index.ts"],
-      "kitcn/orm/aggregate-index": [
-        "../packages/kitcn/src/orm/aggregate-index/index.ts"
-      ],
-      "kitcn/orm/migrations": ["../packages/kitcn/src/orm/migrations/index.ts"],
-      "kitcn/server": ["../packages/kitcn/src/server/index.ts"]
+      "@kitcn/resend": ["../packages/resend/src/index.ts"],
+      "kitcn/*": ["../packages/kitcn/src/*/index.ts"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],

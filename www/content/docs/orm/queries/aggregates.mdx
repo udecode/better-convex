@@ -337,6 +337,12 @@ If rank or aggregate state gets out of sync after a bad deploy or interrupted wr
 kitcn aggregate rebuild
 ```
 
+Rebuild clears stored state in scheduled batches, so it works on tables of any size. Indexes report `CLEARING` while draining and `BUILDING` while recomputing; wait for `READY` before querying them again.
+
+Writes targeting a declared index in `CLEARING` fail before the document write. Retry them after the index advances to `BUILDING` or `READY`.
+
+Automatic pruning follows aggregate lifecycle state, so kickoff reads stay bounded as backing tables grow. To recover state-less storage, invoke `generated/aggregate:aggregateBackfill` in `prune` mode with exact `tableName` and `indexName` arguments.
+
 ## Best Practices
 
 ### Use `partitionBy` for Isolation
@@ -455,7 +461,7 @@ const metrics = await ctx.orm.query.orders.aggregate({
 | Error | Cause |
 |-------|-------|
 | `COUNT_NOT_INDEXED` | No `aggregateIndex` matches the filter shape |
-| `COUNT_FILTER_UNSUPPORTED` | Filter uses unsupported operators (`NOT`, string, relation, or non-finite `OR`) |
+| `COUNT_FILTER_UNSUPPORTED` | Filter uses unsupported operators (`NOT`, string, relation, or non-finite `OR`), or a range count/aggregate exceeds `aggregateWorkBudget` work units. Bucket scans cost one unit; `_min` and `_max` also cost one extrema read per matching bucket. |
 | `COUNT_INDEX_BUILDING` | Index is still backfilling |
 | `COUNT_RLS_UNSUPPORTED` | Called in an RLS-restricted context |
 

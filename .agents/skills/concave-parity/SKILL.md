@@ -266,7 +266,7 @@ Old workaround:
 Why it died:
 
 - raw `concave run` now succeeds for `generated/server:migrationRun` and
-  `generated/server:aggregateBackfill`
+  `generated/aggregate:aggregateBackfill`
 
 ### Forced `3210` dev port on Concave
 

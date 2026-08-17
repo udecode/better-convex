@@ -75,7 +75,7 @@ Windowed count: `count({ where, orderBy, skip, take, cursor })` counts rows with
 | Error                      | Cause                                        |
 | -------------------------- | -------------------------------------------- |
 | `COUNT_NOT_INDEXED`        | No `aggregateIndex` matches the filter shape |
-| `COUNT_FILTER_UNSUPPORTED` | Uses unsupported operators                   |
+| `COUNT_FILTER_UNSUPPORTED` | Unsupported operators, or a range count/aggregate over `aggregateWorkBudget` work units |
 | `COUNT_INDEX_BUILDING`     | Index still backfilling                      |
 | `COUNT_RLS_UNSUPPORTED`    | Called in RLS-restricted context             |
 
@@ -330,6 +330,15 @@ If rank or aggregate state gets out of sync:
 ```bash
 kitcn aggregate rebuild
 ```
+
+Rebuild clears stored state in scheduled batches. Indexes report `CLEARING`
+while draining and `BUILDING` while recomputing; wait for `READY`.
+Writes targeting a declared index in `CLEARING` fail before the document write;
+retry them after the index advances to `BUILDING` or `READY`.
+Automatic pruning follows aggregate lifecycle state, so kickoff reads stay
+bounded as the backing tables grow. For state-less storage, call
+`aggregateBackfill` in `prune` mode with exact `tableName` and `indexName`
+arguments.
 
 ## When to Use
 

@@ -295,9 +295,8 @@ describe('cli/codegen', () => {
       expect(moduleRuntime).toContain('createGeneratedFunctionReference,');
       expect(moduleRuntime).not.toContain('getGeneratedFunctionReference(');
       expect(moduleRuntime).not.toContain('_generated/api.js');
-      expect(moduleRuntime).not.toContain(
-        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
-      );
+      expect(moduleRuntime).not.toContain('generatedApi');
+      expect(moduleRuntime).not.toContain('generatedInternal');
       expect(moduleRuntime).toContain(
         'createGeneratedFunctionReference<"query", "public", typeof import("../../items/queries").list>("items/queries:list")'
       );
@@ -571,6 +570,17 @@ describe('cli/codegen', () => {
       );
       expect(fs.existsSync(serverGeneratedFile)).toBe(true);
       const serverGenerated = fs.readFileSync(serverGeneratedFile, 'utf-8');
+      const aggregateGeneratedFile = path.join(
+        dir,
+        'convex',
+        'generated',
+        'aggregate.ts'
+      );
+      expect(fs.existsSync(aggregateGeneratedFile)).toBe(true);
+      const aggregateGenerated = fs.readFileSync(
+        aggregateGeneratedFile,
+        'utf-8'
+      );
       const ormGeneratedFile = path.join(dir, 'convex', 'generated', 'orm.ts');
       expect(fs.existsSync(ormGeneratedFile)).toBe(false);
       const crpcGeneratedFile = path.join(
@@ -611,10 +621,21 @@ describe('cli/codegen', () => {
         'generated',
         'server.runtime.ts'
       );
+      const aggregateRuntimeFile = path.join(
+        dir,
+        'convex',
+        'generated',
+        'aggregate.runtime.ts'
+      );
       expect(fs.existsSync(allRuntimeFile)).toBe(false);
       expect(fs.existsSync(serverRuntimeFile)).toBe(true);
+      expect(fs.existsSync(aggregateRuntimeFile)).toBe(true);
       const serverRuntimeGenerated = fs.readFileSync(
         serverRuntimeFile,
+        'utf-8'
+      );
+      const aggregateRuntimeGenerated = fs.readFileSync(
+        aggregateRuntimeFile,
         'utf-8'
       );
       const nestedRuntimeGenerated = fs.readFileSync(
@@ -842,14 +863,14 @@ describe('cli/codegen', () => {
       expect(serverRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["scheduledDelete"]>("generated/server:scheduledDelete")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfill"]>("generated/server:aggregateBackfill")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfill>("generated/aggregate:aggregateBackfill")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfillChunk"]>("generated/server:aggregateBackfillChunk")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfillChunk>("generated/aggregate:aggregateBackfillChunk")'
       );
-      expect(serverRuntimeGenerated).toContain(
-        'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["aggregateBackfillStatus"]>("generated/server:aggregateBackfillStatus")'
+      expect(aggregateRuntimeGenerated).toContain(
+        'createGeneratedFunctionReference<"mutation", "internal", typeof import("./aggregate").aggregateBackfillStatus>("generated/aggregate:aggregateBackfillStatus")'
       );
       expect(serverRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"mutation", "internal", typeof generatedInternal["generated"]["server"]["migrationRun"]>("generated/server:migrationRun")'
@@ -875,9 +896,9 @@ describe('cli/codegen', () => {
       expect(nestedRuntimeGenerated).toContain(
         'createGeneratedFunctionReference<"query", "internal", typeof import("../../items/queries").internalOnly>("items/queries:internalOnly")'
       );
-      expect(serverGenerated).toContain('aggregateBackfill');
-      expect(serverGenerated).toContain('aggregateBackfillChunk');
-      expect(serverGenerated).toContain('aggregateBackfillStatus');
+      expect(aggregateGenerated).toContain('aggregateBackfill');
+      expect(aggregateGenerated).toContain('aggregateBackfillChunk');
+      expect(aggregateGenerated).toContain('aggregateBackfillStatus');
       expect(serverGenerated).toContain('migrationRun');
       expect(serverGenerated).toContain('migrationRunChunk');
       expect(serverGenerated).toContain('migrationStatus');
@@ -1229,7 +1250,7 @@ describe('cli/codegen', () => {
       const runtimeGenerated = fs.readFileSync(runtimeFile, 'utf-8');
 
       expect(runtimeGenerated).toContain(
-        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
+        "import type { api as generatedApi } from '../_generated/api';"
       );
       expect(runtimeGenerated).toContain(
         'createGeneratedFunctionReference<"query", "public", typeof generatedApi["foo"]["detail"]>("foo:detail")'
@@ -1239,6 +1260,73 @@ describe('cli/codegen', () => {
       );
       expect(runtimeGenerated).not.toContain('typeof import("../foo").detail');
       expect(runtimeGenerated).not.toContain('typeof import("../foo").list');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta only imports the generated api roots a module actually uses', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'pub.ts'),
+        `
+        import { createPubHandler } from './generated/pub.runtime';
+        void createPubHandler;
+
+        export const list = { _crpcMeta: { type: 'query' } };
+        export const detail = { _crpcMeta: { type: 'query' } };
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'priv.ts'),
+        `
+        import { createPrivHandler } from './generated/priv.runtime';
+        void createPrivHandler;
+
+        export const sweep = { _crpcMeta: { type: 'mutation', internal: true } };
+        export const purge = { _crpcMeta: { type: 'mutation', internal: true } };
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'mixed.ts'),
+        `
+        import { createMixedHandler } from './generated/mixed.runtime';
+        void createMixedHandler;
+
+        export const list = { _crpcMeta: { type: 'query' } };
+        export const sweep = { _crpcMeta: { type: 'mutation', internal: true } };
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true });
+
+      const readRuntime = (moduleName: string) =>
+        fs.readFileSync(
+          path.join(dir, 'convex', 'generated', `${moduleName}.runtime.ts`),
+          'utf-8'
+        );
+
+      const pubRuntime = readRuntime('pub');
+      expect(pubRuntime).toContain(
+        "import type { api as generatedApi } from '../_generated/api';"
+      );
+      expect(pubRuntime).not.toContain('generatedInternal');
+
+      const privRuntime = readRuntime('priv');
+      expect(privRuntime).toContain(
+        "import type { internal as generatedInternal } from '../_generated/api';"
+      );
+      expect(privRuntime).not.toContain('generatedApi');
+
+      const mixedRuntime = readRuntime('mixed');
+      expect(mixedRuntime).toContain(
+        "import type {\n  api as generatedApi,\n  internal as generatedInternal,\n} from '../_generated/api';"
+      );
     } finally {
       process.chdir(oldCwd);
     }
@@ -1885,6 +1973,20 @@ describe('cli/codegen', () => {
       expect(generatedServer).not.toContain('kitcn/orm/aggregate-index');
       expect(generatedServer).not.toContain('kitcn/orm/migrations');
       expect(generatedServer).not.toContain('capabilities:');
+      const generatedAggregate = fs.readFileSync(
+        path.join(dir, 'convex', 'generated', 'aggregate.ts'),
+        'utf-8'
+      );
+      expect(generatedAggregate).toContain(
+        "import { aggregateCapability } from 'kitcn/orm/aggregate-index';"
+      );
+      expect(generatedAggregate).toContain(
+        'capabilities: [aggregateCapability()],'
+      );
+      expect(generatedAggregate).toContain('aggregateBackfillStatus,');
+      expect(generatedServer).toContain(
+        '"generated/aggregate:aggregateBackfillChunk"'
+      );
     } finally {
       process.chdir(oldCwd);
     }
@@ -3744,23 +3846,43 @@ export default createHttpRouter({}, router({}));
         const c = initCRPC.meta<{}>().create();
 
         export const publicRoute = c.httpAction;
+        export const router = c.router;
         `.trim()
       );
       writeFile(
         path.join(dir, 'convex', 'routes.ts'),
         `
-        import { publicRoute } from './lib/crpc';
+        import { publicRoute, router } from './lib/crpc';
 
         export const authRoute = publicRoute
           .use(async ({ next }) => next())
           .post('/api/auth/demo')
           .mutation(async () => ({ ok: true }));
+
+        export const authRouter = router({ demo: authRoute });
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'http.ts'),
+        `
+        import { router } from './lib/crpc';
+        import { authRouter } from './routes';
+
+        export const httpRouter = router({ auth: authRouter });
         `.trim()
       );
 
       await expect(generateMeta(undefined, { silent: true })).resolves.toBe(
         undefined
       );
+
+      const generated = await import(
+        pathToFileURL(getConvexConfig().outputFile).href
+      );
+      expect(generated.api._http['auth.demo']).toEqual({
+        method: 'POST',
+        path: '/api/auth/demo',
+      });
     } finally {
       process.chdir(oldCwd);
     }

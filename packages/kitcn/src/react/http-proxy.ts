@@ -25,7 +25,14 @@ import type {
 } from '@tanstack/react-query';
 import type { z } from 'zod';
 import { executeHttpRequest } from '../crpc/http-client';
-import { HttpClientError } from '../crpc/http-types';
+import {
+  buildHttpQueryKey,
+  buildHttpQueryPrefixKey,
+  HTTP_DEFAULT_STALE_TIME,
+  HttpClientError,
+  type HttpMutationKey,
+  type HttpQueryKey,
+} from '../crpc/http-types';
 import {
   type CombinedDataTransformer,
   type DataTransformerOptions,
@@ -164,11 +171,11 @@ type InferHttpOutput<T> =
 // HTTP Query Key
 // ============================================================================
 
-/** Query key with args (3-element) or prefix key without args (2-element) for invalidation */
-export type HttpQueryKey =
-  | readonly ['httpQuery', string, unknown]
-  | readonly ['httpQuery', string];
-export type HttpMutationKey = readonly ['httpMutation', string];
+export type {
+  HttpMutationKey,
+  HttpQueryKey,
+  HttpQueryPrefixKey,
+} from '../crpc/http-types';
 
 // ============================================================================
 // HTTP Procedure Options Types
@@ -224,9 +231,9 @@ type DecorateHttpQuery<T extends HttpProcedure> = {
           args: InferHttpClientArgs<T>,
           opts?: HttpQueryOptions<T>
         ) => HttpQueryOptsReturn<T>;
-  /** Get query key for QueryClient methods (with args = exact match, without = prefix) */
+  /** Get the exact cache key these args are stored under (getQueryData/setQueryData) */
   queryKey: (args?: InferHttpClientArgs<T>) => HttpQueryKey;
-  /** Get query filter for QueryClient methods (e.g., invalidateQueries) */
+  /** Get query filter matching every args variant (e.g., invalidateQueries) */
   queryFilter: (
     args?: InferHttpClientArgs<T>,
     filters?: DistributiveOmit<QueryFilters, 'queryKey'>
@@ -451,8 +458,11 @@ function createRecursiveHttpProxy(
         }
 
         return (args?: HttpInputArgs, queryOpts?: Record<string, unknown>) => ({
+          // HTTP routes are pull-model with no push channel: give hydrated data
+          // a real freshness window. Callers override via `queryOpts`.
+          staleTime: HTTP_DEFAULT_STALE_TIME,
           ...queryOpts,
-          queryKey: ['httpQuery', routeKey, args] as const,
+          queryKey: buildHttpQueryKey(routeKey, args),
           queryFn: async () => {
             try {
               return await executeHttpRequest({
@@ -475,28 +485,16 @@ function createRecursiveHttpProxy(
       }
 
       // Terminal method: queryKey (for GET endpoints)
-      // When called without args or empty object, return 2-element key for prefix matching
-      // When called with args, return 3-element key for exact match
+      // Always the exact key the entry is stored under, so `getQueryData` hits.
+      // Prefix matching belongs to `queryFilter`.
       if (prop === 'queryKey') {
-        return (args?: unknown) => {
-          // undefined or empty object = no args = prefix key
-          const hasArgs =
-            args !== undefined &&
-            !(
-              typeof args === 'object' &&
-              args !== null &&
-              Object.keys(args).length === 0
-            );
-          return hasArgs
-            ? (['httpQuery', routeKey, args] as const)
-            : (['httpQuery', routeKey] as const);
-        };
+        return (args?: unknown) => buildHttpQueryKey(routeKey, args);
       }
 
       // Terminal method: queryFilter (for GET endpoints, used for invalidation)
       if (prop === 'queryFilter') {
         return (args?: unknown, filters?: Record<string, unknown>) => {
-          // undefined or empty object = no args = prefix key
+          // undefined or empty object = no args = match every args variant
           const hasArgs =
             args !== undefined &&
             !(
@@ -507,8 +505,8 @@ function createRecursiveHttpProxy(
           return {
             ...filters,
             queryKey: hasArgs
-              ? (['httpQuery', routeKey, args] as const)
-              : (['httpQuery', routeKey] as const),
+              ? buildHttpQueryKey(routeKey, args)
+              : buildHttpQueryPrefixKey(routeKey),
           };
         };
       }

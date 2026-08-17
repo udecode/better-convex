@@ -1,3 +1,4 @@
+import { getAuthTables } from 'better-auth/db';
 import { createClient } from './create-client';
 
 const authFunctions = {
@@ -10,10 +11,13 @@ const authFunctions = {
   updateOne: 'updateOne',
 } as any;
 
+const getBetterAuthSchema = () => getAuthTables({} as any);
+
 describe('createClient', () => {
   test('exposes adapter factory and removes trigger procedure API', () => {
     const client = createClient({
       authFunctions,
+      getBetterAuthSchema,
       schema: {} as any,
       triggers: {
         user: {
@@ -33,6 +37,7 @@ describe('createClient', () => {
   test('adapter uses db path for query ctx', async () => {
     const client = createClient({
       authFunctions,
+      getBetterAuthSchema,
       schema: {
         tables: {
           user: {
@@ -54,7 +59,7 @@ describe('createClient', () => {
       },
     } as any;
 
-    const adapterFactory = client.adapter(ctx, () => ({}) as any);
+    const adapterFactory = client.adapter(ctx);
     const adapter = adapterFactory({} as any);
 
     await expect(
@@ -69,6 +74,7 @@ describe('createClient', () => {
     const runQuery = mock(async () => ({ _id: 'user-2', email: 'b@b.com' }));
     const client = createClient({
       authFunctions,
+      getBetterAuthSchema,
       schema: {
         tables: {
           user: {
@@ -89,7 +95,7 @@ describe('createClient', () => {
       runQuery,
     } as any;
 
-    const adapterFactory = client.adapter(ctx, () => ({}) as any);
+    const adapterFactory = client.adapter(ctx);
     const adapter = adapterFactory({} as any);
 
     await expect(
@@ -105,6 +111,7 @@ describe('createClient', () => {
     const runQuery = mock(async () => ({ _id: 'user-3', email: 'c@b.com' }));
     const client = createClient({
       authFunctions,
+      getBetterAuthSchema,
       schema: {
         tables: {
           user: {
@@ -123,7 +130,7 @@ describe('createClient', () => {
       runQuery,
     } as any;
 
-    const adapterFactory = client.adapter(ctx, () => ({}) as any);
+    const adapterFactory = client.adapter(ctx);
     const adapter = adapterFactory({} as any);
 
     await expect(

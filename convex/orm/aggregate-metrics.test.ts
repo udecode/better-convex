@@ -62,7 +62,7 @@ const buildMetricFixtures = (options?: { defaults?: OrmRuntimeDefaults }) => {
     tables,
     options?.defaults ? { defaults: options.defaults } : undefined
   );
-  const relations = defineRelations(tables);
+  const relations = defineRelations(schema);
 
   return {
     schema,
@@ -1169,6 +1169,89 @@ describe('ORM aggregate()', () => {
           },
         })
       ).rejects.toThrow(/aggregateWorkBudget/);
+    });
+  });
+
+  it('reserves range work budget for extrema reads', async () => {
+    const { schema, relations } = buildMetricFixtures({
+      defaults: { aggregateWorkBudget: 5 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      for (let score = 1; score <= 3; score += 1) {
+        await baseCtx.db.insert('metricUsers', {
+          orgId: 'org-1',
+          status: 'active',
+          amount: score,
+          score,
+        });
+      }
+      await runBackfillToReady(api as any, baseCtx as any);
+
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      await expect(
+        ctx.orm.query.metricUsers.aggregate({
+          where: { orgId: 'org-1', score: { gte: 1 } },
+          _min: { score: true },
+        })
+      ).rejects.toThrow(/AGGREGATE_FILTER_UNSUPPORTED/);
+    });
+  });
+
+  it('shares range work budget across extrema metrics', async () => {
+    const { schema, relations } = buildMetricFixtures({
+      defaults: { aggregateWorkBudget: 8 },
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const ormClient = createOrm({
+        capabilities: [aggregateCapability()],
+        schema: relations,
+        ormFunctions: {
+          scheduledDelete: {} as any,
+          scheduledMutationBatch: {} as any,
+        },
+        internalMutation: passthroughInternalMutation,
+      });
+      const api = ormClient.api();
+
+      for (let score = 1; score <= 3; score += 1) {
+        await baseCtx.db.insert('metricUsers', {
+          orgId: 'org-1',
+          status: 'active',
+          amount: score,
+          score,
+        });
+      }
+      await runBackfillToReady(api as any, baseCtx as any);
+
+      const ctx = ormClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      await expect(
+        ctx.orm.query.metricUsers.aggregate({
+          where: { orgId: 'org-1', score: { gte: 1 } },
+          _min: { score: true },
+          _max: { score: true },
+        })
+      ).rejects.toThrow(/AGGREGATE_FILTER_UNSUPPORTED/);
     });
   });
 

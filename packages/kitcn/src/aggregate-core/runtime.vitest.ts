@@ -22,6 +22,7 @@ const schema = defineSchema({
   }),
   [AGGREGATE_TREE_TABLE]: defineTable({
     aggregateName: v.string(),
+    deletionStack: v.optional(v.array(v.id(AGGREGATE_NODE_TABLE))),
     root: v.id(AGGREGATE_NODE_TABLE),
     namespace: v.optional(v.any()),
     maxNodeSize: v.number(),

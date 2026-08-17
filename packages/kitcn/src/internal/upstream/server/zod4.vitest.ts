@@ -85,6 +85,11 @@ describe('zod4 (vendored)', () => {
       (queryFn as any)._handler({}, { name: 123 })
     ).rejects.toThrow();
 
+    // `returns` still declares the Convex validator the backend enforces.
+    expect(JSON.parse((queryFn as any).exportReturns())).toMatchObject({
+      type: 'object',
+    });
+
     const zMutation = zCustomMutation(
       mutation,
       customCtx(async () => ({
@@ -109,5 +114,98 @@ describe('zod4 (vendored)', () => {
       doubled: 10,
       role: 'writer',
     });
+  });
+
+  test('returns runs before the Convex validator it declares', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      // The handler is typed as the schema's input, and Convex validates its
+      // output, so the parse has to bridge the two.
+      returns: z.object({
+        count: z.string().transform((value) => Number(value)),
+        label: z.string().default('anon'),
+      }),
+      handler: async () => ({ count: '5' }),
+    });
+
+    await expect((queryFn as any)._handler({}, { id: 'a' })).resolves.toEqual({
+      count: 5,
+      label: 'anon',
+    });
+  });
+
+  test('returns rejects a value the schema does not accept', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      returns: z.object({ name: z.string() }),
+      handler: async () => ({ name: 123 }) as any,
+    });
+
+    await expect((queryFn as any)._handler({}, { id: 'a' })).rejects.toThrow();
+  });
+
+  test('skipZodReturnsValidation declares the validator without parsing', async () => {
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: { id: z.string() },
+      returns: z.object({ name: z.string().toUpperCase() }),
+      skipZodReturnsValidation: true,
+      handler: async () => ({ name: 'ada' }),
+    });
+
+    // Untouched by Zod, and still declared for the Convex backend to enforce.
+    await expect((queryFn as any)._handler({}, { id: 'a' })).resolves.toEqual({
+      name: 'ada',
+    });
+    expect(JSON.parse((queryFn as any).exportReturns())).toMatchObject({
+      type: 'object',
+    });
+  });
+
+  test('the args schema is built once per procedure, not once per request', async () => {
+    let shapeReads = 0;
+    const shape = new Proxy(
+      { name: z.string() },
+      {
+        get(target, key, receiver) {
+          shapeReads += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      }
+    );
+
+    const zQuery = zCustomQuery(
+      query,
+      customCtx(async () => ({}))
+    );
+    const queryFn = zQuery({
+      args: shape as any,
+      handler: async (_ctx, args) => (args as { name: string }).name,
+    });
+
+    // Undeclared keys are still dropped before the handler sees them.
+    await expect(
+      (queryFn as any)._handler({}, { name: 'ada', extra: 'dropped' })
+    ).resolves.toBe('ada');
+
+    const afterFirstCall = shapeReads;
+
+    await expect((queryFn as any)._handler({}, { name: 'bob' })).resolves.toBe(
+      'bob'
+    );
+
+    // A fresh z.object(shape) per request would re-read the shape here.
+    expect(shapeReads).toBe(afterFirstCall);
   });
 });

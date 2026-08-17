@@ -7,6 +7,7 @@
 import type { z } from 'zod';
 
 import type { Simplify } from '../internal/types';
+import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import type { HttpProcedure } from '../server/http-types';
 import type { UnsetMarker } from '../server/types';
 
@@ -20,7 +21,52 @@ export type HttpRouteInfo = { path: string; method: string };
 /** Route map type - from codegen */
 export type HttpRouteMap = Record<string, HttpRouteInfo>;
 
-import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
+// ============================================================================
+// Query Key + Cache Policy (single owner for every `crpc.http.*` consumer)
+// ============================================================================
+
+/** Exact cache key for one route + args, as stored in the QueryClient */
+export type HttpQueryKey = readonly ['httpQuery', string, unknown];
+
+/** Route-wide prefix key that matches every args variant of one route */
+export type HttpQueryPrefixKey = readonly ['httpQuery', string];
+
+/** Mutation key for HTTP endpoints */
+export type HttpMutationKey = readonly ['httpMutation', string];
+
+/**
+ * Build the exact cache key for an HTTP route.
+ *
+ * Missing args normalize to `{}` so the RSC prefetch, the browser observer, and
+ * a hand-written `getQueryData` call all hash to the same key. Every producer
+ * of an `httpQuery` cache key goes through here.
+ */
+export function buildHttpQueryKey(
+  routeKey: string,
+  args?: unknown
+): HttpQueryKey {
+  return ['httpQuery', routeKey, args ?? {}] as const;
+}
+
+/**
+ * Build the route-wide prefix key.
+ *
+ * Filters match on prefix, so this matches every args variant of the route.
+ * Not a cache key: nothing is ever stored under it.
+ */
+export function buildHttpQueryPrefixKey(routeKey: string): HttpQueryPrefixKey {
+  return ['httpQuery', routeKey] as const;
+}
+
+/**
+ * Freshness window for `crpc.http.*` routes, in milliseconds.
+ *
+ * HTTP routes are a pull model with no push channel, so hydrated data needs a
+ * real freshness window or the browser refetches it on mount. The RSC
+ * QueryClient reads the same constant, so the server dedupe window and the
+ * client freshness window cannot drift apart.
+ */
+export const HTTP_DEFAULT_STALE_TIME = 30_000;
 
 // ============================================================================
 // Type Inference Utilities

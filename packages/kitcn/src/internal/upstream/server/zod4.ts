@@ -44,7 +44,7 @@ import type {
 import { ConvexError, v } from 'convex/values';
 import * as z from 'zod/v4';
 import * as zCore from 'zod/v4/core';
-import { type Expand, pick } from '../index';
+import type { Expand } from '../index';
 import { addFieldsToValidator, type VRequired, vRequired } from '../validators';
 import type { Customization, Registration } from './customFunctions';
 import { NoOp } from './customFunctions';
@@ -775,7 +775,11 @@ export type CustomBuilder<
 > = <
   ArgsValidator extends ZodFields | zCore.$ZodObject<any> | void,
   ReturnsZodValidator extends zCore.$ZodType | ZodFields | void = void,
-  ReturnValue extends ReturnValueInput<ReturnsZodValidator> = any,
+  SkipZodReturnsValidation extends boolean = false,
+  ReturnValue extends ReturnValueForHandler<
+    ReturnsZodValidator,
+    SkipZodReturnsValidation
+  > = any,
   // Note: this differs from customFunctions.ts b/c we don't need to track
   // the exact args to match the standard builder types. For Zod we don't
   // try to ever pass a custom function as a builder to another custom
@@ -792,7 +796,10 @@ export type CustomBuilder<
           ...args: ArgsForHandlerType<ArgsOutput<ArgsValidator>, CustomMadeArgs>
         ) => ReturnValue;
         /**
-         * Validates the value returned by the function.
+         * Validates the value returned by the function, and declares the
+         * Convex `returns` validator from the schema's output type. The Zod
+         * parse runs first, so the handler returns the schema's *input* type
+         * and the client receives its *output* type.
          * Note: you can't pass an object directly without wrapping it
          * in `z.object()`.
          */
@@ -802,11 +809,22 @@ export type CustomBuilder<
          * in case you're seeing performance issues with validating twice.
          */
         skipConvexValidation?: boolean;
+        /**
+         * If true, `returns` only declares the Convex validator and the return
+         * type - the Zod parse is skipped. The handler's value reaches Convex
+         * unchanged, so it must already be the schema's *output* type, which
+         * is what the handler is then typed as.
+         *
+         * For callers that already parse the response themselves. Combined
+         * with `skipConvexValidation`, nothing validates the return value.
+         */
+        skipZodReturnsValidation?: SkipZodReturnsValidation;
       } & {
         [key in keyof ExtraArgs as key extends
           | 'args'
           | 'handler'
           | 'skipConvexValidation'
+          | 'skipZodReturnsValidation'
           | 'returns'
           ? never
           : key]: ExtraArgs[key];
@@ -830,13 +848,27 @@ export type CustomBuilder<
     : ReturnValueOutput<ReturnsZodValidator>
 >;
 
+/**
+ * Single-pass `pick` over own keys, preserving `obj`'s insertion order.
+ *
+ * The shared `pick` helper is `Object.fromEntries(Object.entries(obj).filter(
+ * ([k]) => keys.includes(k)))`, i.e. O(fields^2) with three intermediate
+ * allocations. This runs on every request, so it gets a Set instead.
+ */
+function pickKeys(obj: Record<string, any>, keys: Set<string>) {
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    if (keys.has(key)) {
+      result[key] = obj[key];
+    }
+  }
+  return result;
+}
+
 function customFnBuilder(
   builder: (args: any) => any,
   customization: Customization<any, any, any, any, any>
 ) {
-  // Most of the code in here is identical to customFnBuilder in zod3.ts.
-  // If making changes, please keep zod3.ts in sync.
-
   // Looking forward to when input / args / ... are optional
   const customInput: Customization<any, any, any, any, any>['input'] =
     customization.input ?? NoOp.input;
@@ -846,6 +878,7 @@ function customFnBuilder(
       args,
       handler = fn,
       skipConvexValidation = false,
+      skipZodReturnsValidation = false,
       returns: maybeObject,
       ...extra
     } = fn;
@@ -858,6 +891,14 @@ function customFnBuilder(
     const returnValidator =
       returns && !skipConvexValidation
         ? { returns: zodOutputToConvex(returns) }
+        : null;
+
+    // Convex validates the *output* type of `returns`, so the Zod parse has to
+    // run first for a transforming schema to reach the backend as the shape it
+    // declared. Callers that own their own response parse opt out.
+    const parseReturns =
+      returns && !skipZodReturnsValidation
+        ? (value: any) => returns.parseAsync(value === undefined ? null : value)
         : null;
 
     if (args) {
@@ -873,6 +914,16 @@ function customFnBuilder(
         }
       }
       const convexValidator = zodToConvexFields(argsValidator);
+      // `argsValidator` is frozen at definition time, so everything derived
+      // from it belongs here rather than inside the per-request handler.
+      const inputArgKeys = Object.keys(inputArgs);
+      const inputArgKeySet = new Set(inputArgKeys);
+      const argKeySet = new Set(Object.keys(argsValidator));
+      // Built on first invocation, then reused for the isolate's lifetime: a
+      // fresh z.object() per request discards zod's per-instance parse memo,
+      // and constructing it eagerly would tax cold starts of procedures that
+      // are never called.
+      let argsSchema;
       return builder({
         args: skipConvexValidation
           ? undefined
@@ -881,11 +932,14 @@ function customFnBuilder(
         handler: async (ctx: any, allArgs: any) => {
           const added = await customInput(
             ctx,
-            pick(allArgs, Object.keys(inputArgs)) as any,
+            (inputArgKeys.length === 0
+              ? {}
+              : pickKeys(allArgs, inputArgKeySet)) as any,
             extra
           );
-          const rawArgs = pick(allArgs, Object.keys(argsValidator));
-          const parsed = await z.object(argsValidator).safeParseAsync(rawArgs);
+          const rawArgs = pickKeys(allArgs, argKeySet);
+          argsSchema ??= z.object(argsValidator);
+          const parsed = await argsSchema.safeParseAsync(rawArgs);
           if (!parsed.success) {
             throw new ConvexError({
               ZodError: JSON.parse(
@@ -899,9 +953,7 @@ function customFnBuilder(
           const ret = await handler(finalCtx, finalArgs);
           // We don't catch the error here. It's a developer error and we
           // don't want to risk exposing the unexpected value to the client.
-          const result = returns
-            ? await returns.parseAsync(ret === undefined ? null : ret)
-            : ret;
+          const result = parseReturns ? await parseReturns(ret) : ret;
           if (added.onSuccess) {
             await added.onSuccess({ ctx, args, result });
           }
@@ -924,9 +976,7 @@ function customFnBuilder(
         const ret = await handler(finalCtx, finalArgs);
         // We don't catch the error here. It's a developer error and we
         // don't want to risk exposing the unexpected value to the client.
-        const result = returns
-          ? await returns.parseAsync(ret === undefined ? null : ret)
-          : ret;
+        const result = parseReturns ? await parseReturns(ret) : ret;
         if (added.onSuccess) {
           await added.onSuccess({ ctx, args, result });
         }
@@ -966,6 +1016,16 @@ type ReturnValueOutput<
   : [ReturnsValidator] extends [ZodFields]
     ? Returns<zCore.output<zCore.$ZodObject<ReturnsValidator, zCore.$strict>>>
     : any;
+
+// What the handler must return. Skipping the Zod parse moves the handler up to
+// the output type, since its value then reaches the Convex returns validator -
+// which is built from the schema's output - unchanged.
+type ReturnValueForHandler<
+  ReturnsValidator extends zCore.$ZodType | ZodFields | void,
+  SkipZodReturnsValidation extends boolean,
+> = SkipZodReturnsValidation extends true
+  ? ReturnValueOutput<ReturnsValidator>
+  : ReturnValueInput<ReturnsValidator>;
 
 // The args before they've been validated: passed from the client
 type ArgsInput<ArgsValidator extends ZodFields | zCore.$ZodObject<any> | void> =

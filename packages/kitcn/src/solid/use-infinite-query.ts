@@ -1,7 +1,7 @@
+import type { QueryObserverResult } from '@tanstack/query-core';
 import {
   type DefaultError,
   type SolidQueryOptions,
-  useQueries,
   useQueryClient,
 } from '@tanstack/solid-query';
 import type {
@@ -15,15 +15,24 @@ import {
   getFunctionName,
   type PaginationResult,
 } from 'convex/server';
-import { createEffect, createMemo, createSignal, on } from 'solid-js';
+import {
+  createEffect,
+  createMemo,
+  createRenderEffect,
+  createSignal,
+  on,
+} from 'solid-js';
+import { createStore } from 'solid-js/store';
 
 import { CRPCClientError, isCRPCClientError } from '../crpc/error';
 import { convexQuery } from '../crpc/query-options';
 import { type ExtractPaginatedItem, FUNC_REF_SYMBOL } from '../crpc/types';
+import { type EnabledFn, resolveEnabled } from '../internal/enabled';
 import { shouldSplitPaginationPage } from '../internal/pagination';
 import type { DistributiveOmit } from '../internal/types';
 import { useMeta } from './auth';
 import { useAuthValue, useSafeConvexAuth } from './auth-store';
+import { createQueriesResults } from './create-queries-results';
 import type { ConvexInfiniteQueryOptionsWithRef } from './crpc-types';
 
 /** Reserved options controlled by infinite query hooks */
@@ -39,9 +48,16 @@ type ReservedInfiniteOptions =
 /** Base options for infinite query internal hook */
 type InfiniteQueryOptions<TItem> = {
   limit?: number;
+  /** Auth binding of the paginated function, from the caller's cRPC meta. */
+  authType?: 'optional' | 'required';
+  /**
+   * Accessor, not a value: the gate is re-read inside the hook's memos so auth
+   * transitions and a caller predicate both keep working after mount.
+   */
+  enabled?: () => boolean | EnabledFn;
 } & DistributiveOmit<
   SolidQueryOptions<TItem[], DefaultError>,
-  ReservedInfiniteOptions
+  ReservedInfiniteOptions | 'enabled'
 >;
 
 /**
@@ -75,21 +91,9 @@ export type PaginationState = {
 // Query key prefix for pagination state storage
 const PAGINATION_KEY_PREFIX = '__pagination__' as const;
 
-// Pagination ID store - persists across mounts for cache reuse
-// Key: query name + args, Value: pagination ID
-const paginationIdStore = new Map<string, number>();
 let paginationIdCounter = 0;
 
-const getOrCreatePaginationId = (storeKey: string): number => {
-  const existing = paginationIdStore.get(storeKey);
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const newId = ++paginationIdCounter;
-  paginationIdStore.set(storeKey, newId);
-  return newId;
-};
+const createPaginationId = (): number => ++paginationIdCounter;
 
 export type PaginationStatus =
   | 'CanLoadMore'
@@ -140,6 +144,93 @@ type PageState = {
   endCursor?: string | null; // For page splitting - the cursor where this page ends
 };
 
+/** Aggregate of every page query, derived from the raw observer results */
+type CombinedPages<TItem> = {
+  data: TItem[];
+  dataUpdatedAt: number;
+  error: Error | null;
+  failureReason: Error | null;
+  isError: boolean;
+  isFetchNextPageError: boolean;
+  isFetching: boolean;
+  isLoading: boolean;
+  isPlaceholderData: boolean;
+  isRefetching: boolean;
+  lastPage: PaginationResult<TItem> | undefined;
+  pages: TItem[][];
+  status: PaginationStatus;
+};
+
+/** Read the identity of a Convex document, tolerating `id` and `_id` shapes */
+const getItemId = (item: unknown): string | undefined => {
+  const doc = item as { _id?: string; id?: string } | null | undefined;
+  return doc?._id || doc?.id;
+};
+
+/**
+ * Fold the per-page observer results into one pagination-shaped aggregate.
+ * Pure: same inputs always produce the same output, so it is safe to re-run
+ * inside a reactive derivation.
+ */
+const aggregatePages = <TItem>(
+  results: QueryObserverResult[],
+  hasPlaceholderData: boolean
+): CombinedPages<TItem> => {
+  // Aggregate pages with deduplication
+  const allItems: TItem[] = [];
+  const pages: TItem[][] = [];
+  const seenIds = new Set<string>();
+  let lastPage: PaginationResult<TItem> | undefined;
+  let status: PaginationStatus = 'LoadingFirstPage';
+
+  for (let i = 0; i < results.length; i++) {
+    const pageQuery = results[i];
+    if (pageQuery.isLoading || pageQuery.data === undefined) {
+      status = i === 0 ? 'LoadingFirstPage' : 'LoadingMore';
+      break;
+    }
+    const page = pageQuery.data as PaginationResult<TItem>;
+    lastPage = page;
+    pages.push(page.page);
+    for (const item of page.page) {
+      const id = getItemId(item);
+      if (id && seenIds.has(id)) continue;
+      if (id) seenIds.add(id);
+      allItems.push(item);
+    }
+    status = page.isDone ? 'Exhausted' : 'CanLoadMore';
+  }
+
+  // Computed values for overrides
+  const firstPage = results.length > 0 ? results[0] : undefined;
+  const isPlaceholderData = firstPage
+    ? firstPage.isPlaceholderData
+    : hasPlaceholderData;
+  const isFetching = results.some((r) => r.isFetching);
+  // Aggregate errors across all pages
+  const error = (results.find((r) => r.isError)?.error ?? null) as Error | null;
+
+  return {
+    data: allItems,
+    // Use latest dataUpdatedAt across all pages
+    dataUpdatedAt: Math.max(...results.map((r) => r.dataUpdatedAt)),
+    error,
+    failureReason: error,
+    isError: results.some((r) => r.isError),
+    isFetchNextPageError:
+      results.length > 1 && (results.at(-1)?.isError ?? false),
+    // Aggregate fetching across all pages
+    isFetching,
+    isLoading: status === 'LoadingFirstPage',
+    // Override with placeholder-aware values
+    isPlaceholderData,
+    isRefetching: isFetching && allItems.length > 0 && !isPlaceholderData,
+    lastPage,
+    pages,
+    status,
+  };
+};
+
 /** Build a unique key for recovery attempt detection */
 const buildRecoveryKey = (
   pageKeys: number[],
@@ -147,20 +238,23 @@ const buildRecoveryKey = (
   page0UpdatedAt: number
 ): string => JSON.stringify({ pageKeys, page0Cursor, page0UpdatedAt });
 
+/** Minimal shape the effects need from a raw page result */
+type PageResult = {
+  data?: unknown;
+  dataUpdatedAt?: number;
+  isError?: boolean;
+  isFetching?: boolean;
+};
+
 type UseStaleCursorRecoveryOptions = {
   argsObject: () => Record<string, unknown>;
   combined: {
-    _rawResults: Array<{
-      data?: unknown;
-      dataUpdatedAt?: number;
-      isError?: boolean;
-      isFetching?: boolean;
-      refetch: () => void;
-    }>;
     isFetchNextPageError: boolean;
     status: string;
   };
   limit?: number;
+  /** Raw per-page observer results, fresh identity on every update */
+  pageResults: () => PageResult[];
   setState: (
     updater: PaginationState | ((prev: PaginationState) => PaginationState)
   ) => void;
@@ -180,6 +274,7 @@ const useStaleCursorRecovery = ({
   argsObject,
   combined,
   limit,
+  pageResults,
   setState,
   state,
 }: UseStaleCursorRecoveryOptions): void => {
@@ -189,7 +284,7 @@ const useStaleCursorRecovery = ({
     on(
       [
         () => combined.isFetchNextPageError,
-        () => combined._rawResults,
+        pageResults,
         () => state().pageKeys,
         () => state().queries,
         () => state().autoRecoveryAttempted,
@@ -198,14 +293,15 @@ const useStaleCursorRecovery = ({
       () => {
         if (!combined.isFetchNextPageError) return;
 
-        const page0Result = combined._rawResults[0];
+        const results = pageResults();
+        const page0Result = results[0];
         const page0Data = page0Result?.data as
           | PaginationResult<unknown>
           | undefined;
         const page0UpdatedAt = page0Result?.dataUpdatedAt ?? 0;
 
         const hasPage0Data = page0Data !== undefined && !page0Result?.isError;
-        const hasSubsequentErrors = combined._rawResults
+        const hasSubsequentErrors = results
           .slice(1)
           .some((q) => q?.isError && !q?.isFetching);
 
@@ -222,7 +318,7 @@ const useStaleCursorRecovery = ({
         if (currentState.autoRecoveryAttempted === recoveryKey) return;
 
         const erroredPageKeys = currentState.pageKeys.filter(
-          (_, i) => i > 0 && combined._rawResults[i]?.isError
+          (_, i) => i > 0 && results[i]?.isError
         );
         const itemsToRecover = erroredPageKeys.reduce((sum, key) => {
           const pageLimit =
@@ -289,13 +385,20 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   options: InfiniteQueryOptions<PaginatedQueryItem<Query>>
 ): UseInfiniteQueryResult<PaginatedQueryItem<Query>> => {
   // Extract our custom options, the rest are TanStack Query options for page queries
-  const { limit, enabled, placeholderData, ...queryOptions } = options;
+  const { limit, authType, enabled, placeholderData, ...queryOptions } =
+    options;
 
   const safeAuth = useSafeConvexAuth();
+  const authEpoch = () => useAuthValue('authEpoch');
   const meta = useMeta();
   const queryClient = useQueryClient();
 
-  // Look up server-prefetched data using server-compatible queryKey
+  // Look up server-prefetched data using server-compatible queryKey.
+  // This is a mount-time gate only ("did the server give us page 0?"), never
+  // page 0's `initialData`: the prefetch is written under page 0's own query
+  // key, so TanStack already serves it, while `initialData` would additionally
+  // freeze it into the query's `initialState` — where an identity transition
+  // resurrects the previous account's page.
   const prefetchedFirstPage = createMemo(() => {
     const serverQueryKey = [
       'convexQuery',
@@ -310,9 +413,11 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     return data ?? null;
   });
 
-  // Don't skip if we have prefetched data - use it for instant hydration
+  // Don't skip if we have prefetched data - use it for instant hydration.
+  // `enabled` is read through the accessor so both reads stay tracked.
   const skip = createMemo(
-    () => !prefetchedFirstPage() && (safeAuth.isLoading || enabled === false)
+    () =>
+      !prefetchedFirstPage() && (safeAuth.isLoading || enabled?.() === false)
   );
 
   // Helper to get/set pagination state from queryClient with gcTime: Infinity
@@ -332,14 +437,22 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     () => (skip() ? {} : args) as Record<string, unknown>
   );
 
-  // Stable store key for pagination ID persistence across mounts
+  // Stable store key for pagination ID persistence across mounts.
+  // Cursors index into one account's result set, so an auth-bound list carries
+  // the account generation: a transition re-keys it, which routes the hook
+  // through its existing "args changed" reset instead of restoring the previous
+  // account's page chain and paging from its cursors.
   const storeKey = createMemo(() =>
-    JSON.stringify({ query: getFunctionName(query), args: argsObject() })
+    JSON.stringify({
+      query: getFunctionName(query),
+      args: argsObject(),
+      ...(authType ? { authEpoch: authEpoch() } : {}),
+    })
   );
 
   // Helper to create initial state
   const createInitialState = (): PaginationState => {
-    const id = getOrCreatePaginationId(storeKey());
+    const id = createPaginationId();
     return {
       id,
       nextPageKey: 1,
@@ -462,14 +575,17 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
 
       return {
         ...convexQuery(query, convexArgs as any, meta),
-        enabled: !skip() && !!state().queries[key],
+        // Resolve the caller's `enabled` here so a predicate is evaluated
+        // per page instead of being collapsed into a boolean upstream.
+        enabled: resolveEnabled(
+          !skip() &&
+            !!state().queries[key] &&
+            (!authType || !safeAuth.isLoading),
+          enabled?.()
+        ),
         structuralSharing: false,
         // Apply TanStack Query options to all pages
         ...(queryOptions ?? {}),
-        // Use server-prefetched data for first page (hydration)
-        ...(index === 0 && prefetchedFirstPage()
-          ? { initialData: prefetchedFirstPage() }
-          : {}),
         // Use placeholder data for first page (wrapped in pagination format)
         ...(index === 0 && placeholderData
           ? {
@@ -484,93 +600,24 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
     })
   );
 
-  // Use combine to aggregate all page states in one place
-  // In solid-query, useQueries takes an Accessor (function)
-  // Cast needed because solid-query doesn't infer combine return type from accessor
-  const combined = (useQueries as any)(() => ({
-    queries: tanstackQueries() as any,
-    combine: (results: any[]) => {
-      // Aggregate pages with deduplication
-      const allItems: PaginatedQueryItem<Query>[] = [];
-      const pages: PaginatedQueryItem<Query>[][] = [];
-      const seenIds = new Set<string>();
-      let lastPage: PaginationResult<PaginatedQueryItem<Query>> | undefined;
-      let paginationStatus: PaginationStatus = 'LoadingFirstPage';
+  // Subscribe every page and keep the raw observer results.
+  const pageResults = createQueriesResults(() => tanstackQueries() as any);
 
-      for (let i = 0; i < results.length; i++) {
-        const pageQuery = results[i];
-        if (pageQuery.isLoading || pageQuery.data === undefined) {
-          paginationStatus = i === 0 ? 'LoadingFirstPage' : 'LoadingMore';
-          break;
-        }
-        const page = pageQuery.data as PaginationResult<
-          PaginatedQueryItem<Query>
-        >;
-        lastPage = page;
-        pages.push(page.page);
-        for (const item of page.page) {
-          const id =
-            (item as { _id?: string })._id || (item as { id?: string }).id;
-          if (id && seenIds.has(id)) continue;
-          if (id) seenIds.add(id);
-          allItems.push(item);
-        }
-        paginationStatus = page.isDone ? 'Exhausted' : 'CanLoadMore';
-      }
-
-      // Computed values for overrides
-      const isPlaceholderData =
-        results[0]?.isPlaceholderData ?? !!placeholderData;
-      const isFetching = results.some((r: any) => r.isFetching);
-      // Use latest dataUpdatedAt across all pages
-      const dataUpdatedAt = Math.max(
-        ...results.map((r: any) => r.dataUpdatedAt ?? 0)
-      );
-
-      return {
-        data: allItems,
-        dataUpdatedAt,
-        lastPage,
-        pages,
-        status: paginationStatus,
-        // Aggregate errors across all pages
-        error: results.find((r: any) => r.isError)?.error ?? null,
-        isError: results.some((r: any) => r.isError),
-        // Aggregate fetching across all pages
-        isFetching,
-        isFetchNextPageError:
-          results.length > 1 && (results.at(-1)?.isError ?? false),
-        // Override with placeholder-aware values
-        isPlaceholderData,
-        isRefetching: isFetching && allItems.length > 0 && !isPlaceholderData,
-        isLoading: paginationStatus === 'LoadingFirstPage',
-        failureReason: results.find((r: any) => r.isError)?.error ?? null,
-        // Keep raw results for effects (InvalidCursor detection, page splitting)
-        _rawResults: results,
-      };
-    },
-  })) as {
-    data: PaginatedQueryItem<Query>[];
-    dataUpdatedAt: number;
-    lastPage: PaginationResult<PaginatedQueryItem<Query>> | undefined;
-    pages: PaginatedQueryItem<Query>[][];
-    status: PaginationStatus;
-    error: Error | null;
-    isError: boolean;
-    isFetching: boolean;
-    isFetchNextPageError: boolean;
-    isPlaceholderData: boolean;
-    isRefetching: boolean;
-    isLoading: boolean;
-    failureReason: Error | null;
-    _rawResults: any[];
-  };
+  // Aggregate the pages into a store so each property notifies independently:
+  // a consumer reading only `status` is untouched when only `data` changes.
+  const derive = (): CombinedPages<PaginatedQueryItem<Query>> =>
+    aggregatePages<PaginatedQueryItem<Query>>(pageResults(), !!placeholderData);
+  const [combined, setCombined] = createStore<
+    CombinedPages<PaginatedQueryItem<Query>>
+  >(derive());
+  createRenderEffect(() => setCombined(derive()));
 
   // Auto-recovery from stale cursors after WebSocket reconnection
   useStaleCursorRecovery({
     argsObject,
     combined,
     limit,
+    pageResults,
     setState,
     state,
   });
@@ -578,15 +625,11 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   // Split when Convex requests it or a reactive page outgrows its target size.
   createEffect(
     on(
-      [
-        () => combined._rawResults,
-        () => state().pageKeys,
-        () => state().queries,
-        argsObject,
-      ],
+      [pageResults, () => state().pageKeys, () => state().queries, argsObject],
       () => {
-        for (let i = 0; i < combined._rawResults.length; i++) {
-          const pageQuery = combined._rawResults[i];
+        const results = pageResults();
+        for (let i = 0; i < results.length; i++) {
+          const pageQuery = results[i];
           if (pageQuery.data) {
             const page = pageQuery.data as PaginationResult<
               PaginatedQueryItem<Query>
@@ -747,7 +790,9 @@ export function useInfiniteQuery<
   const onQueryUnauthorized = useAuthValue('onQueryUnauthorized');
   const safeAuth = useSafeConvexAuth();
 
-  // Extract metadata and query options from infiniteOptions
+  // Extract metadata and query options from infiniteOptions.
+  // `enabled` is pulled out of the rest so a frozen value never reaches a page
+  // query; it is read lazily through `factoryEnabled()` below.
   const {
     queryKey: _queryKey,
     staleTime: _staleTime,
@@ -755,7 +800,7 @@ export function useInfiniteQuery<
     refetchOnMount: _refetchOnMount,
     refetchOnReconnect: _refetchOnReconnect,
     refetchOnWindowFocus: _refetchOnWindowFocus,
-    enabled: factoryEnabled,
+    enabled: _enabled,
     meta,
     ...queryOptions
   } = infiniteOptions;
@@ -764,19 +809,30 @@ export function useInfiniteQuery<
   // Default skipUnauth to false (throws CRPCClientError)
   const skipUnauthFinal = skipUnauth ?? false;
 
+  // Read through the options object so the factory's `enabled` getter runs in
+  // a tracking scope. A Solid component body is not one, so reading it here
+  // would pin the value to whatever auth was at mount.
+  const factoryEnabled = () => infiniteOptions.enabled;
+
   // Auth required but user not authenticated (after auth loads)
-  const isUnauthorized =
-    authType === 'required' && !safeAuth.isLoading && !safeAuth.isAuthenticated;
+  const isUnauthorized = createMemo(
+    () =>
+      authType === 'required' &&
+      !safeAuth.isLoading &&
+      !safeAuth.isAuthenticated
+  );
 
   // Determine if we should skip the query
-  const shouldSkip =
-    factoryEnabled === false ||
-    (authType === 'required' && safeAuth.isLoading) ||
-    (authType === 'required' && !safeAuth.isAuthenticated);
+  const shouldSkip = createMemo(
+    () =>
+      factoryEnabled() === false ||
+      (authType === 'required' && safeAuth.isLoading) ||
+      (authType === 'required' && !safeAuth.isAuthenticated)
+  );
 
   // Create error when unauthorized (unless skipUnauth)
   const authError = createMemo(() => {
-    if (isUnauthorized && !skipUnauthFinal) {
+    if (isUnauthorized() && !skipUnauthFinal) {
       return new CRPCClientError({
         code: 'UNAUTHORIZED',
         functionName: queryName,
@@ -785,32 +841,38 @@ export function useInfiniteQuery<
     return null;
   });
 
-  // Call callback in createEffect (not during render) to avoid setState-in-render
+  // Call callback in createEffect (not during render) to avoid setState-in-render.
+  // `isUnauthorized` is a memo, so this fires once per real auth transition.
   createEffect(() => {
-    if (isUnauthorized && !skipUnauthFinal) {
+    if (isUnauthorized() && !skipUnauthFinal) {
       onQueryUnauthorized({ queryName });
     }
   });
 
   const result = useInfiniteQueryInternal(query as any, args as any, {
+    authType,
     limit,
     ...(queryOptions as any),
-    // Internal hook handles prefetch detection and will bypass skip if data exists
-    enabled: !shouldSkip,
+    // Internal hook handles prefetch detection and will bypass skip if data
+    // exists. Forward an accessor so auth transitions reach the page gate, and
+    // a caller predicate survives to be resolved per page.
+    enabled: () => resolveEnabled(!shouldSkip(), factoryEnabled()),
   });
 
   // Include auth loading in loading state for optional and required types
   const authLoadingApplies = authType === 'optional' || authType === 'required';
 
   // When skipUnauth + unauthorized: return empty data, not placeholder
-  const isSkippedUnauth = isUnauthorized && skipUnauthFinal;
+  const isSkippedUnauth = createMemo(() => isUnauthorized() && skipUnauthFinal);
 
   return {
     get data() {
-      return isSkippedUnauth ? ([] as TItem[]) : (result.data as TItem[]);
+      return isSkippedUnauth() ? ([] as TItem[]) : (result.data as TItem[]);
     },
     get pages() {
-      return isSkippedUnauth ? ([] as TItem[][]) : (result.pages as TItem[][]);
+      return isSkippedUnauth()
+        ? ([] as TItem[][])
+        : (result.pages as TItem[][]);
     },
     get error() {
       const ae = authError();
@@ -820,14 +882,14 @@ export function useInfiniteQuery<
       return authError() ? true : result.isError;
     },
     get isPlaceholderData() {
-      return isSkippedUnauth ? false : result.isPlaceholderData;
+      return isSkippedUnauth() ? false : result.isPlaceholderData;
     },
     get isLoading() {
       const ae = authError();
       const isClientError = isCRPCClientError(result.error);
       return (
         (authLoadingApplies && safeAuth.isLoading) ||
-        (!isClientError && !ae && !isSkippedUnauth && result.isLoading)
+        (!isClientError && !ae && !isSkippedUnauth() && result.isLoading)
       );
     },
     get isFetching() {

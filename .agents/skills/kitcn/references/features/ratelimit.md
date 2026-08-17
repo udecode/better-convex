@@ -81,6 +81,17 @@ For denied reserved fixed-window and token-bucket requests, `reset` is when the 
 
 A request larger than every shard's capacity plus finite reservation headroom can never succeed. It returns `reason: 'requestTooLarge'` and `reset: 0` without reading shard state. When only smaller shards cannot serve a request, they are excluded from retry calculations. Fresh, full, and partial snapshot projections preserve permanent denial as `retryAfter: Infinity`, and the React hook reports `ok: false` without scheduling a retry timer. Reduce `count`, reduce `shards`, or raise the configured capacity.
 
+## Protection / deny list — delta from parity
+
+With `enableProtection: true`, failures are counted per identifier, ip, userAgent, and country.
+
+- A value's block is cached for up to 24 h once it reaches `denyListThreshold` **within a rolling 10 minute window**. Failures paced wider than that window decay, so a shared NAT/carrier IP is not blocked by unrelated failures accumulated over days.
+- Protection state is a bounded in-memory LRU. Failure histories are evicted before blocks, active blocks refresh on use, and the coldest block can be evicted above 4,096 simultaneous blocked values per prefix. Evicted values fall through to the database-backed limiter.
+- A success clears the **identifier** counter only. ip/userAgent counters are attacker-supplied; clearing them on success would let a caller loop `threshold - 1` failures plus one success indefinitely, or reset a victim's counter by forging their user-agent.
+- State is module-scope memory: at most 4096 tracked values per prefix with least-recently-hit eviction, and values over 128 characters stored truncated. It is per-isolate, so it does not survive a cold start and is not shared across function entries.
+- Increments are not rolled back when Convex retries a mutation after a write conflict, so a value can count slightly more failures than it was served.
+- `pickDeniedValue` runs before any database read, so a blocked value is rejected without touching `ratelimitState`.
+
 ## Convex constraints
 
 - `blockUntilReady()` needs `setTimeout`, so it only runs in actions or non-Convex runtimes. It throws with that guidance inside queries and mutations. `limit()` and `check()` never touch timers.

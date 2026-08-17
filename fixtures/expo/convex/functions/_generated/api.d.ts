@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as generated_aggregate from "../generated/aggregate.js";
 import type * as generated_auth from "../generated/auth.js";
 import type * as generated_server from "../generated/server.js";
 import type * as messages from "../messages.js";
@@ -27,6 +28,7 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  "generated/aggregate": typeof generated_aggregate;
   "generated/auth": typeof generated_auth;
   "generated/server": typeof generated_server;
   "messages": typeof messages;
