@@ -81,11 +81,13 @@ Error attempts:
 | Stable fetcher missed account switches; provider transitions missed cache reset | 1 | publish a stable identity through the provider bridge and reset at the Solid CRPC owner | three red regressions now pass; 90 Solid owner tests green |
 | Solid CRPC reset had no query-client auth-store owner | 1 | install the provider auth store into the query client before observing transitions | red owner-sync regression passes; 129 Solid tests green |
 | Session ID masked JWT tenant/role changes | 1 | combine stable session and non-volatile claim identity while ignoring routine rotation | red same-session claim regression passes; 129 Solid tests green |
+| New session reused the previous session's valid JWT | 1 | bind cached tokens to their session and invalidate before the replacement session authenticates | red cross-session token regression passes |
+| New session inherited the previous session's in-flight token request | 1 | scope pending requests and late writes to the initiating session | red deferred-request race passes |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 129 Solid tests pass |
+| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 130 Solid tests pass |
 | Package/docs/scenario closure | pending | typecheck/build/full check | package typecheck/build green; final full check rerun pending |
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
@@ -120,8 +122,9 @@ Verification evidence:
   into the query client before resets, so auth epochs and subscription gates
   share the same owner. The identity key also tracks non-volatile JWT claims,
   so tenant or role changes inside one session rebind without treating routine
-  expiry rotation as a transition. All 129 Solid tests pass; package
-  typecheck/build pass.
+  expiry rotation as a transition. Replacing a session clears its token owner
+  and abandons prior-session in-flight requests before fetching the replacement
+  JWT. All 130 Solid tests pass; package typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.
