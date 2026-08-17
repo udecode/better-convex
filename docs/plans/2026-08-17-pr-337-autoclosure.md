@@ -62,25 +62,25 @@ Start Gates:
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
-| source behavior | yes | aggregate runtime/backfill, B-tree, focused tests | repair complete; broader proof pending |
+| source behavior | yes | aggregate runtime/backfill, B-tree, focused tests | complete |
 | package/API/build | yes | package typecheck/build | complete after repair |
 | generated output | yes | package skill source and `.agents` mirror | synchronized |
-| fixtures/scenarios | yes | full check/runtime | pending |
+| fixtures/scenarios | yes | full check/runtime | complete |
 | docs/package skill | yes | aggregate docs plus ORM package skill | repair complete |
 | changeset | yes | `.changeset/aggregate-index-io.md` | repair complete |
 | agent workflow | no | no rule/helper/workflow behavior | N/A |
-| cleanup/review | yes | deslop and autoreview | deslop complete; autoreview pending |
-| repository check | yes | `bun check` | pending |
+| cleanup/review | yes | deslop and autoreview | complete |
+| repository check | yes | `bun check` | complete |
 | GitHub delivery | yes | feedback, exact checks, merge/release | pending |
 
 Work Checklist:
 - [x] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each local lane is proven or N/A with a concrete reason.
+- [x] Each local lane is proven or N/A with a concrete reason.
 - [x] Generated output was changed through its owner and regenerated.
 - [x] Package/docs/skill/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
+- [x] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
+- [x] Residual blocker/waiver has exact evidence and next owner.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
@@ -94,15 +94,15 @@ Error attempts:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | in_progress | prove aggregate semantics and bounded reads | 77 focused aggregate tests plus 25 lifecycle/concurrency-owner tests pass |
+| Targeted behavior proof | complete | prove aggregate semantics and bounded reads | 77 focused aggregate tests plus 25 lifecycle/concurrency-owner tests pass |
 | Source/generated audit | complete | audit runtime/docs and generated mirror | source/mirror synchronized |
-| Package/docs/scenario closure | in_progress | typecheck/build/full check | package typecheck/build pass; full check pending |
+| Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build, fixture sync/check, and final `bun check` pass |
 | Deslop | complete | bounded changed-file cleanup | 167 -> 167; score unchanged |
 | Agent-native reviewer | yes | docs/skill mirror audit | source/generated/action map passes |
 | Final lint | yes | run `bun lint:fix` | 905 files clean |
-| Repository check | yes | run `bun check` | pending |
+| Repository check | yes | run `bun check` | complete on released v0.19.0 main |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final branch review | pending |
+| Autoreview | yes | final branch review | P1 clean; patch correct (0.84) |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -110,8 +110,8 @@ Phase / pass table:
 | --- | --- | --- | --- |
 | Inventory | complete | exact diff, owners, feedback, released main | repair |
 | Repair | complete | merge overlap and budget accounting repaired | review/checks |
-| Review/checks | in_progress | focused/package proof green | remaining local gates |
-| Delivery | pending | | push, exact checks, merge/release |
+| Review/checks | complete | focused/package/docs/fixture/deslop/full/review green | delivery |
+| Delivery | in_progress | final committed bundle ready | push, exact checks, merge/release |
 | Closeout | pending | | final |
 
 Verification evidence:
@@ -145,6 +145,11 @@ Verification evidence:
 - Two-cycle scope pause: every accepted finding remains inside the declared
   aggregate read/clear invariant and its lifecycle owner. No protocol, storage,
   or unrelated product expansion remains, so one fresh review is authorized.
+- The new aggregate-state index was regenerated through `fixtures:sync`; all
+  eight committed fixture data models pass `fixtures:check`.
+- Fresh final P1 autoreview is clean and calls the patch correct at 0.84
+  confidence. Final `bun check` passes against released v0.19.0 main, including
+  package builds, fresh fixtures, and runtime scenarios.
 - Docs/skill agent-native mapping passes: the touched `www` aggregate reference
   maps to the package feature reference and regenerated `.agents` mirror;
   mirrors are byte-equal, Intent validates, and staleness is clean.
@@ -163,12 +168,12 @@ Timeline:
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | Review/checks |
-| Where am I going? | Finish local gates, then exact-head delivery and release |
+| Where am I? | Delivery |
+| Where am I going? | Push, exact-head checks, merge, and release |
 | What is the goal? | Ship only proven bounded aggregate-index behavior. |
 | What have I learned? | Bucket-only accounting could still cross Convex's read ceiling. |
-| What have I done? | Reused the real concurrency owner and reserved extrema reads. |
+| What have I done? | Closed five correctness gaps; every local gate passes. |
 
 Open risks:
-- Full repository proof, final review, remote exact-head checks, merge, release,
-  and post-release CI remain unproven until delivery completes.
+- Remote exact-head checks, merge, release, and post-release CI remain unproven
+  until delivery completes.
