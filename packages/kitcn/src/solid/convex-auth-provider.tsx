@@ -282,7 +282,10 @@ function ConvexAuthProviderInner(
     const sessionMissing = !hasSession && !sessionState.isPending;
     const token = authStore.get('token');
     const sessionId = getSessionId(sessionState.data);
-    const claims = token ? decodeJwtIdentity(token) : null;
+    const claims =
+      token && tokenSessionInitialized && sessionId === tokenSessionId
+        ? decodeJwtIdentity(token)
+        : null;
 
     const sessionChanged =
       identityInitialized && sessionId !== identitySessionId;

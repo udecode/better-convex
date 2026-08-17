@@ -5,7 +5,11 @@ import { render, renderHook, waitFor } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
 import { createSignal } from 'solid-js';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { useAuthStore, useFetchAccessToken } from './auth-store';
+import {
+  useAuthStore,
+  useFetchAccessToken,
+  useSafeConvexAuth,
+} from './auth-store';
 import { ConvexAuthProvider } from './convex-auth-provider';
 
 const makeJwt = (
@@ -81,9 +85,13 @@ describe('ConvexAuthProvider', () => {
   test('does not assign an unowned SSR token to the hydrated session', async () => {
     const ssrToken = makeJwt(3600, { sub: 'user-1' });
     const hydratedToken = makeJwt(7200, { sub: 'user-2' });
-    const convexToken = vi.fn(async () => ({
-      data: { token: hydratedToken },
-    }));
+    let resolveHydratedToken!: (value: { data: { token: string } }) => void;
+    const convexToken = vi.fn(
+      () =>
+        new Promise<{ data: { token: string } }>((resolve) => {
+          resolveHydratedToken = resolve;
+        })
+    );
     const client = {
       setAuth: (
         fetchToken: (args: { forceRefreshToken: boolean }) => Promise<unknown>
@@ -109,10 +117,20 @@ describe('ConvexAuthProvider', () => {
         {props.children}
       </ConvexAuthProvider>
     );
-    const { result } = renderHook(() => useAuthStore(), { wrapper });
+    const { result } = renderHook(
+      () => ({ auth: useSafeConvexAuth(), store: useAuthStore() }),
+      { wrapper }
+    );
 
     await waitFor(() => {
-      expect(result.get('token')).toBe(hydratedToken);
+      expect(convexToken).toHaveBeenCalledTimes(1);
+    });
+    expect(result.auth.identity).toBe('session-2');
+
+    resolveHydratedToken({ data: { token: hydratedToken } });
+
+    await waitFor(() => {
+      expect(result.store.get('token')).toBe(hydratedToken);
     });
     expect(convexToken).toHaveBeenCalledTimes(1);
   });

@@ -84,6 +84,7 @@ Error attempts:
 | New session reused the previous session's valid JWT | 1 | bind cached tokens to their session and invalidate before the replacement session authenticates | red cross-session token regression passes |
 | New session inherited the previous session's in-flight token request | 1 | scope pending requests and late writes to the initiating session | red deferred-request race passes |
 | First hydrated session claimed an unowned SSR JWT | 1 | keep SSR tokens pending-only and fetch after a client session is confirmed | red hydration account-switch regression passes |
+| Unowned SSR claims seeded the hydrated cache identity | 1 | derive identity claims only from a token owned by the confirmed session | red pre-token bridge identity regression passes |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -125,8 +126,9 @@ Verification evidence:
   so tenant or role changes inside one session rebind without treating routine
   expiry rotation as a transition. Replacing a session clears its token owner
   and abandons prior-session in-flight requests before fetching the replacement
-  JWT. A confirmed hydrated session also replaces any unowned SSR token. All
-  131 Solid tests pass; package typecheck/build pass.
+  JWT. A confirmed hydrated session also replaces any unowned SSR token and
+  cannot inherit its claim identity. All 131 Solid tests pass; package
+  typecheck/build pass.
 
 Open risks:
 - Final full check, review rerun, and remote delivery gates remain.
