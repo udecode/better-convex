@@ -51,3 +51,12 @@
   refresh. A refreshed JWT for the same account leaves the cache alone; only an
   authorization identity change clears it, including tenant or role claims
   changing inside the same Better Auth session.
+- Fix sign-in and sign-up mutations clearing auth-bound queries before Convex
+  adopts the new identity. The settled provider transition owns the reset, so
+  active queries cannot refill the cache from the previous account in between.
+- Fix custom Solid Convex auth being replaced by the fallback Better Auth
+  store. Query subscriptions follow the custom provider instead of remaining
+  permanently blocked by fallback loading state.
+- Fix account transitions retaining obsolete pagination ID entries. Pagination
+  state in the QueryClient remains the persistence owner without a second
+  process-wide key map.

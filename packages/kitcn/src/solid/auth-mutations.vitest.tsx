@@ -126,7 +126,7 @@ describe('createAuthMutations', () => {
     expect(result.store.get('expiresAt')).toBeNull();
   });
 
-  test('signIn/signUp reset auth-bound queries after the identity changes', async () => {
+  test('signIn/signUp leave auth-query resets to the settled identity owner', async () => {
     const resetAuthQueries = vi.fn(async () => {});
     useConvexQueryClientSpy = vi
       .spyOn(contextModule, 'useConvexQueryClient')
@@ -162,19 +162,19 @@ describe('createAuthMutations', () => {
       { email: 'a@b.com', password: 'pw' },
       makeMutationCtx()
     );
-    expect(resetAuthQueries).toHaveBeenCalledTimes(1);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
 
     await result.signInSocial.mutationFn?.(
       { provider: 'github' },
       makeMutationCtx()
     );
-    expect(resetAuthQueries).toHaveBeenCalledTimes(2);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
 
     await result.signUp.mutationFn?.(
       { email: 'a@b.com', password: 'pw' },
       makeMutationCtx()
     );
-    expect(resetAuthQueries).toHaveBeenCalledTimes(3);
+    expect(resetAuthQueries).not.toHaveBeenCalled();
   });
 
   test('signIn(email): throws AuthMutationError when better-auth returns an error payload', async () => {

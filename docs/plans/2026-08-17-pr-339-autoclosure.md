@@ -79,7 +79,7 @@ Error attempts:
 | --- | ---: | --- | --- |
 | Branch conflicted with released auth and Solid mount owners | 1 | merge owners semantically and retain real Solid Query tests | focused merged-owner tests pass |
 | Stable fetcher missed account switches; provider transitions missed cache reset | 1 | publish a stable identity through the provider bridge and reset at the Solid CRPC owner | three red regressions now pass; 90 Solid owner tests green |
-| Solid CRPC reset had no query-client auth-store owner | 1 | install the provider auth store into the query client before observing transitions | red owner-sync regression passes; 129 Solid tests green |
+| Solid CRPC reset had no query-client auth-store owner | 1 | install a real provider auth store into the query client before observing transitions | red owner-sync regression passes; 129 Solid tests green |
 | Session ID masked JWT tenant/role changes | 1 | combine stable session and non-volatile claim identity while ignoring routine rotation | red same-session claim regression passes; 129 Solid tests green |
 | New session reused the previous session's valid JWT | 1 | bind cached tokens to their session and invalidate before the replacement session authenticates | red cross-session token regression passes |
 | New session inherited the previous session's in-flight token request | 1 | scope pending requests and late writes to the initiating session | red deferred-request race passes |
@@ -88,16 +88,19 @@ Error attempts:
 | First settled client identity skipped hydration reset | 1 | conservatively clear auth-bound state on the first settled identity | immediate-settled context regression passes |
 | Query reset restored previous-account `initialData` | 1 | remove and rebuild observed auth queries without `initialData` | public reset resurrection regression passes |
 | Placeholder callback republished previous-account data | 1 | rebuild auth observers without placeholder history | function-form placeholder regression passes |
+| Sign-in mutations reset before Convex adopted the new identity | 1 | leave sign-in resets to the settled provider transition | red React/Solid mutation regressions pass |
+| Custom Convex auth installed the always-loading fallback store | 1 | install only a real Better Auth store into the query client | red custom-provider regression passes |
+| Auth epochs accumulated pagination IDs in a process-wide map | 1 | retain IDs solely in persisted QueryClient pagination state | React/Solid pagination suites pass |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | complete | run React/Solid owner suites | 41 shared/React plus 131 Solid tests pass |
+| Targeted behavior proof | complete | run React/Solid owner suites | 54 late-finding owner tests plus the prior 41 shared/React and 131 Solid tests pass |
 | Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build and full check green |
 | Deslop | complete | changed-file cleanup | 167 -> 167; zero net findings |
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 910 files clean |
-| Repository check | yes | run `bun check` | passed |
+| Repository check | yes | run `bun check` | passed again after late review repairs |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
 | Autoreview | yes | final whole-branch review | clean; patch correct (0.87) |
 | Goal plan complete | yes | run checker | pending |
@@ -123,18 +126,28 @@ Verification evidence:
   cache reset. Three red regressions reproduced both paths. The provider now
   publishes a stable session identity, legacy custom providers retain safe
   reactive rebinding, and the Solid CRPC owner resets auth-bound caches on each
-  observed identity transition. The CRPC provider also installs its auth store
-  into the query client before resets, so auth epochs and subscription gates
-  share the same owner. The identity key also tracks non-volatile JWT claims,
+  observed identity transition. The CRPC provider installs a real Better Auth
+  store into the query client before resets and leaves custom Convex auth on its
+  bridge, so the fallback store cannot permanently block subscriptions. The
+  identity key also tracks non-volatile JWT claims,
   so tenant or role changes inside one session rebind without treating routine
   expiry rotation as a transition. Replacing a session clears its token owner
   and abandons prior-session in-flight requests before fetching the replacement
   JWT. A confirmed hydrated session also replaces any unowned SSR token and
   cannot inherit its claim identity. The first settled identity clears
   unproven hydration data, and observed queries are rebuilt so future public
-  resets or placeholder callbacks cannot resurrect the old account's data. All
+  resets or placeholder callbacks cannot resurrect the old account's data.
+  Sign-in mutations wait for that settled provider transition instead of
+  resetting under the previous Convex identity, while pagination persistence
+  no longer duplicates IDs in a process-wide map. All
   131 Solid tests pass; package typecheck/build and `bun check` pass. Final
   whole-branch P1 review is clean and reports the patch correct.
+- Three late GitHub findings reproduced two premature auth-reset paths, an
+  always-loading fallback store installed for custom Convex auth, and an
+  obsolete pagination ID map. The React/Solid owner suites pass 54/54 after the
+  repairs; package typecheck/build, deslop, changeset status, lint, and the full
+  repository gate pass again. A fresh whole-branch review remains required
+  because these findings changed source after the earlier clean review.
 
 Open risks:
 - Exact-head remote checks, merge, release, and read-back remain.

@@ -82,21 +82,9 @@ export type PaginationState = {
 // Query key prefix for pagination state storage
 const PAGINATION_KEY_PREFIX = '__pagination__' as const;
 
-// Pagination ID store - persists across mounts for cache reuse
-// Key: query name + args, Value: pagination ID
-const paginationIdStore = new Map<string, number>();
 let paginationIdCounter = 0;
 
-const getOrCreatePaginationId = (storeKey: string): number => {
-  const existing = paginationIdStore.get(storeKey);
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const newId = ++paginationIdCounter;
-  paginationIdStore.set(storeKey, newId);
-  return newId;
-};
+const createPaginationId = (): number => ++paginationIdCounter;
 
 export type PaginationStatus =
   | 'CanLoadMore'
@@ -359,7 +347,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
 
   // Helper to create initial state
   const createInitialState = useCallback((): PaginationState => {
-    const id = getOrCreatePaginationId(storeKey);
+    const id = createPaginationId();
     return {
       id,
       nextPageKey: 1,
@@ -378,7 +366,7 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
           },
       version: 0,
     };
-  }, [storeKey, skip, argsObject, limit]);
+  }, [skip, argsObject, limit]);
 
   // Track previous args to detect changes (in effect, not during render)
   const prevArgsRef = useRef<{ storeKey: string; skip: boolean } | null>(null);

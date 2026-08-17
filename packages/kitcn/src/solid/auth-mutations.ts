@@ -207,7 +207,6 @@ export function createAuthMutations<T extends AuthClient>(
 
   const useSignInSocialMutationOptions = ((options) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
 
     return {
       ...options,
@@ -218,7 +217,6 @@ export function createAuthMutations<T extends AuthClient>(
         }
         seedReturnedToken(authStoreApi, res);
         await ensureAuth(authStoreApi);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };
@@ -226,7 +224,6 @@ export function createAuthMutations<T extends AuthClient>(
 
   const useSignInMutationOptions = ((options?: SignInOptions<T>) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
     const { signInMethod = 'email', ...mutationOptions } = (options ??
       {}) as SignInOptions<T> & { signInMethod?: string };
 
@@ -243,7 +240,6 @@ export function createAuthMutations<T extends AuthClient>(
         }
         seedReturnedToken(authStoreApi, res);
         await ensureAuth(authStoreApi);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };
@@ -251,7 +247,6 @@ export function createAuthMutations<T extends AuthClient>(
 
   const useSignUpMutationOptions = ((options) => {
     const authStoreApi = useAuthStore();
-    const convexQueryClient = useConvexQueryClient();
 
     return {
       ...options,
@@ -262,7 +257,6 @@ export function createAuthMutations<T extends AuthClient>(
         }
         seedReturnedToken(authStoreApi, res);
         await ensureAuth(authStoreApi);
-        await convexQueryClient?.resetAuthQueries();
         return res;
       },
     };

@@ -84,11 +84,14 @@ describe('context (solid)', () => {
     });
 
     expect(result).toBe(mockProxy);
+    expect(mockConvexQueryClient.updateAuthStore).toHaveBeenCalledWith(
+      undefined
+    );
   });
 
   test('syncs the auth store and resets queries on an identity transition', () => {
     const [identity, setIdentity] = createSignal<unknown>('account-a');
-    const authStore = { get: vi.fn() };
+    const authStore = { get: vi.fn(), store: {} };
     vi.spyOn(authStoreModule, 'useAuthStore').mockReturnValue(authStore as any);
     vi.spyOn(authStoreModule, 'useSafeConvexAuth').mockImplementation(
       () =>
