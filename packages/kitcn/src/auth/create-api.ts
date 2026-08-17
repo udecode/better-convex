@@ -4,6 +4,7 @@ import {
   internalActionGeneric,
   internalMutationGeneric,
   internalQueryGeneric,
+  type PaginationResult,
   paginationOptsValidator,
   type SchemaDefinition,
 } from 'convex/server';
@@ -613,18 +614,35 @@ export const updateOneHandler = async (
 ) => {
   const triggerCtx = args.triggerCtx ?? ctx;
   const tableTriggers = args.tableTriggers;
-  // Read two rows so the "exactly 1 match" contract is asserted on the same
-  // read that feeds the patch, inside the same transaction.
-  const { page } = await paginate(ctx, schema, betterAuthSchema, {
-    ...args.input,
-    paginationOpts: { cursor: null, numItems: 2 },
-  });
-  const doc = page[0];
+  // Read until the query is terminal or a second match appears. A filtered
+  // stream can return one matching row on a nonterminal page after hitting its
+  // scan bound, so the first page alone cannot prove uniqueness.
+  const matches: any[] = [];
+  let cursor: string | null = null;
+  let isDone = false;
+  while (!isDone && matches.length < 2) {
+    const result: PaginationResult<any> = await paginate(
+      ctx,
+      schema,
+      betterAuthSchema,
+      {
+        ...args.input,
+        paginationOpts: { cursor, numItems: 2 - matches.length },
+      }
+    );
+    matches.push(...result.page);
+    isDone = result.isDone;
+    if (!isDone && result.continueCursor === cursor) {
+      throw new Error('Pagination made no forward progress');
+    }
+    cursor = result.continueCursor;
+  }
+  const doc = matches[0];
 
   if (!doc) {
     throw new Error(`Failed to update ${args.input.model}`);
   }
-  if (page.length > 1) {
+  if (matches.length > 1) {
     throw new Error(
       `Multiple ${args.input.model} found matching criteria. Expected exactly 1.`
     );

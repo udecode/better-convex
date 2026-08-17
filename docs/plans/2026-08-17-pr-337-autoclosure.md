@@ -179,5 +179,4 @@ Reboot status:
 | What have I done? | Closed five correctness gaps; every local gate passes. |
 
 Open risks:
-- Post-release CI `31983014399` is still running; publication and the tagged
-  release commit are already independently verified.
+- Post-release CI `31983014399` passed against the exact release commit.

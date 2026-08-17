@@ -383,6 +383,67 @@ describe('updateOneHandler', () => {
     expect(store.get('user-2')).toMatchObject({ name: 'anna' });
   });
 
+  test('continues a nonterminal page before accepting one matching row', async () => {
+    const docs = Array.from({ length: 201 }, (_, index) => ({
+      _creationTime: index,
+      _id: `user-${index}`,
+      email:
+        index === 0 || index === 200
+          ? 'duplicate@example.com'
+          : `user-${index}@example.com`,
+      name: `user-${index}`,
+    }));
+    const patch = mock(async () => undefined);
+    const db = {
+      get: async (id: string) => docs.find((doc) => doc._id === id),
+      patch,
+      query: () => ({
+        withIndex: () => ({
+          order: () => ({
+            async *[Symbol.asyncIterator]() {
+              yield* docs;
+            },
+          }),
+        }),
+      }),
+    };
+    const indexedSchema = {
+      tables: {
+        ...schema.tables,
+        users: {
+          ...schema.tables.users,
+          indexes: [{ fields: ['email'], indexDescriptor: 'by_email' }],
+          export: () => ({
+            indexes: [{ fields: ['email'], indexDescriptor: 'by_email' }],
+          }),
+        },
+      },
+    } as any;
+
+    await expect(
+      updateOneHandler(
+        { db } as any,
+        {
+          input: {
+            model: 'users',
+            update: { name: 'bob' },
+            where: [
+              {
+                field: 'email',
+                operator: 'eq',
+                value: 'duplicate@example.com',
+              },
+            ],
+          },
+        },
+        indexedSchema,
+        betterAuthSchema
+      )
+    ).rejects.toThrow('Multiple users found matching criteria');
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
   test('applies update.before and runs update.after/change', async () => {
     const { db, store } = createMemoryCtx({
       'user-1': { _id: 'user-1', email: 'a@b.com', name: 'alice' },

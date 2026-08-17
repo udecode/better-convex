@@ -76,18 +76,20 @@ Error attempts:
 | Restore success could land after token ownership changed | 1 | guard success before atom/fallback writes | fixed; sign-out regression passes |
 | A never-settling request outlived the grace deadline | 1 | race every probe against the shared deadline | fixed; bounded recovery regression passes |
 | Reference equality treated a cloned seeded session as a new sign-in | 1 | compare stable session IDs | fixed; clone regression passes |
+| First page treated one match as proof of uniqueness while nonterminal | 1 | continue transaction-local pagination to terminal or two matches | fixed; 201-row scan regression passes |
+| `fixtures:check` timed out cloning shadcn upstream | 1 | verify upstream reachability, then rerun the exact full gate | `git ls-remote` passed; full `bun check` retry passed |
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Targeted behavior proof | complete | run full auth owner surface | 100 focused auth tests pass; provider 26/26 |
-| Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build and `bun check` pass |
+| Targeted behavior proof | complete | run full auth owner surface | 101 focused auth tests pass; provider 26/26 |
+| Package/docs/scenario closure | complete | typecheck/build/full check | package typecheck/build and final `bun check` retry pass |
 | Deslop | complete | changed-file cleanup | 167 -> 167; score unchanged |
 | Agent-native reviewer | no | no workflow changes | N/A |
 | Final lint | yes | run `bun lint:fix` | 905 files clean |
 | Repository check | yes | run `bun check` | complete against released v0.20.0 main |
 | GitHub delivery | pending | push, feedback, exact checks, merge/release | pending |
-| Autoreview | yes | final branch review | repair bundle P1-clean at 0.91; committed branch rerun pending |
+| Autoreview | yes | final branch review | repair bundle P1-clean; whole-branch P1 accepted and fixed; rerun pending |
 | Goal plan complete | yes | run checker | pending |
 
 Phase / pass table:
@@ -105,9 +107,18 @@ Verification evidence:
 - Red/green provider regressions prove token ownership, request deadlines, and
   cloned seeded-session identity. A separate competing-sign-in regression
   proves a different session cannot be overwritten. The full provider file
-  passes 26 tests; all seven touched auth owners pass 100 tests.
+  passes 26 tests; all seven touched auth owners pass 101 tests.
 - Released-main package typecheck/build, zero-net deslop, lint, and full
   `bun check` all pass. The repair-only P1 autoreview is clean at 0.91.
+- Whole-branch review found update uniqueness only inspected the first filtered
+  pagination page. A red 201-row scan returned one match on a nonterminal page
+  and silently patched it despite a later duplicate. The mutation now follows
+  continuation cursors inside the same transaction until terminal or two
+  matches; it rejects before patching the ambiguous record.
+- The first post-repair full gate hit a network timeout cloning shadcn's own
+  repository during `fixtures:check`. `git ls-remote` immediately proved the
+  path had recovered; the exact full `bun check` retry passed every fixture and
+  runtime scenario.
 
 Open risks:
 - The committed whole-branch P1 review remains before delivery.
