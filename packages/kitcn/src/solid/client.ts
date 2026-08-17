@@ -69,7 +69,6 @@ import { isConvexQuery } from '../internal/query-key';
 import {
   canSubscribeQuery,
   isAuthBoundQuery,
-  isQueryDisabled,
 } from '../internal/subscription-gate';
 import type { AuthStore } from './auth-store';
 
@@ -612,7 +611,7 @@ export class ConvexQueryClient {
 
         // Handle when query options change (e.g., enabled: false <-> true)
         case 'observerOptionsUpdated': {
-          const isDisabled = isQueryDisabled(event.query);
+          const isDisabled = event.query.isDisabled();
           const isSubscribed = !!this.subscriptions[event.query.queryHash];
 
           // enabled: true -> false: unsubscribe

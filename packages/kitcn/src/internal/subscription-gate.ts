@@ -30,16 +30,6 @@ export function isAuthBoundQuery(query: SubscriptionGateQuery): boolean {
   return authType === 'required' || authType === 'optional';
 }
 
-/**
- * Ask query-core whether the query is disabled.
- * `isDisabled()` resolves `enabled` across every observer, so it handles both
- * a predicate `enabled` and two observers disagreeing; comparing
- * `query.options.enabled === false` handles neither.
- */
-export function isQueryDisabled(query: SubscriptionGateQuery): boolean {
-  return query.isDisabled();
-}
-
 /** Whether a Convex subscription may be opened for this query. */
 export function canSubscribeQuery(
   query: SubscriptionGateQuery,
@@ -61,7 +51,9 @@ export function canSubscribeQuery(
   if (query.getObserversCount() === 0) {
     return false;
   }
-  if (isQueryDisabled(query)) {
+  // Query-core resolves `enabled` across every observer, so this handles both
+  // predicates and two observers that disagree.
+  if (query.isDisabled()) {
     return false;
   }
   if (opts.shouldSkipSubscription(meta?.authType)) {

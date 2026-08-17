@@ -1,7 +1,6 @@
 import {
   canSubscribeQuery,
   isAuthBoundQuery,
-  isQueryDisabled,
   type SubscriptionGateQuery,
 } from './subscription-gate';
 
@@ -37,11 +36,6 @@ describe('internal/subscription-gate', () => {
     ).toBe(true);
     expect(isAuthBoundQuery(makeQuery({ meta: {} }))).toBe(false);
     expect(isAuthBoundQuery(makeQuery({ meta: undefined }))).toBe(false);
-  });
-
-  test('isQueryDisabled delegates to query-core', () => {
-    expect(isQueryDisabled(makeQuery({ disabled: true }))).toBe(true);
-    expect(isQueryDisabled(makeQuery({ disabled: false }))).toBe(false);
   });
 
   test('allows a subscription when every precondition passes', () => {

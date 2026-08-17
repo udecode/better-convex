@@ -125,7 +125,7 @@ PR disposition ledger:
 | #336 | bound streams and id-list pagination | credible, not slop; release/docs claims overstated and iterator cleanup incomplete | first P2 repaired upstream; second accepted locally; four local cleanup regressions repaired | after #335 | closed: merged `aba33f55`, released v0.19.0, post-release CI green |
 | #337 | bound aggregate reads and clearing | valuable but high-risk; duplicate helper, budget, discovery, and clearing-race gaps repaired | first P1 fixed upstream; five local P1 blockers repaired across two bounded review cycles | before #342 | closed: merged `5d3172b2`, released v0.20.0, post-release CI green |
 | #338 | cache auth schema and repair session restore | credible, breaking; session races and paginated uniqueness repaired | 3 GitHub P1s plus 1 accepted local P1 | after released #337 | all local gates green; delivery pending |
-| #339 | restore Solid/React parity | credible but broad | 4 outdated threads | after #329/#332 | verify/repair pending |
+| #339 | restore Solid/React parity | credible but broad; stale changeset story is slop | 4 outdated threads | after #329/#332 | [verify/repair in progress](docs/plans/2026-08-17-pr-339-autoclosure.md) |
 | #340 | validate cRPC output once | credible, silent contract risk | 3 P1 threads | after #339 by release plan | repair pending |
 | #341 | key anonymous rate limits per request | high-risk operational/security bundle | 4 threads | late; must remove cron burden or redesign | decision pending |
 | #342 | inject ORM capabilities to cut bundle graphs | potentially valuable architecture change, far too large for trust-by-CI | 4 threads | last; depends on #330/#331/#333/#335/#337/#341 | deep review pending |

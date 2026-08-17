@@ -4,41 +4,12 @@
 
 ## Breaking changes
 
-- Support a function-form `enabled` in `kitcn/solid` instead of discarding it. A
-  predicate gates both the fetch and the Convex subscription, so a query you
-  disabled that way stops fetching and stops holding a live subscription.
-
-```tsx
-const posts = useQuery(() =>
-  crpc.posts.list.queryOptions({ tag }, { enabled: () => false })
-);
-
-// Before — fetched, and held a live subscription for the page lifetime
-// After  — disabled: no fetch, no subscription
-```
-
-- Fix `kitcn/solid` action queries on an `auth: 'required'` function reaching the
-  server while unauthenticated. They fail with
-  `CRPCClientError({ code: 'UNAUTHORIZED' })` and call `onQueryUnauthorized`
-  before any request is sent, matching queries and the React bindings.
-
-```tsx
-const report = useQuery(() => crpc.ai.summarize.queryOptions({}));
-
-// Before — an unauthenticated call reached Convex and returned a raw error
-// After  — CRPCClientError({ code: 'UNAUTHORIZED' }), no request sent
-```
-
-- Drop every auth-bound query from the cache when signing in, signing up, or
-  signing out with `kitcn/solid`.
-
-```tsx
-await signIn.mutateAsync({ email, password });
-const todos = useQuery(() => crpc.todos.list.queryOptions({}));
-
-// Before — todos.data was the previous account's rows, reported as success
-// After  — todos is pending, then resolves with the new account's rows
-```
+- Preserve function-form `enabled` predicates in `kitcn/solid` query options so
+  they gate both requests and live subscriptions.
+- Reject unauthenticated `auth: "required"` Solid action queries locally with
+  `CRPCClientError`, matching the React bindings.
+- Clear auth-bound cached data on identity transitions. Unobserved entries are
+  removed; mounted entries return to pending and refetch for the new account.
 
 ## Patches
 
@@ -58,11 +29,8 @@ const todos = useQuery(() => crpc.todos.list.queryOptions({}));
 - Fix `kitcn/solid` ignoring a `useAuth` that returns a new `fetchAccessToken`.
   Convex is rebound to the current fetcher instead of refreshing through the one
   captured for the previous session.
-- Fix an account transition leaving the previous account's rows in queries the
-  new account never refetches. Signing in or out clears auth-bound entries
-  outright, so a query that is disabled, unobserved, or non-subscribed cannot
-  keep serving them, and one that is mounted reads as pending until the new
-  account's data arrives.
+- Fix an account transition leaving the previous account's rows in disabled,
+  unobserved, or non-subscribed queries.
 - Fix a paginated list restoring the previous account's cursors after signing
   in or out. An auth-bound list starts again from its first page instead of
   paging from cursors that point into another account's results.

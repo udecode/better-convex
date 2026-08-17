@@ -280,13 +280,8 @@ const useInfiniteQueryInternal = <Query extends PaginatedQueryReference>(
   options: InfiniteQueryOptions<PaginatedQueryItem<Query>>
 ): UseInfiniteQueryResult<PaginatedQueryItem<Query>> => {
   // Extract our custom options, the rest are TanStack Query options for page queries
-  const {
-    limit,
-    authType,
-    enabled,
-    placeholderData,
-    ...forwardedOptions
-  } = options;
+  const { limit, authType, enabled, placeholderData, ...forwardedOptions } =
+    options;
 
   // The public hook rebuilds `options` as a fresh literal every render, so the
   // rest object churns even when the caller passed nothing. Latch it: without a
