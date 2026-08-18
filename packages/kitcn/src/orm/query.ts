@@ -203,10 +203,12 @@ type GroupByOrderSpec = {
 type GroupBySlot = {
   key: unknown;
   filter: unknown;
+  probeCount: number;
 };
 
 type GroupByCandidate = {
   key: Record<string, unknown>;
+  probeCount: number;
   where: Record<string, unknown>;
 };
 
@@ -4336,7 +4338,7 @@ export class GelRelationalQuery<
     let mergedNullish = false;
     for (const value of values) {
       if (value !== null && value !== undefined) {
-        slots.push({ key: value, filter: value });
+        slots.push({ key: value, filter: value, probeCount: 1 });
         continue;
       }
       if (mergedNullish) {
@@ -4346,6 +4348,7 @@ export class GelRelationalQuery<
       slots.push({
         key: null,
         filter: nullishValues.length > 1 ? { isNull: true } : value,
+        probeCount: nullishValues.length,
       });
     }
     return slots;
@@ -4362,21 +4365,21 @@ export class GelRelationalQuery<
     const output: GroupByCandidate[] = [];
     const key: Record<string, unknown> = {};
     const where: Record<string, unknown> = {};
-    const build = (index: number) => {
+    const build = (index: number, probeCount: number) => {
       if (index >= byFields.length) {
-        output.push({ key: { ...key }, where: { ...where } });
+        output.push({ key: { ...key }, probeCount, where: { ...where } });
         return;
       }
       const field = byFields[index]!;
       for (const slot of this._buildGroupBySlots(byFieldValues[field] ?? [])) {
         key[field] = slot.key;
         where[field] = slot.filter;
-        build(index + 1);
+        build(index + 1, probeCount * slot.probeCount);
       }
       delete key[field];
       delete where[field];
     };
-    build(0);
+    build(0, 1);
     return output;
   }
 
@@ -5235,10 +5238,14 @@ export class GelRelationalQuery<
     const window = this._coerceGroupByWindowConfig(config, orderSpecs);
 
     const maxKeys = this._getAggregateCartesianMaxKeys();
-    if (candidates.length > maxKeys) {
+    let candidateProbeCount = 0;
+    for (const candidate of candidates) {
+      candidateProbeCount += candidate.probeCount;
+    }
+    if (candidateProbeCount > maxKeys) {
       throw createAggregateError(
         AGGREGATE_ERROR.ARGS_UNSUPPORTED,
-        `groupBy() expands to ${candidates.length} groups, exceeding aggregateCartesianMaxKeys (${maxKeys}). Reduce IN fan-out or increase defineSchema(..., { defaults: { aggregateCartesianMaxKeys } }).`
+        `groupBy() expands to ${candidateProbeCount} aggregate key probes, exceeding aggregateCartesianMaxKeys (${maxKeys}). Reduce IN/isNull fan-out or increase defineSchema(..., { defaults: { aggregateCartesianMaxKeys } }).`
       );
     }
 
@@ -5252,7 +5259,7 @@ export class GelRelationalQuery<
       aggregate.avgFields.length +
       aggregate.minFields.length +
       aggregate.maxFields.length;
-    const estimatedWork = candidates.length * Math.max(1, metricReads);
+    const estimatedWork = candidateProbeCount * Math.max(1, metricReads);
     const workBudget = this._getAggregateWorkBudget();
     if (estimatedWork > workBudget) {
       throw createAggregateError(

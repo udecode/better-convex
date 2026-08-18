@@ -9,6 +9,7 @@ import {
 } from 'kitcn/orm';
 import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { describe, expect, it, vi } from 'vitest';
+import type { OrmRuntimeDefaults } from '../../packages/kitcn/src/orm/symbols';
 import { convexTest } from '../setup.testing';
 
 const schedulerStub = {
@@ -23,7 +24,7 @@ const passthroughInternalMutation = ((definition: unknown) =>
  * that never had the column written stores it absent, not null. `isNull` means
  * null-or-absent on the row path, so every aggregate surface has to agree.
  */
-const buildNullishFixtures = () => {
+const buildNullishFixtures = (options?: { defaults?: OrmRuntimeDefaults }) => {
   const nullishUsers = convexTable(
     'nullishUsers',
     {
@@ -51,7 +52,10 @@ const buildNullishFixtures = () => {
     (t) => [aggregateIndex('by_author_deletion').on(t.authorId, t.deletionTime)]
   );
 
-  const schema = defineSchema({ nullishUsers, nullishPosts });
+  const schema = defineSchema(
+    { nullishUsers, nullishPosts },
+    options?.defaults ? { defaults: options.defaults } : undefined
+  );
   const relations = defineRelations(schema, (r) => ({
     nullishUsers: {
       posts: r.many.nullishPosts({
@@ -94,9 +98,10 @@ const runBackfillToReady = async (api: any, ctx: { db: any }) => {
 };
 
 const withNullishOrm = async (
-  run: (context: { ctx: any; api: any; baseCtx: any }) => Promise<void>
+  run: (context: { ctx: any; api: any; baseCtx: any }) => Promise<void>,
+  options?: { defaults?: OrmRuntimeDefaults }
 ): Promise<void> => {
-  const { schema, relations } = buildNullishFixtures();
+  const { schema, relations } = buildNullishFixtures(options);
   const t = convexTest(schema);
 
   await t.run(async (baseCtx) => {
@@ -232,5 +237,51 @@ describe('aggregate nullish semantics', () => {
 
       expect(users.map((user: any) => user._count?.posts)).toEqual([3]);
     });
+  });
+
+  it('counts merged nullish bucket probes against the Cartesian limit', async () => {
+    await withNullishOrm(
+      async ({ ctx }) => {
+        await expect(
+          ctx.orm.query.nullishUsers.groupBy({
+            by: ['tier'],
+            where: {
+              orgId: 'org-1',
+              tier: { in: [null, undefined, 'gold'] },
+            },
+            _count: true,
+          })
+        ).rejects.toThrow(/aggregateCartesianMaxKeys/);
+      },
+      {
+        defaults: {
+          aggregateCartesianMaxKeys: 2,
+          aggregateWorkBudget: 100,
+        },
+      }
+    );
+  });
+
+  it('counts merged nullish bucket probes against the work budget', async () => {
+    await withNullishOrm(
+      async ({ ctx }) => {
+        await expect(
+          ctx.orm.query.nullishUsers.groupBy({
+            by: ['tier'],
+            where: {
+              orgId: 'org-1',
+              tier: { in: [null, undefined, 'gold'] },
+            },
+            _count: true,
+          })
+        ).rejects.toThrow(/aggregateWorkBudget/);
+      },
+      {
+        defaults: {
+          aggregateCartesianMaxKeys: 100,
+          aggregateWorkBudget: 2,
+        },
+      }
+    );
   });
 });

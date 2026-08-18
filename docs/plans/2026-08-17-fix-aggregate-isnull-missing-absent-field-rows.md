@@ -419,6 +419,9 @@ Implementation notes:
   and filters with `{ isNull: true }`; `_buildGroupByCandidates` returns
   `{ key, where }`; `_executeGroupBy` reads `candidate.where` for the probe and
   `candidate.key` for the emitted group; `_coerceGroupByConfig` return type updated.
+- PR closeout: `GroupBySlot` and `GroupByCandidate` retain physical
+  `probeCount`; Cartesian/work guards sum that count instead of logical rows,
+  so a merged nullish group cannot under-report two bucket reads as one.
 - `convex/orm/aggregate-nullish.test.ts`: new regression suite.
 - Docs: `www/content/docs/orm/queries/aggregates.mdx` and
   `packages/kitcn/skills/kitcn/references/features/aggregates.md`, mirror regenerated.
@@ -427,6 +430,11 @@ Review fixes:
 - Guard-message accuracy (`isNull` now expands key combinations) applied after the
   audit flagged that "Reduce IN list sizes" would misdirect users whose fan-out
   comes from `isNull`.
+- PR thread `PRRT_kwDOPTlS686Z63eZ`: accepted. A merged nullish logical group
+  can issue two physical bucket probes, so Cartesian/work budgets must retain
+  probe cardinality. RED tests added for both guards before the implementation
+  fix. RED: both tests reached `AGGREGATE_INDEX_BUILDING`; GREEN: 6/6 focused
+  tests pass. Fix ready to push; reply/resolution pending.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -435,8 +443,25 @@ Error attempts:
 | autoreview Codex engine failed to start (both sol and terra) | 1 | Use a supported alternate engine rather than skipping the gate | Ran autoreview on the skill's Claude engine; clean |
 | 5 `convex/orm` suites failed with `Cannot find package 'kitcn/server'` | 1 | Check for missing build output before suspecting the diff | `packages/kitcn/dist` was absent; `bun --cwd packages/kitcn build` fixed it, 31/31 files passed |
 | `bun typecheck` TS18046 `'candidate.key' is of type 'unknown'` | 1 | Propagate the new candidate type to the declared return type | Updated `_coerceGroupByConfig` return member to `GroupByCandidate[]` |
+| New budget RED tests first failed with `AGGREGATE_NOT_INDEXED` | 1 | Add the finite `orgId` prefix required by the existing `by_org_tier` aggregate index | Harness corrected; rerun must fail on undercounted probe budgets before source fix |
+| Broad ORM suite raced the parallel package build and 5 suites could not resolve `kitcn/server` | 1 | Wait for the owning package build, then rerun the exact suite sequentially | Build passed; sequential rerun passed 31 files / 463 tests |
+| `bun check` randomized B-tree property failed on seed `-1453951435` with a null-prototype object | 1 | Prove ownership against `origin/main`, rerun the exact unchanged test, then rerun the full gate | Zero branch diff in B-tree owner; exact file rerun passed 17/17; next full test lane passed 845/845 |
+| Second `bun check` reached fixture drift: shadcn moved `lucide-react` `^1.31.0` to `^1.32.0` | 1 | Regenerate through `bun run fixtures:sync`, verify snapshots, then rerun the full gate | Six package snapshots regenerated; `bun run fixtures:check` passed all eight fixtures |
 
 Verification evidence:
+- `npx vitest run convex/orm/aggregate-nullish.test.ts --project integration`:
+  closeout RED 2/6 (both guards under-counted and reached index execution),
+  GREEN 6/6 after retaining physical probe cardinality.
+- `npx vitest run convex/orm --project integration`: 31 files passed, 2
+  skipped; 463 tests passed, 13 skipped.
+- `bun --cwd packages/kitcn build`: 71 files emitted.
+- `bun run fixtures:sync` + `bun run fixtures:check`: six `lucide-react`
+  snapshots refreshed from the owner; all eight fixtures match.
+- final `autoreview --mode local`: clean, patch correct 0.98.
+- `bun lint:fix`: 932 files checked, no fixes.
+- final `NO_PROXY=localhost,127.0.0.1,::1 bun check`: exit 0; lint,
+  typecheck, 1,258 Bun tests, 845 Vitest tests, CLI, Concave, all eight
+  fixture comparisons, verify lane, and all runtime scenarios passed.
 - `npx vitest run convex/orm/aggregate-nullish.test.ts --project integration`:
   before any source edit 3 failed / 1 passed; after the read-path fix 1 failed
   (groupBy only) / 3 passed; after the groupBy fix 4 passed.
