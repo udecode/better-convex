@@ -431,7 +431,9 @@ Review fixes:
   but `.agents/skills/kitcn` remained stale. Regenerate from
   `packages/kitcn/skills/kitcn` with the source-owned sync command, audit
   parity. `bun tooling/sync-kitcn-skill.ts` plus `bun install` regenerated both
-  missing references; package/mirror parity is exact. Reply/resolve pending.
+  missing references; package/mirror parity is exact. Replied at
+  https://github.com/udecode/kitcn/pull/372#discussion_r3808848333 and resolved
+  with `isResolved: true` read-back.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |

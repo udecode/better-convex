@@ -176,7 +176,8 @@ Verification evidence:
   deslop, autoreview 0.98, and full `bun check` all pass; pushed ready.
 - PR #372: accepted stale mirror P1; source-owned sync plus install now produce
   exact package/`.agents` parity. Codegen 69/69, package build, agent-native
-  review, deslop, autoreview 0.98, and full `bun check` pass.
+  review, deslop, autoreview 0.98, and full `bun check` pass; review replied and
+  resolved.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
