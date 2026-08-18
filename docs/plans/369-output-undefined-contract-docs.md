@@ -387,6 +387,10 @@ Verification evidence:
   mirror is exact, and server/docs/package proof is discoverable.
 - `bun run lint:slop:delta`: no occurrence-level regression; the server
   directory hotspot reflects the necessary shared `validation.ts` owner.
+- `autoreview --mode branch --base origin/main`: clean, patch correct 0.97.
+- `bun lint:fix`: 933 files checked, no fixes.
+- `NO_PROXY=localhost,127.0.0.1,::1 bun check`: exit 0 across lint, types,
+  tests, CLI, Concave, all eight fixtures, verify, and runtime scenarios.
 - `bun check` -> EXIT=0. Covers `bun lint`, `bun typecheck` (5/5 turbo tasks), `bun run test`
   (1262 bun + 839 vitest, 0 fail, no type errors), `test:cli`, `test:concave`, `fixtures:check`,
   `test:verify`, and `test:runtime` (11 scenarios incl. expo, next, start, auth smoke).
@@ -430,12 +434,15 @@ Timeline:
 - Verification: `bun check` EXIT=0 after clearing a cross-workspace port-3211 collision.
 - Review: 4-lens adversarial workflow surfaced 4 confirmed findings; all fixed and re-verified.
 - Closeout: autoreview clean; agent-native and doc-guideline gates pass.
+- PR closeout: merged current main, fixed client issue-data leakage, synced
+  docs/skill/changeset, reran all proof, and paused merge only for npm release
+  authentication.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Complete |
-| Where am I going? | Final response |
+| Where am I? | Closeout complete; merge paused on npm release authentication |
+| Where am I going? | Push security fix/receipts, then merge after `0.25.3` publishes |
 | What is the goal? | Document and de-trap the cRPC `.output()` return contract for issue #369 |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |

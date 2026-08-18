@@ -179,7 +179,7 @@ Verification evidence:
   `bun check`, reply, and resolution pass; pushed ready.
 - PR #373: output-issue leakage P1 fixed with structural client sanitization;
   security RED/GREEN 72/72, server 171/171, package/docs builds, pack, mirror,
-  agent-native review, and deslop pass; final autoreview/check pending.
+  agent-native review, deslop, autoreview 0.97, and full `bun check` pass.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -201,8 +201,8 @@ Timeline:
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | #371/#372 ready; #373 final review/check; npm token blocks merges |
-| Where am I going? | Finish #373, publish `0.25.3`, then merge/release #371-#373 |
+| Where am I? | #371/#372/#373 ready; npm token blocks merges |
+| Where am I going? | Publish `0.25.3`, then merge/release #371-#373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
