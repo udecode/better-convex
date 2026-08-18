@@ -67,6 +67,8 @@ const total = await ctx.orm.query.todos.count({ where: { projectId } });
 Unfiltered `count()` uses native Convex count syscall (no aggregateIndex required).
 Filtered `count()` accepts `eq`, `in`, `isNull`, `gt`, `gte`, `lt`, `lte`, conjunction via `AND`, and bounded finite DNF `OR` when every branch is index-plannable on one `aggregateIndex`. Requires matching `aggregateIndex`.
 
+`isNull: true` matches an explicitly-`null` column and an absent column (a nullable column is optional, so a row inserted without it stores it absent). Matching `null` exactly (`{ status: null }` or `{ status: { eq: null } }`) matches only explicitly-`null` rows. `count()`, `aggregate()`, `groupBy()`, and relation `_count` use the same null semantics as `findMany()`.
+
 Windowed count: `count({ where, orderBy, skip, take, cursor })` counts rows within a window.
 
 - `skip`/`take` for pagination windows, `cursor` for "after this value" counting (requires `orderBy`, single field in v1)
@@ -102,6 +104,7 @@ Windowed aggregate:
 
 - `by` is required
 - every `by` field must be constrained in `where` via `eq`/`in`/`isNull`
+- an `isNull`-constrained `by` field emits one group keyed `null`, covering both explicitly-`null` and absent rows
 - `orderBy` supports `by` fields and selected metric fields
 - `skip`/`take`/`cursor` require explicit `orderBy`
 - `having` supports conjunction filters on `by` fields and selected metrics
