@@ -6,8 +6,9 @@
 
 - Fix `.output()` validation failures reaching the client as an opaque
   `Server Error`. They now throw a `CRPCError` with code
-  `INTERNAL_SERVER_ERROR`, message `Output validation failed`, and the Zod issues
-  in `error.data.ZodError`, so a handler returning the wrong shape names itself.
+  `INTERNAL_SERVER_ERROR`, message `Output validation failed`, and sanitized
+  structural Zod issues in `error.data.ZodError`, so a handler returning the
+  wrong shape names itself without exposing rejected server output.
   `.paginated()` is covered too.
 
 ```ts
@@ -16,7 +17,7 @@ c.query.output(z.object({ ok: z.boolean() })).query(async () => ({ ok: "yes" }))
 
 // Client
 error.data.ZodError;
-// [{ expected: 'boolean', code: 'invalid_type', path: ['ok'], message: '...' }]
+// [{ expected: 'boolean', code: 'invalid_type', path: ['ok'] }]
 ```
 
 - Log server faults from HTTP routes. A route that fails its `.output()` schema

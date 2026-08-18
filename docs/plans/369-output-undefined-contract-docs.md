@@ -345,6 +345,12 @@ Implementation notes:
   `TypeError`. Applied to `parseInput` as well, same bug class, same file neighborhood.
 
 Review fixes:
+- **P1 (PR security review).** Client-visible output issues currently include
+  custom messages and fields that a `.refine()`/`.superRefine()` callback can
+  populate with rejected server output. Accepted: retain only structural
+  `code`, `path`, and string `expected` in `error.data.ZodError`; keep the full
+  `ZodError` in `cause` for server diagnostics. RED: 4/72 focused failures;
+  GREEN: 72/72 after sanitization. Docs/skill/changeset synced; reply pending.
 - **P1 (self-inflicted, docs).** The first draft recommended `.output(z.string().optional())`
   for a genuinely-`undefined` return. Proven wrong: `zodOutputToConvex` drops top-level
   optionality (`exportReturns()` -> `{"type":"string"}`) and Convex wires `undefined` as
@@ -367,6 +373,20 @@ Error attempts:
 | None yet | 0 | | |
 
 Verification evidence:
+- Closeout cwd `/Users/zbeyens/git/better-convex`: merged current `main`
+  (`a663e963`) without conflict.
+- Security RED/GREEN: builder + HTTP suite 4/72 failed before client issue
+  sanitization, then 72/72 passed; custom message/field values do not occur in
+  `error.data`, while the full issue remains on the server-side cause.
+- `bun test packages/kitcn/src/server/`: 171 pass.
+- `bun --cwd packages/kitcn build`: 71 files emitted.
+- `bun --cwd www build`: 62 docs routes / 189 static outputs built.
+- `npm pack --dry-run --json`: `CHANGELOG.md` present; 110 package entries.
+- `diff -qr packages/kitcn/skills/kitcn .agents/skills/kitcn`: empty.
+- Agent-native review: PASS. Package skill source owns the contract, the repo
+  mirror is exact, and server/docs/package proof is discoverable.
+- `bun run lint:slop:delta`: no occurrence-level regression; the server
+  directory hotspot reflects the necessary shared `validation.ts` owner.
 - `bun check` -> EXIT=0. Covers `bun lint`, `bun typecheck` (5/5 turbo tasks), `bun run test`
   (1262 bun + 839 vitest, 0 fail, no type errors), `test:cli`, `test:concave`, `fixtures:check`,
   `test:verify`, and `test:runtime` (11 scenarios incl. expo, next, start, auth smoke).

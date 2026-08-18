@@ -131,7 +131,10 @@ Use `.output(z.string().default('...'))` to substitute a value instead.
 
 TypeScript rejects most of these before they run. The case it misses is a lookup it believes is always present: under the default `noUncheckedIndexedAccess: false`, an index signature or `array[0]` types as non-`undefined` even when the value is absent. Enable `noUncheckedIndexedAccess` to close that gap. `ctx.orm.query.*.findFirst` returns `| null`, so ORM reads are unaffected.
 
-A mismatch throws a `CRPCError` with code `INTERNAL_SERVER_ERROR` and the Zod issues in `error.data.ZodError`.
+A mismatch throws a `CRPCError` with code `INTERNAL_SERVER_ERROR`. Sanitized
+structural Zod issues are available in `error.data.ZodError`; custom messages
+and fields remain in the server-side error cause because they can contain the
+rejected handler output.
 
 <Callout icon={<InfoIcon />}>
   **Note:** Model an absent value as `.nullable()`, not as a top-level

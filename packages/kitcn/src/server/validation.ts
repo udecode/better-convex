@@ -25,6 +25,36 @@ export function zodIssuesToConvexValue(
 }
 
 /**
+ * Keep output-validation diagnostics useful without forwarding handler data.
+ *
+ * Zod's built-in issues omit the rejected value, but a schema-defined
+ * refinement can copy it into `message` or arbitrary custom fields. Output
+ * validation is a server fault, so client data is restricted to structural
+ * fields. The complete `ZodError` remains available as the error cause for
+ * server logs.
+ */
+function outputZodIssuesToConvexValue(
+  issues: readonly z.core.$ZodIssue[]
+): Value[] {
+  return issues.map((issue) => {
+    const safeIssue: Record<string, Value> = {
+      code: issue.code,
+      path: issue.path.map((segment) =>
+        typeof segment === 'symbol' ? String(segment) : segment
+      ),
+    };
+    if (
+      issue.code === 'invalid_type' &&
+      'expected' in issue &&
+      typeof issue.expected === 'string'
+    ) {
+      safeIssue.expected = issue.expected;
+    }
+    return safeIssue;
+  });
+}
+
+/**
  * Parse a handler's return value through its `.output()` schema.
  *
  * The value is parsed exactly as the handler produced it - `undefined` is not
@@ -37,8 +67,9 @@ export function zodIssuesToConvexValue(
  * logs the whole error server-side rather than putting it in the response body.
  * The code is `INTERNAL_SERVER_ERROR` because a value the handler returned is a
  * server fault, not a client one, and it preserves the 500 the HTTP path already
- * returned. Zod issues name the expected type and path but never echo the
- * received value, so this reports the declared shape rather than the row.
+ * returned. Client data retains only structural issue fields; custom messages
+ * and fields can embed the rejected server value, so the complete Zod error is
+ * kept in `cause` for server logs instead of forwarded.
  *
  * Only the parse is wrapped: a `ZodError` a handler threw itself keeps its
  * identity and travels through the caller's own error handling untouched.
@@ -54,6 +85,6 @@ export async function parseOutput(
     code: 'INTERNAL_SERVER_ERROR',
     message: 'Output validation failed',
     cause: result.error,
-    data: { ZodError: zodIssuesToConvexValue(result.error.issues) },
+    data: { ZodError: outputZodIssuesToConvexValue(result.error.issues) },
   });
 }

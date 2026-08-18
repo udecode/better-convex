@@ -256,7 +256,6 @@ describe('server/http-builder', () => {
           expected: 'boolean',
           code: 'invalid_type',
           path: ['ok'],
-          message: 'Invalid input: expected boolean, received string',
         },
       ]);
     } finally {

@@ -938,9 +938,33 @@ describe('server/builder', () => {
         expected: 'boolean',
         code: 'invalid_type',
         path: ['ok'],
-        message: 'Invalid input: expected boolean, received string',
       },
     ]);
+  });
+
+  test('output validation sanitizes custom issues before exposing client data', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+    const secret = 'server-only-output';
+    const schema = z.string().superRefine((value, ctx) => {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value'],
+        message: `Rejected ${value}`,
+        rejectedValue: value,
+      } as any);
+    });
+    const fn = c.query.output(schema).query(async () => secret);
+
+    const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
+
+    expect((error as any).data.ZodError).toEqual([
+      { code: 'custom', path: ['value'] },
+    ]);
+    expect(JSON.stringify((error as any).data)).not.toContain(secret);
+    expect((error as any).cause.issues[0].message).toContain(secret);
   });
 
   test('output() failures on an int64 schema still report the mismatch', async () => {
@@ -956,9 +980,9 @@ describe('server/builder', () => {
     const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(CRPCError);
-    expect((error as any).data.ZodError[0]).toMatchObject({
+    expect((error as any).data.ZodError[0]).toEqual({
       code: 'too_small',
-      minimum: '5',
+      path: [],
     });
   });
 

@@ -316,8 +316,9 @@ Use this map consistently:
 5. `CONFLICT`: duplicate or conflicting write.
 6. `TOO_MANY_REQUESTS`: rate limit.
 7. `INTERNAL_SERVER_ERROR`: unexpected failures only. cRPC also raises it for a
-   failed `.output(...)` parse, with message `Output validation failed` and the
-   Zod issues in `error.data.ZodError`.
+   failed `.output(...)` parse, with message `Output validation failed` and
+   sanitized structural Zod issues in `error.data.ZodError`. Custom issue
+   messages and fields stay server-side because they can contain handler output.
 8. Add small custom `data` payloads on `CRPCError` when the client needs
    domain metadata like conflicting ids. Read them on the client from
    `error.data`.

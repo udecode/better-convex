@@ -82,23 +82,23 @@ Start Gates:
 | Agent-facing action surface identified | yes | Per-PR task evidence, required close comment, GitHub state/read-back |
 | Source rule versus generated mirror boundary identified | yes | `.agents/rules/**` remains source; no workflow edit assumed before diagnosis |
 | Installed-skill lock versus local-rule owner identified | no | No installed-skill change in current scope |
-| `agent-native-reviewer` loaded or waiver recorded | pending | pending |
+| `agent-native-reviewer` loaded or waiver recorded | yes | #372/#373 agent-facing changes reviewed; both capability maps pass |
 
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
 | per-PR task ownership | yes | exact PR + four linked dedicated task plans | complete |
 | noncompliant close | no | all four passed immutable-head audit | N/A |
-| source behavior | yes | per-PR focused and full proof | #370 green; #371-#373 pending |
-| package/API/build | yes | per-PR build/types | #370 green; #371-#373 pending |
-| generated output | conditional | source-owned generation only | #370 fixture drift regenerated; remaining PRs pending |
-| fixtures/scenarios | yes | sync/check/runtime proof | #370 all eight + runtime green; remaining PRs pending |
-| docs/package skill | pending | pending | pending |
-| changeset | pending | pending | pending |
-| agent workflow | pending | pending | pending |
+| source behavior | yes | per-PR focused and full proof | #370/#371/#372 green; #373 focused 171/171 green, final check pending |
+| package/API/build | yes | per-PR build/types | #370/#371/#372 green; #373 build green |
+| generated output | yes | source-owned generation only | #370 fixtures; #372 codegen + mirror; #373 skill mirror |
+| fixtures/scenarios | yes | sync/check/runtime proof | #370/#371/#372 full green; #373 final check pending |
+| docs/package skill | yes | package source + mirror parity | #370/#372/#373 exact parity |
+| changeset | yes | per-PR release draft | #370 consumed into 0.25.3; #371/#372/#373 present |
+| agent workflow | yes | agent-native capability map + mirror audit | #372/#373 PASS |
 | cleanup/review | yes | per-PR deslop/autoreview | pending |
 | repository check | yes | `bun check` | pending |
-| GitHub delivery | pending | pending | pending |
+| GitHub delivery | yes | exact-head merge/release/read-back | #370 merged; 0.25.3 blocked on expired npm token; #371/#372 ready; #373 final review/check |
 
 Work Checklist:
 - [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
@@ -167,6 +167,19 @@ Verification evidence:
 - PR #370: review thread accepted and fixed with RED/GREEN guard tests;
   `autoreview --mode local` clean 0.98; final `bun check` exit 0; reply posted
   and thread resolved.
+- PR #370 merged as `54c88d18`; release PR #374 merged as `a663e963`.
+- Release `0.25.3` failed for both packages with npm publish E404; registry and
+  npm status are healthy, local `npm whoami` is 401, and repository `NPM_TOKEN`
+  was last rotated 2026-05-20 at the 90-day boundary. Chrome npm sign-in is
+  open for credential rotation; no later PR will merge before publication.
+- PR #371: current-main merge, focused 11/11, package build, deslop,
+  autoreview 0.98, and full `bun check` pass; pushed ready.
+- PR #372: stale mirror P1 repaired through source sync; codegen 69/69,
+  package/mirror parity, agent-native review, deslop, autoreview 0.98, full
+  `bun check`, reply, and resolution pass; pushed ready.
+- PR #373: output-issue leakage P1 fixed with structural client sanitization;
+  security RED/GREEN 72/72, server 171/171, package/docs builds, pack, mirror,
+  agent-native review, and deslop pass; final autoreview/check pending.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -178,12 +191,18 @@ Timeline:
 - 2026-08-19 PR #370 closeout patch counts physical nullish bucket probes,
   adds both budget regressions, refreshes source-owned fixture drift, and passes
   the full repository/runtime gate.
+- 2026-08-19 PR #370 merged; release PR #374 auto-merged; `0.25.3` publication
+  exposed the expired npm token and is paused for user npm sign-in/rotation.
+- 2026-08-19 PR #371 and #372 fully verified on current main, pushed ready, and
+  held unmerged until the release lane is repaired.
+- 2026-08-19 PR #373 security P1 fixed; all focused/package/docs/agent gates
+  pass, final review/check pending.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | PR #370 task/autoclosure slice |
-| Where am I going? | Close #370, then #371, #372, #373, then final audit |
+| Where am I? | #371/#372 ready; #373 final review/check; npm token blocks merges |
+| Where am I going? | Finish #373, publish `0.25.3`, then merge/release #371-#373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
@@ -191,3 +210,5 @@ Reboot status:
 Open risks:
 - A rerun of the historical release workflow may remain red if the workflow
   cannot idempotently recognize already-published artifacts; do not republish.
+- Current blocker: npm authentication expired at the 90-day boundary. Do not
+  merge #371-#373 until `0.25.3` is published and release artifacts read back.
