@@ -89,7 +89,7 @@ Boundaries:
   `packages/kitcn/src/server/**`, `.changeset/`, `docs/plans/`.
 - Browser surface: none. The change has no rendered UI behavior; docs prose is proven by
   the www content build and anchor check rather than a browser session.
-- GitHub sync: none. The user explicitly declined PR creation for this run.
+- GitHub sync: PR #373 onto `main`. No issue comment.
 - Non-goals: redesigning `resolveConvexReturnsSchema` so a top-level `.output(optional)`
   becomes expressible; fixing the low-level `returns:` coercion for `.optional()`/
   `.default()`; adding a README to the published package; reconciling the HTTP builder's
@@ -151,7 +151,7 @@ Start Gates:
 | Output budget strategy recorded | yes | See Output budget strategy |
 | Kitcn skill sync decision | yes | `www/**` changed, so SKILL.md updated in the same diff and mirror regenerated |
 | Browser/render proof decision | no | N/A: no browser-rendered behavior changes; `bun --cwd www build` + anchor id check used instead |
-| PR/GitHub expectation decision | no | N/A: user explicitly declined PR creation for this run |
+| PR/GitHub expectation decision | yes | PR #373 opened onto `main` after `bun check` passed |
 | Package/API pack selected | yes | `packages/kitcn` public error behavior, `files`, and published guidance all change |
 | Public surface or package boundary identified | yes | `.output()` failure error shape; `parseOutput`/`zodIssuesToConvexValue` deliberately kept out of `server/index.ts` |
 | Convex entry/import graph impact identified | yes | `validation.ts` adds no new dependency edge: `convex/values` is type-only, `./error` was already imported by both callers |
@@ -266,7 +266,7 @@ Phase / pass table:
 | Intake and source read | complete | Issue #369 read; 5-agent investigation + 3 adversarial verifiers, all `refuted: false` | writing |
 | Writing | complete | docs, SKILL.md (+mirror), CHANGELOG, `files`, `parseOutput`, tests, changeset | verification |
 | Verification | complete | `bun check` EXIT=0; `bun --cwd www build` EXIT=0; 170 server tests | closeout |
-| PR / GitHub sync | skipped | User explicitly declined PR creation; no GitHub write performed | final response |
+| PR / GitHub sync | complete | PR #373 opened onto `main` from `fix/crpc-output-contract-and-diagnostics` | final response |
 | Closeout | complete | 4-lens adversarial review (4 confirmed findings, all fixed) + autoreview clean | final response |
 
 Findings:
@@ -384,7 +384,7 @@ Verification evidence:
   subprocess env, though a direct `codex exec` authenticates. Environment issue, not the diff.
 
 Final handoff contract:
-- PR line: none - user explicitly declined PR creation
+- PR line: https://github.com/udecode/kitcn/pull/373
 - Issue line: Fixes #369
 - Confidence line: 95-100%
 - Docs lane: API reference + guide/system
@@ -398,8 +398,8 @@ Final handoff contract:
 - Verified: `bun check` EXIT=0; 170 server tests; autoreview clean
 
 Final handoff / sync:
-- PR: not created (user instruction)
-- Issue: not commented (no GitHub write authorized this run)
+- PR: #373 https://github.com/udecode/kitcn/pull/373 (branch `fix/crpc-output-contract-and-diagnostics`)
+- Issue: not commented; #369 is linked from the PR body
 - Browser proof: N/A
 - Caveats: see Open risks
 
