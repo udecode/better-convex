@@ -1,5 +1,15 @@
 # kitcn
 
+## 0.25.3
+
+### Patch Changes
+
+- [#370](https://github.com/udecode/kitcn/pull/370) [`54c88d1`](https://github.com/udecode/kitcn/commit/54c88d18acbcbe60ae17691ac813384b79e41182) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `count()`, `aggregate()`, `groupBy()`, and relation `_count` so `isNull: true` matches rows whose column is absent from the document, not just rows holding an explicit `null` — matching `findMany()` under the same filter.
+  - Emit a single group keyed `null` for an `isNull`-constrained `groupBy()` field, combining every metric over both explicitly-`null` and absent rows.
+  - Improve `groupBy()` fan-out guards so merged nullish groups count every physical aggregate bucket probe.
+
 ## 0.25.2
 
 ### Patch Changes
