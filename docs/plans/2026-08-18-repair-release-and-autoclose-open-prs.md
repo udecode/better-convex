@@ -98,7 +98,7 @@ Closure matrix:
 | agent workflow | pending | pending | pending |
 | cleanup/review | yes | per-PR deslop/autoreview | pending |
 | repository check | yes | `bun check` | pending |
-| GitHub delivery | pending | pending | pending |
+| GitHub delivery | yes | exact-head merge/release/read-back | #370 merged; `0.25.3` blocked on expired npm token; #371 ready; #372-#373 pending |
 
 Work Checklist:
 - [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
@@ -167,6 +167,13 @@ Verification evidence:
 - PR #370: review thread accepted and fixed with RED/GREEN guard tests;
   `autoreview --mode local` clean 0.98; final `bun check` exit 0; reply posted
   and thread resolved.
+- PR #370 merged as `54c88d18`; release PR #374 merged as `a663e963`.
+- Release `0.25.3` failed for both packages with npm publish E404; registry and
+  npm status are healthy, local `npm whoami` is 401, and repository `NPM_TOKEN`
+  was last rotated 2026-05-20 at the 90-day boundary. Chrome npm sign-in is
+  open for credential rotation; no later PR will merge before publication.
+- PR #371: merged current `main` cleanly; focused 11/11, package build,
+  deslop, autoreview 0.98, and full `bun check` all pass.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -178,12 +185,16 @@ Timeline:
 - 2026-08-19 PR #370 closeout patch counts physical nullish bucket probes,
   adds both budget regressions, refreshes source-owned fixture drift, and passes
   the full repository/runtime gate.
+- 2026-08-19 PR #370 merged; release PR #374 auto-merged; `0.25.3` publication
+  exposed the expired npm token and is paused for user npm sign-in/rotation.
+- 2026-08-19 PR #371 fully verified on current main and held unmerged until the
+  release lane is repaired.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | PR #370 task/autoclosure slice |
-| Where am I going? | Close #370, then #371, #372, #373, then final audit |
+| Where am I? | PR #371 ready; npm token rotation blocks merge/release |
+| Where am I going? | Publish `0.25.3`, merge #371, then #372, #373, final audit |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
@@ -191,3 +202,5 @@ Reboot status:
 Open risks:
 - A rerun of the historical release workflow may remain red if the workflow
   cannot idempotently recognize already-published artifacts; do not republish.
+- Current blocker: npm authentication expired at the 90-day boundary. Do not
+  merge #371-#373 until `0.25.3` is published and release artifacts read back.

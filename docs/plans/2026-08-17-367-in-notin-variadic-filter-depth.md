@@ -421,6 +421,17 @@ Error attempts:
 | None yet | 0 | | |
 
 Verification evidence:
+- Closeout against current `main` (`a663e963`): merged without conflict,
+  including PR #370's adjacent `query.ts` changes.
+- `bun test packages/kitcn/src/orm/convex-filter-depth.test.ts`: 11 pass.
+- `bun --cwd packages/kitcn build`: 71 files emitted; ORM bundle 349.06 kB.
+- `bun run lint:slop:delta`: one intentional pass-through hit at the write-lane
+  `toConvexFilter` semantic boundary; kept because read/write compiler options
+  deliberately differ. No actionable cleanup.
+- `autoreview --mode branch --base origin/main`: clean, patch correct 0.98.
+- `bun lint:fix`: 934 files checked, no fixes.
+- `NO_PROXY=localhost,127.0.0.1,::1 bun check`: exit 0 across lint, types,
+  tests, CLI, Concave, all eight fixtures, verify, and runtime scenarios.
 - RED: with `convexOr`/`convexAnd` temporarily reverted to the pairwise fold,
   `bun test packages/kitcn/src/orm/convex-filter-depth.test.ts` -> 9 fail /
   2 pass. The two that pass are exactly the two that should be immune: the
@@ -515,12 +526,14 @@ Timeline:
 - Autoreview clean.
 - `bun check` REAL_EXIT=0 end to end, branch renamed, committed, pushed.
 - Opened PR #371 onto `main`.
+- Closeout merged current `main`, reran focused/package/review/full gates, and
+  left the PR ready but unmerged while npm token rotation blocks release.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Intake and source read |
-| Where am I going? | Implementation, verification, commit/PR/GitHub sync, closeout |
+| Where am I? | Closeout complete; merge paused on npm release authentication |
+| Where am I going? | Push current-main merge and receipts, then merge after `0.25.3` publishes |
 | What is the goal? | Constant-depth `in`/`notIn` filter compilation |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
