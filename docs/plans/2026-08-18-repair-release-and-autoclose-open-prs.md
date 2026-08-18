@@ -179,7 +179,8 @@ Verification evidence:
   `bun check`, reply, and resolution pass; pushed ready.
 - PR #373: output-issue leakage P1 fixed with structural client sanitization;
   security RED/GREEN 72/72, server 171/171, package/docs builds, pack, mirror,
-  agent-native review, deslop, autoreview 0.97, and full `bun check` pass.
+  agent-native review, deslop, autoreview 0.97, and full `bun check` pass;
+  review replied and resolved.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.

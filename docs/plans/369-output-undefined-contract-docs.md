@@ -350,7 +350,9 @@ Review fixes:
   populate with rejected server output. Accepted: retain only structural
   `code`, `path`, and string `expected` in `error.data.ZodError`; keep the full
   `ZodError` in `cause` for server diagnostics. RED: 4/72 focused failures;
-  GREEN: 72/72 after sanitization. Docs/skill/changeset synced; reply pending.
+  GREEN: 72/72 after sanitization. Docs/skill/changeset synced. Replied at
+  https://github.com/udecode/kitcn/pull/373#discussion_r3808901289 and resolved
+  with `isResolved: true` read-back.
 - **P1 (self-inflicted, docs).** The first draft recommended `.output(z.string().optional())`
   for a genuinely-`undefined` return. Proven wrong: `zodOutputToConvex` drops top-level
   optionality (`exportReturns()` -> `{"type":"string"}`) and Convex wires `undefined` as
