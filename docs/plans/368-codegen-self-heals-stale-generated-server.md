@@ -427,6 +427,11 @@ Review fixes:
   candidate, which could have left `server.ts` importing a deleted file after an
   unrelated fatal parse failure. Fixed and pinned by
   `generateMeta leaves generated/server.ts importable after a fatal parse failure`.
+- PR thread `PRRT_kwDOPTlS686Z7oYe`: accepted. Published setup guidance changed
+  but `.agents/skills/kitcn` remained stale. Regenerate from
+  `packages/kitcn/skills/kitcn` with the source-owned sync command, audit
+  parity. `bun tooling/sync-kitcn-skill.ts` plus `bun install` regenerated both
+  missing references; package/mirror parity is exact. Reply/resolve pending.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -439,6 +444,16 @@ Error attempts:
 Verification evidence:
 All commands run from `/Users/mikey/conductor/workspaces/kitcn/hanoi-v2` unless
 noted.
+- Closeout cwd `/Users/zbeyens/git/better-convex`: merged current `main`
+  (`a663e963`) without conflict.
+- `bun tooling/sync-kitcn-skill.ts` + `bun install`: generated repo-local kitcn
+  references persisted; package/`.agents` diff is empty; lockfiles unchanged.
+- Agent-native review: PASS. `kitcn dev/codegen` is discoverable through the
+  published setup skill, package source is authoritative, the generated mirror
+  is exact, and codegen/fixture commands own proof.
+- `bun test packages/kitcn/src/cli/codegen.test.ts`: 69 pass.
+- `bun --cwd packages/kitcn build`: 71 files emitted.
+- `bun run lint:slop:delta`: zero occurrence/score change.
 - Red repro (before fix): `bun test packages/kitcn/src/cli/codegen.test.ts -t
   "predates the aggregate capability"` → failed with
   `kitcn codegen aborted because module parsing failed: - orders.ts: Table
