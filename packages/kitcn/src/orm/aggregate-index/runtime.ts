@@ -239,6 +239,18 @@ const normalizeUndefined = (value: unknown): unknown => {
 const serializeStable = (value: unknown): string =>
   JSON.stringify(normalizeUndefined(value));
 
+/**
+ * A nullable column is `v.optional(v.union(v.null(), ...))`, so a row that
+ * never had the column written stores it absent, and `computeCountKeyParts`
+ * encodes absent as the `__kitcnUndefined` sentinel — a different bucket from
+ * the one an explicit `null` lands in. `isNull` means null-or-absent
+ * everywhere else in the ORM, so probing only the `null` bucket silently
+ * undercounts every row written before the column existed. Both probes are
+ * looked up through `serializeStable`, which maps `undefined` onto the same
+ * sentinel the write path stored.
+ */
+export const NULLISH_PROBE_VALUES: readonly unknown[] = [null, undefined];
+
 const toConstraintSet = (values: unknown[]): Map<string, unknown> => {
   const set = new Map<string, unknown>();
   for (const value of values) {
@@ -515,7 +527,7 @@ const parseFieldFilter = (
         `field '${fieldName}'.isNull only supports true.`
       );
     }
-    pushConstraint(target, fieldName, [null]);
+    pushConstraint(target, fieldName, [...NULLISH_PROBE_VALUES]);
   }
 
   for (const operator of ['gt', 'gte', 'lt', 'lte'] as const) {
@@ -1170,7 +1182,7 @@ const enforceCartesianExpansionGuards = (options: {
     throw createFilterError(
       options.codes,
       options.methodName,
-      `expands IN filters to ${combinations} key combinations on aggregateIndex '${options.indexName}', exceeding aggregateCartesianMaxKeys (${cartesianMaxKeys}). Reduce IN list sizes, split the query, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateCartesianMaxKeys } }).`
+      `expands to ${combinations} key combinations on aggregateIndex '${options.indexName}', exceeding aggregateCartesianMaxKeys (${cartesianMaxKeys}). Each 'in' value and each 'isNull' field (which reads both the null and the absent key) multiplies the combinations. Reduce IN list sizes, split the query, add a narrower aggregateIndex, or increase defineSchema(..., { defaults: { aggregateCartesianMaxKeys } }).`
     );
   }
 
@@ -1179,7 +1191,7 @@ const enforceCartesianExpansionGuards = (options: {
     throw createFilterError(
       options.codes,
       options.methodName,
-      `estimated ${options.workLabel} is ${estimatedWork} units on aggregateIndex '${options.indexName}', exceeding aggregateWorkBudget (${workBudget}). Reduce IN fan-out, split the query, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
+      `estimated ${options.workLabel} is ${estimatedWork} units on aggregateIndex '${options.indexName}', exceeding aggregateWorkBudget (${workBudget}). Reduce IN or isNull fan-out, split the query, or increase defineSchema(..., { defaults: { aggregateWorkBudget } }).`
     );
   }
 };
