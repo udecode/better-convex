@@ -165,7 +165,8 @@ Verification evidence:
 - `gh run rerun 32049349569 --failed` + watch -> historical release workflow
   rerun passed; it detected already-published state and skipped tag/release work.
 - PR #370: review thread accepted and fixed with RED/GREEN guard tests;
-  `autoreview --mode local` clean 0.98; final `bun check` exit 0.
+  `autoreview --mode local` clean 0.98; final `bun check` exit 0; reply posted
+  and thread resolved.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.

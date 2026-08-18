@@ -434,7 +434,9 @@ Review fixes:
   can issue two physical bucket probes, so Cartesian/work budgets must retain
   probe cardinality. RED tests added for both guards before the implementation
   fix. RED: both tests reached `AGGREGATE_INDEX_BUILDING`; GREEN: 6/6 focused
-  tests pass. Fix ready to push; reply/resolution pending.
+  tests pass. Pushed in `174f9db8`; replied at
+  https://github.com/udecode/kitcn/pull/370#discussion_r3808674038 and resolved
+  with `isResolved: true` read-back.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
