@@ -176,7 +176,7 @@ Verification evidence:
   deslop, autoreview 0.98, and full `bun check` all pass; pushed ready.
 - PR #372: accepted stale mirror P1; source-owned sync plus install now produce
   exact package/`.agents` parity. Codegen 69/69, package build, agent-native
-  review, and deslop pass; final autoreview/check pending.
+  review, deslop, autoreview 0.98, and full `bun check` pass.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -198,8 +198,8 @@ Timeline:
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | PR #371 ready; #372 final review/check; npm token blocks merges |
-| Where am I going? | Finish #372/#373 prep, publish `0.25.3`, then merge/release each |
+| Where am I? | PR #371/#372 ready; #373 next; npm token blocks merges |
+| Where am I going? | Finish #373 prep, publish `0.25.3`, then merge/release each |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |

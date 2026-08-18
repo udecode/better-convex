@@ -454,6 +454,10 @@ noted.
 - `bun test packages/kitcn/src/cli/codegen.test.ts`: 69 pass.
 - `bun --cwd packages/kitcn build`: 71 files emitted.
 - `bun run lint:slop:delta`: zero occurrence/score change.
+- `autoreview --mode branch --base origin/main`: clean, patch correct 0.98.
+- `bun lint:fix`: 932 files checked, no fixes.
+- `NO_PROXY=localhost,127.0.0.1,::1 bun check`: exit 0 across lint, types,
+  tests, CLI, Concave, all eight fixtures, verify, and runtime scenarios.
 - Red repro (before fix): `bun test packages/kitcn/src/cli/codegen.test.ts -t
   "predates the aggregate capability"` → failed with
   `kitcn codegen aborted because module parsing failed: - orders.ts: Table
@@ -565,12 +569,15 @@ Timeline:
 - Implemented B'-minimal; added 4 regression tests.
 - Regenerated example, root convex, and all 8 fixtures; docs and skill synced.
 - Verified, autoreviewed clean, committed.
+- Closeout merged current main, repaired the generated skill mirror, reran
+  agent-native/deslop/autoreview/full checks, and left merge paused only on npm
+  release authentication.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete |
-| Where am I going? | Final response |
+| Where am I? | Closeout complete; merge paused on npm release authentication |
+| Where am I going? | Push current-main merge and mirror receipts, then merge after `0.25.3` publishes |
 | What is the goal? | Make `kitcn codegen` regenerate a stale `generated/server.ts` instead of aborting on it |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
