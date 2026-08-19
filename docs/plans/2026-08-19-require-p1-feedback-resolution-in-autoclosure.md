@@ -327,6 +327,10 @@ Review fixes:
   every raw comment/review item is content-triaged.
 - P1 post-receipt feedback race: accepted; after receipt/head verification,
   re-fetch helper and raw feedback and restart for any actionable P1.
+- P1 self-ledger loop: accepted; only the exact current-run receipt is exempt
+  after URL/body/OID read-back, never arbitrary marker-bearing comments.
+- P1 lower-priority receipt drift: accepted; any other new unrecorded URL,
+  including P2/P3, invalidates or externally supersedes the receipt.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -340,6 +344,8 @@ Error attempts:
 | Terminal receipt could race a new push | 1 | Re-fetch live head after comment read-back and compare OIDs | Mismatch invalidates receipt and restarts final proofs |
 | One raw review body missing from ledger | 1 | Reconcile every raw item by exact URL | Both Codex wrappers and every helper-excluded raw item are ledgered |
 | New P1 can arrive after terminal receipt | 1 | Re-fetch helper/raw feedback after receipt read-back | Any actionable P1 invalidates receipt and restarts final cycle |
+| Receipt appears as its own omitted author comment | 1 | Exempt only exact current-run receipt after URL/body/OID read-back | No versioned self-ledger loop; arbitrary markers remain untrusted |
+| New lower-priority URL missing from receipt | 1 | Invalidate on every new unrecorded item, not only P1 | Superseding external receipt allowed when no branch fix is needed |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -367,6 +373,8 @@ Source-listed case matrix:
 | filtered bot finding | recognized bot posts actionable top-level feedback | source/template + raw API audit | helper omits item before triage | compare unfiltered top-level comments/reviews and ledger omissions | identity cannot dismiss; concrete content rationale required | pass |
 | receipt/head race | branch changes after terminal comment | source/template sequence audit | receipt can name a stale OID | re-fetch live `headRefOid` after comment read-back | OID mismatch restarts final proof cycle | pass |
 | receipt/feedback race | new comment arrives without a branch push | source/template sequence audit | head equality misses new P1 | re-fetch helper/raw feedback after receipt read-back | any new P1 invalidates receipt | pass |
+| receipt self-ledger | receipt is filtered author comment | source/template sequence audit | versioned ledger update creates another receipt | exempt exact current-run URL/body/OID only | no arbitrary marker exemption | pass |
+| new deferred item | P2/P3 arrives after receipt | source/template sequence audit | zero-P1 check misses absent URL/deferral | invalidate any new unrecorded URL | supersede receipt externally when no branch change | pass |
 
 Final handoff contract:
 - Commit line: PR #377 branch commits through the final plan receipt commit

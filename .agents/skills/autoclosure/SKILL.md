@@ -86,7 +86,10 @@ checks do not prove that live GitHub feedback is closed.
    `gh api --paginate "repos/$repo/pulls/$pr/reviews"`. Compare IDs/URLs with
    the helper output and ledger every omitted item. A bot login or author
    identity never proves an item is boilerplate; dismiss it only from its
-   content with a concrete rationale.
+   content with a concrete rationale. The single terminal receipt comment
+   produced and captured by the current run is exempt from the versioned
+   ledger only after its exact URL, body, and OID are read back; an arbitrary
+   comment containing the receipt marker is not exempt.
 2. Assign and persist one priority plus a one-sentence rationale for every
    actionable item before deciding whether it blocks:
 
@@ -128,10 +131,14 @@ checks do not prove that live GitHub feedback is closed.
    branch commit; never push solely to record it. After reading the comment
    back, fetch the live PR head OID again and require it to equal the receipt
    OID, then repeat both the helper fetch and unfiltered raw inventory. An OID
-   mismatch or any newly actionable P1-or-higher item makes the receipt stale
-   and restarts the final proof cycle. If any proof fails or new P1 feedback
-   appears, rerun `resolve-pr-feedback`; green CI, approval state, or a clean
-   local review is not a waiver.
+   mismatch or any new item not already represented by exact URL and verdict
+   in the receipt/ledger makes the receipt stale, except for the verified
+   receipt comment itself. This includes P2/P3 feedback: it still needs its URL
+   and explicit user deferral. If no branch change is needed, post a superseding
+   external receipt with the missing item and repeat read-back without a branch
+   push. If any proof fails or new P1 feedback appears, rerun
+   `resolve-pr-feedback`; green CI, approval state, or a clean local review is
+   not a waiver.
 
 If live feedback cannot be fetched, replied to, resolved, or read back, stop.
 Do not merge, close out, or release the PR without the required receipts.
@@ -186,9 +193,12 @@ Mark N/A only with a concrete reason.
     results, zero-P1 read-back counts, and deferred P2-or-lower URLs. Read the
     comment back with `gh pr view --comments`, then re-fetch `headRefOid` and
     require it to match the receipt OID. Re-fetch helper and raw feedback once
-    more after that read-back and require zero actionable P1-or-higher items.
+    more after that read-back. Require zero actionable P1-or-higher items and
+    require every other item, except the verified receipt comment itself, to
+    have its exact URL plus verdict or explicit deferral in the receipt/ledger.
     Do not create a receipt-only branch commit; any further branch mutation,
-    OID mismatch, or new P1-or-higher feedback restarts at step 3.
+    OID mismatch, or unrecorded item restarts at step 3 or a superseding-
+    receipt cycle as described above.
 16. Complete the GitHub merge/closeout/release path only after the terminal
     receipt is verified.
 
