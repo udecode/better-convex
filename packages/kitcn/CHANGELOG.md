@@ -1,5 +1,15 @@
 # kitcn
 
+## 0.25.4
+
+### Patch Changes
+
+- [#371](https://github.com/udecode/kitcn/pull/371) [`80a8441`](https://github.com/udecode/kitcn/commit/80a84414ea684ac8faedc4b16181594528427079) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix large `in` and `notIn` filters across ORM reads, updates, and deletes.
+  - Fix large `OR` and `AND` filters exceeding Convex's nesting limit.
+  - Reject malformed empty logical filters before scheduled mutations run.
+
 ## 0.25.3
 
 ### Patch Changes
