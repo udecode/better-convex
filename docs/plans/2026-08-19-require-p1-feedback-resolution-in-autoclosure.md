@@ -321,6 +321,10 @@ Review fixes:
   docs, tests, generated files, and code that affect behavior or proof.
 - P1 filtered bot feedback: accepted; added raw API inventory/comparison for
   top-level comments and review bodies, with content-based dismissal only.
+- P1 terminal head race: accepted; after reading the receipt back, re-fetch the
+  live PR head and require the same OID or restart the final proof cycle.
+- P1 incomplete raw ledger: accepted; added the second Codex review wrapper so
+  every raw comment/review item is content-triaged.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -331,6 +335,8 @@ Error attempts:
 | Terminal read-back receipt creates another last push | 1 | Move terminal receipt outside the branch and read it back from the PR | Exact-head external PR receipt rule added |
 | Final proof trigger excluded workflow Markdown | 1 | Define material branch changes regardless of file type | Source rule and reusable template now cover every behavior/proof-affecting file |
 | Helper filtered recognized bot feedback | 1 | Add independent unfiltered GitHub inventory and content-based triage | Source rule and reusable template require raw ID/URL comparison |
+| Terminal receipt could race a new push | 1 | Re-fetch live head after comment read-back and compare OIDs | Mismatch invalidates receipt and restarts final proofs |
+| One raw review body missing from ledger | 1 | Reconcile every raw item by exact URL | Both Codex wrappers and every helper-excluded raw item are ledgered |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -356,6 +362,7 @@ Source-listed case matrix:
 | resolved P1 regression | resolved threads disappear from helper output | rule/template audit | later edits could regress a resolved fix | replay every P1 proof after final material branch push, regardless of file type | proof-replay gate covers resolved/outdated items | pass |
 | terminal receipt cycle | recording read-back in branch creates another last push | sequence/source audit | fetch -> plan edit -> push loops | exact-head PR receipt outside branch; no receipt-only push | terminal external receipt gate | pass |
 | filtered bot finding | recognized bot posts actionable top-level feedback | source/template + raw API audit | helper omits item before triage | compare unfiltered top-level comments/reviews and ledger omissions | identity cannot dismiss; concrete content rationale required | pass |
+| receipt/head race | branch changes after terminal comment | source/template sequence audit | receipt can name a stale OID | re-fetch live `headRefOid` after comment read-back | OID mismatch restarts final proof cycle | pass |
 
 Final handoff contract:
 - Commit line: PR #377 branch commits through the final plan receipt commit

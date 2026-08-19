@@ -125,9 +125,11 @@ checks do not prove that live GitHub feedback is closed.
    read-back shows zero unresolved actionable P1-or-higher findings, and a
    terminal receipt is posted against the exact head OID and read back with
    `gh pr view --comments`. The terminal receipt lives on the PR, not in a new
-   branch commit; never push solely to record it. If any proof fails or new P1
-   feedback appears, rerun `resolve-pr-feedback`; green CI, approval state, or
-   a clean local review is not a waiver.
+   branch commit; never push solely to record it. After reading the comment
+   back, fetch the live PR head OID again and require it to equal the receipt
+   OID. A mismatch makes the receipt stale and restarts the final proof cycle.
+   If any proof fails or new P1 feedback appears, rerun `resolve-pr-feedback`;
+   green CI, approval state, or a clean local review is not a waiver.
 
 If live feedback cannot be fetched, replied to, resolved, or read back, stop.
 Do not merge, close out, or release the PR without the required receipts.
@@ -180,8 +182,9 @@ Mark N/A only with a concrete reason.
     actionable P1-or-higher finding remains, return to step 3.
 15. Post a terminal PR comment containing the exact head OID, P1 proof replay
     results, zero-P1 read-back counts, and deferred P2-or-lower URLs. Read the
-    comment back with `gh pr view --comments`. Do not create a receipt-only
-    branch commit; any further branch mutation restarts at step 3.
+    comment back with `gh pr view --comments`, then re-fetch `headRefOid` and
+    require it to match the receipt OID. Do not create a receipt-only branch
+    commit; any further branch mutation or OID mismatch restarts at step 3.
 16. Complete the GitHub merge/closeout/release path only after the terminal
     receipt is verified.
 
