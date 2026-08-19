@@ -268,8 +268,8 @@ Phase / pass table:
 | Intake and source read | complete | source rule, template, PR #373 P1, repo instructions read | implementation |
 | Implementation | complete | source rule + template + regenerated skill | verification |
 | Verification | complete | focused audits, lint, intent, slop, full check, agent-native audit, and autoreview green | GitHub sync |
-| Commit / PR / GitHub sync | complete | PR #377, task body/head proof, five P1 replies/resolutions | terminal receipt |
-| Closeout | complete | helper/raw read-back has zero actionable P1 and two explicitly deferred P2s | exact-head external receipt |
+| Commit / PR / GitHub sync | complete | PR #377, task body/head proof, seven P1 replies/resolutions | terminal receipt |
+| Closeout | complete | helper/raw read-back has zero actionable P1 and three explicitly deferred P2s | exact-head external receipt |
 
 Findings:
 - Current autoclosure runs deslop, agent-native review, and autoreview but never
@@ -358,7 +358,7 @@ Verification evidence:
 - Final pre-receipt P1-width branch autoreview -> clean, 0.97.
 - Initial PR #377 full feedback fetch -> 0 threads, 1 non-actionable
   changeset-bot comment, 0 review bodies.
-- Latest full helper/raw read-back -> zero actionable P1; two explicitly
+- Latest full helper/raw read-back -> zero actionable P1; three explicitly
   deferred P2 threads; raw excluded items content-triaged in the child ledger.
 
 Source-listed case matrix:
@@ -442,7 +442,7 @@ Reboot status:
 | Where am I going? | Replay proofs, post/read receipt, merge |
 | What is the goal? | Make P1-or-higher feedback a blocking autoclosure gate |
 | What have I learned? | See Findings |
-| What have I done? | Repaired workflow, resolved five P1s, passed checks/reviews, and proved task ownership |
+| What have I done? | Repaired workflow, resolved seven P1s, passed checks/reviews, and proved task ownership |
 
 Open risks:
 - GitHub may add live feedback after a push; the repaired gate requires a fresh
