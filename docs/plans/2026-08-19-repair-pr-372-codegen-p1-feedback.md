@@ -19,6 +19,7 @@ Applied packs:
 
 Task source:
 - type: merged GitHub PR review feedback, full mode
+- delivery PR: https://github.com/udecode/kitcn/pull/379
 - id / link: PR #372, threads
   https://github.com/udecode/kitcn/pull/372#discussion_r3811956286 and
   https://github.com/udecode/kitcn/pull/372#discussion_r3811956292
@@ -182,7 +183,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task`, `autogoal`, `autoclosure`, `resolve-pr-feedback`, and `tdd` loaded; `changeset` required before release note edit |
 | Active goal checked or created | yes | Existing batch release goal remains active; this is its linked per-PR repair slice |
 | Source of truth read before edits | yes | Both exact P1 bodies, current source/tests, and atomic parse-failure solution read |
-| Exact per-PR task ownership | yes | This plan owns one not-yet-created follow-up PR; exact number will be committed at its head before autoclosure |
+| Exact per-PR task ownership | yes | This plan owns exactly follow-up PR #379 |
 | GitHub comments and attachments read | yes | Full helper inventory plus exact REST bodies read; no attachments |
 | Video transcript evidence required | no | N/A: no video |
 | Pre-solution issue challenge required | yes | Both claims match current source; RED execution follows |
@@ -196,7 +197,7 @@ Start Gates:
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | `task` authorizes commit/push/dedicated PR after `bun check` |
 | Task-style PR body decision | yes | Use PR #270 emoji format with exact plan line and no self-link |
-| Task-plan PR body evidence | yes | Pending exact PR creation; plan must be amended with the number and pushed before autoclosure |
+| Task-plan PR body evidence | yes | PR #379 body names this plan; this commit binds the plan to exact PR #379 before autoclosure |
 | GitHub issue sync expectation decision | yes | Quote/reply/resolve both original #372 threads only after repair PR proof |
 | Output budget strategy recorded | yes | Exact ranges, focused tests, capped output, `/tmp` inventories |
 | Package/API pack selected | yes | CLI/package/release behavior is touched |
