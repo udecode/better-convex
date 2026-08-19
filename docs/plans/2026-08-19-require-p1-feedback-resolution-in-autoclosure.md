@@ -78,7 +78,9 @@ Constraints:
 Boundaries:
 - Source of truth: user correction plus `.agents/rules/autoclosure.mdc`.
 - Allowed edit scope: autoclosure source rule, project plan template, generated
-  mirrors from the approved sync path, and this dedicated plan.
+  mirrors from the approved sync path, the project-owned
+  `resolve-pr-feedback` template/ledger required to execute the new gate, and
+  this dedicated plan.
 - Browser surface: N/A: agent workflow only.
 - GitHub issue sync: N/A: no issue; PR delivery/read-back required.
 - Non-goals: changing `resolve-pr-feedback` semantics, fixing PR #373 in this
@@ -281,6 +283,11 @@ Implementation notes:
   floor, explicit P2-or-lower deferral receipts, and final live re-fetch.
 - Materialized the same receipts in `docs/plans/templates/autoclosure.md` and
   regenerated the installed skill with `bun install`.
+- The first required live-feedback invocation proved the installed skill's
+  named project template was missing. Added
+  `docs/plans/templates/resolve-pr-feedback.md` with the exact target,
+  inventory, triage, reply/resolution, and read-back ledger the skill requires;
+  scratchpad creation then passed.
 
 Review fixes:
 - Agent-native review: PASS; no missing route, owner, mirror, proof, or
@@ -290,7 +297,7 @@ Review fixes:
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| `resolve-pr-feedback` template missing | 1 | Add the project-owned template required by the installed workflow, then rerun the exact helper | Template and PR #377 ledger created successfully |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -300,6 +307,10 @@ Verification evidence:
 - `bun lint:fix` -> 934 files checked; no fixes.
 - `bun check` -> exit 0 across lint, typecheck, unit/CLI/Concave tests,
   fixtures, verify, and runtime scenarios.
+- First P1-width branch autoreview -> clean 0.95; rerun required after adding
+  the missing feedback template and ledger.
+- Initial PR #377 full feedback fetch -> 0 threads, 1 non-actionable
+  changeset-bot comment, 0 review bodies.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
