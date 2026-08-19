@@ -184,7 +184,7 @@ Start Gates:
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | For verified code-changing work, default is commit, push, and PR because `task` explicitly requires it; N/A only for explicit user decline, no local patch, analytical/blocked/inconclusive work, or recorded blocker. |
 | Task-style PR body decision | yes | PR #270 emoji task-style body |
-| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/367-in-notin-variadic-filter-depth.md`; exact-head readback pending review-fix push; owns PR #371 |
+| Task-plan PR body evidence | yes | `gh pr view 371` at head `d83053e0` returned exactly one body line: `🧭 Task plan: docs/plans/367-in-notin-variadic-filter-depth.md`; this plan owns PR #371 |
 | GitHub issue sync expectation decision | yes | `Fixes #367` in the PR body; extra QA comment deferred to the user |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | package-api |
@@ -300,7 +300,7 @@ Completion Gates:
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: the one gate failure was `EADDRINUSE :3211` held by a different Conductor workspace; clean rerun of `test:runtime` passed |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `git add -A` then commit 5450da06 |
 | PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` REAL_EXIT=0 before push; PR #371 created onto `main` |
-| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | Post-push readback pending after the renamed plan reaches the PR head |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 371` at head `d83053e0` confirmed the auto-release block, fix line, exact task-plan line, confidence, proof table, and all four required sections; no current-PR self-link |
 | PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | verified after the plan-update push |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no images |
 | GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #367` in the PR body; standalone QA comment deferred to the user |
@@ -309,7 +309,7 @@ Completion Gates:
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | long gates redirected to `tmp/*.log` and tailed; audit ran as a background workflow |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | `autoreview --mode local --engine claude` -> clean, no accepted/actionable findings, `patch is correct (0.9)`; codex default unusable (401) |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/367-in-notin-variadic-filter-depth.md` | run at closeout |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/367-in-notin-variadic-filter-depth.md` | passed after review repairs |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | no symbol added to or removed from `orm/index.ts`; the new module is internal |
 | Convex bundle/import proof | yes | Audit affected function-entry static graphs or record N/A | new module is a leaf importing only `filter-expression`; only `orm/index.ts` reached both former copies, so no entry grows; `import-graph.test.ts` green |
 | CLI/scaffold/generated proof | no | Prove command contract and regenerate owned output or record N/A | N/A: no CLI or generated output changed; `bun run test:cli` green |
@@ -424,7 +424,7 @@ Review fixes:
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| shadcn template clone timed out during final fixture check | 1 | Rerun the exact owning fixture gate once, then rerun the complete root gate | fixture retry passed all eight pairs; later full `bun check` passed |
 
 Verification evidence:
 - Closeout against current `main` (`a663e963`): merged without conflict,
@@ -438,6 +438,11 @@ Verification evidence:
 - `bun lint:fix`: 934 files checked, no fixes.
 - `NO_PROXY=localhost,127.0.0.1,::1 bun check`: exit 0 across lint, types,
   tests, CLI, Concave, all eight fixtures, verify, and runtime scenarios.
+- Review repair RED/GREEN: the focused empty-logical test failed because an
+  empty serialized `and` deserialized successfully, then passed for both
+  `and` and `or` after the fail-closed guard; combined ORM tests 38/38.
+- Review repair package build: 71 files emitted; final full `bun check` exit 0.
+- Review repair `autoreview --mode local`: clean, correct 0.99.
 - RED: with `convexOr`/`convexAnd` temporarily reverted to the pairwise fold,
   `bun test packages/kitcn/src/orm/convex-filter-depth.test.ts` -> 9 fail /
   2 pass. The two that pass are exactly the two that should be immune: the
@@ -532,14 +537,15 @@ Timeline:
 - Autoreview clean.
 - `bun check` REAL_EXIT=0 end to end, branch renamed, committed, pushed.
 - Opened PR #371 onto `main`.
-- Closeout merged current `main`, reran focused/package/review/full gates, and
-  left the PR ready but unmerged while npm token rotation blocks release.
+- Closeout merged current `main`, reran focused/package/review/full gates,
+  fixed all four live review findings, pushed head `d83053e0`, and updated the
+  body to the ticket-prefixed plan path.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete; merge paused on npm release authentication |
-| Where am I going? | Push current-main merge and receipts, then merge after `0.25.3` publishes |
+| Where am I? | Review repairs pushed; reply, resolve, CI, and merge remain |
+| Where am I going? | Resolve four threads, wait exact-head CI, merge, release |
 | What is the goal? | Constant-depth `in`/`notIn` filter compilation |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |

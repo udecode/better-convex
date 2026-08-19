@@ -168,12 +168,15 @@ Verification evidence:
   `autoreview --mode local` clean 0.98; final `bun check` exit 0; reply posted
   and thread resolved.
 - PR #370 merged as `54c88d18`; release PR #374 merged as `a663e963`.
-- Release `0.25.3` failed for both packages with npm publish E404; registry and
-  npm status are healthy, local `npm whoami` is 401, and repository `NPM_TOKEN`
-  was last rotated 2026-05-20 at the 90-day boundary. Chrome npm sign-in is
-  open for credential rotation; no later PR will merge before publication.
-- PR #371: merged current `main` cleanly; focused 11/11, package build,
-  deslop, autoreview 0.98, and full `bun check` all pass.
+- Release `0.25.3` retry `32195291711` passed after token rotation. Both npm
+  packages report version `0.25.3` and gitHead `a663e963`; both package tags
+  dereference to that commit; GitHub release `v0.25.3`, CI `32195291753`, and
+  release skill check `32235747049` are green.
+- PR #371: merged current `main` cleanly; initial focused 11/11, package build,
+  deslop, autoreview 0.98, and full `bun check` passed. Four later Codex review
+  findings were accepted: ticket-prefixed plan, truthful body receipt, concise
+  changeset, and fail-closed empty logical deserialization. RED/GREEN, 38/38
+  focused, build, autoreview 0.99, and final `bun check` pass at `d83053e0`.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -186,21 +189,21 @@ Timeline:
   adds both budget regressions, refreshes source-owned fixture drift, and passes
   the full repository/runtime gate.
 - 2026-08-19 PR #370 merged; release PR #374 auto-merged; `0.25.3` publication
-  exposed the expired npm token and is paused for user npm sign-in/rotation.
-- 2026-08-19 PR #371 fully verified on current main and held unmerged until the
-  release lane is repaired.
+  exposed the expired npm token.
+- 2026-08-19 Token rotation completed; failed-only release retry published and
+  read back `0.25.3` across npm, package tags, GitHub release, CI, and skills.
+- 2026-08-19 PR #371 review repairs pushed at `d83053e0`; body now points to
+  `docs/plans/367-in-notin-variadic-filter-depth.md`.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | PR #371 ready; npm token rotation blocks merge/release |
-| Where am I going? | Publish `0.25.3`, merge #371, then #372, #373, final audit |
+| Where am I? | `0.25.3` published; closing #371 review and exact-head CI |
+| Where am I going? | Merge/release #371, then rebase and close #372, #373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
 
 Open risks:
-- A rerun of the historical release workflow may remain red if the workflow
-  cannot idempotently recognize already-published artifacts; do not republish.
-- Current blocker: npm authentication expired at the 90-day boundary. Do not
-  merge #371-#373 until `0.25.3` is published and release artifacts read back.
+- Release sequencing: finish each package publication and artifact readback
+  before advancing to the next PR.
