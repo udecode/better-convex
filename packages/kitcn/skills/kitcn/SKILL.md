@@ -32,34 +32,35 @@ Default assumption:
 Only remember these non-parity deltas:
 1. Procedure input root must be `z.object(...)` (no primitive root args).
 2. No `z.void()` outputs; omit `.output(...)` for no-value mutations.
-3. Stacked `.input(...)` calls merge input shapes.
-4. `.paginated({ limit, item })` must be before `.query()` and auto-adds `input.cursor` + `input.limit`, output `{ page, continueCursor, isDone }`.
-5. Metadata is codegen’d onto `@convex/api` leaves (`api.namespace.fn.meta`) so never put secrets in `.meta(...)`; chaining `.meta(...)` is shallow merge and supports `defaultMeta`.
-6. Auth metadata drives client behavior: `auth: "optional"` waits for auth load then runs, `auth: "required"` waits then skips when logged out.
-7. `ctx.orm` enforces constraints + RLS; `ctx.db` bypasses them.
-8. Non-paginated `findMany()` must be explicitly sized (`limit`, cursor mode, schema `defaultLimit`, or explicit `allowFullScan`).
-9. Predicate `where` requires explicit `.withIndex(...)`; no implicit full scan fallback.
-10. Cursor pagination uses the first `orderBy` field; index that field for stable paging.
-11. `maxScan` applies to cursor mode only; `allowFullScan` is for non-cursor full-scan opt-in.
-12. String operators / `columns` projection / many-relation subfilters can run post-fetch; bound result size early.
-13. Search mode is relevance-ordered and does not support `orderBy`; vector mode has stricter limits (no cursor/offset/top-level where/order).
-14. Update/delete without `where` throws unless `allowFullScan()`.
-15. `count()`, `aggregate()`, and `groupBy()` require a matching `aggregateIndex`. Use `groupBy({ by, _count, _sum })` instead of multiple `.count()` calls or `findMany` + manual JS grouping. Every `by` field must be finite-constrained (`eq`/`in`/`isNull`) in `where`. See `references/features/aggregates.md`.
-16. cRPC React queries are real-time by default (`subscribe: true`); never use `queryClient.invalidateQueries` for these subscribed paths.
-17. In RSC, `prefetch` hydrates client, `caller` is server-only and not hydrated, `preloadQuery` hydrates but can cause stale split ownership if also rendered client-side.
-18. Better Auth Next.js shortcut is `convexBetterAuth(...)`; generic server-only shortcut is `createCallerFactory(...)`.
-19. On the kitcn auth client path, use `createAuthMutations(authClient)` wrappers so logout unsubscribes auth queries before sign out. Raw Convex preset keeps a smaller plain `authClient`.
-20. **NEVER** use `ctx.runQuery`/`ctx.runMutation`/`ctx.runAction` directly for module-to-module calls. Use the generated runtime helpers from `convex/functions/generated/<module>.runtime`.
-21. **`create<Module>Handler(ctx)`** is the default in queries/mutations: zero overhead, query/mutation ctx only, and no redundant validation or middleware.
-22. **`create<Module>Caller(ctx)`** is for actions and HTTP routes. Action procedures live under `caller.actions.*`; scheduling lives under `caller.schedule.now|after|at|cancel`. Use `requireActionCtx(ctx)` only for true `ActionCtx` callbacks; use `requireSchedulerCtx(ctx)` when mutation or action contexts can schedule. Each caller/handler eagerly loads its module, so split large modules.
-23. API types (`Api`, `ApiInputs`, `ApiOutputs`, `Select`, `Insert`, `TableName`) import from `@convex/api` — no manual `inferApiInputs<typeof api>`.
-24. HTTP router must export as `httpRouter` (not `appRouter`) for codegen.
-25. Server wiring imports come from `convex/functions/generated/` directory: `getAuth`, `defineAuth` from `generated/auth`; `initCRPC`, `QueryCtx`, `MutationCtx`, `OrmCtx` from `generated/server`; `create<Module>Caller`, `create<Module>Handler` from `generated/<module>.runtime`. No manual `convex/lib/orm.ts`.
-26. `defineAuth(() => ({ ...options, triggers }))` replaces split `getAuthOptions` + `authTriggers`. Trigger callbacks are doc-first: `beforeCreate(data)`, `onCreate(doc)`, `onUpdate(newDoc, oldDoc)` — no `ctx` first param.
-27. Internal auth functions at `internal.generated.*` (not `internal.auth.*`).
-28. Async mutation batching is the default (codegen wires it). Customize per call: `execute({ batchSize, delayMs })`. Opt into sync: `execute({ mode: 'sync' })` or `defineSchema(..., { defaults: { mutationExecutionMode: 'sync' } })`. Relevant defaults: `mutationBatchSize`, `mutationLeafBatchSize`, `mutationMaxRows`, `mutationScheduleCallCap`.
-29. Polymorphic unions are schema-first: use `actionType: discriminator({ variants, as? })` in `convexTable(...)`. Query config does not include a `polymorphic` option. Writes stay flat; reads synthesize nested `details` (or custom alias). Use `withVariants: true` to auto-load all `one()` relations on discriminator tables.
-30. Do not add manual ORM mutation batching loops in app/plugin code by default. Convex runtime batching already handles mutation execution. Prefer set-based deletes/updates over per-row loops. Only add explicit chunking when batching external side effects (for example Resend API calls) or bounded cleanup sweeps.
+3. `.output(...)` parses the handler's value as-is and substitutes nothing: a handler must return the schema's *input* type, so `z.string().nullable()` needs an explicit `null` (`?? null`), not `undefined`. Model absent values as `.nullable()`, never a top-level `.optional()` — Convex wires `undefined` as `null` and cannot express top-level optionality, so `.output(z.string().optional())` publishes `v.string()` and the deployment rejects the `null` whenever the handler returns `undefined`. `.optional()` inside an object is fine. The low-level `returns:` option on `zCustomQuery`/`zCustomMutation`/`zCustomAction` differs — it substitutes `null` for `undefined` before parsing.
+4. Stacked `.input(...)` calls merge input shapes.
+5. `.paginated({ limit, item })` must be before `.query()` and auto-adds `input.cursor` + `input.limit`, output `{ page, continueCursor, isDone }`.
+6. Metadata is codegen’d onto `@convex/api` leaves (`api.namespace.fn.meta`) so never put secrets in `.meta(...)`; chaining `.meta(...)` is shallow merge and supports `defaultMeta`.
+7. Auth metadata drives client behavior: `auth: "optional"` waits for auth load then runs, `auth: "required"` waits then skips when logged out.
+8. `ctx.orm` enforces constraints + RLS; `ctx.db` bypasses them.
+9. Non-paginated `findMany()` must be explicitly sized (`limit`, cursor mode, schema `defaultLimit`, or explicit `allowFullScan`).
+10. Predicate `where` requires explicit `.withIndex(...)`; no implicit full scan fallback.
+11. Cursor pagination uses the first `orderBy` field; index that field for stable paging.
+12. `maxScan` applies to cursor mode only; `allowFullScan` is for non-cursor full-scan opt-in.
+13. String operators / `columns` projection / many-relation subfilters can run post-fetch; bound result size early.
+14. Search mode is relevance-ordered and does not support `orderBy`; vector mode has stricter limits (no cursor/offset/top-level where/order).
+15. Update/delete without `where` throws unless `allowFullScan()`.
+16. `count()`, `aggregate()`, and `groupBy()` require a matching `aggregateIndex`. Use `groupBy({ by, _count, _sum })` instead of multiple `.count()` calls or `findMany` + manual JS grouping. Every `by` field must be finite-constrained (`eq`/`in`/`isNull`) in `where`. See `references/features/aggregates.md`.
+17. cRPC React queries are real-time by default (`subscribe: true`); never use `queryClient.invalidateQueries` for these subscribed paths.
+18. In RSC, `prefetch` hydrates client, `caller` is server-only and not hydrated, `preloadQuery` hydrates but can cause stale split ownership if also rendered client-side.
+19. Better Auth Next.js shortcut is `convexBetterAuth(...)`; generic server-only shortcut is `createCallerFactory(...)`.
+20. On the kitcn auth client path, use `createAuthMutations(authClient)` wrappers so logout unsubscribes auth queries before sign out. Raw Convex preset keeps a smaller plain `authClient`.
+21. **NEVER** use `ctx.runQuery`/`ctx.runMutation`/`ctx.runAction` directly for module-to-module calls. Use the generated runtime helpers from `convex/functions/generated/<module>.runtime`.
+22. **`create<Module>Handler(ctx)`** is the default in queries/mutations: zero overhead, query/mutation ctx only, and no redundant validation or middleware.
+23. **`create<Module>Caller(ctx)`** is for actions and HTTP routes. Action procedures live under `caller.actions.*`; scheduling lives under `caller.schedule.now|after|at|cancel`. Use `requireActionCtx(ctx)` only for true `ActionCtx` callbacks; use `requireSchedulerCtx(ctx)` when mutation or action contexts can schedule. Each caller/handler eagerly loads its module, so split large modules.
+24. API types (`Api`, `ApiInputs`, `ApiOutputs`, `Select`, `Insert`, `TableName`) import from `@convex/api` — no manual `inferApiInputs<typeof api>`.
+25. HTTP router must export as `httpRouter` (not `appRouter`) for codegen.
+26. Server wiring imports come from `convex/functions/generated/` directory: `getAuth`, `defineAuth` from `generated/auth`; `initCRPC`, `QueryCtx`, `MutationCtx`, `OrmCtx` from `generated/server`; `create<Module>Caller`, `create<Module>Handler` from `generated/<module>.runtime`. No manual `convex/lib/orm.ts`.
+27. `defineAuth(() => ({ ...options, triggers }))` replaces split `getAuthOptions` + `authTriggers`. Trigger callbacks are doc-first: `beforeCreate(data)`, `onCreate(doc)`, `onUpdate(newDoc, oldDoc)` — no `ctx` first param.
+28. Internal auth functions at `internal.generated.*` (not `internal.auth.*`).
+29. Async mutation batching is the default (codegen wires it). Customize per call: `execute({ batchSize, delayMs })`. Opt into sync: `execute({ mode: 'sync' })` or `defineSchema(..., { defaults: { mutationExecutionMode: 'sync' } })`. Relevant defaults: `mutationBatchSize`, `mutationLeafBatchSize`, `mutationMaxRows`, `mutationScheduleCallCap`.
+30. Polymorphic unions are schema-first: use `actionType: discriminator({ variants, as? })` in `convexTable(...)`. Query config does not include a `polymorphic` option. Writes stay flat; reads synthesize nested `details` (or custom alias). Use `withVariants: true` to auto-load all `one()` relations on discriminator tables.
+31. Do not add manual ORM mutation batching loops in app/plugin code by default. Convex runtime batching already handles mutation execution. Prefer set-based deletes/updates over per-row loops. Only add explicit chunking when batching external side effects (for example Resend API calls) or bounded cleanup sweeps.
 ## Directory Boundary
 Use `references/setup/` when the task needs:
 1. Project/file structure setup → `setup/index.md` + `setup/server.md`
@@ -314,7 +315,10 @@ Use this map consistently:
 4. `NOT_FOUND`: missing or inaccessible resource.
 5. `CONFLICT`: duplicate or conflicting write.
 6. `TOO_MANY_REQUESTS`: rate limit.
-7. `INTERNAL_SERVER_ERROR`: unexpected failures only.
+7. `INTERNAL_SERVER_ERROR`: unexpected failures only. cRPC also raises it for a
+   failed `.output(...)` parse, with message `Output validation failed` and
+   sanitized structural Zod issues in `error.data.ZodError`. Custom issue
+   messages and fields stay server-side because they can contain handler output.
 8. Add small custom `data` payloads on `CRPCError` when the client needs
    domain metadata like conflicting ids. Read them on the client from
    `error.data`.
@@ -454,6 +458,7 @@ Before calling a feature done:
 | Infinite list with TanStack native hook directly                | Use `useInfiniteQuery` from `kitcn/react`                                                                                                                                    |
 | Primitive root input (`z.string()`)                             | Use root `z.object(...)` input schema                                                                                                                                                |
 | Returning nothing with `z.void()`                               | Omit explicit output                                                                                                                                                                 |
+| Returning a possibly-missing lookup under `.output(...nullable())` | Coalesce it: `?? null`. `.output(...)` substitutes nothing for `undefined`                                                                                                         |
 | Manual pagination wrappers for infinite endpoints               | Use `.paginated({ limit, item })`                                                                                                                                                    |
 | Synthetic Convex IDs in tests (`"missing-id"`)                  | Use inserted IDs or semantic lookup keys                                                                                                                                             |
 | Aggregates disabled but helper/config still present             | Remove aggregate helper + `defineTriggers` handlers + app config together                                                                                                            |

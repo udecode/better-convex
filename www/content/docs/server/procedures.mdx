@@ -101,10 +101,54 @@ export const getById = publicQuery
 
 <Callout icon={<InfoIcon />}>
   **Note:** For mutations/actions that do not return data, omit `.output(...)`.
-  `void`/`undefined` responses are serialized by Convex as `null`.
+  With no output schema, a `void`/`undefined` response is serialized by Convex as
+  `null`.
 </Callout>
 
 Output validation is recommended when using [static code generation](https://docs.convex.dev/production/project-configuration#using-static-code-generation-beta).
+
+### What the Handler Must Return
+
+`.output()` parses the value your handler returned, before it is serialized. The handler returns the schema's **input** type and clients receive its output type, so a schema that transforms applies on the way out.
+
+Nothing is substituted for a missing value. A nullable schema needs an explicit `null`:
+
+```ts title="convex/functions/user.ts"
+// Rejected - the schema is parsed against `undefined`
+export const displayName = publicQuery
+  .input(z.object({ id: z.string() }))
+  .output(z.string().nullable())
+  .query(async ({ ctx, input }) => names[input.id]);
+
+// Accepted
+export const displayName = publicQuery
+  .input(z.object({ id: z.string() }))
+  .output(z.string().nullable())
+  .query(async ({ ctx, input }) => names[input.id] ?? null);
+```
+
+Use `.output(z.string().default('...'))` to substitute a value instead.
+
+TypeScript rejects most of these before they run. The case it misses is a lookup it believes is always present: under the default `noUncheckedIndexedAccess: false`, an index signature or `array[0]` types as non-`undefined` even when the value is absent. Enable `noUncheckedIndexedAccess` to close that gap. `ctx.orm.query.*.findFirst` returns `| null`, so ORM reads are unaffected.
+
+A mismatch throws a `CRPCError` with code `INTERNAL_SERVER_ERROR`. Sanitized
+structural Zod issues are available in `error.data.ZodError`; custom messages
+and fields remain in the server-side error cause because they can contain the
+rejected handler output.
+
+<Callout icon={<InfoIcon />}>
+  **Note:** Model an absent value as `.nullable()`, not as a top-level
+  `.optional()`. Convex serializes an `undefined` return as `null` and its
+  returns validator cannot express top-level optionality, so
+  `.output(z.string().optional())` publishes `v.string()` and the deployment
+  rejects the `null` it receives. `.optional()` inside an object is fine.
+</Callout>
+
+<Callout icon={<InfoIcon />}>
+  **Note:** The low-level `returns:` option on `zCustomQuery`/`zCustomMutation`/
+  `zCustomAction` does not share this contract — it substitutes `null` for an
+  `undefined` return before parsing. Prefer `.output()`.
+</Callout>
 
 ## Handler Methods
 

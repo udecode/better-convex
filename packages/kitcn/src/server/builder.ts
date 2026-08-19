@@ -17,7 +17,7 @@ import {
   mutationGeneric,
   queryGeneric,
 } from 'convex/server';
-import { ConvexError, type Value } from 'convex/values';
+import { ConvexError } from 'convex/values';
 import * as z from 'zod';
 import {
   type DataTransformerOptions,
@@ -55,6 +55,7 @@ import type {
   Overwrite,
   UnsetMarker,
 } from './types';
+import { parseOutput, zodIssuesToConvexValue } from './validation';
 
 // =============================================================================
 // Pagination Types
@@ -701,7 +702,7 @@ const parseInput = (plan: InputPlan, value: unknown): unknown => {
     if (cause instanceof z.ZodError) {
       // Match the error shape the upstream Convex zod layer produces.
       throw new ConvexError({
-        ZodError: JSON.parse(JSON.stringify(cause.issues, null, 2)) as Value[],
+        ZodError: zodIssuesToConvexValue(cause.issues),
       });
     }
     throw cause;
@@ -918,7 +919,7 @@ export class ProcedureBuilder<
           // generate the Convex `returns` validator, which the backend
           // enforces against the serialized payload.
           const validatedOutput = outputSchema
-            ? await outputSchema.parseAsync(result.output)
+            ? await parseOutput(outputSchema, result.output)
             : result.output;
           return functionConfig.transformer.output.serialize(validatedOutput);
         } catch (cause) {

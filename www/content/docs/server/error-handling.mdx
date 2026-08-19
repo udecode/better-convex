@@ -193,6 +193,14 @@ if (input.startDate > input.endDate) {
 }
 ```
 
+### Output Validation
+
+A value that fails the [`.output()` schema](/docs/server/procedures#output-validation) throws `INTERNAL_SERVER_ERROR` with message `Output validation failed`. Sanitized structural Zod issues arrive in `error.data.ZodError`, naming the issue code, path, and expected type when available. Custom messages and fields stay server-side because they can contain the rejected handler output:
+
+```ts showLineNumbers
+[{ expected: 'string', code: 'invalid_type', path: ['name'] }]
+```
+
 ## Next Steps
 
 <Cards>

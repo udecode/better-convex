@@ -168,6 +168,24 @@
   // After:  { at: { __crpc: 1, t: '$date', v: 1704067200000 } }
   ```
 
+  - `.output()` parses the handler's value as-is and no longer substitutes `null`
+    for an `undefined` return. A nullable schema needs an explicit `null`; in
+    exchange, `.output(z.string().default(...))` now applies its default to an
+    `undefined` return instead of rejecting it. The low-level `returns:` option
+    still substitutes. Handlers were already typed to return the schema's input
+    type, so TypeScript rejects this ahead of runtime except where a lookup is
+    typed as always-present — an index signature or `array[0]` under the default
+    `noUncheckedIndexedAccess: false`.
+
+  ```ts
+  const name = c.query
+    .input(z.object({ id: z.string() }))
+    .output(z.string().nullable())
+    // Before: an `undefined` return was parsed as `null`
+    // After:  coalesce it
+    .query(async ({ input }) => names[input.id] ?? null);
+  ```
+
   ## Features
 
   - `zCustomQuery`, `zCustomMutation` and `zCustomAction` accept
