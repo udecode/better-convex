@@ -101,16 +101,17 @@ Blocked condition:
 Docs state:
 - task_type: docs
 - task_complexity: tiny operational ledger
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: PR / GitHub sync
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: external autoclosure receipt and merge
 - goal_status: active
 
 Current verdict:
-- verdict: ready
+- verdict: ready-to-merge
 - confidence: high
-- next owner: docs
-- reason: source evidence and the bounded target diff are already identified.
+- next owner: autoclosure
+- reason: source evidence, repository checks, task compliance, and full feedback
+  inventory are complete; exact-head CI/receipt/merge remain external.
 
 Completion rule:
 - Do not call `update_goal(status: complete)` while any required checklist item
@@ -189,7 +190,7 @@ Completion Gates:
 | UI walkthrough | no | N/A: no UI or visual output change. | N/A |
 | Autoreview for non-trivial docs changes | no | N/A: tiny evidence-only ledger update. | N/A |
 | Repository check | yes | Run `bun check`. | Passed full repository gate. |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-persist-batch-closeout-ledger.md` | Final run pending after PR feedback closure. |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-persist-batch-closeout-ledger.md` | Final local plan checker passes before head freeze. |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -197,8 +198,8 @@ Phase / pass table:
 | Intake and source read | complete | linked ledger and nearest sibling read | writing |
 | Writing | complete | bounded plan/ledger diff | verification |
 | Verification | complete | live source audit, lint, batch checker, and `bun check` passed | PR / GitHub sync |
-| PR / GitHub sync | in_progress | plan owns exact PR #381 before creation | closeout |
-| Closeout | pending | | final response |
+| PR / GitHub sync | complete | PR #381 body/head task evidence and exact plan ownership read back | closeout |
+| Closeout | complete | zero actionable feedback; final CI/receipt/merge are external after head freeze | final response |
 
 Findings:
 - The final open-PR query returned zero before this closeout PR was created.
@@ -217,11 +218,14 @@ Implementation notes:
 
 Review fixes:
 - Corrected the checklist wording exposed by the first rendered plan read-back.
+- Full `resolve-pr-feedback` inventory found no actionable review item, so no
+  source change, reply, or thread resolution was needed.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | Local `git rev-parse` could not resolve unfetched `0.25.7` tags | 1 | Query immutable remote tag refs directly | `git ls-remote --tags origin '*0.25.7*'` proved both package tags peel to `10052703`. |
+| Goal checker against `/dev/stdin` rejected the non-plan path | 1 | Run the checker against the real repository plan path | Real-path checker is the final local closeout command. |
 
 Verification evidence:
 - Pre-PR `gh pr list --state open` returned zero rows.
@@ -241,11 +245,18 @@ Verification evidence:
 - Linked batch plan completion checker passed.
 - `bun check` passed the full lint, types, unit/integration, CLI, concave,
   fixture parity, package build, and runtime scenario matrix.
+- PR #381 was created with the exact task-style body; immutable head
+  `8bae49d8` contained this plan, named #381, and passed the compliance audit.
+- Full helper, raw top-level comment/review, and GraphQL thread inventories
+  found zero review threads, zero review bodies, and zero actionable comments.
+  Changeset, Codex-limit, and Vercel bot comments are boilerplate.
 
 Final handoff contract:
-- PR line: record the exact dedicated PR and merged state.
+- PR line: #381; exact merged state is recorded in the external autoclosure
+  receipt after this plan head freezes.
 - Issue line: N/A; no issue owns this bookkeeping residue.
-- Confidence line: high after exact-head checks and the zero-open audit.
+- Confidence line: high after exact-head checks and the post-merge zero-open
+  audit.
 - Docs lane: workflow/AI operational ledger.
 - Source-backed claims: record the bounded live evidence audit.
 - Content build / parser: N/A; no MDX/content surface.
@@ -253,8 +264,8 @@ Final handoff contract:
 - Browser check: N/A; no rendered surface.
 - Outcome: ledger persisted and dedicated PR merged.
 - Caveat: prior batch P2 deferrals remain intentionally unresolved.
-- Verified: record lint, check, plan checkers, PR feedback audit, receipt, merge,
-  and zero-open query.
+- Verified: lint, check, plan checkers, and PR feedback audit are in this plan;
+  receipt, merge, and zero-open query are external post-freeze evidence.
 
 Final handoff / sync:
 - PR: #381; this plan owns `https://github.com/udecode/kitcn/pull/381`.
@@ -268,16 +279,18 @@ Timeline:
   branch created from `origin/main` with the ledger residue preserved.
 - 2026-08-19: Live source audit, lint, linked-plan checker, and full repository
   check passed; this plan was bound to exact PR #381 before creation.
+- 2026-08-19: PR #381 created; immutable task compliance passed; full feedback
+  inventory found no actionable item; plan frozen for exact-head autoclosure.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | PR / GitHub sync |
-| Where am I going? | Autoclosure and closeout |
+| Where am I? | Local plan closeout complete |
+| Where am I going? | External exact-head receipt, merge, and zero-open audit |
 | What is the goal? | Persist the batch closeout ledger and return to zero open PRs. |
 | What have I learned? | See Findings |
 | What have I done? | Created the active goal, bounded the scope, and preserved the exact ledger diff. |
 
 Open risks:
-- GitHub or required repository checks could block delivery; the blocked
-  condition above governs that case.
+- Exact-head CI or GitHub merge policy could block external autoclosure; the
+  blocked condition above governs that case.
