@@ -24,6 +24,8 @@ Linked plans:
 - [PR #371 task closeout](docs/plans/367-in-notin-variadic-filter-depth.md) - flat ORM filters.
 - [PR #372 task closeout](docs/plans/368-codegen-self-heals-stale-generated-server.md) - codegen recovery.
 - [PR #373 task closeout](docs/plans/369-output-undefined-contract-docs.md) - output diagnostics and docs.
+- [PR #377 autoclosure repair](docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md) - mandatory full live-feedback/P1 gate.
+- [PR #379 P1 follow-up](docs/plans/2026-08-19-repair-pr-372-codegen-p1-feedback.md) - repair two P1s discovered after #372 merged.
 
 Completion threshold:
 - The abandoned revert scratch plan is removed; the failed release run is
@@ -89,73 +91,85 @@ Closure matrix:
 | --- | --- | --- | --- |
 | per-PR task ownership | yes | exact PR + four linked dedicated task plans | complete |
 | noncompliant close | no | all four passed immutable-head audit | N/A |
-| source behavior | yes | per-PR focused and full proof | #370-#372 green; #373 prior focused 171/171, new security P1 pending |
+| source behavior | yes | per-PR focused and full proof | #370-#373 green; #372 follow-up P1s repaired in #379 with 74/74 codegen tests |
 | package/API/build | yes | per-PR build/types | #370-#372 green; #373 prior build green |
 | generated output | yes | source-owned generation only | #370 fixtures; #372 codegen + mirror; #373 skill mirror |
-| fixtures/scenarios | yes | sync/check/runtime proof | #370-#372 full green; #373 final check pending |
+| fixtures/scenarios | yes | sync/check/runtime proof | All applicable fixture and runtime lanes green through #379 |
 | docs/package skill | yes | package source + mirror parity | #370/#372/#373 exact parity |
-| changeset | yes | per-PR release draft | #370-#372 consumed into `0.25.3`-`0.25.5`; #373 present |
+| changeset | yes | per-PR release draft | Consumed into `0.25.3`-`0.25.7`; npm/tag/release read-backs green |
 | agent workflow | yes | agent-native capability map + mirror audit | #372/#373 PASS |
-| cleanup/review | yes | per-PR deslop/autoreview | #370-#372 complete; #373 pending new P1 |
-| repository check | yes | `bun check` | #370-#372 complete; #373 pending current-main rerun |
-| GitHub delivery | yes | exact-head merge/release/read-back | #370-#372 merged and released as `0.25.3`-`0.25.5`; #373 pending |
+| cleanup/review | yes | per-PR deslop/autoreview | Complete through #379; accepted P1s repaired and replayed |
+| repository check | yes | `bun check` | Green locally and in exact-head/post-release CI through `0.25.7` |
+| GitHub delivery | yes | exact-head merge/release/read-back | #370-#373, #377, and #379 merged; releases `0.25.3`-`0.25.7` proven; zero open PRs |
 
 Work Checklist:
-- [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
+- [x] Every PR has its own `task` invocation and dedicated task plan; a batch
       plan or aggregate autoclosure is not used as a substitute.
-- [ ] Task evidence was verified from the PR body, fetched head, and exact PR
+- [x] Task evidence was verified from the PR body, fetched head, and exact PR
       ownership; otherwise the required comment and `CLOSED` state were read
       back and no source review, repair, merge, or release work continued.
-- [ ] Intended behavior and exclusions are reconstructed from real sources.
-- [ ] Each lane is proven or N/A with a concrete reason.
-- [ ] Generated output was changed through its owner and regenerated.
-- [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
-- [ ] Accepted cleanup and review findings are closed.
-- [ ] PR body and check state match the final evidence.
-- [ ] Residual blocker/waiver has exact evidence and next owner.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
+- [x] Intended behavior and exclusions are reconstructed from real sources.
+- [x] Each lane is proven or N/A with a concrete reason.
+- [x] Generated output was changed through its owner and regenerated.
+- [x] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [x] Accepted cleanup and review findings are closed.
+- [x] PR body and check state match the final evidence.
+- [x] Residual blocker/waiver has exact evidence and next owner.
+- [x] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
+- [x] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
+- [x] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
+- [x] Agent-native pack: installed skills are changed only through
       `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
+- [x] Agent-native pack: routing, required receipts, placeholder failure,
       completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
 
 Error attempts:
 | Failure signature | Count | Next different move | Resolution |
 | --- | ---: | --- | --- |
 | None yet | 0 | | |
 
+Explicit P2 deferrals:
+- User explicitly allowed P2 findings to remain for this batch.
+- #370: https://github.com/udecode/kitcn/pull/370#discussion_r3808723619
+- #370: https://github.com/udecode/kitcn/pull/370#discussion_r3808723630
+- #371: https://github.com/udecode/kitcn/pull/371#discussion_r3811722413
+- #377: https://github.com/udecode/kitcn/pull/377#discussion_r3812203164
+- #377: https://github.com/udecode/kitcn/pull/377#discussion_r3812244748
+- #377: https://github.com/udecode/kitcn/pull/377#discussion_r3812423891
+- Fresh all-thread GraphQL read-back: #370 has only the two URLs above, #371
+  only its one URL above, and #372/#373 have zero unresolved threads; all four
+  have zero unresolved P1-or-higher findings.
+
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 | --- | --- | --- | --- |
-| Per-PR task ownership | pending | Record exact PR and dedicated task-plan path | pending |
-| Noncompliant PR disposition | pending | Verify task evidence or comment then close and read back | pending |
-| Targeted behavior proof | pending | Run smallest missing owning proof | pending |
-| Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
-| Package/docs/scenario closure | pending | Run every applicable local contract | pending |
-| Deslop | pending | Run bounded cleanup or N/A | pending |
-| Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
-| Final lint | yes | Run `bun lint:fix` | pending |
-| Repository check | yes | Run `bun check` | pending |
-| GitHub delivery | pending | Commit/push/open or update PR and read back | pending |
-| Autoreview | yes | Resolve every accepted actionable finding | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-18-repair-release-and-autoclose-open-prs.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Per-PR task ownership | yes | Record exact PR and dedicated task-plan path | See verification evidence and final read-back below. |
+| Noncompliant PR disposition | yes | Verify task evidence or comment then close and read back | See verification evidence and final read-back below. |
+| Targeted behavior proof | yes | Run smallest missing owning proof | See verification evidence and final read-back below. |
+| Source/generated audit | yes | Prove correct source and regenerated mirrors | See verification evidence and final read-back below. |
+| Package/docs/scenario closure | yes | Run every applicable local contract | See verification evidence and final read-back below. |
+| Deslop | yes | Run bounded cleanup or N/A | See verification evidence and final read-back below. |
+| Agent-native reviewer | yes | Run for workflow changes or N/A | See verification evidence and final read-back below. |
+| Final lint | yes | Run `bun lint:fix` | See verification evidence and final read-back below. |
+| Repository check | yes | Run `bun check` | See verification evidence and final read-back below. |
+| GitHub delivery | yes | Commit/push/open or update PR and read back | See verification evidence and final read-back below. |
+| Autoreview | yes | Resolve every accepted actionable finding | See verification evidence and final read-back below. |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-18-repair-release-and-autoclose-open-prs.md` | See verification evidence and final read-back below. |
+| Agent source / generated sync | yes | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | See verification evidence and final read-back below. |
+| Installed lock audit | yes | Verify expected lock entries and removed skills through CLI-managed state | See verification evidence and final read-back below. |
+| Agent action discoverability | yes | Source-audit the skill/rule path an agent will read | See verification evidence and final read-back below. |
+| Helper and template smoke | yes | Syntax-check helpers and prove incomplete failure/completed representation when applicable | See verification evidence and final read-back below. |
+| Agent-native review | yes | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | See verification evidence and final read-back below. |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 | --- | --- | --- | --- |
 | Inventory | complete | four compliant PRs ordered #370-#373 | repair |
-| Repair | in_progress | #370 review fix and fixture drift repaired | review |
-| Review/checks | pending | | delivery |
-| Delivery | pending | | final audit |
-| Closeout | pending | | final |
+| Repair | complete | #370-#373 repaired; autoclosure fixed in #377; post-merge #372 P1s fixed in #379 | review |
+| Review/checks | complete | All exact-head P1 replays, task checkers, reviews, and CI green | delivery |
+| Delivery | complete | PRs and version PRs merged; `0.25.3`-`0.25.7` released | final audit |
+| Closeout | complete | Zero open PRs; zero unresolved P1s; explicit P2 URLs recorded | final |
 
 Verification evidence:
 - `get_goal` -> active objective names this plan.
@@ -186,9 +200,28 @@ Verification evidence:
 - PR #372 merged as `f2883042`; release PR #376 merged as `4315537b`. Both
   packages, tags, GitHub release `v0.25.5`, skill check `32240540068`, and
   post-release CI `32240350233` read back green.
-- PR #373: prior output-issue sanitization passed security 72/72, server 171/171,
-  package/docs builds, pack, mirror, agent-native review, autoreview 0.97, and
-  full `bun check`. One newer dynamic-path leakage P1 remains under repair.
+- PR #373: output-issue sanitization and dynamic-path repair passed security
+  72/72, server 171/171, package/docs builds, pack, mirror, agent-native review,
+  autoreview, and full `bun check`; terminal receipt
+  https://github.com/udecode/kitcn/pull/373#issuecomment-5342239073 verified.
+- PR #377 repaired autoclosure itself: compliant PRs now run full
+  `resolve-pr-feedback`, replay all P1s, record explicit P2 deferrals, and bind
+  the terminal receipt to the exact head. It merged as `a786c619`; #373/#377
+  released together through #378 as `0.25.6` at `a861c7a6`, with npm, tags,
+  GitHub release, release run `32254088281`, skills `32254253980`, and CI
+  `32254088417` green.
+- Fresh audit then found two unresolved P1s left on merged #372. Dedicated task
+  PR #379 fixed both plus two accepted follow-up P1s, passed 74/74 codegen
+  tests, package/full checks, clean high-effort P1 review, exact-head CI
+  `32269230017`, and terminal receipt
+  https://github.com/udecode/kitcn/pull/379#issuecomment-5344263962.
+- #379 merged as `53fe88e6`; automated version PR #380 merged as `10052703`.
+  Both npm packages and dist-tags report `0.25.7`; both annotated package tags
+  dereference to `10052703`; GitHub release `v0.25.7`, release run
+  `32270099589`, skills `32270294054`, and post-release CI `32270099547` pass.
+- The two original #372 P1 threads received quoted repair replies and resolved
+  read-backs; fresh all-thread GraphQL shows zero unresolved P1s on #370-#373.
+- Final `gh pr list --state open` inventory is empty.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -213,17 +246,23 @@ Timeline:
 - 2026-08-19 PR #372 merged and released as `0.25.5`; exact artifacts, skills,
   and post-release CI read back green.
 - 2026-08-19 PR #373 integrated current `main`; one later dynamic-path leakage
-  P1 is being repaired before final verification.
+  P1 was repaired, proven, merged, and released with the autoclosure repair as
+  `0.25.6`.
+- 2026-08-19 PR #377 made full live feedback/P1 closure mandatory in
+  autoclosure and passed exact-head terminal receipt checks.
+- 2026-08-19 A fresh all-thread audit found two P1s left on merged #372; PR
+  #379 repaired them, merged, and released as `0.25.7` through #380.
+- 2026-08-19 Final read-back: npm/tags/release/workflows green, #372 P1 threads
+  resolved, #370-#373 unresolved P1 count zero, and open PR inventory empty.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | `0.25.5` published; repairing #373 final security P1 |
-| Where am I going? | Verify, merge, release, and audit #373, then close the batch |
+| Where am I? | `0.25.7` published; every batch and repair PR closed |
+| Where am I going? | Complete the durable goal with final checker/read-back |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
-| What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
+| What have I done? | Repaired and released #370-#373, hardened autoclosure in #377, repaired post-merge #372 P1s in #379, and proved every artifact through `0.25.7` |
 
 Open risks:
-- Release sequencing: finish each package publication and artifact readback
-  before advancing to the next PR.
+- None open. P2 URLs remain only under the user's explicit deferral.
