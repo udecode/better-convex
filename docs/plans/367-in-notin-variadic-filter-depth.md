@@ -6,7 +6,7 @@ serialized JSON depth grows as 2N+1, so Convex rejects the query past ~64
 values. Compile membership lists flat, in one shared compiler.
 
 Goal plan:
-docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md
+docs/plans/367-in-notin-variadic-filter-depth.md
 
 Template:
 docs/plans/templates/task.md
@@ -50,7 +50,7 @@ Completion threshold:
   code changes are committed and PR'd unless explicitly declined or blocked,
   task-style PR body sync is complete or marked N/A with reason,
   GitHub issue/PR sync is complete or marked N/A with reason, and
-  `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md` passes.
+  `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/367-in-notin-variadic-filter-depth.md` passes.
 
 Verification surface:
 - `bun test packages/kitcn/src/orm/convex-filter-depth.test.ts` (new, 11 cases)
@@ -158,7 +158,7 @@ Completion rule:
   remains unchecked. If an item does not apply, check it and add `N/A: <reason>`.
 - Do not call `update_goal(status: complete)` until every completion threshold
   above is satisfied, final handoff evidence is recorded, and
-  `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md` passes.
+  `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/367-in-notin-variadic-filter-depth.md` passes.
 - Do not create hook state for this goal. This file plus the active goal are the
   durable state.
 
@@ -184,7 +184,7 @@ Start Gates:
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | For verified code-changing work, default is commit, push, and PR because `task` explicitly requires it; N/A only for explicit user decline, no local patch, analytical/blocked/inconclusive work, or recorded blocker. |
 | Task-style PR body decision | yes | PR #270 emoji task-style body |
-| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md`; plan at PR head; owns PR #371 |
+| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/367-in-notin-variadic-filter-depth.md`; exact-head readback pending review-fix push; owns PR #371 |
 | GitHub issue sync expectation decision | yes | `Fixes #367` in the PR body; extra QA comment deferred to the user |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | package-api |
@@ -300,7 +300,7 @@ Completion Gates:
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: the one gate failure was `EADDRINUSE :3211` held by a different Conductor workspace; clean rerun of `test:runtime` passed |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `git add -A` then commit 5450da06 |
 | PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` REAL_EXIT=0 before push; PR #371 created onto `main` |
-| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | Post-push readback pending after the renamed plan reaches the PR head |
 | PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | verified after the plan-update push |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no images |
 | GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #367` in the PR body; standalone QA comment deferred to the user |
@@ -309,7 +309,7 @@ Completion Gates:
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | long gates redirected to `tmp/*.log` and tailed; audit ran as a background workflow |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | `autoreview --mode local --engine claude` -> clean, no accepted/actionable findings, `patch is correct (0.9)`; codex default unusable (401) |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md` | run at closeout |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/367-in-notin-variadic-filter-depth.md` | run at closeout |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | no symbol added to or removed from `orm/index.ts`; the new module is internal |
 | Convex bundle/import proof | yes | Audit affected function-entry static graphs or record N/A | new module is a leaf importing only `filter-expression`; only `orm/index.ts` reached both former copies, so no entry grows; `import-graph.test.ts` green |
 | CLI/scaffold/generated proof | no | Prove command contract and regenerate owned output or record N/A | N/A: no CLI or generated output changed; `bun run test:cli` green |
@@ -404,6 +404,12 @@ Implementation notes:
 - `insert.ts`: the `onConflict` full-scan predicate uses `convexAnd`.
 
 Review fixes:
+- Accepted four Codex review findings on PR #371: renamed this issue-backed
+  plan to the `367-` prefix, replaced the contradictory PR-body receipt,
+  rewrote the changeset as concise user outcomes, and made malformed empty
+  serialized logical groups fail closed before query compilation.
+- RED/GREEN: empty serialized `and` and `or` groups previously deserialized;
+  both now throw `requires at least one operand`.
 - Autoreview (`--mode local`) returned clean: no accepted/actionable findings,
   `patch is correct (0.9)`. The default Codex engine is unusable in this
   environment (`401 Unauthorized` from the OpenAI websocket endpoint, both

@@ -21,7 +21,7 @@ Applied packs:
 
 Linked plans:
 - [PR #370 task closeout](docs/plans/2026-08-17-fix-aggregate-isnull-missing-absent-field-rows.md) - aggregate `isNull` parity.
-- [PR #371 task closeout](docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md) - flat ORM filters.
+- [PR #371 task closeout](docs/plans/367-in-notin-variadic-filter-depth.md) - flat ORM filters.
 - [PR #372 task closeout](docs/plans/368-codegen-self-heals-stale-generated-server.md) - codegen recovery.
 - [PR #373 task closeout](docs/plans/369-output-undefined-contract-docs.md) - output diagnostics and docs.
 

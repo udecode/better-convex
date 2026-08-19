@@ -130,6 +130,24 @@ describe('mutation-utils', () => {
     ).toThrow(/missing/i);
   });
 
+  test('deserializeFilterExpression rejects empty logical expressions', () => {
+    expect(() =>
+      deserializeFilterExpression({
+        type: 'logical',
+        operator: 'and',
+        operands: [],
+      })
+    ).toThrow(/at least one operand/i);
+
+    expect(() =>
+      deserializeFilterExpression({
+        type: 'logical',
+        operator: 'or',
+        operands: [],
+      })
+    ).toThrow(/at least one operand/i);
+  });
+
   test('serializeFilterExpression rejects binary expressions without field reference', () => {
     const invalid = {
       type: 'binary',

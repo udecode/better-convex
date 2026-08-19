@@ -567,12 +567,15 @@ export const deserializeFilterExpression = (
   }
   if (expression.type === 'logical') {
     const logical = expression as SerializedLogicalExpression;
-    return createLogicalExpression(
-      logical.operator,
-      logical.operands
-        .map((operand) => deserializeFilterExpression(operand))
-        .filter((operand): operand is FilterExpression<boolean> => !!operand)
-    );
+    const operands = logical.operands
+      .map((operand) => deserializeFilterExpression(operand))
+      .filter((operand): operand is FilterExpression<boolean> => !!operand);
+    if (operands.length === 0) {
+      throw new Error(
+        'Serialized logical expression requires at least one operand.'
+      );
+    }
+    return createLogicalExpression(logical.operator, operands);
   }
   const unary = expression as SerializedUnaryExpression;
   const operand = unary.operand;
