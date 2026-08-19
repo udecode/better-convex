@@ -44,6 +44,7 @@ Start Gates:
 | Intended delta and exclusions recorded | pending | pending |
 | Closure matrix classified | pending | pending |
 | Live PR feedback target resolved | pending | exact PR for full `resolve-pr-feedback` mode |
+| Unfiltered top-level feedback inventory | pending | raw GitHub PR comments/reviews compared with helper output |
 | GitHub delivery expectation recorded | pending | pending |
 | Active goal checked or created | pending | pending |
 
@@ -77,6 +78,9 @@ Work Checklist:
 - [ ] Full `resolve-pr-feedback` ran for the exact compliant PR; every
       actionable P1-or-higher finding was fixed, proved, replied to, and
       resolved or received the required top-level reply receipt.
+- [ ] Unfiltered top-level PR comments and review bodies were fetched through
+      the GitHub API, compared by ID/URL with helper output, and every excluded
+      bot/author item was ledgered; identity alone never dismissed feedback.
 - [ ] Every actionable feedback item has a persisted P0-P3 priority and
       one-sentence rationale from the autoclosure rubric; ambiguous P1-versus-
       lower items fail closed as P1.
@@ -110,7 +114,7 @@ Completion Gates:
 | Live PR feedback resolution | yes | Run full `resolve-pr-feedback` for the exact PR and close every actionable P1-or-higher finding | pending |
 | Feedback priority classification | yes | Persist P0-P3 plus rationale for every actionable item; classify ambiguous P1-versus-lower as P1 | pending |
 | Final P1 proof replay | yes | After the final material branch push, regardless of file type, rerun every P1-or-higher proof, including resolved/outdated items | pending |
-| Final live feedback read-back | yes | Re-fetch after the last push/reply/resolution; require zero unresolved actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
+| Final live feedback read-back | yes | Re-fetch helper output plus unfiltered top-level comments/review bodies after the last push/reply/resolution; require zero unresolved actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
 | External terminal receipt | yes | Post exact head OID, P1 proof results, zero-P1 counts, and deferred URLs to the PR; read it back and do not push a receipt commit | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |

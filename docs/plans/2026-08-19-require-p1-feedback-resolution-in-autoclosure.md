@@ -39,6 +39,7 @@ Completion threshold:
 - `.agents/rules/autoclosure.mdc` and the project autoclosure template require a
   full `resolve-pr-feedback` pass for compliant PRs, zero unresolved actionable
   P1 findings before delivery, deterministic persisted priority/rationale,
+  an unfiltered raw inventory for bot/author top-level feedback,
   final-material-push proof replay for resolved/outdated P1s regardless of file
   type, explicit evidence for any P2 deferral, and an exact-head external
   terminal receipt.
@@ -283,6 +284,9 @@ Findings:
 - P1-width autoreview found that "code-changing push" excluded material
   Markdown workflow changes. Proof replay now keys off every material branch
   push regardless of file type.
+- Fresh GitHub read-back found that the resolver helper filters recognized bot
+  comments. Autoclosure now requires a second unfiltered inventory and
+  content-based triage of every helper-excluded item.
 
 Decisions and tradeoffs:
 - Make full `resolve-pr-feedback` mandatory for compliant PRs, then encode P1 as
@@ -315,6 +319,8 @@ Review fixes:
 - P1 narrow push trigger: accepted; replaced code-only wording with a material
   branch definition covering source, rules, skills, templates, config, plans,
   docs, tests, generated files, and code that affect behavior or proof.
+- P1 filtered bot feedback: accepted; added raw API inventory/comparison for
+  top-level comments and review bodies, with content-based dismissal only.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -324,6 +330,7 @@ Error attempts:
 | `resolve-pr-feedback` template missing | 1 | Add the project-owned template required by the installed workflow, then rerun the exact helper | Template and PR #377 ledger created successfully |
 | Terminal read-back receipt creates another last push | 1 | Move terminal receipt outside the branch and read it back from the PR | Exact-head external PR receipt rule added |
 | Final proof trigger excluded workflow Markdown | 1 | Define material branch changes regardless of file type | Source rule and reusable template now cover every behavior/proof-affecting file |
+| Helper filtered recognized bot feedback | 1 | Add independent unfiltered GitHub inventory and content-based triage | Source rule and reusable template require raw ID/URL comparison |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -347,6 +354,7 @@ Source-listed case matrix:
 | unlabeled priority | every actionable item needs a deterministic block/defer decision | rule/template/ledger audit | raw helper output has no derived priority | explicit label or consequence rubric; ambiguity fails closed as P1 | persisted priority/rationale rule and ledger column | pass |
 | resolved P1 regression | resolved threads disappear from helper output | rule/template audit | later edits could regress a resolved fix | replay every P1 proof after final material branch push, regardless of file type | proof-replay gate covers resolved/outdated items | pass |
 | terminal receipt cycle | recording read-back in branch creates another last push | sequence/source audit | fetch -> plan edit -> push loops | exact-head PR receipt outside branch; no receipt-only push | terminal external receipt gate | pass |
+| filtered bot finding | recognized bot posts actionable top-level feedback | source/template + raw API audit | helper omits item before triage | compare unfiltered top-level comments/reviews and ledger omissions | identity cannot dismiss; concrete content rationale required | pass |
 
 Final handoff contract:
 - Commit line: `1b4e6058` plus final plan receipt commit
