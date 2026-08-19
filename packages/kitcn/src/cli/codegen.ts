@@ -39,6 +39,12 @@ const TS_EXTENSION_RE = /\.ts$/;
 const DEFAULT_EXPORT_RE = /\bexport\s+default\b/;
 const MISSING_KITCN_IMPORT_RE =
   /Cannot find (?:module|package) ['"]kitcn(?:\/[^'"]+)?['"]/;
+const LEGACY_PROCEDURE_LOOKUP_START_RE =
+  /\bregisterProcedureNameLookup\s*\(\s*(\{)/;
+const LEGACY_PROCEDURE_FILE_RE =
+  /("(?:\\.|[^"\\])*")\s*:\s*\[([\s\S]*?)\]\s*,?/g;
+const LEGACY_PROCEDURE_ENTRY_RE =
+  /\{\s*column:\s*(\d+)\s*,\s*line:\s*(\d+)\s*,\s*name:\s*("(?:\\.|[^"\\])*")\s*\}/g;
 const RUNTIME_CALLER_RESERVED_EXPORTS = new Set(['actions', 'schedule']);
 const DEFAULT_TRIM_SEGMENTS = ['plugins', 'generated'] as const;
 
@@ -296,6 +302,99 @@ function emitProcedureNameLookupLiteral(lookup: ProcedureNameLookup): string {
   return `{\n${body}\n}`;
 }
 
+function extractObjectLiteral(
+  source: string,
+  startIndex: number
+): string | null {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function readLegacyProcedureNameLookup(
+  serverOutputFile: string
+): ProcedureNameLookup | undefined {
+  if (!fs.existsSync(serverOutputFile)) {
+    return;
+  }
+  const source = fs.readFileSync(serverOutputFile, 'utf8');
+  const startMatch = LEGACY_PROCEDURE_LOOKUP_START_RE.exec(source);
+  if (!startMatch || startMatch.index === undefined) {
+    return;
+  }
+  const objectStart = startMatch.index + startMatch[0].lastIndexOf('{');
+  const literal = extractObjectLiteral(source, objectStart);
+  if (!literal) {
+    return;
+  }
+  if (literal.trim() === '{}') {
+    return {};
+  }
+
+  const lookup: ProcedureNameLookup = {};
+  for (const fileMatch of literal.matchAll(LEGACY_PROCEDURE_FILE_RE)) {
+    const fileLiteral = fileMatch[1];
+    const entriesLiteral = fileMatch[2];
+    if (!fileLiteral || entriesLiteral === undefined) {
+      return;
+    }
+    const file = JSON.parse(fileLiteral) as unknown;
+    if (typeof file !== 'string') {
+      return;
+    }
+    const entries: ProcedureNameEntry[] = [];
+    for (const entryMatch of entriesLiteral.matchAll(
+      LEGACY_PROCEDURE_ENTRY_RE
+    )) {
+      const nameLiteral = entryMatch[3];
+      if (!nameLiteral) {
+        return;
+      }
+      const name = JSON.parse(nameLiteral) as unknown;
+      if (typeof name !== 'string') {
+        return;
+      }
+      entries.push({
+        column: Number(entryMatch[1]),
+        line: Number(entryMatch[2]),
+        name,
+      });
+    }
+    if (entries.length === 0) {
+      return;
+    }
+    lookup[file] = entries;
+  }
+
+  return Object.keys(lookup).length > 0 ? lookup : undefined;
+}
+
 function formatKey(key: string): string {
   return VALID_IDENTIFIER_RE.test(key) ? key : `'${key}'`;
 }
@@ -462,6 +561,20 @@ function getModuleImportPath(
   return ensureRelativeImportPath(normalizeImportPath(relativePath));
 }
 
+/**
+ * Convex's own generated server module. `convex codegen` writes it, and kitcn
+ * codegen runs before it on a first bootstrap, so it can legitimately be
+ * missing.
+ */
+function getConvexGeneratedServerFile(
+  functionsDir: string
+): string | undefined {
+  const base = path.join(functionsDir, '_generated', 'server');
+  return ['.js', '.ts', '.mjs', '.cjs']
+    .map((extension) => `${base}${extension}`)
+    .find((candidate) => fs.existsSync(candidate));
+}
+
 function getRuntimeApiImportPath(
   outputFile: string,
   functionsDir: string
@@ -577,6 +690,18 @@ function getGeneratedMigrationsHelperOutputFile(functionsDir: string): string {
   return path.join(functionsDir, GENERATED_DIR, 'migrations.gen.ts');
 }
 
+/**
+ * The only parse-derived input to `generated/server.ts`, split into its own
+ * module so `server.ts` stays fully determined by pre-parse facts and can be
+ * written before codegen evaluates the modules that import it.
+ *
+ * Two dots in the basename keep Convex's entry-point walker from deploying it
+ * as a function module, matching `migrations.gen.ts`.
+ */
+function getGeneratedProcedureNamesOutputFile(functionsDir: string): string {
+  return path.join(functionsDir, GENERATED_DIR, 'procedure-names.gen.ts');
+}
+
 function getLegacyGeneratedOutputFile(functionsDir: string): string {
   return path.join(functionsDir, 'generated.ts');
 }
@@ -671,6 +796,22 @@ export const auth = {} as Record<string, unknown>;
 `;
 }
 
+/**
+ * Pure data, zero imports: nothing here can throw while codegen evaluates the
+ * project, and the value export survives tree-shaking even when the app sets
+ * `"sideEffects": false` (a bare side-effect import would not).
+ */
+function emitGeneratedProcedureNamesFile(
+  procedureNameLookup: ProcedureNameLookup
+): string {
+  return `// biome-ignore-all format: generated
+// This file is auto-generated by kitcn
+// Do not edit manually. Run \`kitcn codegen\` to regenerate.
+
+export const procedureNames = ${emitProcedureNameLookupLiteral(procedureNameLookup)};
+`;
+}
+
 function emitGeneratedMigrationsPlaceholderFile(): string {
   return `// biome-ignore-all format: generated
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-unused-vars */
@@ -693,15 +834,27 @@ function writeFileIfChanged(filePath: string, content: string) {
   return true;
 }
 
+type GeneratedSupportPlaceholderState = {
+  createdFiles: string[];
+  replacedFiles: Array<{ content: string; filePath: string }>;
+};
+
 function ensureGeneratedSupportPlaceholders(
   functionsDir: string,
-  options?: { includeAuth?: boolean }
-): string[] {
+  options?: {
+    includeAuth?: boolean;
+    procedureNameLookup?: ProcedureNameLookup;
+    replaceServer?: boolean;
+  }
+): GeneratedSupportPlaceholderState {
   const createdPlaceholderFiles: string[] = [];
+  const replacedFiles: GeneratedSupportPlaceholderState['replacedFiles'] = [];
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
   const authOutputFile = getGeneratedAuthOutputFile(functionsDir);
   const migrationsHelperOutputFile =
     getGeneratedMigrationsHelperOutputFile(functionsDir);
+  const procedureNamesOutputFile =
+    getGeneratedProcedureNamesOutputFile(functionsDir);
   const generatedDir = path.dirname(serverOutputFile);
   fs.mkdirSync(generatedDir, { recursive: true });
   const includeAuth = options?.includeAuth ?? true;
@@ -712,6 +865,28 @@ function ensureGeneratedSupportPlaceholders(
       emitGeneratedServerPlaceholderFile(functionsDir)
     );
     createdPlaceholderFiles.push(serverOutputFile);
+  } else if (options?.replaceServer) {
+    const content = fs.readFileSync(serverOutputFile, 'utf8');
+    if (
+      writeFileIfChanged(
+        serverOutputFile,
+        emitGeneratedServerPlaceholderFile(functionsDir)
+      )
+    ) {
+      replacedFiles.push({ content, filePath: serverOutputFile });
+    }
+  }
+
+  // `server.ts` imports this unconditionally, including in scoped runs that
+  // never rebuild it, so it has to exist before anything imports `server.ts`.
+  // Deliberately not reported as a rollback candidate: an aborted run must not
+  // delete a file the `server.ts` it leaves behind still imports, and an empty
+  // data module is harmless on its own.
+  if (!fs.existsSync(procedureNamesOutputFile)) {
+    writeFileIfChanged(
+      procedureNamesOutputFile,
+      emitGeneratedProcedureNamesFile(options?.procedureNameLookup ?? {})
+    );
   }
 
   if (includeAuth && !fs.existsSync(authOutputFile)) {
@@ -727,7 +902,26 @@ function ensureGeneratedSupportPlaceholders(
     createdPlaceholderFiles.push(migrationsHelperOutputFile);
   }
 
-  return createdPlaceholderFiles;
+  return { createdFiles: createdPlaceholderFiles, replacedFiles };
+}
+
+async function withCodegenParseSentinel<T>(
+  callback: () => Promise<T>
+): Promise<T> {
+  const globals = globalThis as Record<string, unknown>;
+  const hadSentinel = Object.hasOwn(globals, '__KITCN_CODEGEN__');
+  const previousSentinel = globals.__KITCN_CODEGEN__;
+  globals.__KITCN_CODEGEN__ = true;
+  try {
+    return await callback();
+  } finally {
+    if (hadSentinel) {
+      globals.__KITCN_CODEGEN__ = previousSentinel;
+    } else {
+      // biome-ignore lint/performance/noDelete: globalThis property, not a plain object
+      delete globals.__KITCN_CODEGEN__;
+    }
+  }
 }
 
 function emitGeneratedRuntimePlaceholderFile(exportNames: {
@@ -846,12 +1040,14 @@ async function resolveSchemaMetadataForCodegen(
       hasTriggers,
     };
   } catch (error) {
-    if (debug) {
-      logger.warn(
-        `⚠️  Failed to load schema extensions from ${schemaPath}: ${(error as Error).message}`
-      );
-    }
-    return EMPTY_SCHEMA_METADATA;
+    // Fail closed: this metadata decides whether `generated/server.ts` is
+    // emitted as the ORM variant, and that file is written before the run is
+    // known good. Swallowing the error here would silently downgrade a working
+    // ORM project to the non-ORM shape and delete `generated/aggregate.ts`.
+    throw new Error(
+      `kitcn codegen could not load ${schemaPath}: ${(error as Error).message}`,
+      { cause: error }
+    );
   }
 }
 
@@ -888,13 +1084,18 @@ type GeneratedAuthContract = {
   hasAuthDefaultExport: boolean;
 };
 
+/**
+ * Every input here is known before codegen evaluates any project module, so
+ * this file is written first and is authoritative: a stale copy on disk is
+ * replaced before anything can import it. The parse-derived procedure-name
+ * lookup lives in `procedure-names.gen.ts` to keep that true.
+ */
 function emitGeneratedServerFile(
   outputFile: string,
   functionsDir: string,
   hasOrmSchema: boolean,
   hasAggregateIndexes: boolean,
-  hasMigrationsManifest: boolean,
-  procedureNameLookup: ProcedureNameLookup
+  hasMigrationsManifest: boolean
 ): string {
   const asSingleQuotedImport = (importPath: string) =>
     `'${importPath.replaceAll("'", "\\'")}'`;
@@ -941,8 +1142,16 @@ function emitGeneratedServerFile(
       : '';
   const functionsDirHint =
     normalizeImportPath(path.relative(process.cwd(), functionsDir)) || 'convex';
-  const procedureNameLookupLiteral =
-    emitProcedureNameLookupLiteral(procedureNameLookup);
+  const procedureNamesImportLiteral = asSingleQuotedImport(
+    ensureRelativeImportPath(
+      normalizeImportPath(
+        path.relative(
+          path.dirname(outputFile),
+          getGeneratedProcedureNamesOutputFile(functionsDir)
+        )
+      ).replace(TS_EXTENSION_RE, '')
+    )
+  );
 
   if (!hasOrmSchema) {
     return `// biome-ignore-all format: generated
@@ -960,6 +1169,7 @@ import type {
   QueryCtx as ServerQueryCtx,
 } from ${serverTypesImportLiteral};
 import { httpAction, internalMutation } from ${serverTypesImportLiteral};
+import { procedureNames } from ${procedureNamesImportLiteral};
 
 export type QueryCtx = ServerQueryCtx;
 export type MutationCtx = ServerMutationCtx;
@@ -967,10 +1177,7 @@ export type ActionCtx = ServerActionCtx;
 export type GenericCtx = QueryCtx | MutationCtx | ActionCtx;
 export type OrmCtx<Ctx = QueryCtx> = Ctx;
 
-registerProcedureNameLookup(
-  ${procedureNameLookupLiteral},
-  ${JSON.stringify(functionsDirHint)}
-);
+registerProcedureNameLookup(procedureNames, ${JSON.stringify(functionsDirHint)});
 
 export function withOrm<Ctx extends ServerQueryCtx | ServerMutationCtx>(ctx: Ctx): OrmCtx<Ctx> {
   return ctx as OrmCtx<Ctx>;
@@ -1031,15 +1238,13 @@ import type {
 } from ${serverTypesImportLiteral};
 import { httpAction, internalMutation } from ${serverTypesImportLiteral};
 import schema from ${schemaImportLiteral};
+import { procedureNames } from ${procedureNamesImportLiteral};
 ${migrationsImportLine}
 
 ${ormFunctionsDeclaration}
 ${ormSchemaDeclaration}
 
-registerProcedureNameLookup(
-  ${procedureNameLookupLiteral},
-  ${JSON.stringify(functionsDirHint)}
-);
+registerProcedureNameLookup(procedureNames, ${JSON.stringify(functionsDirHint)});
 
 export const orm = createOrm({
   schema: ormSchema,
@@ -1999,6 +2204,8 @@ export async function generateMeta(
   const authOutputFile = getGeneratedAuthOutputFile(functionsDir);
   const migrationsHelperOutputFile =
     getGeneratedMigrationsHelperOutputFile(functionsDir);
+  const procedureNamesOutputFile =
+    getGeneratedProcedureNamesOutputFile(functionsDir);
   const legacyGeneratedMigrationsOutputFile = path.join(
     functionsDir,
     GENERATED_DIR,
@@ -2038,7 +2245,10 @@ export async function generateMeta(
   const procedureNameLookup: ProcedureNameLookup = {};
   const fatalParseFailures: Array<{ file: string; error: unknown }> = [];
   let createdRuntimePlaceholders: string[] = [];
-  let createdSupportPlaceholders: string[] = [];
+  let supportPlaceholderState: GeneratedSupportPlaceholderState = {
+    createdFiles: [],
+    replacedFiles: [],
+  };
   const runtimeFilesPreservedFromParseFailures = new Set<string>();
   let totalFunctions = 0;
   const authFilePath = path.join(functionsDir, 'auth.ts');
@@ -2050,10 +2260,8 @@ export async function generateMeta(
   let sharedJitiInstance: ProjectJiti | undefined;
   const getSharedJitiInstance = () =>
     (sharedJitiInstance ??= createProjectJiti());
-  const schemaMetadata = await resolveSchemaMetadataForCodegen(
-    functionsDir,
-    debug,
-    getSharedJitiInstance
+  const schemaMetadata = await withCodegenParseSentinel(() =>
+    resolveSchemaMetadataForCodegen(functionsDir, debug, getSharedJitiInstance)
   );
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
@@ -2084,12 +2292,42 @@ export async function generateMeta(
   }
   const hasOrmSchema = hasOrmSchemaMetadata;
 
-  createdSupportPlaceholders = ensureGeneratedSupportPlaceholders(
-    functionsDir,
-    {
-      includeAuth: generateAuth,
-    }
-  );
+  const convexGeneratedServerFile = getConvexGeneratedServerFile(functionsDir);
+  const procedureNameLookupBeforeUpgrade = fs.existsSync(
+    procedureNamesOutputFile
+  )
+    ? undefined
+    : readLegacyProcedureNameLookup(serverOutputFile);
+  supportPlaceholderState = ensureGeneratedSupportPlaceholders(functionsDir, {
+    includeAuth: generateAuth,
+    procedureNameLookup: procedureNameLookupBeforeUpgrade,
+    replaceServer: convexGeneratedServerFile === undefined,
+  });
+
+  const emitServerFile = () =>
+    writeFileIfChanged(
+      serverOutputFile,
+      emitGeneratedServerFile(
+        serverOutputFile,
+        functionsDir,
+        hasOrmSchema,
+        schemaMetadata.hasAggregateIndexes,
+        hasMigrationsManifest
+      )
+    );
+
+  // `generated/server.ts` is codegen's own output, and every procedure module
+  // imports it, so the parse loop below evaluates it. Emitting it first is what
+  // makes a stale copy — one written by an older kitcn, against a since-changed
+  // schema, or edited by hand — recoverable instead of fatal: whatever is on
+  // disk is replaced before anything can import it.
+  //
+  // It value-imports Convex's own `_generated` module, which `convex codegen`
+  // has not written yet on a first run, so the bootstrap placeholder keeps
+  // owning that window.
+  if (convexGeneratedServerFile) {
+    emitServerFile();
+  }
 
   if (generateApi) {
     // Signal to createEnv that we are in the CLI's Node.js parse context.
@@ -2218,8 +2456,15 @@ export async function generateMeta(
     for (const createdRuntimePlaceholder of createdRuntimePlaceholders) {
       fs.rmSync(createdRuntimePlaceholder, { force: true });
     }
-    for (const createdSupportPlaceholder of createdSupportPlaceholders) {
+    for (const createdSupportPlaceholder of supportPlaceholderState.createdFiles) {
       fs.rmSync(createdSupportPlaceholder, { force: true });
+    }
+    for (const replacedSupportFile of supportPlaceholderState.replacedFiles) {
+      fs.writeFileSync(
+        replacedSupportFile.filePath,
+        replacedSupportFile.content,
+        'utf8'
+      );
     }
 
     const failureSummary = fatalParseFailures
@@ -2347,21 +2592,22 @@ ${optionalTypeExports}
     fs.rmSync(outputFile, { force: true });
   }
 
-  const serverOutput = emitGeneratedServerFile(
-    serverOutputFile,
-    functionsDir,
-    hasOrmSchema,
-    schemaMetadata.hasAggregateIndexes,
-    hasMigrationsManifest,
-    procedureNameLookup
-  );
-
   const generatedOutputDirname = path.dirname(serverOutputFile);
   if (!fs.existsSync(generatedOutputDirname)) {
     fs.mkdirSync(generatedOutputDirname, { recursive: true });
   }
 
-  writeFileIfChanged(serverOutputFile, serverOutput);
+  // A no-op when the pre-parse emit above already ran; this is what replaces
+  // the bootstrap placeholder once Convex's `_generated` module exists.
+  emitServerFile();
+  // Scoped runs never populate the lookup, so rewriting it here would silently
+  // blank every procedure name the last full run recorded.
+  if (generateApi) {
+    writeFileIfChanged(
+      procedureNamesOutputFile,
+      emitGeneratedProcedureNamesFile(procedureNameLookup)
+    );
+  }
   if (hasOrmSchema) {
     writeFileIfChanged(
       aggregateOutputFile,

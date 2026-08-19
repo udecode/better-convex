@@ -141,6 +141,7 @@ bunx kitcn add resend
 - `convex/functions/schema.ts`
 - `convex/functions/http.ts`
 - `convex/functions/generated/server.ts`
+- `convex/functions/generated/procedure-names.gen.ts`
 - `convex/lib/crpc.ts`
 - `convex/lib/get-env.ts`
 - `convex/shared/api.ts`

@@ -66,8 +66,23 @@ export class CRPCError extends Error {
   }
 }
 
-export const createEnv = ({ schema }) => () =>
-  typeof schema?.parse === "function" ? schema.parse(process.env) : process.env;
+export const createEnv = ({ schema }) => () => {
+  if (typeof schema?.parse !== "function") return process.env;
+  if (globalThis.__KITCN_CODEGEN__ !== true || !schema.shape) {
+    return schema.parse(process.env);
+  }
+  const fallback = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, zodType]) => {
+      const result = zodType?.safeParse?.(undefined);
+      if (result?.success) return [key, result.data];
+      if (Array.isArray(zodType?.options) && zodType.options.length > 0) {
+        return [key, zodType.options[0]];
+      }
+      return [key, ""];
+    })
+  );
+  return schema.parse({ ...fallback, ...process.env });
+};
 export const createHttpRouter = (_app, httpRouter) => httpRouter ?? {};
 export const createCallerFactory = () => () => ({});
 export const createApiLeaf = (fnOrRoot, pathOrMeta, maybeMeta) => {

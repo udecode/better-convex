@@ -93,6 +93,9 @@ Options:
 
 See [Scope Modes](#scope-modes) for the full output manifest per scope.
 
+`<functionsDir>/generated/server.ts` is codegen-owned and is rewritten from your
+schema before codegen reads project modules. Never edit it by hand.
+
 Plugin note:
 
 - `kitcn codegen` discovers plugins from schema extensions and local plugin scaffold registration.
@@ -511,11 +514,13 @@ Scope modes apply to `kitcn codegen`.
 
 | Scope | Generated outputs |
 |------|--------------------|
-| `all` (default) | `convex/shared/api.ts`, `<functionsDir>/generated/server.ts`, `<functionsDir>/generated/auth.ts`, runtime files |
+| `all` (default) | `convex/shared/api.ts`, `<functionsDir>/generated/server.ts`, `<functionsDir>/generated/auth.ts`, `<functionsDir>/generated/procedure-names.gen.ts`, runtime files |
 | `auth` | `<functionsDir>/generated/server.ts`, `<functionsDir>/generated/auth.ts`, `<functionsDir>/generated/auth.runtime.ts` (when `<functionsDir>/auth.ts` has a default export) |
 | `orm` | `<functionsDir>/generated/server.ts`, runtime files for ORM internals |
 
 In scoped modes, stale artifacts outside the current scope are removed automatically (for example `convex/shared/api.ts` and cRPC runtime modules in `auth`/`orm` mode).
+
+`<functionsDir>/generated/procedure-names.gen.ts` is the only output that depends on scanning your procedures, which is why it is written in `all` scope alone. `auth` and `orm` scope leave it untouched so the procedure names recorded by the last full run survive.
 
 ### Resume Compatibility
 
