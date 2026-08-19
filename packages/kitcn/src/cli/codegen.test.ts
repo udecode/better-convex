@@ -2483,11 +2483,14 @@ export { httpAction, internalMutation };
     }
   });
 
-  test('generateMeta enables the createEnv fallback while loading schema metadata', async () => {
+  test('generateMeta does not validate fabricated values for required env fields', async () => {
     const dir = mkTempDir();
     const oldCwd = process.cwd();
+    const previousSecret = process.env.REQUIRED_CODEGEN_SECRET;
 
     process.chdir(dir);
+    // biome-ignore lint/performance/noDelete: the test requires a truly absent env key
+    delete process.env.REQUIRED_CODEGEN_SECRET;
     try {
       writeScopedFixture(dir);
       writeRealOrmFixture(dir);
@@ -2499,15 +2502,112 @@ export { httpAction, internalMutation };
         const requiredString = {
           safeParse(value: unknown) {
             return value === undefined
-              ? { success: false }
+              ? {
+                  success: false,
+                  error: {
+                    issues: [{ code: 'invalid_type', path: [] }],
+                  },
+                }
               : { success: true, data: value };
           },
         };
         const envSchema = {
-          shape: { REQUIRED_SECRET: requiredString },
+          shape: { REQUIRED_CODEGEN_SECRET: requiredString },
+          safeParse(value: Record<string, unknown>) {
+            if (value.REQUIRED_CODEGEN_SECRET !== 'schema-valid') {
+              return {
+                success: false,
+                error: {
+                  issues: [
+                    {
+                      code: 'invalid_type',
+                      path: ['REQUIRED_CODEGEN_SECRET'],
+                    },
+                  ],
+                },
+              };
+            }
+            return { success: true, data: value };
+          },
           parse(value: Record<string, unknown>) {
-            if (typeof value.REQUIRED_SECRET !== 'string') {
-              throw new Error('required secret missing');
+            if (value.REQUIRED_CODEGEN_SECRET !== 'schema-valid') {
+              throw new Error('required constrained secret is invalid');
+            }
+            return value;
+          },
+          partial() {
+            throw new Error('partial cannot be used with refinements');
+          },
+        };
+        const getEnv = createEnv({ schema: envSchema });
+        getEnv();
+
+        export default {};
+        `.trim()
+      );
+
+      await expect(
+        generateMeta(undefined, { silent: true, scope: 'orm' })
+      ).resolves.toBe(undefined);
+    } finally {
+      process.chdir(oldCwd);
+      if (previousSecret === undefined) {
+        // biome-ignore lint/performance/noDelete: restore the process env exactly
+        delete process.env.REQUIRED_CODEGEN_SECRET;
+      } else {
+        process.env.REQUIRED_CODEGEN_SECRET = previousSecret;
+      }
+    }
+  });
+
+  test('generateMeta rejects invalid provided env values without partial parsing', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+    const previousSecret = process.env.REQUIRED_CODEGEN_SECRET;
+
+    process.chdir(dir);
+    process.env.REQUIRED_CODEGEN_SECRET = 'invalid';
+    try {
+      writeScopedFixture(dir);
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { createEnv } from 'kitcn/server';
+
+        const requiredString = {
+          safeParse(value: unknown) {
+            return value === 'schema-valid'
+              ? { success: true, data: value }
+              : {
+                  success: false,
+                  error: {
+                    issues: [{ code: 'invalid_value', path: [] }],
+                  },
+                };
+          },
+        };
+        const envSchema = {
+          shape: { REQUIRED_CODEGEN_SECRET: requiredString },
+          safeParse(value: Record<string, unknown>) {
+            if (value.REQUIRED_CODEGEN_SECRET !== 'schema-valid') {
+              return {
+                success: false,
+                error: {
+                  issues: [
+                    {
+                      code: 'invalid_value',
+                      path: ['REQUIRED_CODEGEN_SECRET'],
+                    },
+                  ],
+                },
+              };
+            }
+            return { success: true, data: value };
+          },
+          parse(value: Record<string, unknown>) {
+            if (value.REQUIRED_CODEGEN_SECRET !== 'schema-valid') {
+              throw new Error('provided constrained secret is invalid');
             }
             return value;
           },
@@ -2521,7 +2621,52 @@ export { httpAction, internalMutation };
 
       await expect(
         generateMeta(undefined, { silent: true, scope: 'orm' })
+      ).rejects.toThrow('provided constrained secret is invalid');
+    } finally {
+      process.chdir(oldCwd);
+      if (previousSecret === undefined) {
+        // biome-ignore lint/performance/noDelete: restore the process env exactly
+        delete process.env.REQUIRED_CODEGEN_SECRET;
+      } else {
+        process.env.REQUIRED_CODEGEN_SECRET = previousSecret;
+      }
+    }
+  });
+
+  test('generateMeta bootstraps schema imports from missing module runtimes', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'user.ts'),
+        `
+        export const list = {
+          _crpcMeta: {
+            type: 'query',
+          },
+        };
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { createUserCaller } from './generated/user.runtime';
+
+        void createUserCaller;
+
+        export default {};
+        `.trim()
+      );
+
+      await expect(
+        generateMeta(undefined, { silent: true, scope: 'orm' })
       ).resolves.toBe(undefined);
+      expect(
+        fs.existsSync(path.join(dir, 'convex', 'generated', 'user.runtime.ts'))
+      ).toBe(false);
     } finally {
       process.chdir(oldCwd);
     }
