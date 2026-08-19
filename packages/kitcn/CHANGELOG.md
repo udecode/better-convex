@@ -1,5 +1,14 @@
 # kitcn
 
+## 0.25.7
+
+### Patch Changes
+
+- [#379](https://github.com/udecode/kitcn/pull/379) [`53fe88e`](https://github.com/udecode/kitcn/commit/53fe88e6911cdabdfcccba20337bfdadb7b6e5be) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Patches
+
+  - Fix codegen schema loading with constrained required environment values.
+  - Fix first-run codegen when schema triggers import newly generated callers.
+
 ## 0.25.6
 
 ### Patch Changes
