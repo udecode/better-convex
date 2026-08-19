@@ -43,6 +43,9 @@ Start Gates:
 | Active source/plan reconstructed | pending | pending |
 | Intended delta and exclusions recorded | pending | pending |
 | Closure matrix classified | pending | pending |
+| Live PR feedback target resolved | conditional | exact compliant PR for full `resolve-pr-feedback` mode; N/A after verified noncompliant close |
+| Feedback proof checkout bound to PR head | conditional | local committed `HEAD` = fetched PR ref = live `headRefOid` for a compliant PR |
+| Unfiltered feedback inventory | conditional | raw top-level comments/reviews plus all resolved/unresolved inline threads compared with helper output for a compliant PR |
 | GitHub delivery expectation recorded | pending | pending |
 | Active goal checked or created | pending | pending |
 
@@ -58,6 +61,7 @@ Closure matrix:
 | docs/package skill | pending | pending | pending |
 | changeset | pending | pending | pending |
 | agent workflow | pending | pending | pending |
+| live PR feedback | conditional | compliant: `resolve-pr-feedback` + final P1 read-back; noncompliant: N/A with comment/CLOSED receipts | pending |
 | cleanup/review | pending | pending | pending |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | pending | pending | pending |
@@ -72,6 +76,37 @@ Work Checklist:
 - [ ] Each lane is proven or N/A with a concrete reason.
 - [ ] Generated output was changed through its owner and regenerated.
 - [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [ ] Full `resolve-pr-feedback` ran for the exact compliant PR; every
+      actionable P1-or-higher finding was fixed, proved, replied to, and
+      resolved or received the required top-level reply receipt.
+- [ ] For a compliant PR, local committed `HEAD`, fetched PR ref, and live
+      `headRefOid` matched before proof/reply/resolution and after every push.
+      For a noncompliant PR, this and all feedback gates are N/A with the
+      required remediation-comment and `CLOSED` receipts.
+- [ ] Unfiltered top-level PR comments and review bodies were fetched through
+      the GitHub API, compared by ID/URL with helper output, and every excluded
+      bot/author item was ledgered; identity alone never dismissed feedback.
+      Only the exact terminal receipt produced/read back by this run is exempt
+      from the versioned ledger.
+- [ ] All inline review threads were fetched with GraphQL cursor pagination
+      without filtering resolved/outdated items; every thread has priority,
+      rationale, relocation, and proof state in the ledger.
+- [ ] Every actionable feedback item has a persisted P0-P3 priority and
+      one-sentence rationale from the autoclosure rubric; ambiguous P1-versus-
+      lower items fail closed as P1.
+- [ ] Every P1-or-higher proof reran after the final material branch push,
+      regardless of file type, including resolved or outdated threads that
+      disappear from the helper's unresolved-thread output.
+- [ ] Feedback was re-fetched after the last push/reply/resolution and shows
+      zero unresolved actionable P1-or-higher findings.
+- [ ] After all versioned plan/source updates were pushed, the exact-head P1
+      proof/read-back receipt was posted to the PR and read back; no terminal
+      receipt-only branch push was created. A post-comment `headRefOid` fetch
+      matches the OID recorded in that receipt, and a post-comment helper/raw
+      feedback fetch still shows zero actionable P1-or-higher items and no new
+      URL lacking a verdict or explicit deferral, except the verified receipt.
+- [ ] Any remaining P2-or-lower item has its exact URL plus the user's explicit
+      priority deferral recorded; no feedback was silently ignored.
 - [ ] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
@@ -89,6 +124,12 @@ Completion Gates:
 | Targeted behavior proof | pending | Run smallest missing owning proof | pending |
 | Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
 | Package/docs/scenario closure | pending | Run every applicable local contract | pending |
+| Feedback proof checkout | conditional | Compliant PR only: require local committed `HEAD` = fetched PR ref = live `headRefOid` before proof/reply/resolution and at terminal verification | pending |
+| Live PR feedback resolution | conditional | Compliant PR only: run full `resolve-pr-feedback` and close every actionable P1-or-higher finding; otherwise N/A with noncompliant stop receipts | pending |
+| Feedback priority classification | conditional | Compliant PR only: persist P0-P3 plus rationale for every actionable item; classify ambiguous P1-versus-lower as P1 | pending |
+| Final P1 proof replay | conditional | Compliant PR only: after the final material branch push, rerun every P1-or-higher proof, including resolved/outdated items | pending |
+| Final live feedback read-back | conditional | Compliant PR only: re-fetch helper plus unfiltered top-level/all-thread inventories; require zero actionable P1-or-higher and explicit P2-or-lower deferrals | pending |
+| External terminal receipt | conditional | Compliant PR only: post/read exact-head receipt; require receipt/live/fetched/local OID equality and no unrecorded helper/raw URL except that verified receipt | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
 | Final lint | yes | Run `bun lint:fix` | pending |
