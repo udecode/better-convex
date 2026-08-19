@@ -95,8 +95,9 @@ Work Checklist:
 - [ ] Findings, decisions/tradeoffs, error attempts, and timeline reflect the
       actual work performed.
 - [ ] Every new actionable item has a feedback-ledger row with id/URL, source
-      type, path when known, reviewer claim, verdict, owner, proof command,
-      reply status, and resolution status.
+      type, path when known, reviewer claim, priority/rationale when the caller
+      requires severity, verdict, owner, proof command, reply status, and
+      resolution status.
 - [ ] Outdated threads were relocated by source/path/line before verdict; they
       were not dismissed merely because the hunk moved.
 - [ ] Focused proof reran after the last accepted code change.
@@ -141,9 +142,9 @@ Phase / pass table:
 | Fresh feedback read-back | pending | | closeout |
 
 Feedback ledger:
-| ID / URL | Source type | Path | Reviewer claim | Verdict | Owner | Proof | Reply status | Resolution status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| pending | pending | pending | pending | pending | pending | pending | pending | pending |
+| ID / URL | Source type | Path | Reviewer claim | Priority / rationale | Verdict | Owner | Proof | Reply status | Resolution status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pending | pending | pending | pending | pending | pending | pending | pending | pending | pending |
 
 Findings:
 - None yet.

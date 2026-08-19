@@ -38,8 +38,9 @@ Timed checkpoint:
 Completion threshold:
 - `.agents/rules/autoclosure.mdc` and the project autoclosure template require a
   full `resolve-pr-feedback` pass for compliant PRs, zero unresolved actionable
-  P1 findings before delivery, explicit evidence for any P2 deferral, and a
-  fresh post-fix feedback read-back.
+  P1 findings before delivery, deterministic persisted priority/rationale,
+  final-push proof replay for resolved/outdated P1s, explicit evidence for any
+  P2 deferral, and an exact-head external terminal receipt.
 - Generated `.agents/skills/autoclosure/SKILL.md` matches the source rule; agent
   workflow validation, `bun check`, agent-native review, autoreview, dedicated
   task-style PR creation, and immutable-head task-evidence read-back all pass.
@@ -251,7 +252,7 @@ Completion Gates:
 | Final lint | yes | Run formatter | `bun lint:fix` passes |
 | Output budget discipline | yes | Record stream handling | Searches capped; long check tool-capped, then concise summaries used |
 | Timed checkpoint | no | N/A | No duration requested |
-| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | Pending current branch review |
+| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | First run found terminal receipt loop; fixed, final rerun pending |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | pending |
 | Agent source / generated sync | yes | Run install and compare | PASS |
 | Installed lock audit | no | N/A | Repo-local rule; no installed-skill mutation |
@@ -272,6 +273,12 @@ Findings:
 - Current autoclosure runs deslop, agent-native review, and autoreview but never
   invokes the GitHub `resolve-pr-feedback` workflow or blocks on live P1 state.
 - PR #373 has one unresolved P1 despite prior local review/check completion.
+- PR #377 live review exposed three P1s: exact task ownership was already
+  fixed; unlabeled priority needed a deterministic persisted rubric; and
+  resolved/outdated P1 proofs needed replay after the final code-changing push.
+- P1-width autoreview found a terminal receipt push/fetch loop. The receipt now
+  lives as an exact-head PR comment outside the branch and is read back without
+  a receipt-only push.
 
 Decisions and tradeoffs:
 - Make full `resolve-pr-feedback` mandatory for compliant PRs, then encode P1 as
@@ -293,11 +300,21 @@ Review fixes:
 - Agent-native review: PASS; no missing route, owner, mirror, proof, or
   discoverability finding.
 - Deslop: zero added/worsened findings; no cleanup edit warranted.
+- P1 exact task ownership: already fixed by the PR #377 task-source update.
+- P1 priority ambiguity: accepted; added P0-P3 consequence rubric, fail-closed
+  P1 ambiguity rule, and persisted priority/rationale ledger column.
+- P1 resolved-finding regression: accepted; every P1 proof must rerun after the
+  final code-changing push, even when the thread is resolved/outdated.
+- P1 terminal receipt loop: accepted; freeze/push versioned state first, then
+  post/read back an exact-head external PR receipt with no receipt-only push.
+- P2 author reply filtering: explicitly deferred by user at
+  https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | `resolve-pr-feedback` template missing | 1 | Add the project-owned template required by the installed workflow, then rerun the exact helper | Template and PR #377 ledger created successfully |
+| Terminal read-back receipt creates another last push | 1 | Move terminal receipt outside the branch and read it back from the PR | Exact-head external PR receipt rule added |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -318,6 +335,9 @@ Source-listed case matrix:
 | unresolved P1 | P1s must never survive autoclosure | rule/template source audit | no GitHub feedback gate | full `resolve-pr-feedback`; zero actionable P1 before delivery | rule/skill/template carry mandatory gate | pass |
 | explicit P2 defer | user may ignore P2 | rule/template source audit | no priority policy | P2 may remain only with explicit deferral evidence | exact URL + user scope required | pass |
 | post-fix read-back | delivery needs fresh review state | rule/template source audit | no feedback re-fetch | re-fetch proves P1 count zero | final read-back gate + stop condition | pass |
+| unlabeled priority | every actionable item needs a deterministic block/defer decision | rule/template/ledger audit | raw helper output has no derived priority | explicit label or consequence rubric; ambiguity fails closed as P1 | persisted priority/rationale rule and ledger column | pass |
+| resolved P1 regression | resolved threads disappear from helper output | rule/template audit | later edits could regress a resolved fix | replay every P1 proof after final code-changing push | proof-replay gate covers resolved/outdated items | pass |
+| terminal receipt cycle | recording read-back in branch creates another last push | sequence/source audit | fetch -> plan edit -> push loops | exact-head PR receipt outside branch; no receipt-only push | terminal external receipt gate | pass |
 
 Final handoff contract:
 - Commit line: `1b4e6058` plus final plan receipt commit
@@ -331,11 +351,14 @@ Final handoff contract:
 - Outcome: autoclosure blocks delivery until exact-PR feedback is resolved and
   a final read-back shows zero actionable P1-or-higher findings.
 - Caveat: priority remains source-backed review triage; no duplicate parser.
+- Caveat: P2 author top-level reply filtering remains deferred by explicit user
+  scope and is recorded in the feedback ledger.
 - Design:
   - Chosen boundary: autoclosure source rule + reusable plan template.
   - Why not quick patch: generated skill edits would be overwritten.
   - Why not broader change: `resolve-pr-feedback` already owns feedback
-    mechanics; autoclosure only adds sequencing and completion policy.
+    mechanics; autoclosure adds deterministic severity, sequencing, proof
+    replay, and terminal receipt policy.
 - Verified: commands listed above; final autoreview/live feedback pending.
 - PR body verified: task-style shape created; final read-back pending.
 
