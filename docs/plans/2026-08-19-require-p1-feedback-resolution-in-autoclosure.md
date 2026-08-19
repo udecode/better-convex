@@ -82,13 +82,14 @@ Boundaries:
 - Source of truth: user correction plus `.agents/rules/autoclosure.mdc`.
 - Allowed edit scope: autoclosure source rule, project plan template, generated
   mirrors from the approved sync path, the project-owned
-  `resolve-pr-feedback` template/ledger required to execute the new gate, and
-  this dedicated plan.
+  `resolve-pr-feedback` template/ledger required to execute the new gate, this
+  dedicated plan, and the six generated fixture manifests whose external
+  `shadcn@latest` dependency drift blocked every exact-head CI attempt.
 - Browser surface: N/A: agent workflow only.
 - GitHub issue sync: N/A: no issue; PR delivery/read-back required.
 - Non-goals: changing `resolve-pr-feedback` semantics, fixing PR #373 in this
-  branch, requiring P2 fixes after the user explicitly defers them, or product
-  behavior changes.
+  branch, requiring P2 fixes after the user explicitly defers them, product
+  behavior changes, or hand-editing fixture output instead of regenerating it.
 
 Output budget strategy:
 - Read exact rule/template/generated files; cap searches with `head`; save long
@@ -239,7 +240,7 @@ Completion Gates:
 | Browser surface changed | no | N/A | No browser surface |
 | Browser final proof | no | N/A | No browser surface |
 | UI walkthrough | no | N/A | No UI or rendered output |
-| Scaffold or fixture output changed | no | N/A | No scaffold/fixture source change |
+| Scaffold or fixture output changed | yes | Regenerate and verify snapshots | `bun run fixtures:sync`; `bun run fixtures:check` passes for all six fixture lanes |
 | Package behavior or public API changed | no | N/A | No published package change; no changeset |
 | Docs and kitcn skill sync changed | no | N/A | No `www` or published kitcn skill change |
 | Docs or content changed | yes | Verify internal workflow content | Source audit and full lint pass |
@@ -364,6 +365,8 @@ Error attempts:
 | Feedback plan marked complete while its newest P1 row remained open | 1 | Keep work, phase, and completion rows incomplete until reply/resolution/re-fetch | In progress until the three latest P1 threads close |
 | Reusable feedback gates contradicted the noncompliant stop path | 1 | Make all live-feedback gates conditional on task compliance | Source/template edits applied; regenerate and verify |
 | Local proof could come from a stale or unrelated checkout | 1 | Bind committed local HEAD to fetched immutable PR ref and live OID | Source/template edits applied; exact-head replay pending |
+| Exact-head CI fixture check found `lucide-react` drift in Start output | 1 | Rerun the failed CI job once to distinguish registry nondeterminism | Rerun found the same `^1.32.0` to `^1.33.0` drift in Next output; durable drift confirmed |
+| Six committed fixtures lagged fresh `shadcn@latest` output | 1 | Use the scenarios-owned sync/check workflow, never hand-edit snapshots | `bun run fixtures:sync` updated six generated manifests; `bun run fixtures:check` passed |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -371,9 +374,15 @@ Verification evidence:
 - `bun run intent:validate` -> one published skill validated.
 - `bun run lint:slop:delta` -> 0 added/worsened findings.
 - `bun lint:fix` -> 934 files checked; no fixes.
-- `bun check` -> exit 0 across lint, typecheck, unit/CLI/Concave tests,
-  fixtures, verify, and runtime scenarios.
-- Final pre-receipt P1-width branch autoreview -> clean, 0.97.
+- Latest local `bun check` -> all Bun tests passed (1277); one unrelated
+  randomized aggregate B-tree Vitest seed failed, then the exact owning file
+  passed 17/17 on immediate rerun.
+- Exact-head Blacksmith attempt 1 -> failed on stale Start fixture
+  `lucide-react`; attempt 2 reproduced the same drift in Next, proving it was
+  durable rather than random.
+- `bun run fixtures:sync` + `bun run fixtures:check` -> six generated fixture
+  manifests updated to fresh `shadcn@latest` output and all lanes pass.
+- Latest pre-receipt P1-width branch autoreview -> clean, 0.96.
 - Initial PR #377 full feedback fetch -> 0 threads, 1 non-actionable
   changeset-bot comment, 0 review bodies.
 - Latest full helper/raw read-back -> zero actionable P1; three explicitly
