@@ -44,7 +44,7 @@ Start Gates:
 | Intended delta and exclusions recorded | pending | pending |
 | Closure matrix classified | pending | pending |
 | Live PR feedback target resolved | pending | exact PR for full `resolve-pr-feedback` mode |
-| Unfiltered top-level feedback inventory | pending | raw GitHub PR comments/reviews compared with helper output |
+| Unfiltered feedback inventory | pending | raw top-level comments/reviews plus all resolved/unresolved inline threads compared with helper output |
 | GitHub delivery expectation recorded | pending | pending |
 | Active goal checked or created | pending | pending |
 
@@ -83,6 +83,9 @@ Work Checklist:
       bot/author item was ledgered; identity alone never dismissed feedback.
       Only the exact terminal receipt produced/read back by this run is exempt
       from the versioned ledger.
+- [ ] All inline review threads were fetched with GraphQL cursor pagination
+      without filtering resolved/outdated items; every thread has priority,
+      rationale, relocation, and proof state in the ledger.
 - [ ] Every actionable feedback item has a persisted P0-P3 priority and
       one-sentence rationale from the autoclosure rubric; ambiguous P1-versus-
       lower items fail closed as P1.
@@ -119,8 +122,8 @@ Completion Gates:
 | Live PR feedback resolution | yes | Run full `resolve-pr-feedback` for the exact PR and close every actionable P1-or-higher finding | pending |
 | Feedback priority classification | yes | Persist P0-P3 plus rationale for every actionable item; classify ambiguous P1-versus-lower as P1 | pending |
 | Final P1 proof replay | yes | After the final material branch push, regardless of file type, rerun every P1-or-higher proof, including resolved/outdated items | pending |
-| Final live feedback read-back | yes | Re-fetch helper output plus unfiltered top-level comments/review bodies after the last push/reply/resolution; require zero unresolved actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
-| External terminal receipt | yes | Post exact head OID, P1 proof results, zero-P1 counts, and deferred URLs; read it back, require live `headRefOid` equality, then require zero actionable P1-or-higher and no unrecorded helper/raw URL except that verified receipt; supersede externally when no branch fix is needed | pending |
+| Final live feedback read-back | yes | Re-fetch helper output plus unfiltered top-level comments/review bodies and all resolved/unresolved inline threads after the last push/reply/resolution; require zero actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
+| External terminal receipt | yes | Post exact head OID, P1 proof results, zero-P1 counts, and deferred URLs; read it back, require live `headRefOid` equality, then re-fetch helper/top-level/all-thread inventories and require zero actionable P1-or-higher plus no unrecorded URL except that verified receipt | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
 | Final lint | yes | Run `bun lint:fix` | pending |

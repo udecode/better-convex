@@ -331,6 +331,8 @@ Review fixes:
   after URL/body/OID read-back, never arbitrary marker-bearing comments.
 - P1 lower-priority receipt drift: accepted; any other new unrecorded URL,
   including P2/P3, invalidates or externally supersedes the receipt.
+- P1 resolved-thread inventory gap: accepted; raw GraphQL pagination now
+  inventories all inline threads without resolved/outdated filtering.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -346,6 +348,7 @@ Error attempts:
 | New P1 can arrive after terminal receipt | 1 | Re-fetch helper/raw feedback after receipt read-back | Any actionable P1 invalidates receipt and restarts final cycle |
 | Receipt appears as its own omitted author comment | 1 | Exempt only exact current-run receipt after URL/body/OID read-back | No versioned self-ledger loop; arbitrary markers remain untrusted |
 | New lower-priority URL missing from receipt | 1 | Invalidate on every new unrecorded item, not only P1 | Superseding external receipt allowed when no branch fix is needed |
+| Resolved inline thread missing from initial ledger | 1 | Inventory all review threads through unfiltered GraphQL pagination | Resolved state changes only mutation need; priority/proof remain required |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -375,6 +378,7 @@ Source-listed case matrix:
 | receipt/feedback race | new comment arrives without a branch push | source/template sequence audit | head equality misses new P1 | re-fetch helper/raw feedback after receipt read-back | any new P1 invalidates receipt | pass |
 | receipt self-ledger | receipt is filtered author comment | source/template sequence audit | versioned ledger update creates another receipt | exempt exact current-run URL/body/OID only | no arbitrary marker exemption | pass |
 | new deferred item | P2/P3 arrives after receipt | source/template sequence audit | zero-P1 check misses absent URL/deferral | invalidate any new unrecorded URL | supersede receipt externally when no branch change | pass |
+| pre-resolved P1 | thread is resolved before autoclosure starts | source/template + all-thread inventory audit | helper returns unresolved only | fetch all threads without resolved/outdated filter | every thread enters ledger/proof replay | pass |
 
 Final handoff contract:
 - Commit line: PR #377 branch commits through the final plan receipt commit
