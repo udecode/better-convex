@@ -2260,9 +2260,32 @@ export async function generateMeta(
   let sharedJitiInstance: ProjectJiti | undefined;
   const getSharedJitiInstance = () =>
     (sharedJitiInstance ??= createProjectJiti());
-  const schemaMetadata = await withCodegenParseSentinel(() =>
-    resolveSchemaMetadataForCodegen(functionsDir, debug, getSharedJitiInstance)
+  const schemaRuntimeModules = listFilesRecursive(functionsDir)
+    .filter((file) => file.endsWith('.ts') && isValidConvexFile(file))
+    .map((file) => file.replace(TS_EXTENSION_RE, ''));
+  const schemaRuntimePlaceholders = ensureGeneratedRuntimePlaceholders(
+    functionsDir,
+    schemaRuntimeModules,
+    resolveModuleRuntimeExportNames(
+      schemaRuntimeModules,
+      normalizedTrimSegments
+    )
   );
+  const schemaMetadata = await (async () => {
+    try {
+      return await withCodegenParseSentinel(() =>
+        resolveSchemaMetadataForCodegen(
+          functionsDir,
+          debug,
+          getSharedJitiInstance
+        )
+      );
+    } finally {
+      for (const schemaRuntimePlaceholder of schemaRuntimePlaceholders) {
+        fs.rmSync(schemaRuntimePlaceholder, { force: true });
+      }
+    }
+  })();
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
   const hasRelationsExport = hasNamedExport(

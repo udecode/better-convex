@@ -66,22 +66,71 @@ export class CRPCError extends Error {
   }
 }
 
+const parseEnvForCodegen = (schema) => {
+  if (typeof schema?.safeParse !== "function") {
+    return schema.parse(process.env);
+  }
+
+  const result = schema.safeParse(process.env);
+  if (result?.success === true) return result.data;
+
+  const issues = result?.error?.issues;
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return schema.parse(process.env);
+  }
+
+  const missingFieldIssues = new Map();
+  for (const [key, field] of Object.entries(schema.shape)) {
+    if (
+      process.env[key] !== undefined ||
+      typeof field?.safeParse !== "function"
+    ) {
+      continue;
+    }
+    const fieldResult = field.safeParse(undefined);
+    if (
+      fieldResult?.success === false &&
+      Array.isArray(fieldResult.error?.issues)
+    ) {
+      missingFieldIssues.set(key, fieldResult.error.issues);
+    }
+  }
+
+  const isMissingFieldIssue = (issue) => {
+    if (!Array.isArray(issue?.path) || issue.path.length === 0) return false;
+    const [key, ...path] = issue.path;
+    const fieldIssues = missingFieldIssues.get(key);
+    return fieldIssues?.some(
+      (fieldIssue) =>
+        fieldIssue?.code === issue.code &&
+        JSON.stringify(fieldIssue.path ?? []) === JSON.stringify(path)
+    );
+  };
+  if (!issues.every(isMissingFieldIssue)) {
+    return schema.parse(process.env);
+  }
+
+  const data = {};
+  for (const [key, field] of Object.entries(schema.shape)) {
+    if (typeof field?.safeParse !== "function") {
+      return schema.parse(process.env);
+    }
+    const fieldResult = field.safeParse(process.env[key]);
+    if (fieldResult?.success === true) {
+      data[key] = fieldResult.data;
+    } else if (!missingFieldIssues.has(key)) {
+      return schema.parse(process.env);
+    }
+  }
+  return data;
+};
+
 export const createEnv = ({ schema }) => () => {
   if (typeof schema?.parse !== "function") return process.env;
   if (globalThis.__KITCN_CODEGEN__ !== true || !schema.shape) {
     return schema.parse(process.env);
   }
-  const fallback = Object.fromEntries(
-    Object.entries(schema.shape).map(([key, zodType]) => {
-      const result = zodType?.safeParse?.(undefined);
-      if (result?.success) return [key, result.data];
-      if (Array.isArray(zodType?.options) && zodType.options.length > 0) {
-        return [key, zodType.options[0]];
-      }
-      return [key, ""];
-    })
-  );
-  return schema.parse({ ...fallback, ...process.env });
+  return parseEnvForCodegen(schema);
 };
 export const createHttpRouter = (_app, httpRouter) => httpRouter ?? {};
 export const createCallerFactory = () => () => ({});
