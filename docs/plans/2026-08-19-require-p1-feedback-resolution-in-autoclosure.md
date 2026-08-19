@@ -102,9 +102,9 @@ Blocked condition:
 Task state:
 - task_type: agent workflow repair
 - task_complexity: normal
-- current_phase: closeout
-- current_phase_status: complete
-- next_phase: exact-head external receipt and merge
+- current_phase: live feedback repair
+- current_phase_status: in_progress
+- next_phase: reply, resolve, re-fetch, exact-head receipt, and merge
 - goal_status: active
 
 Current verdict:
@@ -218,7 +218,9 @@ Work Checklist:
 - [x] Installed-skill CLI handling is N/A because this is a repo-local rule.
 - [x] Routing, P1 block, explicit P2 defer, final read-back, mirror equality,
       and forbidden delivery behavior have source/smoke rows.
-- [x] Agent-native review found no accepted/actionable gap.
+- [ ] Agent-native review and live GitHub feedback have no open P1 gap; three
+      newly accepted P1s remain open until their quoted replies, resolutions,
+      and fresh read-back succeed.
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
@@ -242,7 +244,7 @@ Completion Gates:
 | Docs and kitcn skill sync changed | no | N/A | No `www` or published kitcn skill change |
 | Docs or content changed | yes | Verify internal workflow content | Source audit and full lint pass |
 | High-risk mini gate | yes | Record failure mode/proof/boundary | Unresolved P1 could merge; live read-back gate at autoclosure owner prevents it |
-| Agent-native review for agent/tooling changes | yes | Close findings | Capability map PASS; zero findings |
+| Agent-native review for agent/tooling changes | yes | Close findings | Incomplete: latest live review added three accepted P1s |
 | Local install corruption suspected | no | N/A | No corruption signature |
 | Commit created | yes | Commit verified change | `1b4e6058` plus final plan receipt commit |
 | PR create or update | yes | Push and sync body | PR #377 created with task-style body |
@@ -254,22 +256,22 @@ Completion Gates:
 | Final lint | yes | Run formatter | `bun lint:fix` passes |
 | Output budget discipline | yes | Record stream handling | Searches capped; long check tool-capped, then concise summaries used |
 | Timed checkpoint | no | N/A | No duration requested |
-| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | Final pre-receipt run clean, 0.97; exact-head replay is external |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | Run before final plan commit; exact-head results live in PR receipt |
+| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | Incomplete: rerun after the latest P1 fixes freeze |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | Incomplete until replies, resolutions, fresh inventory, and exact-head receipt |
 | Agent source / generated sync | yes | Run install and compare | PASS |
 | Installed lock audit | no | N/A | Repo-local rule; no installed-skill mutation |
 | Agent action discoverability | yes | Audit agent route | Autoclosure names `resolve-pr-feedback`, severity floor, receipts, and stops |
 | Helper and template smoke | yes | Prove contract and incomplete failure | Required-token, raw-inventory, and source/mirror/template audits PASS |
-| Agent-native review | yes | Close findings | PASS; no findings |
+| Agent-native review | yes | Close findings | Incomplete: close the three latest P1s and rerun |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 |-------|--------|----------|------|
 | Intake and source read | complete | source rule, template, PR #373 P1, repo instructions read | implementation |
 | Implementation | complete | source rule + template + regenerated skill | verification |
-| Verification | complete | focused audits, lint, intent, slop, full check, agent-native audit, and autoreview green | GitHub sync |
-| Commit / PR / GitHub sync | complete | PR #377, task body/head proof, eight P1 replies/resolutions | terminal receipt |
-| Closeout | complete | helper/raw read-back has zero actionable P1 and three explicitly deferred P2s | exact-head external receipt |
+| Verification | in progress | earlier proof passed; latest head-binding and conditional-gate edits need regeneration and replay | GitHub feedback |
+| Commit / PR / GitHub sync | in progress | PR #377 exists; eight prior P1s closed and three new P1s open | quoted replies and resolutions |
+| Closeout | blocked | terminal receipt is invalid while any P1 remains open | fresh inventory after all P1 resolutions |
 
 Findings:
 - Current autoclosure runs deslop, agent-native review, and autoreview but never
@@ -287,6 +289,9 @@ Findings:
 - Fresh GitHub read-back found that the resolver helper filters recognized bot
   comments. Autoclosure now requires a second unfiltered inventory and
   content-based triage of every helper-excluded item.
+- The latest live review found three more P1s: plan completion must remain open
+  until its last P1 row closes, feedback gates must be conditional on task
+  compliance, and local proof must bind committed HEAD to the immutable PR head.
 
 Decisions and tradeoffs:
 - Make full `resolve-pr-feedback` mandatory for compliant PRs, then encode P1 as
@@ -333,6 +338,13 @@ Review fixes:
   including P2/P3, invalidates or externally supersedes the receipt.
 - P1 resolved-thread inventory gap: accepted; raw GraphQL pagination now
   inventories all inline threads without resolved/outdated filtering.
+- P1 premature plan completion: accepted; completion rows remain incomplete
+  while any ledger P1 awaits a quoted reply, resolution, or fresh read-back.
+- P1 noncompliant-path contradiction: accepted; live-feedback gates apply only
+  after task compliance, while the required comment/CLOSED path records N/A.
+- P1 stale or unrelated proof checkout: accepted; local committed HEAD must
+  equal both the fetched immutable PR ref and live `headRefOid` before proof,
+  reply, resolution, and terminal delivery.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -349,6 +361,9 @@ Error attempts:
 | Receipt appears as its own omitted author comment | 1 | Exempt only exact current-run receipt after URL/body/OID read-back | No versioned self-ledger loop; arbitrary markers remain untrusted |
 | New lower-priority URL missing from receipt | 1 | Invalidate on every new unrecorded item, not only P1 | Superseding external receipt allowed when no branch fix is needed |
 | Resolved inline thread missing from initial ledger | 1 | Inventory all review threads through unfiltered GraphQL pagination | Resolved state changes only mutation need; priority/proof remain required |
+| Feedback plan marked complete while its newest P1 row remained open | 1 | Keep work, phase, and completion rows incomplete until reply/resolution/re-fetch | In progress until the three latest P1 threads close |
+| Reusable feedback gates contradicted the noncompliant stop path | 1 | Make all live-feedback gates conditional on task compliance | Source/template edits applied; regenerate and verify |
+| Local proof could come from a stale or unrelated checkout | 1 | Bind committed local HEAD to fetched immutable PR ref and live OID | Source/template edits applied; exact-head replay pending |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -379,6 +394,9 @@ Source-listed case matrix:
 | receipt self-ledger | receipt is filtered author comment | source/template sequence audit | versioned ledger update creates another receipt | exempt exact current-run URL/body/OID only | no arbitrary marker exemption | pass |
 | new deferred item | P2/P3 arrives after receipt | source/template sequence audit | zero-P1 check misses absent URL/deferral | invalidate any new unrecorded URL | supersede receipt externally when no branch change | pass |
 | pre-resolved P1 | thread is resolved before autoclosure starts | source/template + all-thread inventory audit | helper returns unresolved only | fetch all threads without resolved/outdated filter | every thread enters ledger/proof replay | pass |
+| noncompliant PR | missing task evidence must comment/close/stop | rule/template audit | unconditional feedback gates contradict stop path | mark feedback gates N/A after verified remediation comment and CLOSED state | conditional source/template gates | in progress |
+| proof checkout | source proof must belong to exact PR head | immutable-ref/local/live OID audit | local checkout may be stale or unrelated | committed local HEAD equals fetched ref and live `headRefOid` before proof and terminal | exact-head rule/template gate | in progress |
+| ledger truthfulness | open P1 cannot coexist with complete plan gates | plan/ledger audit | newest P1 row open while plan completion was checked | completion stays incomplete through reply, resolution, and fresh fetch | parent and child plans are currently incomplete | in progress |
 
 Final handoff contract:
 - Commit line: PR #377 branch commits through the final plan receipt commit
@@ -442,11 +460,11 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | PR #377 exact-head terminal receipt |
-| Where am I going? | Replay proofs, post/read receipt, merge |
+| Where am I? | PR #377 latest three P1 repairs |
+| Where am I going? | Regenerate, push, reply, resolve, replay proofs, post/read receipt, merge |
 | What is the goal? | Make P1-or-higher feedback a blocking autoclosure gate |
 | What have I learned? | See Findings |
-| What have I done? | Repaired workflow, resolved eight P1s, passed checks/reviews, and proved task ownership |
+| What have I done? | Repaired workflow, resolved eight P1s, and applied three newer P1 fixes awaiting proof and resolution |
 
 Open risks:
 - GitHub may add live feedback after a push; the repaired gate requires a fresh
