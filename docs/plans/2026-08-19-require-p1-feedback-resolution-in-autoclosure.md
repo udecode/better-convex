@@ -102,9 +102,9 @@ Blocked condition:
 Task state:
 - task_type: agent workflow repair
 - task_complexity: normal
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: GitHub feedback and delivery
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: exact-head external receipt and merge
 - goal_status: active
 
 Current verdict:
@@ -254,12 +254,12 @@ Completion Gates:
 | Final lint | yes | Run formatter | `bun lint:fix` passes |
 | Output budget discipline | yes | Record stream handling | Searches capped; long check tool-capped, then concise summaries used |
 | Timed checkpoint | no | N/A | No duration requested |
-| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | First run found terminal receipt loop; fixed, final rerun pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | pending |
+| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | Final pre-receipt run clean, 0.97; exact-head replay is external |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | Run before final plan commit; exact-head results live in PR receipt |
 | Agent source / generated sync | yes | Run install and compare | PASS |
 | Installed lock audit | no | N/A | Repo-local rule; no installed-skill mutation |
 | Agent action discoverability | yes | Audit agent route | Autoclosure names `resolve-pr-feedback`, severity floor, receipts, and stops |
-| Helper and template smoke | yes | Prove contract and incomplete failure | Required-token audit PASS; final checker remains pending until receipts close |
+| Helper and template smoke | yes | Prove contract and incomplete failure | Required-token, raw-inventory, and source/mirror/template audits PASS |
 | Agent-native review | yes | Close findings | PASS; no findings |
 
 Phase / pass table:
@@ -267,9 +267,9 @@ Phase / pass table:
 |-------|--------|----------|------|
 | Intake and source read | complete | source rule, template, PR #373 P1, repo instructions read | implementation |
 | Implementation | complete | source rule + template + regenerated skill | verification |
-| Verification | in_progress | focused audits, lint, intent, slop, full check green | autoreview |
-| Commit / PR / GitHub sync | in_progress | `1b4e6058`, PR #377 | final plan receipt + feedback gate |
-| Closeout | pending | | final live-feedback audit |
+| Verification | complete | focused audits, lint, intent, slop, full check, agent-native audit, and autoreview green | GitHub sync |
+| Commit / PR / GitHub sync | complete | PR #377, task body/head proof, four P1 replies/resolutions | terminal receipt |
+| Closeout | complete | helper/raw read-back has zero actionable P1 and two explicitly deferred P2s | exact-head external receipt |
 
 Findings:
 - Current autoclosure runs deslop, agent-native review, and autoreview but never
@@ -340,10 +340,11 @@ Verification evidence:
 - `bun lint:fix` -> 934 files checked; no fixes.
 - `bun check` -> exit 0 across lint, typecheck, unit/CLI/Concave tests,
   fixtures, verify, and runtime scenarios.
-- First P1-width branch autoreview -> clean 0.95; rerun required after adding
-  the missing feedback template and ledger.
+- Final pre-receipt P1-width branch autoreview -> clean, 0.97.
 - Initial PR #377 full feedback fetch -> 0 threads, 1 non-actionable
   changeset-bot comment, 0 review bodies.
+- Latest full helper/raw read-back -> zero actionable P1; two explicitly
+  deferred P2 threads; raw excluded items content-triaged in the child ledger.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -357,7 +358,7 @@ Source-listed case matrix:
 | filtered bot finding | recognized bot posts actionable top-level feedback | source/template + raw API audit | helper omits item before triage | compare unfiltered top-level comments/reviews and ledger omissions | identity cannot dismiss; concrete content rationale required | pass |
 
 Final handoff contract:
-- Commit line: `1b4e6058` plus final plan receipt commit
+- Commit line: PR #377 branch commits through the final plan receipt commit
 - PR line: PR #377
 - Issue line: N/A: direct workflow repair
 - Confidence line: 95-100% after final autoreview/live-feedback receipts
@@ -376,8 +377,10 @@ Final handoff contract:
   - Why not broader change: `resolve-pr-feedback` already owns feedback
     mechanics; autoclosure adds deterministic severity, sequencing, proof
     replay, and terminal receipt policy.
-- Verified: commands listed above; final autoreview/live feedback pending.
-- PR body verified: task-style shape created; final read-back pending.
+- Verified: commands listed above; exact-head replay/read-back is recorded in
+  the external terminal PR receipt after this versioned plan freezes.
+- PR body verified: exactly one task-plan line; fetched head contains this plan
+  and identifies PR #377.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -401,7 +404,7 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: `1b4e6058` plus final plan receipt commit
+- Commit: PR #377 branch through the final plan receipt commit
 - PR: #377
 - Issue: N/A
 - Browser proof: N/A
@@ -416,11 +419,11 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | PR #377 autoreview and live-feedback closeout |
-| Where am I going? | Final plan receipt, feedback re-fetch, merge |
+| Where am I? | PR #377 exact-head terminal receipt |
+| Where am I going? | Replay proofs, post/read receipt, merge |
 | What is the goal? | Make P1-or-higher feedback a blocking autoclosure gate |
 | What have I learned? | See Findings |
-| What have I done? | Repaired source/template, regenerated mirror, passed full checks, opened PR #377 |
+| What have I done? | Repaired workflow, resolved four P1s, passed checks/reviews, and proved task ownership |
 
 Open risks:
 - GitHub may add live feedback after a push; the repaired gate requires a fresh
