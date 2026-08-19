@@ -961,10 +961,64 @@ describe('server/builder', () => {
     const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
 
     expect((error as any).data.ZodError).toEqual([
-      { code: 'custom', path: ['value'] },
+      { code: 'custom', path: ['<dynamic>'] },
     ]);
     expect(JSON.stringify((error as any).data)).not.toContain(secret);
     expect((error as any).cause.issues[0].message).toContain(secret);
+  });
+
+  test('output validation redacts runtime record keys from issue paths', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+    const secretKey = 'server-only-record-key';
+    const fn = c.query
+      .output(z.record(z.string(), z.boolean()))
+      .query(async () => ({ [secretKey]: 'nope' }) as any);
+
+    const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
+
+    expect((error as any).data.ZodError).toEqual([
+      {
+        code: 'invalid_type',
+        expected: 'boolean',
+        path: ['<dynamic>'],
+      },
+    ]);
+    expect(JSON.stringify((error as any).data)).not.toContain(secretKey);
+    expect((error as any).cause.issues[0].path).toEqual([secretKey]);
+  });
+
+  test('output validation keeps declared fields while redacting dynamic containers', async () => {
+    const c = initCRPC.create({
+      query: queryGeneric,
+      mutation: mutationGeneric,
+    } as any);
+    const secretKey = 'nested-server-only-key';
+    const fn = c.query
+      .output(
+        z.object({
+          items: z.array(z.record(z.string(), z.boolean())),
+        })
+      )
+      .query(async () => ({ items: [{ [secretKey]: 'nope' }] }) as any);
+
+    const error = await (fn as any)._handler({}, {}).catch((e: unknown) => e);
+
+    expect((error as any).data.ZodError).toEqual([
+      {
+        code: 'invalid_type',
+        expected: 'boolean',
+        path: ['items', '<dynamic>', '<dynamic>'],
+      },
+    ]);
+    expect(JSON.stringify((error as any).data)).not.toContain(secretKey);
+    expect((error as any).cause.issues[0].path).toEqual([
+      'items',
+      0,
+      secretKey,
+    ]);
   });
 
   test('output() failures on an int64 schema still report the mismatch', async () => {
