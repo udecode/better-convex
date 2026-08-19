@@ -92,7 +92,8 @@ Work Checklist:
 - [ ] After all versioned plan/source updates were pushed, the exact-head P1
       proof/read-back receipt was posted to the PR and read back; no terminal
       receipt-only branch push was created. A post-comment `headRefOid` fetch
-      matches the OID recorded in that receipt.
+      matches the OID recorded in that receipt, and a post-comment helper/raw
+      feedback fetch still shows zero actionable P1-or-higher items.
 - [ ] Any remaining P2-or-lower item has its exact URL plus the user's explicit
       priority deferral recorded; no feedback was silently ignored.
 - [ ] Accepted cleanup and review findings are closed.
@@ -116,7 +117,7 @@ Completion Gates:
 | Feedback priority classification | yes | Persist P0-P3 plus rationale for every actionable item; classify ambiguous P1-versus-lower as P1 | pending |
 | Final P1 proof replay | yes | After the final material branch push, regardless of file type, rerun every P1-or-higher proof, including resolved/outdated items | pending |
 | Final live feedback read-back | yes | Re-fetch helper output plus unfiltered top-level comments/review bodies after the last push/reply/resolution; require zero unresolved actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
-| External terminal receipt | yes | Post exact head OID, P1 proof results, zero-P1 counts, and deferred URLs; read it back, re-fetch live `headRefOid`, require the same OID, and do not push a receipt commit | pending |
+| External terminal receipt | yes | Post exact head OID, P1 proof results, zero-P1 counts, and deferred URLs; read it back, require live `headRefOid` equality, re-fetch helper/raw feedback with zero actionable P1-or-higher, and do not push a receipt commit | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
 | Final lint | yes | Run `bun lint:fix` | pending |

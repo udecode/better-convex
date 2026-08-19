@@ -325,6 +325,8 @@ Review fixes:
   live PR head and require the same OID or restart the final proof cycle.
 - P1 incomplete raw ledger: accepted; added the second Codex review wrapper so
   every raw comment/review item is content-triaged.
+- P1 post-receipt feedback race: accepted; after receipt/head verification,
+  re-fetch helper and raw feedback and restart for any actionable P1.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -337,6 +339,7 @@ Error attempts:
 | Helper filtered recognized bot feedback | 1 | Add independent unfiltered GitHub inventory and content-based triage | Source rule and reusable template require raw ID/URL comparison |
 | Terminal receipt could race a new push | 1 | Re-fetch live head after comment read-back and compare OIDs | Mismatch invalidates receipt and restarts final proofs |
 | One raw review body missing from ledger | 1 | Reconcile every raw item by exact URL | Both Codex wrappers and every helper-excluded raw item are ledgered |
+| New P1 can arrive after terminal receipt | 1 | Re-fetch helper/raw feedback after receipt read-back | Any actionable P1 invalidates receipt and restarts final cycle |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -363,6 +366,7 @@ Source-listed case matrix:
 | terminal receipt cycle | recording read-back in branch creates another last push | sequence/source audit | fetch -> plan edit -> push loops | exact-head PR receipt outside branch; no receipt-only push | terminal external receipt gate | pass |
 | filtered bot finding | recognized bot posts actionable top-level feedback | source/template + raw API audit | helper omits item before triage | compare unfiltered top-level comments/reviews and ledger omissions | identity cannot dismiss; concrete content rationale required | pass |
 | receipt/head race | branch changes after terminal comment | source/template sequence audit | receipt can name a stale OID | re-fetch live `headRefOid` after comment read-back | OID mismatch restarts final proof cycle | pass |
+| receipt/feedback race | new comment arrives without a branch push | source/template sequence audit | head equality misses new P1 | re-fetch helper/raw feedback after receipt read-back | any new P1 invalidates receipt | pass |
 
 Final handoff contract:
 - Commit line: PR #377 branch commits through the final plan receipt commit
