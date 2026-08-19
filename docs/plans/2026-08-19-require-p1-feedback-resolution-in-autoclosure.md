@@ -21,7 +21,7 @@ Applied packs:
 
 Task source:
 - type: direct user request
-- id / link: current Codex task; dedicated PR not yet created
+- id / link: PR #377 / https://github.com/udecode/kitcn/pull/377
 - title: require `resolve-pr-feedback` inside autoclosure
 - acceptance criteria: autoclosure must run `resolve-pr-feedback` for every
   compliant PR, block delivery while any actionable P1 remains, permit explicit
@@ -97,9 +97,9 @@ Blocked condition:
 Task state:
 - task_type: agent workflow repair
 - task_complexity: normal
-- current_phase: intake
+- current_phase: verification
 - current_phase_status: in_progress
-- next_phase: implementation
+- next_phase: GitHub feedback and delivery
 - goal_status: active
 
 Current verdict:
@@ -149,7 +149,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task`, `autogoal`, `autoclosure`, and `resolve-pr-feedback` read |
 | Active goal checked or created | yes | Existing release goal is paused; latest user explicitly authorizes this repair and mismatch is recorded here |
 | Source of truth read before edits | yes | User request, current autoclosure rule/template, and PR #373 feedback read |
-| Exact per-PR task ownership | yes | This plan owns one not-yet-created workflow-repair PR |
+| Exact per-PR task ownership | yes | PR #377 and this dedicated plan |
 | GitHub comments and attachments read | yes | PR #373 feedback fetched; one unresolved P1 proves the miss |
 | Video transcript evidence required | no | N/A: no media |
 | Pre-solution issue challenge required | yes | Validity and durable owner recorded above |
@@ -163,7 +163,7 @@ Start Gates:
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | Commit, push, and dedicated PR required |
 | Task-style PR body decision | yes | PR #270 task body required |
-| Task-plan PR body evidence | yes | Plan line/head/exact PR read-back after PR creation |
+| Task-plan PR body evidence | yes | PR #377 body names this plan; head file and exact PR owner will be read back after push |
 | GitHub issue sync expectation decision | no | N/A: no issue |
 | Output budget strategy recorded | yes | Narrow reads/capped searches/summary artifacts above |
 | Agent-native pack selected | yes | Materialized in this plan |
@@ -173,129 +173,98 @@ Start Gates:
 | `agent-native-reviewer` loaded or waiver recorded | yes | Required after implementation, before closeout |
 
 Work Checklist:
-- [ ] If a duration was requested, it is recorded as minimum active work unless
-      explicitly marked hard stop; when no better metric exists, initial and
-      final confidence scores are recorded.
-- [ ] Objective includes outcome, completion threshold, verification surface,
-      constraints, boundaries, and blocked condition.
-- [ ] Task source classified with source type, id/link, title, task type,
-      acceptance criteria, caveats, likely files/routes/packages, browser
-      surface, and root-cause layer.
-- [ ] Every GitHub PR in scope has its own task plan. This plan owns one exact
-      PR, owns a not-yet-created PR slice, or records N/A because no PR is in
-      scope; a batch plan is not used as a substitute.
-- [ ] Required video or screen-recording evidence is cached/read as normalized
-      `<video-transcripts>` XML, or marked N/A with reason.
-- [ ] For public GitHub bug reports, behavior claims, technical diagnoses, or
-      suggested fixes, reporter claims are challenged before implementation
-      with a recorded verdict: `valid`, `not reproduced`, `invalid`,
-      `wont-fix`, `partially valid`, or `platform limitation`. Feature, docs,
-      support, or cleanup requests with no bug claim may mark reproduction
-      `N/A` with reason.
-- [ ] Repro escalation ladder followed for bug/behavior claims: focused
-      test/source-level repro first when applicable; existing repo-owned
-      automated browser or integration proof next when available and useful as
-      executable coverage; the repo-approved Browser tool next when tests or
-      automation cannot reproduce or cannot model the surface honestly;
-      screenshot or explicit visual-proof waiver when visual/native state
-      matters.
-- [ ] Hard-stop rule followed for bug/behavior claims: no code when the issue
-      is not reproduced, invalid, or won't-fix; partial validity pivots to the
-      best long-term fix and records what was wrong or incomplete in the
-      issue's proposed path.
-- [ ] Nearby repo instructions and implementation patterns read before edits.
-- [ ] Source-listed case matrix is complete and every contradiction has an
-      owner, harness, and verdict before mutation.
-- [ ] Readiness is classified `ready`, `repair-source`, `major`, `blocked`, or
-      `invalid` with evidence.
-- [ ] Implementation fixes the right ownership boundary, or the narrower choice
-      is recorded with reason.
-- [ ] Release artifact requirement recorded: active changeset, new changeset, or
-      N/A with reason.
-- [ ] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
-      requirements, PR body sync, and issue sync when applicable.
-- [ ] Commit/PR handling recorded for code-changing work: commit and PR
-      completed, no local patch, user explicitly declined, or blocker recorded.
-      "User did not separately ask for a PR" is not a valid blocker.
-- [ ] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
-      recorded, or blocker recorded.
-- [ ] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
-      exists at the PR head, and it identifies the exact PR before autoclosure.
-- [ ] Branch handling recorded for code-changing work: dedicated branch used,
-      new branch needed, or N/A with reason.
-- [ ] Local-env-rot retry policy recorded for any surprising repo-wide failure:
-      reinstall/rerun evidence or N/A with reason.
-- [ ] Workspace authority recorded: every proof command names the cwd/tool that
-      owns the changed behavior.
-- [ ] Output budget discipline recorded and followed: broad searches are
-      scoped, capped, counted, or artifacted instead of streamed into goal
-      context.
-- [ ] High-risk note recorded for public API, runtime, package-boundary,
-      browser behavior, agent-action, or command-contract changes, or marked
-      N/A with reason.
-- [ ] Review/autoreview target selected from actual diff state for non-trivial
-      implementation work, or marked N/A with reason.
-- [ ] Agent-native review decision recorded for `.agents/**`, `.claude/**`,
-      `.codex/**`, skills, hooks, commands, prompts, or user-action tooling.
-- [ ] Agent-native pack: source-of-truth rule files are edited instead of generated skill mirrors.
-- [ ] Agent-native pack: the changed agent action is discoverable from the skill/rule text.
-- [ ] Agent-native pack: generated mirrors are synced when `.agents/rules/**` changed, or N/A reason is recorded.
-- [ ] Agent-native pack: installed skills are changed only through
-      `npx skills add/update/remove`; local rules/templates/helpers stay source-owned.
-- [ ] Agent-native pack: routing, required receipts, placeholder failure,
-      completion representability, and forbidden behavior have eval/smoke rows.
-- [ ] Agent-native pack: accepted agent-native review findings are fixed or explicitly rejected with reason.
+- [x] Timed checkpoint is N/A because no duration was requested.
+- [x] Objective records outcome, threshold, verification, constraints,
+      boundaries, and blocked condition.
+- [x] Direct user task source and PR #377 ownership are classified above.
+- [x] This plan owns exactly PR #377; the batch goal is not substituted.
+- [x] Video/transcript evidence is N/A because the task has no media.
+- [x] The workflow claim was challenged and reproduced as valid by source audit.
+- [x] The source-level repro owns this text workflow; browser and screenshot
+      escalation are N/A.
+- [x] The valid claim proceeds at the durable source-rule boundary.
+- [x] `.agents/AGENTS.md`, root `AGENTS.md`, the source rule, generated skill,
+      and project template were read before edits.
+- [x] All three source-listed cases have an owner, harness, and verdict.
+- [x] Readiness is `ready` with the exact owner recorded above.
+- [x] Implementation edits the source rule and reusable plan template, then
+      regenerates the installed mirror.
+- [x] Release artifact is N/A because no published package changed.
+- [x] Final handoff and GitHub task-body shape are recorded below.
+- [x] Commit `1b4e6058` and PR #377 exist; final plan receipt commit remains.
+- [x] PR #377 uses the PR #270 emoji task-style body.
+- [x] PR body names this plan; exact head ownership is verified after the final
+      plan receipt push.
+- [x] Dedicated branch `codex/autoclosure-p1-feedback-gate` is used.
+- [x] Local-env-rot retry is N/A because no corruption signature appeared.
+- [x] All proof commands ran in `/Users/zbeyens/git/better-convex`, the owning
+      repository.
+- [x] Searches were exact/capped; the verbose `bun check` stream was tool-capped
+      and later commands returned concise summaries.
+- [x] High-risk note: without this gate an unresolved P1 can merge despite
+      green local review; source/mirror/template and live PR read-backs prove
+      the durable rule boundary.
+- [x] Autoreview target is PR #377 against `origin/main`, with P1 width.
+- [x] Agent-native review is required and its capability map passes.
+- [x] `.agents/rules/autoclosure.mdc` is the edited source of truth.
+- [x] The changed action is discoverable from the autoclosure skill and template.
+- [x] `bun install` regenerated `.agents/skills/autoclosure/SKILL.md`; Codex and
+      Claude mirrors compare equal.
+- [x] Installed-skill CLI handling is N/A because this is a repo-local rule.
+- [x] Routing, P1 block, explicit P2 defer, final read-back, mirror equality,
+      and forbidden delivery behavior have source/smoke rows.
+- [x] Agent-native review found no accepted/actionable gap.
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | pending | Run the command, proof, source audit, or artifact check named in this plan | pending |
-| Exact per-PR task ownership | pending | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | pending |
-| Pre-solution issue challenge verdict | pending | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | pending |
-| Repro escalation ladder | pending | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | pending |
-| Bug reproduced before fix | pending | Record failing test/repro or N/A with reason | pending |
-| Targeted behavior verification | pending | Run focused test/proof for changed behavior or record N/A | pending |
-| TypeScript or typed config changed | pending | Run relevant typecheck | pending |
-| Package exports or file layout changed | pending | Run the relevant package build before final verification and keep generated updates | pending |
-| Package manifests, lockfile, or install graph changed | pending | Run `bun install` and relevant package checks | pending |
-| Agent rules or skills changed | pending | Run `bun install` and verify generated skill sync | pending |
-| Workspace authority proof | pending | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | pending |
-| Browser surface changed | pending | Capture Browser Use proof or record explicit waiver/blocker | pending |
-| Browser final proof | pending | Attach screenshot or exact browser verification caveat when browser proof applies | pending |
-| UI walkthrough | pending | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | pending |
-| Scaffold or fixture output changed | pending | Run `bun run fixtures:sync` and `bun run fixtures:check`, or record N/A | pending |
-| Package behavior or public API changed | pending | Add a changeset or record why no changeset applies | pending |
-| Docs and kitcn skill sync changed | pending | Keep `www/**` and `packages/kitcn/skills/kitcn/**` in sync, or record N/A | pending |
-| Docs or content changed | pending | For docs-heavy work, use `--template docs`; for incidental docs, verify source-backed claims, links, examples, and rendered output or record N/A | pending |
-| High-risk mini gate | pending | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | pending |
-| Agent-native review for agent/tooling changes | pending | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | pending |
-| Local install corruption suspected | pending | Run `bun install` once, rerun the exact failing command, or record N/A | pending |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
-| PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
-| PR proof image hosting | pending | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | pending |
-| GitHub issue sync-back | pending | Post concise issue sync after PR exists, or record N/A/blocker | pending |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
-| Final lint | pending | Run `bun lint:fix` or scoped equivalent | pending |
-| Output budget discipline | pending | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | pending |
-| Timed checkpoint | pending | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | pending |
-| Autoreview for non-trivial implementation changes | pending | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | pending |
+| Named verification threshold | yes | Run the named proof | Source/mirror smoke, intent validation, slop delta, lint, and `bun check` pass |
+| Exact per-PR task ownership | yes | Record exact PR and plan | PR #377 / this plan |
+| Pre-solution issue challenge verdict | yes | Record verdict and boundary | Valid; source rule + project template |
+| Repro escalation ladder | yes | Record owning repro and N/A lanes | Source audit valid; browser/visual N/A |
+| Bug reproduced before fix | yes | Record failing source repro | Current rule had no live-feedback/P1 gate; PR #373 retained one P1 |
+| Targeted behavior verification | yes | Run focused proof | Required-token audit across rule/skill/template passes |
+| TypeScript or typed config changed | no | N/A | No TypeScript/config change |
+| Package exports or file layout changed | no | N/A | No package surface change |
+| Package manifests, lockfile, or install graph changed | no | N/A | `bun install` reported no dependency change |
+| Agent rules or skills changed | yes | Regenerate and compare | `bun install`; source/generated body and Claude symlink compare equal |
+| Workspace authority proof | yes | Use owning repo | All commands ran in `/Users/zbeyens/git/better-convex` |
+| Browser surface changed | no | N/A | No browser surface |
+| Browser final proof | no | N/A | No browser surface |
+| UI walkthrough | no | N/A | No UI or rendered output |
+| Scaffold or fixture output changed | no | N/A | No scaffold/fixture source change |
+| Package behavior or public API changed | no | N/A | No published package change; no changeset |
+| Docs and kitcn skill sync changed | no | N/A | No `www` or published kitcn skill change |
+| Docs or content changed | yes | Verify internal workflow content | Source audit and full lint pass |
+| High-risk mini gate | yes | Record failure mode/proof/boundary | Unresolved P1 could merge; live read-back gate at autoclosure owner prevents it |
+| Agent-native review for agent/tooling changes | yes | Close findings | Capability map PASS; zero findings |
+| Local install corruption suspected | no | N/A | No corruption signature |
+| Commit created | yes | Commit verified change | `1b4e6058` plus final plan receipt commit |
+| PR create or update | yes | Push and sync body | PR #377 created with task-style body |
+| Task-style PR body verified | yes | Read back body | `gh pr view 377 --json body` receipt required before final checker |
+| PR task evidence verified | yes | Verify body/head/exact owner | Final head read-back required before final checker |
+| PR proof image hosting | no | N/A | No images |
+| GitHub issue sync-back | no | N/A | No issue |
+| Final handoff contract | yes | Fill fields below | Filled for PR #377 |
+| Final lint | yes | Run formatter | `bun lint:fix` passes |
+| Output budget discipline | yes | Record stream handling | Searches capped; long check tool-capped, then concise summaries used |
+| Timed checkpoint | no | N/A | No duration requested |
+| Autoreview for non-trivial implementation changes | yes | Run branch review at P1 width | Pending current branch review |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-19-require-p1-feedback-resolution-in-autoclosure.md` | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Agent source / generated sync | yes | Run install and compare | PASS |
+| Installed lock audit | no | N/A | Repo-local rule; no installed-skill mutation |
+| Agent action discoverability | yes | Audit agent route | Autoclosure names `resolve-pr-feedback`, severity floor, receipts, and stops |
+| Helper and template smoke | yes | Prove contract and incomplete failure | Required-token audit PASS; final checker remains pending until receipts close |
+| Agent-native review | yes | Close findings | PASS; no findings |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 |-------|--------|----------|------|
-| Intake and source read | in_progress | created plan | implementation |
-| Implementation | pending | | verification |
-| Verification | pending | | closeout |
-| Commit / PR / GitHub sync | pending | | final response |
-| Closeout | pending | | final response |
+| Intake and source read | complete | source rule, template, PR #373 P1, repo instructions read | implementation |
+| Implementation | complete | source rule + template + regenerated skill | verification |
+| Verification | in_progress | focused audits, lint, intent, slop, full check green | autoreview |
+| Commit / PR / GitHub sync | in_progress | `1b4e6058`, PR #377 | final plan receipt + feedback gate |
+| Closeout | pending | | final live-feedback audit |
 
 Findings:
 - Current autoclosure runs deslop, agent-native review, and autoreview but never
@@ -308,10 +277,15 @@ Decisions and tradeoffs:
   priority downgrades remain forbidden.
 
 Implementation notes:
-- None yet.
+- Added a mandatory full `resolve-pr-feedback` pass, P1-or-higher delivery
+  floor, explicit P2-or-lower deferral receipts, and final live re-fetch.
+- Materialized the same receipts in `docs/plans/templates/autoclosure.md` and
+  regenerated the installed skill with `bun install`.
 
 Review fixes:
-- None yet.
+- Agent-native review: PASS; no missing route, owner, mirror, proof, or
+  discoverability finding.
+- Deslop: zero added/worsened findings; no cleanup edit warranted.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -319,32 +293,40 @@ Error attempts:
 | None yet | 0 | | |
 
 Verification evidence:
-- Pending.
+- `bun install` -> generated skill refreshed; no dependency change.
+- required-token + source/generated byte comparison -> PASS.
+- `bun run intent:validate` -> one published skill validated.
+- `bun run lint:slop:delta` -> 0 added/worsened findings.
+- `bun lint:fix` -> 934 files checked; no fixes.
+- `bun check` -> exit 0 across lint, typecheck, unit/CLI/Concave tests,
+  fixtures, verify, and runtime scenarios.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| unresolved P1 | P1s must never survive autoclosure | rule/template source audit | no GitHub feedback gate | full `resolve-pr-feedback`; zero actionable P1 before delivery | pending | ready |
-| explicit P2 defer | user may ignore P2 | rule/template source audit | no priority policy | P2 may remain only with explicit deferral evidence | pending | ready |
-| post-fix read-back | delivery needs fresh review state | rule/template source audit | no feedback re-fetch | re-fetch proves P1 count zero | pending | ready |
+| unresolved P1 | P1s must never survive autoclosure | rule/template source audit | no GitHub feedback gate | full `resolve-pr-feedback`; zero actionable P1 before delivery | rule/skill/template carry mandatory gate | pass |
+| explicit P2 defer | user may ignore P2 | rule/template source audit | no priority policy | P2 may remain only with explicit deferral evidence | exact URL + user scope required | pass |
+| post-fix read-back | delivery needs fresh review state | rule/template source audit | no feedback re-fetch | re-fetch proves P1 count zero | final read-back gate + stop condition | pass |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: `1b4e6058` plus final plan receipt commit
+- PR line: PR #377
+- Issue line: N/A: direct workflow repair
+- Confidence line: 95-100% after final autoreview/live-feedback receipts
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: source audit red; browser N/A
+  - Verified: source/mirror, intent, slop, lint, full check green; browser N/A
+- Browser check: N/A: no browser surface
+- Outcome: autoclosure blocks delivery until exact-PR feedback is resolved and
+  a final read-back shows zero actionable P1-or-higher findings.
+- Caveat: priority remains source-backed review triage; no duplicate parser.
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: autoclosure source rule + reusable plan template.
+  - Why not quick patch: generated skill edits would be overwritten.
+  - Why not broader change: `resolve-pr-feedback` already owns feedback
+    mechanics; autoclosure only adds sequencing and completion policy.
+- Verified: commands listed above; final autoreview/live feedback pending.
+- PR body verified: task-style shape created; final read-back pending.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -368,26 +350,30 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: pending
-- PR: pending
-- Issue: pending
-- Browser proof: pending
-- Caveats: pending
+- Commit: `1b4e6058` plus final plan receipt commit
+- PR: #377
+- Issue: N/A
+- Browser proof: N/A
+- Caveats: P2-or-lower is deferrable only by explicit user scope.
 
 Timeline:
 - 2026-08-19T10:19:36.334Z Task goal plan created.
+- 2026-08-19 Source rule and template repaired; installed skill regenerated.
+- 2026-08-19 Intent validation, deslop, lint, and full `bun check` passed.
+- 2026-08-19 Commit `1b4e6058` pushed and PR #377 created.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Intake and source read |
-| Where am I going? | Implementation, verification, commit/PR/GitHub sync, closeout |
-| What is the goal? | TODO: Fill from Objective |
+| Where am I? | PR #377 autoreview and live-feedback closeout |
+| Where am I going? | Final plan receipt, feedback re-fetch, merge |
+| What is the goal? | Make P1-or-higher feedback a blocking autoclosure gate |
 | What have I learned? | See Findings |
-| What have I done? | See Timeline |
+| What have I done? | Repaired source/template, regenerated mirror, passed full checks, opened PR #377 |
 
 Open risks:
-- Pending.
+- GitHub may add live feedback after a push; the repaired gate requires a fresh
+  read-back and another resolve cycle before merge.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
