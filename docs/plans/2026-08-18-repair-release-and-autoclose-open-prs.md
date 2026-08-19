@@ -21,7 +21,7 @@ Applied packs:
 
 Linked plans:
 - [PR #370 task closeout](docs/plans/2026-08-17-fix-aggregate-isnull-missing-absent-field-rows.md) - aggregate `isNull` parity.
-- [PR #371 task closeout](docs/plans/2026-08-17-367-in-notin-variadic-filter-depth.md) - flat ORM filters.
+- [PR #371 task closeout](docs/plans/367-in-notin-variadic-filter-depth.md) - flat ORM filters.
 - [PR #372 task closeout](docs/plans/368-codegen-self-heals-stale-generated-server.md) - codegen recovery.
 - [PR #373 task closeout](docs/plans/369-output-undefined-contract-docs.md) - output diagnostics and docs.
 
@@ -98,7 +98,7 @@ Closure matrix:
 | agent workflow | pending | pending | pending |
 | cleanup/review | yes | per-PR deslop/autoreview | pending |
 | repository check | yes | `bun check` | pending |
-| GitHub delivery | pending | pending | pending |
+| GitHub delivery | yes | exact-head merge/release/read-back | #370 merged; `0.25.3` blocked on expired npm token; #371 ready; #372-#373 pending |
 
 Work Checklist:
 - [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
@@ -167,6 +167,16 @@ Verification evidence:
 - PR #370: review thread accepted and fixed with RED/GREEN guard tests;
   `autoreview --mode local` clean 0.98; final `bun check` exit 0; reply posted
   and thread resolved.
+- PR #370 merged as `54c88d18`; release PR #374 merged as `a663e963`.
+- Release `0.25.3` retry `32195291711` passed after token rotation. Both npm
+  packages report version `0.25.3` and gitHead `a663e963`; both package tags
+  dereference to that commit; GitHub release `v0.25.3`, CI `32195291753`, and
+  release skill check `32235747049` are green.
+- PR #371: merged current `main` cleanly; initial focused 11/11, package build,
+  deslop, autoreview 0.98, and full `bun check` passed. Four later Codex review
+  findings were accepted: ticket-prefixed plan, truthful body receipt, concise
+  changeset, and fail-closed empty logical deserialization. RED/GREEN, 38/38
+  focused, build, autoreview 0.99, and final `bun check` pass at `d83053e0`.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -178,16 +188,22 @@ Timeline:
 - 2026-08-19 PR #370 closeout patch counts physical nullish bucket probes,
   adds both budget regressions, refreshes source-owned fixture drift, and passes
   the full repository/runtime gate.
+- 2026-08-19 PR #370 merged; release PR #374 auto-merged; `0.25.3` publication
+  exposed the expired npm token.
+- 2026-08-19 Token rotation completed; failed-only release retry published and
+  read back `0.25.3` across npm, package tags, GitHub release, CI, and skills.
+- 2026-08-19 PR #371 review repairs pushed at `d83053e0`; body now points to
+  `docs/plans/367-in-notin-variadic-filter-depth.md`.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | PR #370 task/autoclosure slice |
-| Where am I going? | Close #370, then #371, #372, #373, then final audit |
+| Where am I? | `0.25.3` published; closing #371 review and exact-head CI |
+| Where am I going? | Merge/release #371, then rebase and close #372, #373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
 
 Open risks:
-- A rerun of the historical release workflow may remain red if the workflow
-  cannot idempotently recognize already-published artifacts; do not republish.
+- Release sequencing: finish each package publication and artifact readback
+  before advancing to the next PR.

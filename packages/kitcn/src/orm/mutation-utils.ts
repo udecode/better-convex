@@ -10,6 +10,7 @@ import type {
   ForeignKeyAction,
 } from './builders/column-builder';
 import type { OrmCapabilities } from './capabilities';
+import { compileConvexFilter, convexAnd } from './convex-filter-compiler';
 import type { EdgeMetadata } from './extractRelationsConfig';
 import type {
   BinaryExpression,
@@ -566,12 +567,15 @@ export const deserializeFilterExpression = (
   }
   if (expression.type === 'logical') {
     const logical = expression as SerializedLogicalExpression;
-    return createLogicalExpression(
-      logical.operator,
-      logical.operands
-        .map((operand) => deserializeFilterExpression(operand))
-        .filter((operand): operand is FilterExpression<boolean> => !!operand)
-    );
+    const operands = logical.operands
+      .map((operand) => deserializeFilterExpression(operand))
+      .filter((operand): operand is FilterExpression<boolean> => !!operand);
+    if (operands.length === 0) {
+      throw new Error(
+        'Serialized logical expression requires at least one operand.'
+      );
+    }
+    return createLogicalExpression(logical.operator, operands);
   }
   const unary = expression as SerializedUnaryExpression;
   const operand = unary.operand;
@@ -1428,11 +1432,10 @@ function buildIndexPredicate(q: any, columns: string[], values: unknown[]) {
 }
 
 function buildFilterPredicate(q: any, columns: string[], values: unknown[]) {
-  let expr = q.eq(q.field(columns[0]), values[0]);
-  for (let i = 1; i < columns.length; i++) {
-    expr = q.and(expr, q.eq(q.field(columns[i]), values[i]));
-  }
-  return expr;
+  return convexAnd(
+    q,
+    columns.map((column, index) => q.eq(q.field(column), values[index]))
+  );
 }
 
 export function ensureNullableColumns(
@@ -2453,115 +2456,5 @@ export function enforceCheckConstraints(
 export function toConvexFilter(
   expression: FilterExpression<boolean>
 ): (q: any) => any {
-  const visitor: ExpressionVisitor<(q: any) => any> = {
-    visitBinary: (expr: BinaryExpression) => {
-      const [field, value] = expr.operands;
-      if (!isFieldReference(field)) {
-        throw new Error(
-          'Binary expression must have FieldReference as first operand'
-        );
-      }
-
-      const fieldName = field.fieldName;
-
-      switch (expr.operator) {
-        case 'eq':
-          return (q: any) => q.eq(q.field(fieldName), value);
-        case 'ne':
-          return (q: any) => q.neq(q.field(fieldName), value);
-        case 'gt':
-          return (q: any) => q.gt(q.field(fieldName), value);
-        case 'gte':
-          return (q: any) => q.gte(q.field(fieldName), value);
-        case 'lt':
-          return (q: any) => q.lt(q.field(fieldName), value);
-        case 'lte':
-          return (q: any) => q.lte(q.field(fieldName), value);
-        case 'inArray': {
-          const values = value as any[];
-          return (q: any) => {
-            if (values.length === 0) {
-              return q.eq(q.field('_id'), '__better_convex_never__');
-            }
-            const conditions = values.map((v) => q.eq(q.field(fieldName), v));
-            return conditions.reduce((acc, cond) => q.or(acc, cond));
-          };
-        }
-        case 'notInArray': {
-          const values = value as any[];
-          return (q: any) => {
-            const conditions = values.map((v) => q.neq(q.field(fieldName), v));
-            return conditions.reduce((acc, cond) => q.and(acc, cond));
-          };
-        }
-        case 'like':
-        case 'ilike':
-        case 'notLike':
-        case 'notIlike':
-        case 'startsWith':
-        case 'endsWith':
-        case 'contains':
-        case 'arrayContains':
-        case 'arrayContained':
-        case 'arrayOverlaps':
-          return () => true;
-        default:
-          throw new Error(`Unsupported binary operator: ${expr.operator}`);
-      }
-    },
-    visitLogical: (expr: LogicalExpression) => {
-      const operandFns = expr.operands.map((op) => op.accept(visitor));
-
-      if (expr.operator === 'and') {
-        return (q: any) => {
-          let result = operandFns[0](q);
-          for (let i = 1; i < operandFns.length; i++) {
-            result = q.and(result, operandFns[i](q));
-          }
-          return result;
-        };
-      }
-      if (expr.operator === 'or') {
-        return (q: any) => {
-          let result = operandFns[0](q);
-          for (let i = 1; i < operandFns.length; i++) {
-            result = q.or(result, operandFns[i](q));
-          }
-          return result;
-        };
-      }
-
-      throw new Error(`Unsupported logical operator: ${expr.operator}`);
-    },
-    visitUnary: (expr: UnaryExpression) => {
-      const operand = expr.operands[0];
-
-      if (expr.operator === 'not') {
-        const operandFn = (operand as FilterExpression<boolean>).accept(
-          visitor
-        );
-        return (q: any) => q.not(operandFn(q));
-      }
-
-      if (expr.operator === 'isNull') {
-        if (!isFieldReference(operand)) {
-          throw new Error('isNull must operate on a field reference');
-        }
-        const fieldName = operand.fieldName;
-        return (q: any) => q.eq(q.field(fieldName), null);
-      }
-
-      if (expr.operator === 'isNotNull') {
-        if (!isFieldReference(operand)) {
-          throw new Error('isNotNull must operate on a field reference');
-        }
-        const fieldName = operand.fieldName;
-        return (q: any) => q.neq(q.field(fieldName), null);
-      }
-
-      throw new Error(`Unsupported unary operator: ${expr.operator}`);
-    },
-  };
-
-  return expression.accept(visitor);
+  return compileConvexFilter(expression);
 }
