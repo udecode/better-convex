@@ -93,10 +93,8 @@ Options:
 
 See [Scope Modes](#scope-modes) for the full output manifest per scope.
 
-`<functionsDir>/generated/server.ts` is rewritten from your schema before codegen
-reads any of your modules, so a copy left behind by an older kitcn — or one that
-no longer matches the schema — is repaired in place rather than breaking the run.
-Never edit it by hand.
+`<functionsDir>/generated/server.ts` is codegen-owned and is rewritten from your
+schema before codegen reads project modules. Never edit it by hand.
 
 Plugin note:
 

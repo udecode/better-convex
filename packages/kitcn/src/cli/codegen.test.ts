@@ -2250,6 +2250,58 @@ export { httpAction, internalMutation };
     }
   });
 
+  test('generateMeta replaces a stale generated server during cold bootstrap', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        `
+        throw new Error('stale generated server loaded');
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'lib', 'crpc.ts'),
+        `
+        import { initCRPC } from '../generated/server';
+
+        const c = initCRPC.meta<{}>().create();
+
+        export const publicQuery = c.query;
+        `.trim()
+      );
+      writeFile(
+        path.join(dir, 'convex', 'todos.ts'),
+        `
+        import { publicQuery } from './lib/crpc';
+
+        export const list = publicQuery.query(async () => []);
+        `.trim()
+      );
+
+      await expect(generateMeta(undefined, { silent: true })).resolves.toBe(
+        undefined
+      );
+      expect(
+        fs.readFileSync(
+          path.join(dir, 'convex', 'generated', 'server.ts'),
+          'utf-8'
+        )
+      ).not.toContain('stale generated server loaded');
+      expect(
+        fs.readFileSync(
+          path.join(dir, 'convex', 'generated', 'procedure-names.gen.ts'),
+          'utf-8'
+        )
+      ).toContain('"todos:list"');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
   test('generateMeta keeps the procedure name lookup across a scoped run', async () => {
     const dir = mkTempDir();
     const oldCwd = process.cwd();
@@ -2294,6 +2346,38 @@ export { httpAction, internalMutation };
 
       await generateMeta(undefined, { silent: true, scope: 'auth' });
       expect(fs.readFileSync(procedureNamesFile, 'utf-8')).toBe(afterFullRun);
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta migrates an inline procedure lookup during a first scoped run', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'generated', 'server.ts'),
+        `
+        registerProcedureNameLookup(
+          {
+            "todos.ts": [{ column: 1, line: 4, name: "todos:list" }],
+          },
+          "convex"
+        );
+        `.trim()
+      );
+
+      await generateMeta(undefined, { silent: true, scope: 'orm' });
+
+      expect(
+        fs.readFileSync(
+          path.join(dir, 'convex', 'generated', 'procedure-names.gen.ts'),
+          'utf-8'
+        )
+      ).toContain('"todos:list"');
     } finally {
       process.chdir(oldCwd);
     }
@@ -2394,6 +2478,50 @@ export { httpAction, internalMutation };
           'utf-8'
         )
       ).toBe(ormServer);
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta enables the createEnv fallback while loading schema metadata', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      writeRealOrmFixture(dir);
+      writeFile(
+        path.join(dir, 'convex', 'schema.ts'),
+        `
+        import { createEnv } from 'kitcn/server';
+
+        const requiredString = {
+          safeParse(value: unknown) {
+            return value === undefined
+              ? { success: false }
+              : { success: true, data: value };
+          },
+        };
+        const envSchema = {
+          shape: { REQUIRED_SECRET: requiredString },
+          parse(value: Record<string, unknown>) {
+            if (typeof value.REQUIRED_SECRET !== 'string') {
+              throw new Error('required secret missing');
+            }
+            return value;
+          },
+        };
+        const getEnv = createEnv({ schema: envSchema });
+        getEnv();
+
+        export default {};
+        `.trim()
+      );
+
+      await expect(
+        generateMeta(undefined, { silent: true, scope: 'orm' })
+      ).resolves.toBe(undefined);
     } finally {
       process.chdir(oldCwd);
     }

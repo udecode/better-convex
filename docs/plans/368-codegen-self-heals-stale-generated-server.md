@@ -411,7 +411,11 @@ Implementation notes:
   - `emitGeneratedServerFile` drops its `procedureNameLookup` parameter and
     imports `{ procedureNames }` instead; both the ORM and non-ORM branches.
   - `ensureGeneratedSupportPlaceholders` bootstraps the leaf, and deliberately
-    does not register it for rollback.
+    does not register it for rollback. On cold bootstrap it temporarily replaces
+    a tracked server with the placeholder and restores that file after a fatal
+    parse failure.
+  - A first scoped run migrates the procedure lookup from kitcn's previous
+    generated literal into `procedure-names.gen.ts` before replacing the server.
   - `getConvexGeneratedServerFile` gates the new pre-parse emit on Convex's own
     `_generated` module existing.
   - `emitServerFile` closure is called once before the parse loop and once after;
@@ -419,6 +423,9 @@ Implementation notes:
     window.
   - The leaf is rewritten post-parse only when `generateApi` is true.
   - `resolveSchemaMetadataForCodegen` rethrows schema load failures.
+- `packages/kitcn/src/cli/utils/project-jiti.ts`: the parser shim honors the
+  codegen sentinel while schema metadata loads, matching `createEnv` fallback
+  behavior without evaluating the full server package.
 - `packages/kitcn/src/orm/capabilities.ts`: both capability hints stop advising
   the reader to rerun the command that just failed.
 
@@ -434,6 +441,11 @@ Review fixes:
   missing references; package/mirror parity is exact. Replied at
   https://github.com/udecode/kitcn/pull/372#discussion_r3808848333 and resolved
   with `isResolved: true` read-back.
+- Four later review threads were accepted and repaired: activate the parser env
+  fallback during schema loading, migrate the inline lookup on a first scoped
+  run, replace stale server output during cold bootstrap, and rewrite docs as a
+  current-state ownership invariant. RED/GREEN proof covers all three runtime
+  findings; source skill and generated mirror remain exact.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -447,7 +459,7 @@ Verification evidence:
 All commands run from `/Users/mikey/conductor/workspaces/kitcn/hanoi-v2` unless
 noted.
 - Closeout cwd `/Users/zbeyens/git/better-convex`: merged current `main`
-  (`a663e963`) without conflict.
+  (`cb04592e`) and preserved both branches' closeout receipts.
 - `bun tooling/sync-kitcn-skill.ts` + `bun install`: generated repo-local kitcn
   references persisted; package/`.agents` diff is empty; lockfiles unchanged.
 - Agent-native review: PASS. `kitcn dev/codegen` is discoverable through the
@@ -479,12 +491,13 @@ noted.
   (cwd `example/`, `bun ../packages/kitcn/dist/cli.mjs codegen`).
 - Root `convex/` regenerated with the real CLI.
 - `bun lint:fix` → clean (one formatting fix in `codegen.ts`).
-- `bun check` → every lane green except the pre-existing flaky
-  `btree.vitest.ts` property test, proven pre-existing by reproducing it on
-  stashed clean `HEAD`.
-- `.claude/skills/autoreview/scripts/autoreview --mode local --engine claude`
-  → exit 0, `autoreview clean: no accepted/actionable findings reported`,
-  `overall: patch is correct (0.75)`.
+- `bun test packages/kitcn/src/cli/codegen.test.ts` → 72 pass, 0 fail.
+- `bun --cwd packages/kitcn build` → 71 files, exit 0.
+- `diff -qr packages/kitcn/skills/kitcn .agents/skills/kitcn` → empty.
+- `bun check` → every lint, typecheck, test, CLI, fixture, verify, and runtime
+  lane green end to end.
+- `.agents/skills/autoreview/scripts/autoreview --mode local` → exit 0,
+  `autoreview clean`, `overall: patch is correct (0.99)`.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -495,9 +508,11 @@ Source-listed case matrix:
 | `kitcn dev` | "fails with the same abort and likewise repairs nothing" | `dev` runs codegen with `scope: 'all'` (`commands/dev.ts:474`, `:1234`), the exact path fixed | Aborted | Repairs | Shared code path | fixed |
 | Circular hint text | "the error names something that actually unblocks the user" | `orm/capabilities.ts` hint strings | "rerun `kitcn codegen`" | Names a step that works from the generated file | Source | fixed |
 | `--scope orm\|auth` lookup clobber | Not reported; found while verifying | `codegen.test.ts` → `generateMeta keeps the procedure name lookup across a scoped run` | Lookup silently reset to `{}` | Byte-identical across scoped runs | Test passes | fixed |
+| First scoped upgrade | Review finding | `codegen.test.ts` → `generateMeta migrates an inline procedure lookup during a first scoped run` | New leaf initialized to `{}` before old inline data is replaced | Kitcn-emitted lookup migrates before replacement | RED/GREEN passes | fixed |
 | Schema load failure downgrade | Not reported; found while verifying | `codegen.test.ts` → `generateMeta fails instead of downgrading generated output when the schema cannot load` | Silently emits non-ORM `server.ts`, deletes `aggregate.ts` | Throws; both files untouched | Test passes | fixed |
+| Schema module `createEnv` | Review finding | `codegen.test.ts` → `generateMeta enables the createEnv fallback while loading schema metadata` | Required Convex-only secret aborts scoped codegen | Parser shim uses the codegen fallback | RED/GREEN passes | fixed |
 | Abort leaves importable tree | Not reported; self-caught risk of this fix | `codegen.test.ts` → `generateMeta leaves generated/server.ts importable after a fatal parse failure` | N/A (new risk) | Leaf survives whenever `server.ts` does | Test passes | fixed |
-| Fresh bootstrap (no `convex/_generated`) | Not reported; regression risk measured in both A and B as stated | `fixtures:sync` runs a real `kitcn init` for all 8 templates | Worked via placeholder | Still works via placeholder | `fixtures:check` green | no regression |
+| Fresh bootstrap with tracked stale server | Review finding | `codegen.test.ts` → `generateMeta replaces a stale generated server during cold bootstrap` | Parse loop evaluates stale server and aborts | Placeholder owns parse window; final server and lookup emit | RED/GREEN passes | fixed |
 
 High-risk note:
 - Realistic failure mode: an app whose `package.json` sets `"sideEffects": false`
@@ -510,7 +525,7 @@ High-risk note:
   Mitigated by making `resolveSchemaMetadataForCodegen` fail closed;
   `hasMigrationsManifest` is a plain `existsSync`, and
   `resolveHasAggregateIndexes` fails toward over-registering, which is safe.
-- Proof plan: exercised by 4 new tests, the full CLI suite, all 8 fixture
+- Proof plan: exercised by 7 new tests, the full CLI suite, all 8 fixture
   scaffolds regenerated and typechecked, and `example/` + root `convex/`
   regenerated with the real CLI.
 - Why the boundary is right: codegen owns `generated/server.ts`. The only reason
@@ -530,9 +545,8 @@ Final handoff contract:
 - Outcome: `kitcn codegen` and `kitcn dev` now repair a stale
   `generated/server.ts` instead of aborting on it, and two adjacent silent
   data-loss paths are closed.
-- Caveat: `bun check` also surfaces a pre-existing flaky fast-check property
-  test in `aggregate-core/btree.vitest.ts`, reproduced on clean `HEAD` and
-  unrelated to this change.
+- Caveat: scoped migration recognizes the literal emitted by kitcn; generated
+  files remain codegen-owned and are never a manual storage surface.
 - Design:
   - Chosen boundary: split the one parse-derived input out of
     `generated/server.ts` so codegen can write that file before it evaluates
@@ -572,26 +586,21 @@ Timeline:
 - Regenerated example, root convex, and all 8 fixtures; docs and skill synced.
 - Verified, autoreviewed clean, committed.
 - Closeout merged current main, repaired the generated skill mirror, reran
-  agent-native/deslop/autoreview/full checks, and left merge paused only on npm
-  release authentication.
+  agent-native/deslop/autoreview/full checks, then repaired four later review
+  findings with three RED/GREEN regressions.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete; merge paused on npm release authentication |
-| Where am I going? | Push current-main merge and mirror receipts, then merge after `0.25.3` publishes |
+| Where am I? | Current main integrated; all review findings repaired and local gates green |
+| Where am I going? | Push exact head, resolve threads, wait CI, merge and release |
 | What is the goal? | Make `kitcn codegen` regenerate a stale `generated/server.ts` instead of aborting on it |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
 
 Open risks:
-- The bootstrap placeholder still owns the pre-`convex codegen` window, so a
-  stale `server.ts` in a project that has never run `convex codegen` is replaced
-  by the placeholder rather than the real file. That path already self-heals; it
-  is only noted because the full B' design would have removed the placeholder
-  entirely.
-- `aggregate-core/btree.ts:858` has a latent bug that fast-check finds
-  intermittently. Pre-existing and unrelated; worth its own issue.
+- Exact-head GitHub CI, merge, package publication, and artifact read-back are
+  still required before the batch can advance to PR #373.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless

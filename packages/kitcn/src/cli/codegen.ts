@@ -39,6 +39,12 @@ const TS_EXTENSION_RE = /\.ts$/;
 const DEFAULT_EXPORT_RE = /\bexport\s+default\b/;
 const MISSING_KITCN_IMPORT_RE =
   /Cannot find (?:module|package) ['"]kitcn(?:\/[^'"]+)?['"]/;
+const LEGACY_PROCEDURE_LOOKUP_START_RE =
+  /\bregisterProcedureNameLookup\s*\(\s*(\{)/;
+const LEGACY_PROCEDURE_FILE_RE =
+  /("(?:\\.|[^"\\])*")\s*:\s*\[([\s\S]*?)\]\s*,?/g;
+const LEGACY_PROCEDURE_ENTRY_RE =
+  /\{\s*column:\s*(\d+)\s*,\s*line:\s*(\d+)\s*,\s*name:\s*("(?:\\.|[^"\\])*")\s*\}/g;
 const RUNTIME_CALLER_RESERVED_EXPORTS = new Set(['actions', 'schedule']);
 const DEFAULT_TRIM_SEGMENTS = ['plugins', 'generated'] as const;
 
@@ -294,6 +300,99 @@ function emitProcedureNameLookupLiteral(lookup: ProcedureNameLookup): string {
     .join('\n');
 
   return `{\n${body}\n}`;
+}
+
+function extractObjectLiteral(
+  source: string,
+  startIndex: number
+): string | null {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function readLegacyProcedureNameLookup(
+  serverOutputFile: string
+): ProcedureNameLookup | undefined {
+  if (!fs.existsSync(serverOutputFile)) {
+    return;
+  }
+  const source = fs.readFileSync(serverOutputFile, 'utf8');
+  const startMatch = LEGACY_PROCEDURE_LOOKUP_START_RE.exec(source);
+  if (!startMatch || startMatch.index === undefined) {
+    return;
+  }
+  const objectStart = startMatch.index + startMatch[0].lastIndexOf('{');
+  const literal = extractObjectLiteral(source, objectStart);
+  if (!literal) {
+    return;
+  }
+  if (literal.trim() === '{}') {
+    return {};
+  }
+
+  const lookup: ProcedureNameLookup = {};
+  for (const fileMatch of literal.matchAll(LEGACY_PROCEDURE_FILE_RE)) {
+    const fileLiteral = fileMatch[1];
+    const entriesLiteral = fileMatch[2];
+    if (!fileLiteral || entriesLiteral === undefined) {
+      return;
+    }
+    const file = JSON.parse(fileLiteral) as unknown;
+    if (typeof file !== 'string') {
+      return;
+    }
+    const entries: ProcedureNameEntry[] = [];
+    for (const entryMatch of entriesLiteral.matchAll(
+      LEGACY_PROCEDURE_ENTRY_RE
+    )) {
+      const nameLiteral = entryMatch[3];
+      if (!nameLiteral) {
+        return;
+      }
+      const name = JSON.parse(nameLiteral) as unknown;
+      if (typeof name !== 'string') {
+        return;
+      }
+      entries.push({
+        column: Number(entryMatch[1]),
+        line: Number(entryMatch[2]),
+        name,
+      });
+    }
+    if (entries.length === 0) {
+      return;
+    }
+    lookup[file] = entries;
+  }
+
+  return Object.keys(lookup).length > 0 ? lookup : undefined;
 }
 
 function formatKey(key: string): string {
@@ -735,11 +834,21 @@ function writeFileIfChanged(filePath: string, content: string) {
   return true;
 }
 
+type GeneratedSupportPlaceholderState = {
+  createdFiles: string[];
+  replacedFiles: Array<{ content: string; filePath: string }>;
+};
+
 function ensureGeneratedSupportPlaceholders(
   functionsDir: string,
-  options?: { includeAuth?: boolean }
-): string[] {
+  options?: {
+    includeAuth?: boolean;
+    procedureNameLookup?: ProcedureNameLookup;
+    replaceServer?: boolean;
+  }
+): GeneratedSupportPlaceholderState {
   const createdPlaceholderFiles: string[] = [];
+  const replacedFiles: GeneratedSupportPlaceholderState['replacedFiles'] = [];
   const serverOutputFile = getGeneratedServerOutputFile(functionsDir);
   const authOutputFile = getGeneratedAuthOutputFile(functionsDir);
   const migrationsHelperOutputFile =
@@ -756,6 +865,16 @@ function ensureGeneratedSupportPlaceholders(
       emitGeneratedServerPlaceholderFile(functionsDir)
     );
     createdPlaceholderFiles.push(serverOutputFile);
+  } else if (options?.replaceServer) {
+    const content = fs.readFileSync(serverOutputFile, 'utf8');
+    if (
+      writeFileIfChanged(
+        serverOutputFile,
+        emitGeneratedServerPlaceholderFile(functionsDir)
+      )
+    ) {
+      replacedFiles.push({ content, filePath: serverOutputFile });
+    }
   }
 
   // `server.ts` imports this unconditionally, including in scoped runs that
@@ -766,7 +885,7 @@ function ensureGeneratedSupportPlaceholders(
   if (!fs.existsSync(procedureNamesOutputFile)) {
     writeFileIfChanged(
       procedureNamesOutputFile,
-      emitGeneratedProcedureNamesFile({})
+      emitGeneratedProcedureNamesFile(options?.procedureNameLookup ?? {})
     );
   }
 
@@ -783,7 +902,26 @@ function ensureGeneratedSupportPlaceholders(
     createdPlaceholderFiles.push(migrationsHelperOutputFile);
   }
 
-  return createdPlaceholderFiles;
+  return { createdFiles: createdPlaceholderFiles, replacedFiles };
+}
+
+async function withCodegenParseSentinel<T>(
+  callback: () => Promise<T>
+): Promise<T> {
+  const globals = globalThis as Record<string, unknown>;
+  const hadSentinel = Object.hasOwn(globals, '__KITCN_CODEGEN__');
+  const previousSentinel = globals.__KITCN_CODEGEN__;
+  globals.__KITCN_CODEGEN__ = true;
+  try {
+    return await callback();
+  } finally {
+    if (hadSentinel) {
+      globals.__KITCN_CODEGEN__ = previousSentinel;
+    } else {
+      // biome-ignore lint/performance/noDelete: globalThis property, not a plain object
+      delete globals.__KITCN_CODEGEN__;
+    }
+  }
 }
 
 function emitGeneratedRuntimePlaceholderFile(exportNames: {
@@ -2107,7 +2245,10 @@ export async function generateMeta(
   const procedureNameLookup: ProcedureNameLookup = {};
   const fatalParseFailures: Array<{ file: string; error: unknown }> = [];
   let createdRuntimePlaceholders: string[] = [];
-  let createdSupportPlaceholders: string[] = [];
+  let supportPlaceholderState: GeneratedSupportPlaceholderState = {
+    createdFiles: [],
+    replacedFiles: [],
+  };
   const runtimeFilesPreservedFromParseFailures = new Set<string>();
   let totalFunctions = 0;
   const authFilePath = path.join(functionsDir, 'auth.ts');
@@ -2119,10 +2260,8 @@ export async function generateMeta(
   let sharedJitiInstance: ProjectJiti | undefined;
   const getSharedJitiInstance = () =>
     (sharedJitiInstance ??= createProjectJiti());
-  const schemaMetadata = await resolveSchemaMetadataForCodegen(
-    functionsDir,
-    debug,
-    getSharedJitiInstance
+  const schemaMetadata = await withCodegenParseSentinel(() =>
+    resolveSchemaMetadataForCodegen(functionsDir, debug, getSharedJitiInstance)
   );
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
@@ -2153,12 +2292,17 @@ export async function generateMeta(
   }
   const hasOrmSchema = hasOrmSchemaMetadata;
 
-  createdSupportPlaceholders = ensureGeneratedSupportPlaceholders(
-    functionsDir,
-    {
-      includeAuth: generateAuth,
-    }
-  );
+  const convexGeneratedServerFile = getConvexGeneratedServerFile(functionsDir);
+  const procedureNameLookupBeforeUpgrade = fs.existsSync(
+    procedureNamesOutputFile
+  )
+    ? undefined
+    : readLegacyProcedureNameLookup(serverOutputFile);
+  supportPlaceholderState = ensureGeneratedSupportPlaceholders(functionsDir, {
+    includeAuth: generateAuth,
+    procedureNameLookup: procedureNameLookupBeforeUpgrade,
+    replaceServer: convexGeneratedServerFile === undefined,
+  });
 
   const emitServerFile = () =>
     writeFileIfChanged(
@@ -2181,7 +2325,7 @@ export async function generateMeta(
   // It value-imports Convex's own `_generated` module, which `convex codegen`
   // has not written yet on a first run, so the bootstrap placeholder keeps
   // owning that window.
-  if (getConvexGeneratedServerFile(functionsDir)) {
+  if (convexGeneratedServerFile) {
     emitServerFile();
   }
 
@@ -2312,8 +2456,15 @@ export async function generateMeta(
     for (const createdRuntimePlaceholder of createdRuntimePlaceholders) {
       fs.rmSync(createdRuntimePlaceholder, { force: true });
     }
-    for (const createdSupportPlaceholder of createdSupportPlaceholders) {
+    for (const createdSupportPlaceholder of supportPlaceholderState.createdFiles) {
       fs.rmSync(createdSupportPlaceholder, { force: true });
+    }
+    for (const replacedSupportFile of supportPlaceholderState.replacedFiles) {
+      fs.writeFileSync(
+        replacedSupportFile.filePath,
+        replacedSupportFile.content,
+        'utf8'
+      );
     }
 
     const failureSummary = fatalParseFailures

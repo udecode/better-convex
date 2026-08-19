@@ -180,10 +180,9 @@ Verification evidence:
 - PR #371 merged as `80a84414`; release PR #375 merged as `cb04592e`.
   Both packages report `0.25.4` with gitHead `cb04592e`; tags, GitHub release,
   release skill check `32237989925`, and post-release CI `32237839273` are green.
-- PR #372: accepted stale mirror P1; source-owned sync plus install produce exact
-  package/`.agents` parity. Prior codegen 69/69, package build, agent-native
-  review, deslop, autoreview 0.98, and full `bun check` pass. Four newer review
-  findings remain under source-backed triage after integrating current `main`.
+- PR #372: accepted stale mirror P1 plus four later findings. Current `main` is
+  integrated; three RED/GREEN regressions pass in codegen 72/72; package build,
+  exact skill parity, deslop, autoreview 0.99, and full `bun check` are green.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -203,14 +202,14 @@ Timeline:
   `docs/plans/367-in-notin-variadic-filter-depth.md`.
 - 2026-08-19 PR #371 merged and released as `0.25.4`; exact artifacts, release
   skills, and post-release CI read back green.
-- 2026-08-19 PR #372 integrated current `main`; four live review findings are
-  being triaged before exact-head verification.
+- 2026-08-19 PR #372 integrated current `main`; all four later review findings
+  were accepted, repaired, and proven locally before exact-head verification.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | `0.25.4` published; repairing #372 review findings |
-| Where am I going? | Verify, merge, and release #372, then repeat for #373 |
+| Where am I? | `0.25.4` published; #372 local closeout is green |
+| Where am I going? | Push, resolve review, merge and release #372, then repeat for #373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |
