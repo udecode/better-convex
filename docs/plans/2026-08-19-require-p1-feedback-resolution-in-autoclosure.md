@@ -39,8 +39,9 @@ Completion threshold:
 - `.agents/rules/autoclosure.mdc` and the project autoclosure template require a
   full `resolve-pr-feedback` pass for compliant PRs, zero unresolved actionable
   P1 findings before delivery, deterministic persisted priority/rationale,
-  final-push proof replay for resolved/outdated P1s, explicit evidence for any
-  P2 deferral, and an exact-head external terminal receipt.
+  final-material-push proof replay for resolved/outdated P1s regardless of file
+  type, explicit evidence for any P2 deferral, and an exact-head external
+  terminal receipt.
 - Generated `.agents/skills/autoclosure/SKILL.md` matches the source rule; agent
   workflow validation, `bun check`, agent-native review, autoreview, dedicated
   task-style PR creation, and immutable-head task-evidence read-back all pass.
@@ -279,6 +280,9 @@ Findings:
 - P1-width autoreview found a terminal receipt push/fetch loop. The receipt now
   lives as an exact-head PR comment outside the branch and is read back without
   a receipt-only push.
+- P1-width autoreview found that "code-changing push" excluded material
+  Markdown workflow changes. Proof replay now keys off every material branch
+  push regardless of file type.
 
 Decisions and tradeoffs:
 - Make full `resolve-pr-feedback` mandatory for compliant PRs, then encode P1 as
@@ -304,9 +308,13 @@ Review fixes:
 - P1 priority ambiguity: accepted; added P0-P3 consequence rubric, fail-closed
   P1 ambiguity rule, and persisted priority/rationale ledger column.
 - P1 resolved-finding regression: accepted; every P1 proof must rerun after the
-  final code-changing push, even when the thread is resolved/outdated.
+  final material branch push regardless of file type, even when the thread is
+  resolved/outdated.
 - P1 terminal receipt loop: accepted; freeze/push versioned state first, then
   post/read back an exact-head external PR receipt with no receipt-only push.
+- P1 narrow push trigger: accepted; replaced code-only wording with a material
+  branch definition covering source, rules, skills, templates, config, plans,
+  docs, tests, generated files, and code that affect behavior or proof.
 - P2 author reply filtering: explicitly deferred by user at
   https://github.com/udecode/kitcn/pull/377#discussion_r3812203164.
 
@@ -315,6 +323,7 @@ Error attempts:
 |------------------------|-------|---------------------|------------|
 | `resolve-pr-feedback` template missing | 1 | Add the project-owned template required by the installed workflow, then rerun the exact helper | Template and PR #377 ledger created successfully |
 | Terminal read-back receipt creates another last push | 1 | Move terminal receipt outside the branch and read it back from the PR | Exact-head external PR receipt rule added |
+| Final proof trigger excluded workflow Markdown | 1 | Define material branch changes regardless of file type | Source rule and reusable template now cover every behavior/proof-affecting file |
 
 Verification evidence:
 - `bun install` -> generated skill refreshed; no dependency change.
@@ -336,7 +345,7 @@ Source-listed case matrix:
 | explicit P2 defer | user may ignore P2 | rule/template source audit | no priority policy | P2 may remain only with explicit deferral evidence | exact URL + user scope required | pass |
 | post-fix read-back | delivery needs fresh review state | rule/template source audit | no feedback re-fetch | re-fetch proves P1 count zero | final read-back gate + stop condition | pass |
 | unlabeled priority | every actionable item needs a deterministic block/defer decision | rule/template/ledger audit | raw helper output has no derived priority | explicit label or consequence rubric; ambiguity fails closed as P1 | persisted priority/rationale rule and ledger column | pass |
-| resolved P1 regression | resolved threads disappear from helper output | rule/template audit | later edits could regress a resolved fix | replay every P1 proof after final code-changing push | proof-replay gate covers resolved/outdated items | pass |
+| resolved P1 regression | resolved threads disappear from helper output | rule/template audit | later edits could regress a resolved fix | replay every P1 proof after final material branch push, regardless of file type | proof-replay gate covers resolved/outdated items | pass |
 | terminal receipt cycle | recording read-back in branch creates another last push | sequence/source audit | fetch -> plan edit -> push loops | exact-head PR receipt outside branch; no receipt-only push | terminal external receipt gate | pass |
 
 Final handoff contract:

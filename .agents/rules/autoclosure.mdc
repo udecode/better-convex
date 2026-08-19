@@ -100,10 +100,12 @@ checks do not prove that live GitHub feedback is closed.
 4. P2-or-lower feedback may remain only when the user explicitly deferred that
    priority. Record each deferred URL and the user's scope decision in the
    plan; never silently downgrade or ignore feedback.
-5. After the final code-changing push, rerun the recorded proof for every
-   P1-or-higher ledger item, including resolved or outdated threads. A resolved
-   thread disappearing from `get-pr-comments` does not prove its fix survived
-   later deslop, review, lint, or repair edits.
+5. After the final material branch push, rerun the recorded proof for every
+   P1-or-higher ledger item, including resolved or outdated threads. Material
+   means any source, rule, skill, template, config, plan, docs, test, generated,
+   or code change that can affect the reviewed behavior or its required proof.
+   A resolved thread disappearing from `get-pr-comments` does not prove its fix
+   survived later deslop, review, lint, or repair edits.
 6. After the last feedback-driven push, reply, or resolution, re-fetch feedback
    with the installed `get-pr-comments` helper. Record counts by source type and
    priority, plus the exact deferred items.
@@ -159,8 +161,9 @@ Mark N/A only with a concrete reason.
    the prior move failed.
 12. Finish every source, template, and versioned plan update; run the goal-plan
     checker; then complete the authorized final commit/push/PR update path.
-13. Rerun every recorded P1-or-higher proof after the final code-changing push,
-    including items whose threads are already resolved or outdated.
+13. Rerun every recorded P1-or-higher proof after the final material branch
+    push, regardless of file type, including items whose threads are already
+    resolved or outdated.
 14. Re-fetch live feedback after the last push/reply/resolution. If any
     actionable P1-or-higher finding remains, return to step 3.
 15. Post a terminal PR comment containing the exact head OID, P1 proof replay
@@ -185,7 +188,7 @@ Clean means:
 - `resolve-pr-feedback` ran against the exact PR and the final live read-back
   shows zero unresolved actionable P1-or-higher findings;
 - every actionable item has a persisted priority and rationale, and every
-  P1-or-higher proof was rerun after the final code-changing push, including
+  P1-or-higher proof was rerun after the final material branch push, including
   resolved/outdated threads;
 - the exact-head terminal proof/read-back receipt is posted and verified on the
   PR without a receipt-only branch push;
