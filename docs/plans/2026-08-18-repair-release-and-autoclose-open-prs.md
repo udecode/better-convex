@@ -82,23 +82,23 @@ Start Gates:
 | Agent-facing action surface identified | yes | Per-PR task evidence, required close comment, GitHub state/read-back |
 | Source rule versus generated mirror boundary identified | yes | `.agents/rules/**` remains source; no workflow edit assumed before diagnosis |
 | Installed-skill lock versus local-rule owner identified | no | No installed-skill change in current scope |
-| `agent-native-reviewer` loaded or waiver recorded | pending | pending |
+| `agent-native-reviewer` loaded or waiver recorded | yes | Loaded for PR #372 generated skill mirror repair; capability map passes |
 
 Closure matrix:
 | Lane | Applies | Owner/proof | Status |
 | --- | --- | --- | --- |
 | per-PR task ownership | yes | exact PR + four linked dedicated task plans | complete |
 | noncompliant close | no | all four passed immutable-head audit | N/A |
-| source behavior | yes | per-PR focused and full proof | #370 green; #371-#373 pending |
-| package/API/build | yes | per-PR build/types | #370 green; #371-#373 pending |
-| generated output | conditional | source-owned generation only | #370 fixture drift regenerated; remaining PRs pending |
-| fixtures/scenarios | yes | sync/check/runtime proof | #370 all eight + runtime green; remaining PRs pending |
-| docs/package skill | pending | pending | pending |
-| changeset | pending | pending | pending |
-| agent workflow | pending | pending | pending |
+| source behavior | yes | per-PR focused and full proof | #370/#371 green; #372 focused green; #373 pending |
+| package/API/build | yes | per-PR build/types | #370/#371 green; #372 build green; #373 pending |
+| generated output | yes | source-owned generation only | #370 fixtures; #372 codegen + kitcn mirror; #373 pending |
+| fixtures/scenarios | yes | sync/check/runtime proof | #370/#371 full green; #372 branch fixtures present, final check pending |
+| docs/package skill | yes | package source + mirror parity | #370 synced; #372 mirror repaired; #373 pending |
+| changeset | yes | per-PR release draft | #370 consumed into 0.25.3; #371/#372 present; #373 pending |
+| agent workflow | yes | agent-native capability map + mirror audit | #372 PASS |
 | cleanup/review | yes | per-PR deslop/autoreview | pending |
 | repository check | yes | `bun check` | pending |
-| GitHub delivery | yes | exact-head merge/release/read-back | #370 merged; `0.25.3` blocked on expired npm token; #371 ready; #372-#373 pending |
+| GitHub delivery | yes | exact-head merge/release/read-back | #370/#371 merged and released as `0.25.3`/`0.25.4`; #372-#373 pending |
 
 Work Checklist:
 - [ ] Every PR has its own `task` invocation and dedicated task plan; a batch
@@ -177,6 +177,12 @@ Verification evidence:
   findings were accepted: ticket-prefixed plan, truthful body receipt, concise
   changeset, and fail-closed empty logical deserialization. RED/GREEN, 38/38
   focused, build, autoreview 0.99, and final `bun check` pass at `d83053e0`.
+- PR #371 merged as `80a84414`; release PR #375 merged as `cb04592e`.
+  Both packages report `0.25.4` with gitHead `cb04592e`; tags, GitHub release,
+  release skill check `32237989925`, and post-release CI `32237839273` are green.
+- PR #372: accepted stale mirror P1 plus four later findings. Current `main` is
+  integrated; three RED/GREEN regressions pass in codegen 72/72; package build,
+  exact skill parity, deslop, autoreview 0.99, and full `bun check` are green.
 
 Timeline:
 - 2026-08-18T22:28:46.540Z Autoclosure plan created.
@@ -194,12 +200,16 @@ Timeline:
   read back `0.25.3` across npm, package tags, GitHub release, CI, and skills.
 - 2026-08-19 PR #371 review repairs pushed at `d83053e0`; body now points to
   `docs/plans/367-in-notin-variadic-filter-depth.md`.
+- 2026-08-19 PR #371 merged and released as `0.25.4`; exact artifacts, release
+  skills, and post-release CI read back green.
+- 2026-08-19 PR #372 integrated current `main`; all four later review findings
+  were accepted, repaired, and proven locally before exact-head verification.
 
 Reboot status:
 | Question | Answer |
 | --- | --- |
-| Where am I? | `0.25.3` published; closing #371 review and exact-head CI |
-| Where am I going? | Merge/release #371, then rebase and close #372, #373 |
+| Where am I? | `0.25.4` published; #372 local closeout is green |
+| Where am I going? | Push, resolve review, merge and release #372, then repeat for #373 |
 | What is the goal? | Repair release residue and close every initially open PR honestly |
 | What have I learned? | `0.25.2` is aligned; four open PRs all carry valid exact task evidence |
 | What have I done? | Removed stale revert plan, created goal/plan, fetched immutable heads, verified compliance, chose order |

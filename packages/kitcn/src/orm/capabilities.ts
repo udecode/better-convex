@@ -94,8 +94,11 @@ export const resolveOrmCapabilities = (
   return resolved;
 };
 
+// This error is reachable from a stale `<functionsDir>/generated/server.ts`,
+// so the hint must not simply say "rerun kitcn codegen" — that is the command
+// the reader most likely just ran.
 const AGGREGATE_SETUP_HINT =
-  "Generated ORM: declare an aggregateIndex(...)/rankIndex(...) in your schema and rerun `kitcn codegen`, which registers the capability in <functionsDir>/generated/server.ts. Hand-written ORM: import { aggregateCapability } from 'kitcn/orm/aggregate-index' and pass createOrm({ schema, capabilities: [aggregateCapability()] }).";
+  "Generated ORM: `kitcn codegen` registers the capability in <functionsDir>/generated/server.ts from the aggregateIndex(...)/rankIndex(...) declarations in your schema — if you are seeing this from that generated file, delete it and run `kitcn codegen` again. Hand-written ORM: import { aggregateCapability } from 'kitcn/orm/aggregate-index' and pass createOrm({ schema, capabilities: [aggregateCapability()] }).";
 
 export const missingAggregateCapabilityError = (usage: string): Error =>
   new Error(
@@ -120,7 +123,7 @@ export const requireMigrationCapability = (
   const migrations = capabilities?.migrations;
   if (!migrations) {
     throw new Error(
-      `${usage} requires the migration capability. Generated ORM: add a migration under <functionsDir>/migrations and rerun \`kitcn codegen\`, which registers the capability in <functionsDir>/generated/server.ts. Hand-written ORM: import { migrationCapability } from 'kitcn/orm/migrations' and pass createOrm({ schema, capabilities: [migrationCapability()] }).`
+      `${usage} requires the migration capability. Generated ORM: \`kitcn codegen\` registers the capability in <functionsDir>/generated/server.ts once <functionsDir>/migrations/manifest.ts exists — if you are seeing this from that generated file, delete it and run \`kitcn codegen\` again. Hand-written ORM: import { migrationCapability } from 'kitcn/orm/migrations' and pass createOrm({ schema, capabilities: [migrationCapability()] }).`
     );
   }
   return migrations;

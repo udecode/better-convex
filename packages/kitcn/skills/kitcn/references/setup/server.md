@@ -218,6 +218,15 @@ This generates:
 - `convex/functions/generated/` directory
 - `convex/shared/api.ts`
 
+Everything under `convex/functions/generated/` is codegen-owned. Never edit it,
+and never hand-repair it. `convex/functions/generated/server.ts` is rewritten
+from the schema before codegen reads any app module.
+
+`convex/functions/generated/procedure-names.gen.ts` holds the procedure-name
+lookup. It is the only generated output that depends on scanning procedures, so
+only default-scope runs rebuild it; `kitcn codegen --scope auth|orm` preserves
+the recorded lookup.
+
 Agent command policy:
 
 1. Default to `bunx kitcn dev`.
