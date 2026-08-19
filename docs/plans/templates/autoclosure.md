@@ -43,6 +43,7 @@ Start Gates:
 | Active source/plan reconstructed | pending | pending |
 | Intended delta and exclusions recorded | pending | pending |
 | Closure matrix classified | pending | pending |
+| Live PR feedback target resolved | pending | exact PR for full `resolve-pr-feedback` mode |
 | GitHub delivery expectation recorded | pending | pending |
 | Active goal checked or created | pending | pending |
 
@@ -58,6 +59,7 @@ Closure matrix:
 | docs/package skill | pending | pending | pending |
 | changeset | pending | pending | pending |
 | agent workflow | pending | pending | pending |
+| live PR feedback | yes | `resolve-pr-feedback` + final P1 read-back | pending |
 | cleanup/review | pending | pending | pending |
 | repository check | yes | `bun check` | pending |
 | GitHub delivery | pending | pending | pending |
@@ -72,6 +74,13 @@ Work Checklist:
 - [ ] Each lane is proven or N/A with a concrete reason.
 - [ ] Generated output was changed through its owner and regenerated.
 - [ ] Package/docs/skill/fixture/scenario/changeset contracts are synchronized.
+- [ ] Full `resolve-pr-feedback` ran for the exact compliant PR; every
+      actionable P1-or-higher finding was fixed, proved, replied to, and
+      resolved or received the required top-level reply receipt.
+- [ ] Feedback was re-fetched after the last push/reply/resolution and shows
+      zero unresolved actionable P1-or-higher findings.
+- [ ] Any remaining P2-or-lower item has its exact URL plus the user's explicit
+      priority deferral recorded; no feedback was silently ignored.
 - [ ] Accepted cleanup and review findings are closed.
 - [ ] PR body and check state match the final evidence.
 - [ ] Residual blocker/waiver has exact evidence and next owner.
@@ -89,6 +98,8 @@ Completion Gates:
 | Targeted behavior proof | pending | Run smallest missing owning proof | pending |
 | Source/generated audit | pending | Prove correct source and regenerated mirrors | pending |
 | Package/docs/scenario closure | pending | Run every applicable local contract | pending |
+| Live PR feedback resolution | yes | Run full `resolve-pr-feedback` for the exact PR and close every actionable P1-or-higher finding | pending |
+| Final live feedback read-back | yes | Re-fetch after the last push/reply/resolution; require zero unresolved actionable P1-or-higher findings and record explicit P2-or-lower deferrals | pending |
 | Deslop | pending | Run bounded cleanup or N/A | pending |
 | Agent-native reviewer | pending | Run for workflow changes or N/A | pending |
 | Final lint | yes | Run `bun lint:fix` | pending |
