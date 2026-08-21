@@ -162,6 +162,7 @@ export const invitationTable = convexTable(
       t.organizationId,
       t.status
     ),
+    aggregateIndex('by_organization_status').on(t.organizationId, t.status),
     index('organizationId_status').on(t.organizationId, t.status),
     index('email_status').on(t.email, t.status),
     index('organizationId_email').on(t.organizationId, t.email),
