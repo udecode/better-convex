@@ -7,6 +7,10 @@ import {
   hasPotentialCodegenExports,
   isValidConvexFile,
 } from '../shared/meta-utils';
+import {
+  type CodegenFileCache,
+  createCodegenFileCache,
+} from './utils/codegen-file-cache.js';
 import { CRPC_BUILDER_STUB_SOURCE } from './utils/crpc-builder-stub.js';
 import { logger } from './utils/logger.js';
 import {
@@ -246,6 +250,7 @@ function findProcedureCallIndex(params: {
 
 function buildProcedureNameLookupEntries(params: {
   file: string;
+  fileCache: CodegenFileCache;
   filePath: string;
   moduleName: string;
   procedures: ProcedureMeta[];
@@ -254,7 +259,10 @@ function buildProcedureNameLookupEntries(params: {
     return [];
   }
 
-  const source = fs.readFileSync(params.filePath, 'utf8');
+  const source = params.fileCache.read(params.filePath);
+  if (source === null) {
+    return [];
+  }
 
   return params.procedures.flatMap((procedure) => {
     const callIndex = findProcedureCallIndex({
@@ -338,12 +346,13 @@ function extractObjectLiteral(
 }
 
 function readLegacyProcedureNameLookup(
+  fileCache: CodegenFileCache,
   serverOutputFile: string
 ): ProcedureNameLookup | undefined {
-  if (!fs.existsSync(serverOutputFile)) {
+  const source = fileCache.read(serverOutputFile);
+  if (source === null) {
     return;
   }
-  const source = fs.readFileSync(serverOutputFile, 'utf8');
   const startMatch = LEGACY_PROCEDURE_LOOKUP_START_RE.exec(source);
   if (!startMatch || startMatch.index === undefined) {
     return;
@@ -594,6 +603,7 @@ function getRuntimeApiTypesImportPath(
 }
 
 function moduleUsesOwnGeneratedRuntime(
+  fileCache: CodegenFileCache,
   functionsDir: string,
   moduleName: string
 ): boolean {
@@ -602,11 +612,11 @@ function moduleUsesOwnGeneratedRuntime(
   }
 
   const moduleFilePath = path.join(functionsDir, `${moduleName}.ts`);
-  if (!fs.existsSync(moduleFilePath)) {
+  const source = fileCache.read(moduleFilePath);
+  if (source === null) {
     return false;
   }
 
-  const source = fs.readFileSync(moduleFilePath, 'utf8');
   const runtimeImportPath = ensureRelativeImportPath(
     normalizeImportPath(
       path.relative(
@@ -822,24 +832,13 @@ export { defineMigration } from 'kitcn/orm';
 `;
 }
 
-function writeFileIfChanged(filePath: string, content: string) {
-  if (fs.existsSync(filePath)) {
-    const existingContent = fs.readFileSync(filePath, 'utf8');
-    if (existingContent === content) {
-      return false;
-    }
-  }
-
-  fs.writeFileSync(filePath, content);
-  return true;
-}
-
 type GeneratedSupportPlaceholderState = {
   createdFiles: string[];
   replacedFiles: Array<{ content: string; filePath: string }>;
 };
 
 function ensureGeneratedSupportPlaceholders(
+  fileCache: CodegenFileCache,
   functionsDir: string,
   options?: {
     includeAuth?: boolean;
@@ -859,22 +858,24 @@ function ensureGeneratedSupportPlaceholders(
   fs.mkdirSync(generatedDir, { recursive: true });
   const includeAuth = options?.includeAuth ?? true;
 
-  if (!fs.existsSync(serverOutputFile)) {
-    writeFileIfChanged(
+  const existingServerContent = fileCache.read(serverOutputFile);
+  if (existingServerContent === null) {
+    fileCache.write(
       serverOutputFile,
       emitGeneratedServerPlaceholderFile(functionsDir)
     );
     createdPlaceholderFiles.push(serverOutputFile);
-  } else if (options?.replaceServer) {
-    const content = fs.readFileSync(serverOutputFile, 'utf8');
-    if (
-      writeFileIfChanged(
-        serverOutputFile,
-        emitGeneratedServerPlaceholderFile(functionsDir)
-      )
-    ) {
-      replacedFiles.push({ content, filePath: serverOutputFile });
-    }
+  } else if (
+    options?.replaceServer &&
+    fileCache.writeIfChanged(
+      serverOutputFile,
+      emitGeneratedServerPlaceholderFile(functionsDir)
+    )
+  ) {
+    replacedFiles.push({
+      content: existingServerContent,
+      filePath: serverOutputFile,
+    });
   }
 
   // `server.ts` imports this unconditionally, including in scoped runs that
@@ -882,20 +883,20 @@ function ensureGeneratedSupportPlaceholders(
   // Deliberately not reported as a rollback candidate: an aborted run must not
   // delete a file the `server.ts` it leaves behind still imports, and an empty
   // data module is harmless on its own.
-  if (!fs.existsSync(procedureNamesOutputFile)) {
-    writeFileIfChanged(
+  if (fileCache.read(procedureNamesOutputFile) === null) {
+    fileCache.write(
       procedureNamesOutputFile,
       emitGeneratedProcedureNamesFile(options?.procedureNameLookup ?? {})
     );
   }
 
-  if (includeAuth && !fs.existsSync(authOutputFile)) {
-    writeFileIfChanged(authOutputFile, emitGeneratedAuthPlaceholderFile());
+  if (includeAuth && fileCache.read(authOutputFile) === null) {
+    fileCache.write(authOutputFile, emitGeneratedAuthPlaceholderFile());
     createdPlaceholderFiles.push(authOutputFile);
   }
 
-  if (!fs.existsSync(migrationsHelperOutputFile)) {
-    writeFileIfChanged(
+  if (fileCache.read(migrationsHelperOutputFile) === null) {
+    fileCache.write(
       migrationsHelperOutputFile,
       emitGeneratedMigrationsPlaceholderFile()
     );
@@ -944,6 +945,7 @@ export function ${handlerExportName}(_ctx: unknown) {
 }
 
 function ensureGeneratedRuntimePlaceholders(
+  fileCache: CodegenFileCache,
   functionsDir: string,
   moduleNames: string[],
   runtimeExportNames: ReadonlyMap<
@@ -960,14 +962,14 @@ function ensureGeneratedRuntimePlaceholders(
       functionsDir,
       moduleName
     );
-    if (fs.existsSync(runtimeOutputFile)) {
+    if (fileCache.read(runtimeOutputFile) !== null) {
       continue;
     }
     const exportNames =
       runtimeExportNames.get(moduleName) ??
       getModuleRuntimeExportNames(moduleName);
     fs.mkdirSync(path.dirname(runtimeOutputFile), { recursive: true });
-    writeFileIfChanged(
+    fileCache.write(
       runtimeOutputFile,
       emitGeneratedRuntimePlaceholderFile(exportNames)
     );
@@ -1072,11 +1074,11 @@ function resolveHasAggregateIndexes(
   }
 }
 
-function cleanupGeneratedPluginArtifacts(functionsDir: string): void {
-  fs.rmSync(path.join(functionsDir, GENERATED_DIR, 'plugins'), {
-    recursive: true,
-    force: true,
-  });
+function cleanupGeneratedPluginArtifacts(
+  fileCache: CodegenFileCache,
+  functionsDir: string
+): void {
+  fileCache.removeDirectory(path.join(functionsDir, GENERATED_DIR, 'plugins'));
 }
 
 type GeneratedAuthContract = {
@@ -1566,6 +1568,7 @@ function renderRuntimeApiTypesImport(
 }
 
 function emitGeneratedModuleRuntimeFile(
+  fileCache: CodegenFileCache,
   outputFile: string,
   functionsDir: string,
   moduleName: string,
@@ -1582,6 +1585,7 @@ function emitGeneratedModuleRuntimeFile(
     runtimeExportNames?.get(moduleName) ??
     getModuleRuntimeExportNames(moduleName);
   const useGeneratedApiTypes = moduleUsesOwnGeneratedRuntime(
+    fileCache,
     functionsDir,
     moduleName
   );
@@ -1722,12 +1726,16 @@ ${handlerExport}
 `;
 }
 
-function hasNamedExport(filePath: string, exportName: string): boolean {
-  if (!fs.existsSync(filePath)) {
+function hasNamedExport(
+  fileCache: CodegenFileCache,
+  filePath: string,
+  exportName: string
+): boolean {
+  const source = fileCache.read(filePath);
+  if (source === null) {
     return false;
   }
 
-  const source = fs.readFileSync(filePath, 'utf-8');
   const directPattern = new RegExp(
     `\\bexport\\s+(?:const|let|var|function|class|type|interface)\\s+${exportName}\\b`
   );
@@ -1747,12 +1755,12 @@ function hasNamedExport(filePath: string, exportName: string): boolean {
   return false;
 }
 
-function hasDefaultExport(filePath: string): boolean {
-  if (!fs.existsSync(filePath)) {
-    return false;
-  }
-  const source = fs.readFileSync(filePath, 'utf-8');
-  return DEFAULT_EXPORT_RE.test(source);
+function hasDefaultExport(
+  fileCache: CodegenFileCache,
+  filePath: string
+): boolean {
+  const source = fileCache.read(filePath);
+  return source !== null && DEFAULT_EXPORT_RE.test(source);
 }
 
 function createApiTree(meta: Meta): ApiTreeNode {
@@ -2074,6 +2082,7 @@ function isCRPCHttpRouter(value: unknown): value is {
  * Import a module using jiti and extract cRPC metadata from exports.
  */
 async function parseModuleRuntime(
+  fileCache: CodegenFileCache,
   filePath: string,
   jitiInstance: ProjectJiti,
   serverShimSpecifier: string
@@ -2082,7 +2091,10 @@ async function parseModuleRuntime(
   httpRoutes: HttpRoutes;
   procedures: ProcedureMeta[];
 }> {
-  const source = fs.readFileSync(filePath, 'utf8');
+  const source = fileCache.read(filePath);
+  if (source === null) {
+    throw new Error(`kitcn codegen could not read ${filePath}`);
+  }
   // Bun can resolve a bare `kitcn/server` back through its own install cache,
   // so the specifier is rewritten to the project parser shim before the module
   // is evaluated. See docs/solutions/integration-issues/
@@ -2251,19 +2263,30 @@ export async function generateMeta(
   };
   const runtimeFilesPreservedFromParseFailures = new Set<string>();
   let totalFunctions = 0;
+  // One cache per run, never per process: a watch cycle re-runs codegen exactly
+  // because the filesystem changed, so each run must start from disk.
+  const fileCache = createCodegenFileCache();
   const authFilePath = path.join(functionsDir, 'auth.ts');
-  const hasAuthFile = fs.existsSync(authFilePath);
-  const hasAuthDefaultExport = hasDefaultExport(authFilePath);
+  const hasAuthFile = fileCache.read(authFilePath) !== null;
+  const hasAuthDefaultExport = hasDefaultExport(fileCache, authFilePath);
   const authContract = { hasAuthFile, hasAuthDefaultExport };
   // One jiti instance per run: the alias map, the tsconfig parse and the parse
   // shim I/O are rebuilt on every construction.
   let sharedJitiInstance: ProjectJiti | undefined;
   const getSharedJitiInstance = () =>
     (sharedJitiInstance ??= createProjectJiti());
-  const schemaRuntimeModules = listFilesRecursive(functionsDir)
-    .filter((file) => file.endsWith('.ts') && isValidConvexFile(file))
-    .map((file) => file.replace(TS_EXTENSION_RE, ''));
+  // One walk per run. Everything codegen writes between here and the parse loop
+  // lands in `generated/`, which `isValidConvexFile` rejects, so re-walking
+  // could only ever return the same modules — and taking one snapshot is what
+  // guarantees the runtime placeholders and the parse candidates agree.
+  const convexModuleFiles = listFilesRecursive(functionsDir).filter(
+    (file) => file.endsWith('.ts') && isValidConvexFile(file)
+  );
+  const schemaRuntimeModules = convexModuleFiles.map((file) =>
+    file.replace(TS_EXTENSION_RE, '')
+  );
   const schemaRuntimePlaceholders = ensureGeneratedRuntimePlaceholders(
+    fileCache,
     functionsDir,
     schemaRuntimeModules,
     resolveModuleRuntimeExportNames(
@@ -2282,21 +2305,24 @@ export async function generateMeta(
       );
     } finally {
       for (const schemaRuntimePlaceholder of schemaRuntimePlaceholders) {
-        fs.rmSync(schemaRuntimePlaceholder, { force: true });
+        fileCache.remove(schemaRuntimePlaceholder);
       }
     }
   })();
   const hasOrmSchemaMetadata = schemaMetadata.hasOrmSchema;
   const hasRelationsMetadata = schemaMetadata.hasRelations;
   const hasRelationsExport = hasNamedExport(
+    fileCache,
     path.join(functionsDir, 'schema.ts'),
     'relations'
   );
   const hasSchemaTriggersExport = hasNamedExport(
+    fileCache,
     path.join(functionsDir, 'schema.ts'),
     'triggers'
   );
   const hasDedicatedTriggersExport = hasNamedExport(
+    fileCache,
     path.join(functionsDir, 'triggers.ts'),
     'triggers'
   );
@@ -2316,19 +2342,22 @@ export async function generateMeta(
   const hasOrmSchema = hasOrmSchemaMetadata;
 
   const convexGeneratedServerFile = getConvexGeneratedServerFile(functionsDir);
-  const procedureNameLookupBeforeUpgrade = fs.existsSync(
-    procedureNamesOutputFile
-  )
-    ? undefined
-    : readLegacyProcedureNameLookup(serverOutputFile);
-  supportPlaceholderState = ensureGeneratedSupportPlaceholders(functionsDir, {
-    includeAuth: generateAuth,
-    procedureNameLookup: procedureNameLookupBeforeUpgrade,
-    replaceServer: convexGeneratedServerFile === undefined,
-  });
+  const procedureNameLookupBeforeUpgrade =
+    fileCache.read(procedureNamesOutputFile) === null
+      ? readLegacyProcedureNameLookup(fileCache, serverOutputFile)
+      : undefined;
+  supportPlaceholderState = ensureGeneratedSupportPlaceholders(
+    fileCache,
+    functionsDir,
+    {
+      includeAuth: generateAuth,
+      procedureNameLookup: procedureNameLookupBeforeUpgrade,
+      replaceServer: convexGeneratedServerFile === undefined,
+    }
+  );
 
   const emitServerFile = () =>
-    writeFileIfChanged(
+    fileCache.writeIfChanged(
       serverOutputFile,
       emitGeneratedServerFile(
         serverOutputFile,
@@ -2365,12 +2394,11 @@ export async function generateMeta(
         getProjectServerParserShimPath()
       );
 
-      const files = listFilesRecursive(functionsDir).filter(
-        (file) => file.endsWith('.ts') && isValidConvexFile(file)
-      );
-      const parseCandidateFiles = files.filter((file) =>
+      // A module deleted between the walk and here reads as empty rather than
+      // aborting the run: watch mode re-runs on that deletion anyway.
+      const parseCandidateFiles = convexModuleFiles.filter((file) =>
         hasPotentialCodegenExports(
-          fs.readFileSync(path.join(functionsDir, file), 'utf8'),
+          fileCache.read(path.join(functionsDir, file)) ?? '',
           file
         )
       );
@@ -2379,7 +2407,7 @@ export async function generateMeta(
       );
       const runtimePlaceholderModules = [
         ...new Set([
-          ...files.map((file) => file.replace(TS_EXTENSION_RE, '')),
+          ...schemaRuntimeModules,
           ...(hasOrmSchema ? ['generated/server'] : []),
           ...(hasOrmSchema ? ['generated/aggregate'] : []),
           ...(generateAuth ? [generatedAuthModuleName] : []),
@@ -2390,6 +2418,7 @@ export async function generateMeta(
         normalizedTrimSegments
       );
       createdRuntimePlaceholders = ensureGeneratedRuntimePlaceholders(
+        fileCache,
         functionsDir,
         runtimePlaceholderModules,
         placeholderRuntimeExportNames
@@ -2406,6 +2435,7 @@ export async function generateMeta(
             httpRoutes,
             procedures,
           } = await parseModuleRuntime(
+            fileCache,
             filePath,
             jitiInstance,
             serverShimSpecifier
@@ -2440,6 +2470,7 @@ export async function generateMeta(
 
           const procedureNameEntries = buildProcedureNameLookupEntries({
             file,
+            fileCache,
             filePath,
             moduleName,
             procedures,
@@ -2477,16 +2508,15 @@ export async function generateMeta(
 
   if (fatalParseFailures.length > 0) {
     for (const createdRuntimePlaceholder of createdRuntimePlaceholders) {
-      fs.rmSync(createdRuntimePlaceholder, { force: true });
+      fileCache.remove(createdRuntimePlaceholder);
     }
     for (const createdSupportPlaceholder of supportPlaceholderState.createdFiles) {
-      fs.rmSync(createdSupportPlaceholder, { force: true });
+      fileCache.remove(createdSupportPlaceholder);
     }
     for (const replacedSupportFile of supportPlaceholderState.replacedFiles) {
-      fs.writeFileSync(
+      fileCache.write(
         replacedSupportFile.filePath,
-        replacedSupportFile.content,
-        'utf8'
+        replacedSupportFile.content
       );
     }
 
@@ -2501,7 +2531,7 @@ export async function generateMeta(
     );
   }
 
-  cleanupGeneratedPluginArtifacts(functionsDir);
+  cleanupGeneratedPluginArtifacts(fileCache, functionsDir);
 
   if (generateApi) {
     // Dedupe HTTP routes: prefer nested paths (todos.get) over flat (get)
@@ -2526,10 +2556,11 @@ export async function generateMeta(
     const schemaImportPath = getSchemaImportPath(outputFile, functionsDir);
     const httpImportPath = getHttpImportPath(outputFile, functionsDir);
     const schemaFilePath = path.join(functionsDir, 'schema.ts');
-    const hasTablesExport = hasNamedExport(schemaFilePath, 'tables');
+    const hasTablesExport = hasNamedExport(fileCache, schemaFilePath, 'tables');
     const needsInferSelectModelImport = hasTablesExport;
     const needsInferInsertModelImport = hasTablesExport;
     const hasHttpRouterExport = hasNamedExport(
+      fileCache,
       path.join(functionsDir, 'http.ts'),
       'httpRouter'
     );
@@ -2610,9 +2641,9 @@ ${optionalTypeExports}
     if (!fs.existsSync(outputDirname)) {
       fs.mkdirSync(outputDirname, { recursive: true });
     }
-    writeFileIfChanged(outputFile, output);
+    fileCache.writeIfChanged(outputFile, output);
   } else {
-    fs.rmSync(outputFile, { force: true });
+    fileCache.remove(outputFile);
   }
 
   const generatedOutputDirname = path.dirname(serverOutputFile);
@@ -2626,31 +2657,31 @@ ${optionalTypeExports}
   // Scoped runs never populate the lookup, so rewriting it here would silently
   // blank every procedure name the last full run recorded.
   if (generateApi) {
-    writeFileIfChanged(
+    fileCache.writeIfChanged(
       procedureNamesOutputFile,
       emitGeneratedProcedureNamesFile(procedureNameLookup)
     );
   }
   if (hasOrmSchema) {
-    writeFileIfChanged(
+    fileCache.writeIfChanged(
       aggregateOutputFile,
       emitGeneratedAggregateFile(aggregateOutputFile, functionsDir)
     );
   } else {
-    fs.rmSync(aggregateOutputFile, { force: true });
+    fileCache.remove(aggregateOutputFile);
   }
-  fs.rmSync(ormOutputFile, { force: true });
-  fs.rmSync(crpcOutputFile, { force: true });
+  fileCache.remove(ormOutputFile);
+  fileCache.remove(crpcOutputFile);
 
   const migrationsOutput = emitGeneratedMigrationsFile(
     migrationsHelperOutputFile,
     functionsDir,
     hasRelationsMetadata
   );
-  writeFileIfChanged(migrationsHelperOutputFile, migrationsOutput);
-  fs.rmSync(legacyGeneratedMigrationsOutputFile, { force: true });
-  fs.rmSync(legacyGeneratedMigrationsRuntimeOutputFile, { force: true });
-  fs.rmSync(legacyGeneratedMigrationsUnderscoreOutputFile, { force: true });
+  fileCache.writeIfChanged(migrationsHelperOutputFile, migrationsOutput);
+  fileCache.remove(legacyGeneratedMigrationsOutputFile);
+  fileCache.remove(legacyGeneratedMigrationsRuntimeOutputFile);
+  fileCache.remove(legacyGeneratedMigrationsUnderscoreOutputFile);
 
   if (generateAuth) {
     const authOutput = emitGeneratedAuthFile(
@@ -2659,12 +2690,12 @@ ${optionalTypeExports}
       hasOrmSchema,
       authContract
     );
-    writeFileIfChanged(authOutputFile, authOutput);
+    fileCache.writeIfChanged(authOutputFile, authOutput);
   } else {
-    fs.rmSync(authOutputFile, { force: true });
+    fileCache.remove(authOutputFile);
   }
 
-  fs.rmSync(getLegacyGeneratedOutputFile(functionsDir), { force: true });
+  fileCache.remove(getLegacyGeneratedOutputFile(functionsDir));
 
   const mergedProcedureEntries = dedupeProcedureEntries([
     ...(hasOrmSchema
@@ -2713,6 +2744,7 @@ ${optionalTypeExports}
       moduleName
     );
     const runtimeOutput = emitGeneratedModuleRuntimeFile(
+      fileCache,
       runtimeOutputFile,
       functionsDir,
       moduleName,
@@ -2720,7 +2752,7 @@ ${optionalTypeExports}
       runtimeExportNames
     );
     fs.mkdirSync(path.dirname(runtimeOutputFile), { recursive: true });
-    writeFileIfChanged(runtimeOutputFile, runtimeOutput);
+    fileCache.writeIfChanged(runtimeOutputFile, runtimeOutput);
     runtimeOutputFiles.push(runtimeOutputFile);
   }
   const runtimeOutputFileSet = new Set(runtimeOutputFiles);
@@ -2732,7 +2764,7 @@ ${optionalTypeExports}
     ) {
       continue;
     }
-    fs.rmSync(existingRuntimeFile, { force: true });
+    fileCache.remove(existingRuntimeFile);
   }
   for (const createdRuntimePlaceholder of createdRuntimePlaceholders) {
     if (
@@ -2741,7 +2773,7 @@ ${optionalTypeExports}
     ) {
       continue;
     }
-    fs.rmSync(createdRuntimePlaceholder, { force: true });
+    fileCache.remove(createdRuntimePlaceholder);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
