@@ -69,7 +69,8 @@ It does four things in one public API:
 
 The TanStack Start docs now split the supported paths:
 
-- server loaders and server functions use `runServerCall` or `fetchAuthQuery`
+- server loaders and server functions use the request-scoped `caller` or
+  `fetchAuthQuery`
 - client/router loaders use `syncConvexAuthForStartLoader` before protected
   `ConvexQueryClient` queries run
 - components keep using `ConvexAuthProvider`

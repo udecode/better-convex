@@ -43,20 +43,22 @@ describe('auth/start token refresh', () => {
       getToken,
     }));
 
+    const request = new Request('https://app.example.com/');
     mock.module('@tanstack/react-start/server', () => ({
-      getRequestHeaders: () => new Headers(),
+      getRequest: () => request,
+      getRequestHeaders: () => request.headers,
     }));
 
     const { convexBetterAuthReactStart } = await import('./server');
 
     const auth = convexBetterAuthReactStart({
-      convexSiteUrl: 'https://app.convex.site',
-      convexUrl: 'https://app.convex.cloud',
-      jwtCache: {
-        enabled: true,
-        isAuthError: (error) =>
+      api: {},
+      auth: {
+        isUnauthorized: (error) =>
           (error as { code?: string } | undefined)?.code === 'UNAUTHORIZED',
       },
+      convexSiteUrl: 'https://app.convex.site',
+      convexUrl: 'https://app.convex.cloud',
     });
 
     await expect(auth.fetchAuthQuery({} as never)).resolves.toBe('ok');

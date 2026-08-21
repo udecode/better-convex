@@ -490,6 +490,71 @@ describe('server/caller-factory', () => {
     expect(getToken.mock.calls[1]?.[2]?.forceRefresh).toBe(true);
   });
 
+  test('a refreshed token is reused by later calls on the same context', async () => {
+    const fetchMutationSpy = spyOn(
+      convexNextjs,
+      'fetchMutation'
+    ).mockImplementation(async (_fn: any, _args: any, opts: any) => {
+      if (opts?.token === 't0') {
+        throw Object.assign(new Error('unauthorized'), {
+          code: 'UNAUTHORIZED',
+        });
+      }
+      return 'ok';
+    });
+
+    const ref = makeFunctionReference<'mutation'>('todos:create');
+    const apiWithMeta = {
+      todos: {
+        create: Object.assign(ref, { functionRef: ref, type: 'mutation' }),
+      },
+    } as const;
+
+    const getToken = mock(
+      async (_siteUrl: string, _headers: Headers, opts?: any) => {
+        if (opts?.forceRefresh) return { isFresh: true, token: 't1' };
+        return { isFresh: false, token: 't0' };
+      }
+    );
+
+    const { createContext } = createCallerFactory({
+      api: apiWithMeta as any,
+      auth: {
+        getToken,
+        isUnauthorized: (e) =>
+          !!e &&
+          typeof e === 'object' &&
+          'code' in e &&
+          (e as any).code === 'UNAUTHORIZED',
+      },
+      convexSiteUrl: 'https://example.convex.site',
+    });
+
+    // A memoized context is shared by every call in a request (the Next RSC and
+    // TanStack Start callers are both wired that way), so the refresh from the
+    // first call must not be re-derived — and the rejected token must not be
+    // replayed — by the calls after it.
+    const ctx = await createContext({ headers: new Headers() });
+    await expect(
+      (ctx.caller as any).todos.create({ title: 'first' })
+    ).resolves.toBe('ok');
+    await expect(
+      (ctx.caller as any).todos.create({ title: 'second' })
+    ).resolves.toBe('ok');
+    await expect(
+      (ctx.caller as any).todos.create({ title: 'third' })
+    ).resolves.toBe('ok');
+
+    // 2 for the first call (rejected + replayed), then 1 each with the good token.
+    expect(fetchMutationSpy.mock.calls.length).toBe(4);
+    expect(getToken.mock.calls.length).toBe(2);
+    expect(
+      fetchMutationSpy.mock.calls.slice(2).every((call) => {
+        return (call[2] as any)?.token === 't1';
+      })
+    ).toBe(true);
+  });
+
   test('refreshes token and retries once on unauthorized errors when token is not fresh', async () => {
     const fetchQuerySpy = spyOn(convexNextjs, 'fetchQuery').mockImplementation(
       async (_fn: any, _args: any, opts: any) => {
