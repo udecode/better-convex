@@ -58,6 +58,7 @@ Completion threshold:
   `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-21-406-orm-per-transaction-memo-lifetime.md` passes.
 
 Verification surface:
+- `bun check` (final repo gate before PR)
 - `bunx vitest run packages/kitcn/src/orm/<new>.vitest.ts` (read-count bounds)
 - `bunx vitest run packages/kitcn/src/orm convex/orm` (no regressions)
 - `bun --cwd packages/kitcn build`
@@ -86,8 +87,8 @@ Boundaries:
 - Allowed edit scope: `packages/kitcn/src/orm/**`, its tests, `.changeset/`,
   `docs/plans/`.
 - Browser surface: N/A - no UI or rendered output changes.
-- GitHub issue sync: N/A - user standing preference forbids PRs; no PR to
-  reference, so no QA sync line is posted.
+- GitHub issue sync: PR #420 references the issue with `Fixes #406`, which is
+  the sync-back for this task.
 - Non-goals: refactoring update()'s existing per-statement FK memo; changing the
   `matchesPostFetchMembership` one-row batching itself (only its read cost);
   re-arming the two unrelated unarmed read-bound tests in `convex/orm/`.
@@ -173,7 +174,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal loaded; testing/tdd not needed (behaviour tests written inline); no browser/docs/agent-native surface |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | issue #406 body read in full via attachment and `gh issue view 406` |
-| Exact per-PR task ownership | no | N/A: no PR in scope, user explicitly declined |
+| Exact per-PR task ownership | yes | PR #420, this plan owns exactly that PR |
 | GitHub comments and attachments read | yes | `gh issue view 406 --json comments` -> `[]` |
 | Video transcript evidence required | no | N/A: no video or screen recording in source |
 | Pre-solution issue challenge required | yes | recorded above: partially valid |
@@ -182,12 +183,12 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | see Decisions D1-D6 |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: `docs/solutions` does not exist in this repo |
 | TDD decision before behavior change or bug fix | yes | read-count bounds written and proven failing before the fix was kept |
-| Branch decision for code-changing task | yes | stayed on `issue-406`, the branch already dedicated to this issue |
+| Branch decision for code-changing task | yes | renamed placeholder `issue-406` to `fix/orm-per-transaction-memo-lifetime` before the first push |
 | Release artifact decision | yes | new changeset `.changeset/tricky-pots-shake.md` (no unreleased draft existed) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user standing preference "Do not create PR under any circumstances, unless user prompts to" is an explicit decline |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
+| Commit / PR expectation decision | yes | user later requested a PR, which supersedes the standing decline; committed, pushed, PR #420 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/2026-08-21-406-orm-per-transaction-memo-lifetime.md`; plan present at PR head; identifies PR #420 |
 | GitHub issue sync expectation decision | no | N/A: no PR exists to reference in a QA sync comment |
 | Output budget strategy recorded | yes | see Output budget strategy |
 
@@ -202,8 +203,8 @@ Work Checklist:
       surface, and root-cause layer.
 - [x] Every GitHub PR in scope has its own task plan. This plan owns one exact
       PR, owns a not-yet-created PR slice, or records N/A because no PR is in
-      scope; a batch plan is not used as a substitute. N/A: no PR in scope,
-      user explicitly declined the PR path.
+      scope; a batch plan is not used as a substitute. This plan owns exactly
+      one PR: #420.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason. N/A: source is a
       text-only GitHub issue.
@@ -238,15 +239,17 @@ Work Checklist:
 - [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
-      Recorded: user explicitly declined ("Do not create PR under any
-      circumstances, unless user prompts to").
+      Recorded: commit `4f6761c7` and PR #420 completed after the user
+      requested a PR.
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
-      recorded, or blocker recorded. N/A: no PR.
+      recorded, or blocker recorded. PR #270 emoji body used on #420.
 - [x] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
       exists at the PR head, and it identifies the exact PR before autoclosure.
-      N/A: no PR.
+      All three hold for #420.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
-      new branch needed, or N/A with reason. Recorded: stayed on `issue-406`.
+      new branch needed, or N/A with reason. Recorded: renamed the placeholder
+      `issue-406` to `fix/orm-per-transaction-memo-lifetime` before the first
+      push, per the user's branch-naming preference.
 - [x] Local-env-rot retry policy recorded for any surprising repo-wide failure:
       reinstall/rerun evidence or N/A with reason. N/A: no surprising
       repo-wide failure occurred.
@@ -268,7 +271,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | all four read-count bounds pass; see Verification evidence |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #420; this plan owns exactly that PR |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | partially valid; pivoted consumers 1 and 3 |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro reproduced every case; browser rungs N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | each bound re-run with only its source file stashed |
@@ -288,12 +291,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | recorded under Verification evidence |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling surface touched |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no surprising repo-wide failure |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline of the PR path; no commit requested |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `4f6761c7`, entire checkout staged per repo policy |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` green, pushed, PR #420 created with the task-style body |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 420 --json body` matches the PR #270 emoji format |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | body plan line present, plan at PR head, plan names PR #420 |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR exists to reference |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | PR #420 body carries `🐛 Fixes #406`, which closes the issue on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled above |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow findings artifacted and paged; source reads line-ranged |
@@ -307,7 +310,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #406 read in full, no comments | implementation |
 | Implementation | complete | 4 source files changed, 1 added, 4 tests added | verification |
 | Verification | complete | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | N/A | user standing preference forbids PRs | closeout |
+| Commit / PR / GitHub sync | complete | commit `4f6761c7`, PR https://github.com/udecode/kitcn/pull/420 | closeout |
 | Closeout | complete | autoreview clean, all gates closed | final response |
 
 Findings:
@@ -455,11 +458,10 @@ Source-listed case matrix:
 | C3 relation target | 1050 `db.get` for 2 distinct targets | `orm/query.relation-where-reads.vitest.ts` | 50 (rows scanned) | 2 (distinct targets) | before `expected 50 to be <= 2` and `expected 19 to be <= 2`; after <= 2 | done |
 
 Final handoff contract:
-- Commit line: N/A - user standing preference forbids PRs and no commit was
-  requested; the work is a verified local patch.
-- PR line: N/A - explicit user decline ("Do not create PR under any
-  circumstances, unless user prompts to").
-- Issue line: N/A - no PR exists to reference, so no QA sync line is posted.
+- Commit line: `4f6761c7 fix(orm): stop re-reading per row in FK, CLEARING, and relation probes`
+- PR line: https://github.com/udecode/kitcn/pull/420 (base `main`, head
+  `fix/orm-per-transaction-memo-lifetime`)
+- Issue line: #406 closed by the PR's `Fixes #406` line.
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests yes (each read-count bound fails with only its source
@@ -480,7 +482,9 @@ Final handoff contract:
     would let `insert -> delete -> insert` write a dangling foreign key, and
     would not work at all in a query context, where no inner writer exists.
 - Verified: see Verification evidence.
-- PR body verified: N/A - no PR.
+- PR body verified: `gh pr view 420 --json body` - PR #270 emoji format with
+  auto-release block, `🐛 Fixes #406`, `🧭 Task plan: ...`, confidence line,
+  `| Phase | 🧪 Tests | 🌐 Browser |` table, and the four bold emoji sections.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -504,10 +508,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A - not requested; user preference forbids the PR path this task
-  skill would otherwise require.
-- PR: N/A - explicit user decline.
-- Issue: N/A - no PR to reference.
+- Commit: `4f6761c7` on `fix/orm-per-transaction-memo-lifetime`.
+- PR: https://github.com/udecode/kitcn/pull/420
+- Issue: #406, closed by the PR.
 - Browser proof: N/A - no browser surface.
 - Caveats: consumers 1 and 3 deliberately do not use the per-transaction
   primitive; see Decisions D2/D4.
