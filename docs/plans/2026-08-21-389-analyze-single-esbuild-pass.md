@@ -20,6 +20,7 @@ Applied packs:
 Task source:
 - type: GitHub issue
 - id / link: #389 https://github.com/udecode/kitcn/issues/389
+- PR owned by this plan: #400 https://github.com/udecode/kitcn/pull/400
 - title: CLI: `kitcn analyze` runs one esbuild bundle per Convex entry, re-reading the
   shared import graph E times (2.81x measured)
 - task type: performance fix in CLI analyzer (non-heavyweight, non-trivial)
@@ -174,7 +175,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal loaded; testing/tdd not needed (behaviour pinned by pure-function tests), major-task not needed (single package, no API redesign) |
 | Active goal checked or created | yes | this plan, created via create-goal-scratchpad.mjs --template task |
 | Source of truth read before edits | yes | `gh issue view 389` + full read of packages/kitcn/src/cli/analyze.ts before any edit |
-| Exact per-PR task ownership | no | N/A: user preference forbids PR creation unless explicitly asked |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #400 https://github.com/udecode/kitcn/pull/400 |
 | GitHub comments and attachments read | yes | issue #389 has 0 comments, 0 labels; attachment file read |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | verdict partially valid; recorded in Pre-solution issue challenge |
@@ -186,9 +187,9 @@ Start Gates:
 | Branch decision for code-changing task | yes | already on dedicated branch issue-389 |
 | Release artifact decision | yes | new changeset .changeset/tough-donuts-hammer.md (no unreleased draft existed) |
 | Browser tool decision for browser surface | no | N/A: terminal CLI, no browser-rendered surface |
-| Commit / PR expectation decision | no | User preference explicitly forbids PR creation unless asked; work left uncommitted for review |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
+| Commit / PR expectation decision | yes | User later requested a PR: commit 916c21a0, branch fix/analyze-single-esbuild-pass, PR #400 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used for #400 |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/2026-08-21-389-analyze-single-esbuild-pass.md`; plan is at the PR head and names #400 |
 | GitHub issue sync expectation decision | no | N/A: no PR exists and the user has not asked for issue sync |
 | Output budget strategy recorded | yes | CLI output captured to /tmp files and diffed; harness prints aggregates only |
 
@@ -262,7 +263,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | `bun run test` 1305 pass/0 fail (2 consecutive green runs); real CLI diff vs pre-change baseline on matched esbuild |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR created (user preference) |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #400, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | partially valid; splitting suggestion refuted with measurements |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | esbuild harness repro; browser/visual N/A for terminal CLI |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | 28,606 vs 1,545 inputs parsed measured before any edit |
@@ -282,12 +283,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note below |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: the only .agents change is the generated kitcn skill mirror, regenerated from its source, not a workflow/tooling change |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption signals; the one install was the intentional esbuild bump |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly forbids commit/PR unless asked |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly forbids PR creation unless asked |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR created |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR created |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR created |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR exists and the user has not asked for issue sync |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | 916c21a0 (whole checkout staged) |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` run; PR #400 created with the task-style body |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | PR #400 |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | PR #400 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | PR #400 |
+| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: the PR body carries `Fixes #389`; no separate issue comment was requested |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | all CLI output captured to /tmp and diffed; no unbounded streaming |
@@ -301,7 +302,7 @@ Phase / pass table:
 | Intake and source read | done | issue #389 fetched, code read, esbuild behavior measured | implementation |
 | Implementation | done | analyze.ts combined pass + attribution, tests, docs, changeset | verification |
 | Verification | done | 36 + 412 tests, typecheck, lint, build, real CLI diff, 6-subset byte proof | closeout |
-| Commit / PR / GitHub sync | n/a | user preference forbids PR creation unless asked | final response |
+| Commit / PR / GitHub sync | done | 916c21a0 pushed; PR #400 opened with the task-style body | final response |
 | Closeout | done | autoreview clean, plan gates closed, full suite green | final response |
 
 Findings:
@@ -432,9 +433,10 @@ Source-listed case matrix:
 | Run-wide schema externalization | not in source | forced-plugin A/B | n/a | shared pass refuses it; per-entry sweep scopes it | workflow edgecases audit | done |
 
 Final handoff contract:
-- Commit line: none - the user's standing preference forbids commit/PR unless asked.
-- PR line: N/A for the same reason.
-- Issue line: N/A - no PR exists and no issue sync was requested.
+- Commit line: 916c21a0 on `fix/analyze-single-esbuild-pass` (renamed from the seeded
+  `issue-389` before the first push, per the user's branch convention).
+- PR line: https://github.com/udecode/kitcn/pull/400
+- Issue line: closed by the PR body's `Fixes #389`; no separate issue comment requested.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests 18.52x parse duplication measured on 24 real entries, browser N/A
@@ -452,7 +454,7 @@ Final handoff contract:
   - Why not broader change: `--deploy`, entry selection, flags and thresholds untouched;
     the esbuild bump stayed inside the declared minor.
 - Verified: see Verification evidence.
-- PR body verified: N/A - no PR created.
+- PR body verified: `gh pr view 400 --json body`.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -476,9 +478,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: not created - user preference forbids commit/PR unless asked.
-- PR: not created - same reason.
-- Issue: not synced - no PR exists and no sync was requested.
+- Commit: 916c21a0
+- PR: #400 https://github.com/udecode/kitcn/pull/400
+- Issue: #389 linked via `Fixes #389` in the PR body.
 - Browser proof: N/A - terminal CLI.
 - Caveats: `DepMB`/`Files` read lower for identical code; esbuild minimum is now 0.27.7.
 
@@ -488,8 +490,8 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete; awaiting the user's call on committing |
-| Where am I going? | Final response only; no commit or PR without an explicit ask |
+| Where am I? | Shipped: PR #400 open |
+| Where am I going? | Final response |
 | What is the goal? | Fix #389: one esbuild pass for hotspot analysis, per-entry bytes byte-exact, reporting semantics decided |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
@@ -525,4 +527,15 @@ High-risk note (command contract + dependency range):
 - Why this boundary is right: the shifted columns were the outlier. `--details`' package
   and input tables and `--deploy`'s `In` column already counted in-bundle inputs; the
   hotspot summary row was the only place still counting parsed-and-discarded files.
+
+Check gate:
+- `bun check` run on 916c21a0. lint, typecheck, 1305 bun tests, CLI, concave, fixtures
+  and verify all passed. Two non-blocking environment/flake failures, both ruled out as
+  unrelated to this diff:
+  - `test:runtime` first failed on `EADDRINUSE 127.0.0.1:3211` left by an earlier aborted
+    run of the same lane; it passes cleanly once the port is free.
+  - `btree.vitest.ts` failed once on random seed 1809979949 with `TypeError: Cannot
+    convert object to primitive value` at `btree.ts:858`. Its fix (`8523418d`) rides
+    still-open PR #392 and is not on `main`; this diff touches no file under
+    `aggregate-core/`; `bun run test:vitest` rerun was green (845 passed).
 
