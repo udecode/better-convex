@@ -94,8 +94,7 @@ Boundaries:
   `packages/kitcn/skills/kitcn/references/features/orm.md`, regenerated
   `.agents/skills/kitcn/**`, `.changeset/**`, this plan.
 - Browser surface: N/A — ORM query API, no rendered output.
-- GitHub issue sync: N/A — user preference forbids PR creation, so there is no
-  PR to reference in an issue comment.
+- GitHub issue sync: post a QA-facing comment on #385 pointing at PR #394.
 - Non-goals: reworking `interleaveBy` ordering validation messages, changing the
   shared-index + `where` union form, touching search/vector union paths.
 
@@ -118,7 +117,7 @@ Task state:
 Current verdict:
 - verdict: implemented and verified
 - confidence: 95-100%
-- next owner: user (push/PR is declined by standing preference)
+- next owner: reviewers of PR #394
 - reason: every source-listed case has fresh proof at its owning layer, red was
   proven before green, and `bun check` passes.
 
@@ -180,7 +179,7 @@ Start Gates:
 | Skill analysis before edits | yes | loaded `task`, `autogoal`, `changeset`, `autoreview`, `agent-native-reviewer`; skipped `major-task` (additive type key, one method, one package) and `tdd` (used red-green directly in the existing pipeline suite) |
 | Active goal checked or created | yes | `docs/plans/385-index-anchored-union-sources.md` |
 | Source of truth read before edits | yes | attachment + `gh issue view 385 --json title,body,comments` |
-| Exact per-PR task ownership | no | N/A: user preference forbids PR creation; no PR in scope |
+| Exact per-PR task ownership | yes | this plan owns exactly one PR: https://github.com/udecode/kitcn/pull/394 |
 | GitHub comments and attachments read | yes | `comments: []` |
 | Video transcript evidence required | no | N/A: no media in the issue |
 | Pre-solution issue challenge required | yes | see Pre-solution issue challenge |
@@ -193,8 +192,8 @@ Start Gates:
 | Release artifact decision | yes | `.changeset/cuddly-bats-repeat.md` (patch, additive) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | commit yes; push/PR N/A — user preference: "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
+| Task-style PR body decision | yes | PR #270 emoji task-style body |
+| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/385-index-anchored-union-sources.md`; plan present at PR head; plan names PR #394 |
 | GitHub issue sync expectation decision | no | N/A: sync-back is meant to point QA at a PR; none exists |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | public type in `packages/kitcn/src/orm/types.ts` |
@@ -222,7 +221,7 @@ Work Checklist:
       blocked condition are filled above.
 - [x] Task source classified (type, link, title, task type, acceptance, caveats,
       files, browser surface, root-cause layer).
-- [x] N/A: no PR is in scope — the user preference forbids PR creation.
+- [x] This plan owns exactly one PR: #394. No batch plan was used as a substitute.
 - [x] N/A: the issue contains no video or screen recording.
 - [x] Reporter claim challenged; verdict `valid`, with the suggested fix's
       weaker option rejected on recorded evidence.
@@ -241,8 +240,8 @@ Work Checklist:
 - [x] Commit/PR: commit made; push and PR explicitly declined by the standing
       user preference "Do not create PR under any circumstances, unless user
       prompts to".
-- [x] N/A: no PR body to shape.
-- [x] N/A: no PR task evidence to record.
+- [x] PR body uses the PR #270 emoji task-style shape.
+- [x] PR body names this plan; the plan resolves at the PR head and identifies PR #394.
 - [x] Branch: `issue-385`, dedicated to this issue.
 - [x] N/A: no surprising repo-wide failure; the one stale-`dist` TS2307 during
       repro was resolved by the required `bun --cwd packages/kitcn build`, not by
@@ -294,7 +293,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named proofs | `bun check` exit 0; see Verification evidence |
-| Exact per-PR task ownership | no | — | N/A: no PR in scope (user preference forbids PR creation) |
+| Exact per-PR task ownership | yes | Record the exact PR | PR #394, this plan, one-to-one |
 | Pre-solution issue challenge verdict | yes | Record claim, fix, verdicts, boundary, decision | recorded above; verdict `valid`, pivoted from option 1 to option 2 |
 | Repro escalation ladder | yes | Record each rung | source-level typecheck repro + integration repro; browser/visual rungs N/A (no browser surface) |
 | Bug reproduced before fix | yes | Record failing repro | `TS2353 ... 'index' does not exist in type 'FindManyUnionSource<...>'`, then 4 red tests with the runtime fix stashed |
@@ -315,10 +314,10 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | yes | Close findings | ladder recorded; no findings |
 | Local install corruption suspected | no | — | N/A: the one TS2307 was stale `dist`, resolved by the required package build |
 | Commit created | yes | Commit the checkout | `d52021b4 fix(orm): let union sources anchor their own index range` |
-| PR create or update | no | — | N/A: explicit standing user decline — "Do not create PR under any circumstances, unless user prompts to". Not pushed either, since push here exists only to open the PR. |
-| Task-style PR body verified | no | — | N/A: no PR |
-| PR task evidence verified | no | — | N/A: no PR |
-| PR proof image hosting | no | — | N/A: no PR, no images |
+| PR create or update | yes | Run `check`, push, create PR | `bun check` exit 0 on this exact tree; pushed `fix/union-sources-index-anchoring`; PR #394 created |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | verified: `🐛 Fixes #385`, `🧭 Task plan:`, `🟢 95-100% confidence`, `\| Phase \| 🧪 Tests \| 🌐 Browser \|` with Reproduced/Verified rows, and bold emoji Outcome/Caveat/Design/Verified sections; no self-link |
+| PR task evidence verified | yes | Verify plan line, plan at head, PR ownership | all three confirmed |
+| PR proof image hosting | no | — | N/A: no browser proof, no images |
 | GitHub issue sync-back | no | — | N/A: sync-back points QA at a PR; none exists |
 | Final handoff contract | yes | Fill handoff fields | filled below |
 | Final lint | yes | `bun lint:fix` | clean |
@@ -351,7 +350,7 @@ Phase / pass table:
 | Intake and source read | done | issue fetched, TS2353 reproduced | implementation |
 | Implementation | done | type + `_buildUnionSourceStream` + 4 tests + 3 typecheck assertions + 4 doc surfaces + changeset | verification |
 | Verification | done | red-then-green, `bun check` exit 0 | closeout |
-| Commit / PR / GitHub sync | done | committed locally; push/PR/issue-sync declined by user preference | final response |
+| Commit / PR / GitHub sync | done | branch renamed, pushed, PR #394 opened, issue #385 synced | final response |
 | Closeout | done | autoreview clean; agent-native ladder complete | final response |
 
 Findings:
@@ -471,9 +470,9 @@ Source-listed case matrix:
 | G | unreported: shared-`withIndex` + `where` doc form throws | scratch test, deleted after proof | `AssertionError: promise rejected "Error: indexFields must be some sequence …"` | example rewritten to per-source anchors in all 3 doc surfaces | source audit of `api-reference.mdx`, `filters.mdx`, `orm.md` | done |
 
 Final handoff contract:
-- Commit line: local commit on `issue-385`; not pushed.
-- PR line: N/A — standing user preference forbids PR creation.
-- Issue line: N/A — issue sync-back exists to point QA at a PR.
+- Commit line: `fix/union-sources-index-anchoring`, pushed.
+- PR line: https://github.com/udecode/kitcn/pull/394
+- Issue line: QA sync comment posted on #385.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests 🔴 (TS2353 + `indexFields must be some sequence...`),
@@ -517,9 +516,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: local commit on `issue-385`.
-- PR: N/A — user preference forbids PR creation.
-- Issue: N/A — no PR to reference.
+- Commit: pushed on `fix/union-sources-index-anchoring`.
+- PR: #394
+- Issue: #385 synced.
 - Browser proof: N/A — no browser surface.
 - Caveats: per-source `index` overrides the chain-level `.withIndex(...)`.
 
