@@ -35,11 +35,11 @@ Task source:
   issue claims)
 
 Timed checkpoint:
-- requested duration: pending
-- semantics: pending
-- initial confidence score: pending
-- improvement loop: pending
-- final score / loop closure: pending
+- requested duration: N/A; none requested
+- semantics: N/A
+- initial confidence score: 95%
+- improvement loop: P1 autoreview, red-green regression, full repo gate
+- final score / loop closure: 98%; P1 review and full repo gate clean
 
 Completion threshold:
 - `kitcn init -t start` + auth apps fetch the Convex auth token at most once per
@@ -209,7 +209,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal (task template, package-api + docs packs); changeset and autoreview loaded at closeout |
 | Active goal checked or created | yes | this plan, created via create-goal-scratchpad.mjs |
 | Source of truth read before edits | yes | attachment + `gh issue view 387` (body and comments) read before any edit |
-| Exact per-PR task ownership | no | N/A: user standing preference forbids PRs; no PR in scope |
+| Exact per-PR task ownership | yes | This plan owns PR #401 and exists at its exact head |
 | GitHub comments and attachments read | yes | attachment read; `gh issue view 387 --json comments` returned none |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | see Pre-solution issue challenge: verdict partially valid |
@@ -221,7 +221,7 @@ Start Gates:
 | Branch decision for code-changing task | yes | already on dedicated branch `issue-387`; not main |
 | Release artifact decision | yes | .changeset/eighty-moons-invent.md (minor) |
 | Browser tool decision for browser surface | no | N/A: no browser-rendered output; proof is the built client bundle |
-| Commit / PR expectation decision | partial | commit yes; push/PR N/A by explicit standing user preference |
+| Commit / PR expectation decision | yes | Autoclosure requires commit, push, exact-head proof, receipt, and merge |
 | Task-style PR body decision | yes | PR #270 emoji task-style body used |
 | Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/387-start-scaffold-per-request-caller-memo.md`; plan is at the PR head and names PR #401 |
 | GitHub issue sync expectation decision | yes | `Fixes #387` in the PR body; no separate comment needed |
@@ -249,7 +249,7 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. This plan owns one exact (N/A: no PR in scope (user preference forbids PRs))
+- [x] Every GitHub PR in scope has its own task plan. This plan owns PR #401.
       PR, owns a not-yet-created PR slice, or records N/A because no PR is in
       scope; a batch plan is not used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized (N/A: no video in the source)
@@ -459,6 +459,15 @@ Review fixes:
   It contradicted both the implementation and `AuthOptions.jwtCache`. Removed.
 - Recorded its residual `isFresh` write-back note under Open risks rather than
   patching: it is the documented retry contract, not a defect.
+- Autoclosure P1 review found that `fetchAuth*` replaced the request memo after
+  refresh while an existing caller retained the old token object. The shipped
+  cross-path test failed with three token fetches. `callWithToken` now mutates
+  the shared result, so the caller uses the fresh token without another replay.
+
+Autoclosure feedback ledger:
+| Source | Priority | Rationale | Verdict | Proof | Reply / resolution |
+| --- | --- | --- | --- | --- | --- |
+| local autoreview at PR #401 head `80329e00` | P1 | Existing request callers could replay a mutation or action with a rejected token after a fetch-helper refresh | fixed | red `index.retry.test.ts`: 3 fetches; green: 2 fetches and one caller mutation | local finding; terminal PR receipt records the fix |
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -474,6 +483,14 @@ Verification evidence:
   `[A] 3 separate runServerCall -> tokenFetches=3`, `[B] 3 calls on one caller
   -> tokenFetches=3`, `[C] 3 getToken() -> tokenFetches=3`.
 - `bun test packages/kitcn/src/auth-start/ packages/kitcn/src/server/` → 189 pass, 0 fail.
+- Cross-path refresh regression: `caller.getToken()` captures the stale shared
+  result, `fetchAuthQuery` refreshes it, then `caller.todos.create` uses the
+  fresh token directly. Red: 3 token fetches. Green: 2 token fetches, one caller
+  mutation, no second replay.
+- Final local P1 autoreview after the fix: clean; patch-correct confidence 0.93.
+- Final `bun lint:fix`, package build, and `bun check`: exit 0. The gate covered
+  lint, typecheck, Bun/Vitest/CLI tests, Concave smoke, all scaffold fixtures,
+  and runtime scenarios.
 - `bun test` (whole repo) → 1297 pass, 0 fail, 146 files.
 - `CI=1 bun test ./packages/kitcn/src/cli/cli.commands.ts` → 124 pass, 0 fail.
 - `bun typecheck` → 5/5 packages. `bun lint` → 936 files, clean.
@@ -509,22 +526,26 @@ Source-listed case matrix:
 | Memo must not leak across requests | derived safety requirement | "SECURITY" test | n/a | alice never sees bob's token | pass; module-scope mutant fails only this test | done |
 
 Final handoff contract:
-- Commit line: pending
-- PR line: pending
-- Issue line: pending
-- Confidence line: pending
+- Commit line: PR #401 contributor commits plus the autoclosure P1 fix
+- PR line: https://github.com/udecode/kitcn/pull/401
+- Issue line: #387 closes through `Fixes #387` on merge
+- Confidence line: 98%
 - Flow table:
-  - Reproduced: tests pending, browser pending
-  - Verified: tests pending, browser pending
-- Browser check: pending
-- Outcome: pending
-- Caveat: pending
+  - Reproduced: token refresh crossed helper/caller paths with 3 token fetches;
+    browser N/A
+  - Verified: 2 token fetches, one caller mutation, full repo gate green;
+    browser N/A
+- Browser check: N/A; server-only token plumbing
+- Outcome: one request-scoped token result is shared and refreshed in place
+- Caveat: `jwtCache` remains opt-in on Start
 - Design:
-  - Chosen boundary: pending
-  - Why not quick patch: pending
-  - Why not broader change: pending
-- Verified: pending
-- PR body verified: pending
+  - Chosen boundary: Start request identity plus a shared mutable token result
+  - Why not quick patch: caller-only memoization leaves helper paths stale
+  - Why not broader change: Next and unrelated auth behavior are outside #387
+- Verified: lint, package build, focused tests, full `bun check`, fixtures, and
+  runtime scenarios pass
+- PR body verified: task plan line, `Fixes #387`, final behavior, and proof are
+  present
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is

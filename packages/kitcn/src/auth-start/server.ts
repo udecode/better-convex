@@ -345,7 +345,8 @@ export const convexBetterAuthReactStart = <
       const refreshed = await fetchTokenFor(requestHeaders(getRequest()), true);
       // Share the refreshed token with the rest of this request so later calls
       // do not each replay against the same rejected token.
-      tokenByRequest.set(getRequest(), Promise.resolve(refreshed));
+      token.token = refreshed.token;
+      token.isFresh = refreshed.isFresh;
       return await fn(refreshed.token);
     }
   };
