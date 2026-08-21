@@ -1,5 +1,17 @@
 # kitcn
 
+## 0.26.1
+
+### Patch Changes
+
+- [#392](https://github.com/udecode/kitcn/pull/392) [`72d3270`](https://github.com/udecode/kitcn/commit/72d327003547b1f4097aa72db0d35128ed57b04d) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix a crash when writing an object key that cannot be converted to a string,
+    such as one created with `Object.create(null)`, into an `aggregateIndex` or
+    `rankIndex`. Once enough keys accumulated to rebalance the index, the write
+    failed with `TypeError: Cannot convert object to primitive value` instead of
+    succeeding.
+
 ## 0.26.0
 
 ### Minor Changes
