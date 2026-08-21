@@ -159,6 +159,22 @@ const seedOrganization = async (ctx: ExampleCtx, slug: string) => {
   return organization.id;
 };
 
+test('organization seat counting works while aggregate indexes build', async () => {
+  await withExampleEnv(async () => {
+    await withOrmCtxAndBackfill(async (ctx) => {
+      const organizationId = await seedOrganization(ctx, 'seat-building');
+
+      await expect(
+        countOrganizationSeats(ctx, organizationId)
+      ).resolves.toEqual({
+        members: DECOY_MEMBERS,
+        pending: PENDING_INVITATIONS,
+        total: DECOY_MEMBERS + PENDING_INVITATIONS,
+      });
+    });
+  });
+});
+
 /**
  * `inviteMember` compares members + pending invitations against `MEMBER_LIMIT`.
  * Answering that by collecting both row sets put every member and every pending

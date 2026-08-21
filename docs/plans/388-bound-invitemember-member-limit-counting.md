@@ -34,11 +34,11 @@ Task source:
 - root-cause layer: Convex query/ORM read shape
 
 Timed checkpoint:
-- requested duration: pending
-- semantics: pending
-- initial confidence score: pending
-- improvement loop: pending
-- final score / loop closure: pending
+- requested duration: N/A; none requested
+- semantics: N/A
+- initial confidence score: 95%
+- improvement loop: P1 autoreview, red-green backfill regression, full gate
+- final score / loop closure: 98%; P1 fixed and final review clean
 
 Completion threshold:
 - `inviteMember` seat counting is aggregate-index backed, reads are flat in
@@ -96,10 +96,10 @@ Blocked condition:
 Task state:
 - task_type: bug (read amplification)
 - task_complexity: non-trivial
-- current_phase: verification
-- current_phase_status: in_progress
+- current_phase: closeout
+- current_phase_status: complete
 - next_phase: closeout
-- goal_status: active
+- goal_status: complete
 
 Current verdict:
 - verdict: valid, fixed
@@ -262,7 +262,7 @@ Completion Gates:
 | Package behavior or public API changed | no | Add a changeset or record why no changeset applies | N/A: .changeset/config.json ignores example; no packages/kitcn/src change |
 | Docs and kitcn skill sync changed | yes | Keep `www/**` and `packages/kitcn/skills/kitcn/**` in sync, or record N/A | skill doc updated + synced; www has no inviteMember snippet so nothing to mirror |
 | Docs or content changed | yes | For docs-heavy work, use `--template docs`; for incidental docs, verify source-backed claims, links, examples, and rendered output or record N/A | skill snippet corrected and made self-consistent with its own schema snippet |
-| High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | failure mode: transient COUNT_INDEX_BUILDING before backfill. Proof: kitcn dev/deploy auto-backfill on fingerprint change. Boundary is right because the count belongs to the read path, not the caller |
+| High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | failure mode: COUNT_INDEX_BUILDING during rollout. Proof: red-green pre-backfill test. Boundary: the helper catches only that code and reads exact counts from existing native indexes until READY |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: .agents/skills/kitcn change is generated mirror content, not agent behavior/tooling |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption signals |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | ce3593a5 `fix(example): count org seats off aggregateIndex`, whole checkout staged |
@@ -372,7 +372,9 @@ Implementation notes:
   `aggregateIndex('by_organization_status').on(t.organizationId, t.status)`.
 - example/convex/functions/_helpers/member_capacity.ts (new):
   `countOrganizationSeats(ctx, organizationId)` returns
-  `{ members, pending, total }` from two parallel `count()` calls.
+  `{ members, pending, total }` from two parallel `count()` calls when the
+  aggregate indexes are READY. While either index builds, only
+  `COUNT_INDEX_BUILDING` falls back to the matching native index.
 - example/convex/functions/organization.ts: `inviteMember` calls the helper;
   the two count-only `findMany` reads and the `totalCount` arithmetic are gone.
   The three genuine `DEFAULT_LIST_LIMIT` reads in this file are untouched.
@@ -384,18 +386,34 @@ Implementation notes:
   Regenerated .agents/skills/kitcn/** via `bun tooling/sync-kitcn-skill.ts`.
 
 Review fixes:
-- None yet.
+- Autoclosure P1 review found that switching to a newly declared aggregate
+  index took `inviteMember` offline until backfill reached READY. Added a
+  pre-backfill regression and exact native-index fallbacks for both seat-count
+  legs. Other count failures still propagate.
+- Agent-native review: source and generated kitcn skill mirrors match; no agent
+  workflow or action surface changed.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| Autoreview test path omitted `./` and matched no Bun tests | 1 | Run the two focused files through Vitest by exact path | 21 tests passed |
 
 Verification evidence:
 - RED: with the old collect-to-count body, the new test reported
   `expected 43 to be less than 40` at 40 members + 3 pending.
 - GREEN: aggregate-count body reports 4 document reads, flat in organization
   size. Assertion pinned at `<= 6`.
+- P1 RED: before backfill, `countOrganizationSeats` rejected with
+  `COUNT_INDEX_BUILDING`.
+- P1 GREEN: before backfill, native organization indexes return exact
+  `{ members: 40, pending: 3, total: 43 }`; after backfill the same helper stays
+  at 4 document reads.
+- `bunx vitest run convex/orm/example-invite-member-reads.test.ts packages/kitcn/src/aggregate-core/btree.vitest.ts`
+  -> 21 passed, 0 failed.
+- Final local P1 autoreview after the fallback: clean; patch-correct confidence
+  0.91.
+- Final `bun check`: exit 0, including lint, typecheck, Bun/Vitest/CLI tests,
+  Concave smoke, all scaffold fixtures, and runtime scenarios.
 - `bunx vitest run convex/` -> 32 files, 465 passed, 2 files / 13 skipped.
 - `bun typecheck` -> 5/5 turbo tasks successful (includes example convex
   project typecheck).
@@ -417,6 +435,7 @@ Source-listed case matrix:
 | canceled invites excluded | only `status: 'pending'` counts | seeded 1 canceled invitation | n/a | pending stays 3 | assertion passes | done |
 | org scoping | counts must not leak across orgs | second seeded org | n/a | unchanged counts | second test passes | done |
 | error message accuracy | message reports current/pending | source read | capped at 100 | exact | `seats.members` / `seats.pending` | done |
+| aggregate index building | live traffic must not fail during backfill | pre-backfill helper call | `COUNT_INDEX_BUILDING` | exact native-index counts | red-green test | done |
 | third read at :930 | genuine cancel loop, leave alone | source read | untouched | untouched | unchanged in diff | done |
 
 Final handoff contract:
@@ -428,12 +447,12 @@ Final handoff contract:
   - Reproduced: tests RED at 43 reads, browser N/A
   - Verified: tests GREEN at 4 reads + 465 convex tests, browser N/A
 - Browser check: N/A - server read path, no rendered output
-- Outcome: `inviteMember` seat counting is aggregate-index backed; 43 -> 4
-  document reads at 40 members, flat in organization size, and the FORBIDDEN
-  message now reports exact counts instead of limit-capped ones.
-- Caveat: a deployment has a transient COUNT_INDEX_BUILDING window until the
-  new `invitation.by_organization_status` index backfills; `kitcn dev` and
-  `kitcn deploy` run that automatically on aggregate-fingerprint change.
+- Outcome: `inviteMember` seat counting is aggregate-index backed at READY;
+  43 -> 4 document reads at 40 members, exact native-index fallback during
+  backfill, and exact counts in the FORBIDDEN message.
+- Caveat: while an aggregate index builds, the helper temporarily reads exact
+  counts through the existing native organization indexes; steady state uses
+  constant-read aggregate counts.
 - Design:
   - Chosen boundary: a named `_helpers/member_capacity.ts` owner for the seat
     count, with the throw left at the procedure.
@@ -469,12 +488,13 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: ce3593a5 on fix/invite-member-seat-count-reads
+- Commit: ce3593a5 plus the autoclosure P1 fix on
+  fix/invite-member-seat-count-reads
 - PR: #392
 - Issue: #388, closed by PR trailer
 - Browser proof: N/A
-- Caveats: transient backfill window; invitation writes gain one aggregate
-  reconcile
+- Caveats: native-index fallback during backfill; invitation writes gain one
+  aggregate reconcile
 
 Timeline:
 - 2026-08-21T14:11:25.046Z Task goal plan created.
@@ -489,12 +509,9 @@ Reboot status:
 | What have I done? | See Timeline |
 
 Open risks:
-- A deployment that pushes this schema has a transient window where
-  `invitation.by_organization_status` is BUILDING and `inviteMember` throws
-  `COUNT_INDEX_BUILDING`. `kitcn dev` and `kitcn deploy` auto-run the backfill
-  on aggregate-fingerprint change, so this closes without manual action; a
-  deployment pushed by raw `convex deploy` would need
-  `kitcn aggregate backfill`.
+- During backfill, exact native-index counts scale with organization size. The
+  fallback is limited to `COUNT_INDEX_BUILDING`; READY indexes restore the
+  constant-read path automatically.
 - `invitation` writes now reconcile one aggregate index. Accepted; `todos`
   already carries 9.
 - Follow-ups NOT taken (out of issue scope): `addMember` and

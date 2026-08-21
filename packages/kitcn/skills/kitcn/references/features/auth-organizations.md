@@ -152,6 +152,11 @@ export const session = convexTable("session", {
 });
 ```
 
+`count()` requires its aggregate index to be `READY`. Backfill these indexes
+before routing live traffic to the count path. When schema and count code ship
+together, catch only `COUNT_INDEX_BUILDING` and read the exact count from the
+matching native organization index until backfill completes.
+
 ### Teams (Optional)
 
 ```ts
