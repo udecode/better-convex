@@ -405,11 +405,17 @@ Review fixes:
 - The first autoreview run aborted with "source changed after the review bundle
   was created" because this plan was being edited concurrently. Rerun on a
   frozen tree.
+- Autoclosure P1 autoreview is clean at 0.90 confidence. The agent-native review
+  passes: the published skill is the source owner, its installed mirror is
+  identical, and both Intent validators pass.
+- Deslop's only occurrence change is a line-shifted fingerprint for an existing
+  catch block in `query.ts`; finding and score totals are unchanged.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| `bunx intent stale` from the root resolved the public npm package instead of the workspace binary | 1 | Run Intent from `packages/kitcn` | `cd packages/kitcn && bunx intent stale` passed |
+| Autoreview parallel proof used Bun's test runner for a Vitest-owned file | 2 | Use the plan's owning Vitest command | `bun x vitest run convex/orm/pipeline.test.ts` passed 32 tests with no type errors |
 
 Verification evidence:
 - `bun --cwd convex x tsc --noEmit` (cwd `convex/`): clean, including the three
@@ -429,6 +435,13 @@ Verification evidence:
 - `diff -q packages/kitcn/skills/kitcn/references/features/orm.md .agents/skills/kitcn/references/features/orm.md`:
   identical after `bun tooling/sync-kitcn-skill.ts`.
 - Autoreview: `--mode local --engine claude`, see Review fixes.
+- Autoclosure replay: `bun x vitest run convex/orm/pipeline.test.ts` passed 32
+  tests with no type errors; branch P1 autoreview found no actionable issue.
+- Agent-native proof: source/mirror byte-identical, `bun run intent:validate`
+  passed, and `cd packages/kitcn && bunx intent stale` reported all skills
+  up-to-date.
+- Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0, including fixture parity and every runtime scenario.
 
 High-risk note (public API + runtime):
 - Realistic failure mode: a source's `index` silently overrides a chain-level
