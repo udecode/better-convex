@@ -543,11 +543,20 @@ return await ctx.orm.query.articles.findMany({
 
 ```ts
 return await ctx.orm.query.messages
-  .withIndex("by_from_to")
   .select()
   .union([
-    { where: { from: input.me, to: input.them } },
-    { where: { from: input.them, to: input.me } },
+    {
+      index: {
+        name: "by_from_to",
+        range: (q) => q.eq("from", input.me).eq("to", input.them),
+      },
+    },
+    {
+      index: {
+        name: "by_from_to",
+        range: (q) => q.eq("from", input.them).eq("to", input.me),
+      },
+    },
   ])
   .interleaveBy(["createdAt", "id"])
   .filter(async (m) => !m.deletedAt)
@@ -559,28 +568,21 @@ return await ctx.orm.query.messages
   });
 ```
 
-### Union with index ranges
+Per source:
 
-```ts
-const page = await ctx.orm.query.messages
-  .select()
-  .union([
-    {
-      index: {
-        name: "by_from_to",
-        range: (q) => q.eq("from", me).eq("to", them),
-      },
-    },
-    {
-      index: {
-        name: "by_from_to",
-        range: (q) => q.eq("from", them).eq("to", me),
-      },
-    },
-  ])
-  .interleaveBy(["createdAt", "id"])
-  .paginate({ cursor: null, limit: 20 });
-```
+- `index: { name, range }` anchors that source on its own range. It overrides
+  the chain-level `.withIndex(...)`; sources that omit it use the chain index.
+- `where` filters that source's rows after the read.
+
+`interleaveBy` fields must be the trailing fields each source is already ordered
+by, so every field before them has to be pinned with `eq` in that source's
+range. Sources may name different indexes when they land on the same trailing
+fields — e.g. `by_author_likes` (authorId, numLikes) with `eq("authorId", ...)`
+merges with `numLikesAndType` (type, numLikes) with `eq("type", ...)` under
+`interleaveBy(["numLikes"])`.
+
+Anchor every source. A shared `.withIndex(...)` plus per-source `where` makes
+each source walk the same range and discard the misses after reading them.
 
 ### Pre-pagination transforms
 

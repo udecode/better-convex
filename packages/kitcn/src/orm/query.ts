@@ -2864,11 +2864,13 @@ export class GelRelationalQuery<
     source: FindManyUnionSource<TTableConfig>,
     fallbackOrder: 'asc' | 'desc'
   ): QueryStream<any> {
-    const configuredIndex = this.configuredIndex;
+    // A source that pins its own index owns its range; the chain-level
+    // `.withIndex(...)` is only the default for sources that do not.
+    const sourceIndex = source.index ?? this.configuredIndex;
     this._assertWhereIndexRequirement({
       where: source.where,
       tableConfig: this.tableConfig,
-      hasConfiguredIndex: Boolean(configuredIndex?.name),
+      hasConfiguredIndex: Boolean(sourceIndex?.name),
       context: 'pipeline.union source',
     });
 
@@ -2878,10 +2880,10 @@ export class GelRelationalQuery<
       schemaDefinition
     ).query(this.tableConfig.name as any);
 
-    if (configuredIndex?.name) {
+    if (sourceIndex?.name) {
       sourceStream = sourceStream.withIndex(
-        configuredIndex.name as any,
-        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
+        sourceIndex.name as any,
+        sourceIndex.range ? (sourceIndex.range as any) : (q: any) => q
       );
     }
 

@@ -480,11 +480,20 @@ await db.query.posts.findMany({
 
 ```ts showLineNumbers
 const page = await db.query.messages
-  .withIndex('by_from_to')
   .select()
   .union([
-    { where: { from: me, to: them } },
-    { where: { from: them, to: me } },
+    {
+      index: {
+        name: 'by_from_to',
+        range: (q) => q.eq('from', me).eq('to', them),
+      },
+    },
+    {
+      index: {
+        name: 'by_from_to',
+        range: (q) => q.eq('from', them).eq('to', me),
+      },
+    },
   ])
   .interleaveBy(['createdAt', 'id'])
   .filter(async (m) => !m.deletedAt)
