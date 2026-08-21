@@ -92,7 +92,7 @@ Boundaries:
 - Allowed edit scope: packages/kitcn/src/auth/**, example generated schema,
   docs/skill mirrors, .changeset.
 - Browser surface: N/A - schema generation and server-side reads only.
-- GitHub issue sync: N/A - user forbade PR creation, so no PR exists to cite.
+- GitHub issue sync: PR #397 opened after the user later requested it.
 - Non-goals: reworking findIndex's sort contract, adding an org fixture app,
   refreshing the already-stale AUTH_CONVEX_SCHEMA_TEMPLATE.
 
@@ -116,9 +116,9 @@ Task state:
 Current verdict:
 - verdict: complete
 - confidence: 95-100%
-- next owner: user (push / PR is theirs to authorize)
-- reason: both layers reproduced red, fixed, and re-proven green; full repo
-  gates pass; autoreview clean twice
+- next owner: reviewers on PR #397
+- reason: both layers reproduced red, fixed, and re-proven green; every `bun
+  check` lane passes; autoreview clean twice; PR opened
 
 Implementation readiness:
 - verdict: ready
@@ -182,13 +182,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | widened beyond `member`, plus listOne truncation fix |
 | `docs/solutions` checked for non-trivial existing-code work | yes | no prior auth-index solution note |
 | TDD decision before behavior change or bug fix | yes | red repro first, then generator + runtime regression tests |
-| Branch decision for code-changing task | yes | already on dedicated `issue-382` branch |
+| Branch decision for code-changing task | yes | renamed `issue-382` -> `fix/auth-org-composite-indexes` before first push |
 | Release artifact decision | yes | new `.changeset` required (published generator output changes) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | yes | Commit locally: yes. Push/PR: N/A by explicit user decline ("Do not create PR under any circumstances, unless user prompts to"). |
-| Task-style PR body decision | no | N/A: no PR created (user decline) |
-| Task-plan PR body evidence | no | N/A: no PR created (user decline) |
-| GitHub issue sync expectation decision | no | N/A: no PR to cite; user forbade PR creation |
+| Commit / PR expectation decision | yes | Commit + push + PR completed after the user explicitly requested a PR. |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries the plan line; plan exists at PR head naming PR #397 |
+| GitHub issue sync expectation decision | yes | PR #397 links the issue via `Fixes #382` |
 | Output budget strategy recorded | yes | recorded above |
 | Package/API pack selected | yes | packages/kitcn generator + adapter |
 | Public surface or package boundary identified | yes | `indexFields` export, generated schema output, adapter listOne semantics |
@@ -291,7 +291,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Ran named commands | see Verification evidence |
-| Exact per-PR task ownership | no | N/A: user forbade PR creation | no PR exists |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR | https://github.com/udecode/kitcn/pull/397 |
 | Pre-solution issue challenge verdict | yes | Recorded before first src edit | valid, suggested fix incomplete |
 | Repro escalation ladder | yes | Source-level convex-test reproduced it | ladder stopped at rung 1 |
 | Bug reproduced before fix | yes | scratch repro returned undefined for u240 | then re-proven via stashed-src red run |
@@ -311,12 +311,12 @@ Completion Gates:
 | High-risk mini gate | yes | See High-risk note | recorded |
 | Agent-native review for agent/tooling changes | no | N/A: `.agents` change is a generated content mirror, no agent behavior | regenerated, not authored |
 | Local install corruption suspected | no | N/A: no surprising repo-wide failure | only a real TS7022 in my own diff |
-| Commit created | yes | Local commit on `issue-382` | not pushed |
-| PR create or update | no | N/A: explicit user decline - "Do not create PR under any circumstances, unless user prompts to" | recorded decline, not a blocker |
-| Task-style PR body verified | no | N/A: no PR created | user decline |
-| PR task evidence verified | no | N/A: no PR created | user decline |
-| PR proof image hosting | no | N/A: no PR, no images | nothing to host |
-| GitHub issue sync-back | no | N/A: sync-back cites a PR, and no PR exists by user decline | no comment posted |
+| Commit created | yes | Commits on `fix/auth-org-composite-indexes` | pushed to origin |
+| PR create or update | yes | `bun check` lanes all green, pushed, PR opened | https://github.com/udecode/kitcn/pull/397 |
+| Task-style PR body verified | yes | `gh pr view 397 --json body` | auto-release block, emoji header, Phase table, Outcome/Caveat/Design/Verified |
+| PR task evidence verified | yes | Plan line in body; this plan names PR #397 at the PR head | verified |
+| PR proof image hosting | no | N/A: no browser proof, no images | nothing to host |
+| GitHub issue sync-back | yes | PR #397 body carries `Fixes #382`, which links and will close the issue on merge | no separate comment needed |
 | Final handoff contract | yes | Filled below | Final handoff contract section |
 | Final lint | yes | `bun lint:fix` then `bun lint` | clean, 935 files |
 | Output budget discipline | yes | All scans filtered/tailed; enumeration via background workflow | no unbounded dumps |
@@ -477,9 +477,9 @@ Source-listed case matrix:
 | findMany/count unbounded shapes | sortBy createdAt + multi-field filters | index-emission audit | unindexed | organizationId exact-length index kept; invitation composites added | emitted-index delta audit | done |
 
 Final handoff contract:
-- Commit line: local commit on `issue-382`, not pushed
-- PR line: N/A - user forbade PR creation
-- Issue line: N/A - issue sync-back cites a PR, and none exists
+- Commit line: `fix/auth-org-composite-indexes`, pushed to origin
+- PR line: https://github.com/udecode/kitcn/pull/397
+- Issue line: closed by `Fixes #382` in the PR body on merge
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red at both layers, browser N/A
@@ -501,7 +501,7 @@ Final handoff contract:
     add an org fixture app, and did not fix siwe/device-authorization - all
     outside the issue's stated scope with no repro in hand.
 - Verified: see Verification evidence.
-- PR body verified: N/A - no PR created.
+- PR body verified: `gh pr view 397 --json body` matches the final handoff.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -525,9 +525,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: local only on `issue-382`; push not performed
-- PR: N/A - explicit user decline
-- Issue: N/A - no PR to cite
+- Commit: pushed on `fix/auth-org-composite-indexes`
+- PR: https://github.com/udecode/kitcn/pull/397
+- Issue: #382, closed on merge via `Fixes #382`
 - Browser proof: N/A
 - Caveats: see Open risks
 
@@ -577,3 +577,20 @@ High-risk note:
 Timeline:
 - 2026-08-21 Implementation, verification, and two clean autoreview passes
   completed; committed locally without push or PR per user decline.
+- 2026-08-21 User requested a PR. Branch renamed to
+  `fix/auth-org-composite-indexes`, `bun check` lanes all proven green, pushed,
+  and PR #397 opened.
+
+`bun check` blocker log:
+- Run 1 failed with one non-reproducing `test:bun` failure (1288 tests
+  registered vs 1290 on green runs); the harness's per-failure block was lost
+  from the captured log, and a standalone `bun test` returned 1290 pass / 0 fail.
+- Run 2 passed `check:ci` and `test:verify`, then failed `test:runtime` with
+  `EADDRINUSE 127.0.0.1:3211` and `:::3005`.
+- Root cause: `test:runtime` binds fixed ports, and sibling Conductor workspaces
+  were running concurrently - `lsof` showed pid 54871 holding 3211, plus live
+  `moab` and `mbabane` workspace processes. Not repo code, and not this diff.
+- Resolution: reran `bun run test:runtime` alone -> exit 0, zero `EADDRINUSE`,
+  `Auth smoke passed against http://localhost:3005`. Every `bun check` lane is
+  green; they simply could not all pass inside one process while neighbouring
+  workspaces held the ports. Sibling workspace processes were left untouched.
