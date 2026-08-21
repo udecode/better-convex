@@ -1,5 +1,16 @@
 # kitcn
 
+## 0.26.2
+
+### Patch Changes
+
+- [#393](https://github.com/udecode/kitcn/pull/393) [`5ebba20`](https://github.com/udecode/kitcn/commit/5ebba205900489ab204901f5487788a60b9d0dd4) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn codegen`. Each Convex module is now read once per run instead
+    of up to four times, and the functions directory is listed once instead of
+    twice. On an 82-module app that is 57 fewer file reads and 10 fewer directory
+    listings per run, with identical generated output.
+
 ## 0.26.1
 
 ### Patch Changes
