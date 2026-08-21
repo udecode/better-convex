@@ -302,7 +302,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | See Verification evidence: 7/7 clearing tests, 18/18 btree, 25/25 schema-integration, full `bun run test` green |
-| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR_URL |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/424 |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Recorded in `Pre-solution issue challenge`: valid, reproduced, proceed |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | Source-level repro succeeded at the first rung; browser/visual rungs N/A (no rendered output) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | 2 failing tests with measured baselines: 201 vs 15 node writes, 15 vs 3 bucket writes |
@@ -322,12 +322,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | See `High-risk note` below |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent-native surface touched |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no missing-module or resolution failures; every failure was explained by the diff |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | COMMIT_SHA |
-| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` green, pushed, PR opened: PR_URL |
-| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must use the PR #270 emoji format and must not self-link | BODY_PROOF |
-| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | EVIDENCE_PROOF |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `7cd7a13a` "fix(orm): drop wasted per-key work from aggregate index clears", plus `docs(plans): record PR #424` recording this PR; whole checkout staged |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0 (lint, typecheck, 1317 bun + 873 vitest, CLI, concave, fixtures:check, test:verify, test:runtime); pushed to `fix/drop-wasted-aggregate-index-clear-work`; PR https://github.com/udecode/kitcn/pull/424 |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must use the PR #270 emoji format and must not self-link | `gh pr view 424 --json body` -> PR #270 emoji format confirmed: `🐛 Fixes #417`, `🧭 Task plan: ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, bold emoji Outcome/Caveat/Design/Verified; `<!-- auto-release:start -->` preserved; `grep -c "pull/424"` -> 0, so no self-link |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | Body line `🧭 Task plan: docs/plans/417-drop-wasted-clear-work.md`; the plan is committed at the PR head and names PR #424 |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof and no images in the body |
-| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | ISSUE_SYNC |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | https://github.com/udecode/kitcn/issues/417#issuecomment-5376319181 - QA-facing: fixed-in-PR line plus 3 verification steps, no internal file/test/branch references |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | See `Final handoff contract` |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` -> 946 files checked, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | No unbounded scans; searches path-scoped, test output filtered, deep investigation delegated to schema-constrained subagents |
@@ -444,6 +444,7 @@ Verification evidence:
 - `bun lint:fix` (repo root) -> clean, no fixes applied.
 - `bun --cwd packages/kitcn build` -> 71 files, 1577.46 kB total.
 - `bun run fixtures:sync` then `bun run fixtures:check` (repo root) -> "matches fresh `kitcn init` output" for all 8 fixtures.
+- `bun check` (repo root, pre-PR gate) -> exit 0. Covers `bun lint`, `bun typecheck`, `bun run test`, `test:cli`, `test:concave`, `fixtures:check`, `test:verify`, `test:runtime`.
 - Source audit: `rg -n 'deleteIfExists' packages/kitcn/src/orm/aggregate-index/rank-runtime.ts` -> no hits.
 - Source audit: `aggregate-core/schema.ts` imports only `convex/values` + `../orm/{builders,indexes,table}`, all already in the ORM graph, so folding the rank tables onto it adds no transitive import to any Convex entry.
 
@@ -478,9 +479,9 @@ High-risk note:
   metric change lands mid-drain" tests still assert everything is gone at the first BUILDING.
 
 Final handoff contract:
-- Commit line: COMMIT_SHA
-- PR line: PR_URL
-- Issue line: ISSUE_SYNC
+- Commit line: `7cd7a13a` on `fix/drop-wasted-aggregate-index-clear-work`
+- PR line: https://github.com/udecode/kitcn/pull/424
+- Issue line: https://github.com/udecode/kitcn/issues/417#issuecomment-5376319181
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests 2 failing harnesses with measured baselines, browser N/A
@@ -504,7 +505,7 @@ Final handoff contract:
     safe, so changing them would remove the guarantee the fix relies on.
 - Verified: `bun run test`, `bun typecheck`, `bun lint:fix`, `bun --cwd packages/kitcn build`,
   `bun run fixtures:sync`, `bun run fixtures:check`, `autoreview --mode local`
-- PR body verified: BODY_PROOF
+- PR body verified: yes, `gh pr view 424 --json body`; PR #270 format, auto-release block preserved, no self-link
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -528,9 +529,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: COMMIT_SHA
-- PR: PR_URL
-- Issue: ISSUE_SYNC
+- Commit: `7cd7a13a`
+- PR: https://github.com/udecode/kitcn/pull/424
+- Issue: #417 synced
 - Browser proof: N/A: no browser surface
 - Caveats: `example/convex/functions/_generated/dataModel.d.ts` regeneration needs a Convex deployment
 
