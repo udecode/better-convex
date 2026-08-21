@@ -77,8 +77,7 @@ Boundaries:
 - Allowed edit scope: packages/kitcn/src/orm/**, convex/setup.testing.ts,
   convex/orm/limits.stress.test.ts, .changeset, docs/plans.
 - Browser surface: N/A, no rendered output.
-- GitHub issue sync: N/A, user standing preference forbids opening a PR, so
-  there is no fixed-in-PR line to post.
+- GitHub issue sync: PR #422 body carries `🐛 Fixes #407`.
 - Non-goals: hard cascade, `set null` / `set default` / cascade update paths;
   schema changes; the aggregate-index CLEARING repair path itself.
 
@@ -158,7 +157,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal + changeset loaded; testing/tdd not needed beyond the bounded regression file |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | attachment file + `gh issue view 407` |
-| Exact per-PR task ownership | no | N/A: user explicitly forbids opening a PR, so no PR exists to own |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #422 |
 | GitHub comments and attachments read | yes | `gh issue view 407 --json comments` returned an empty comment list |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | recorded above; verdict valid, suggested fix rejected as unsound |
@@ -167,13 +166,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | watermark rejected on backend-source evidence; pivoted to cursor continuation |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: no `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | red first: new vitest file failed 2/3 with the fix stashed, then green |
-| Branch decision for code-changing task | yes | already on `issue-407`, a dedicated non-main branch; no commit made per user decline |
+| Branch decision for code-changing task | yes | renamed `issue-407` -> `fix/orm-soft-cascade-linear-reads` before first push, per the user's branch-name convention |
 | Release artifact decision | yes | `.changeset/khaki-pianos-invent.md`, patch |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user standing preference "Do not create PR under any circumstances, unless user prompts to" is an explicit decline |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR; plan lives at docs/plans/407-orm-soft-cascade-linear-reads.md |
-| GitHub issue sync expectation decision | no | N/A: a fixed-in-PR sync comment requires a PR |
+| Commit / PR expectation decision | yes | user later prompted for a PR, superseding the standing decline; commit + push + PR #422 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body |
+| Task-plan PR body evidence | yes | body line `🧭 Task plan: docs/plans/407-orm-soft-cascade-linear-reads.md`; plan at PR head names PR #422 |
+| GitHub issue sync expectation decision | yes | `🐛 Fixes #407` in the PR body |
 | Output budget strategy recorded | yes | recorded above |
 | Package/API pack selected | yes | package-api pack applied |
 | Public surface or package boundary identified | yes | no public export changes; `ScheduledMutationBatchArgs` shape unchanged |
@@ -266,7 +265,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan| `npx vitest run` + `CONVEX_LIMIT_STRESS=1 npx vitest run convex/orm/limits.stress.test.ts` in /Users/mikey/conductor/workspaces/kitcn/surat-v1: 857 + 12 passed |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice| N/A: user explicitly forbids opening a PR |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice| PR #422 with this dedicated plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation| recorded above: valid, suggested watermark fix rejected on backend-source evidence, pivoted to cursor continuation |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced`| source-level vitest repro reproduced it; browser/visual rungs N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason| fix stashed: 2/3 new tests failed and the stress case failed at 117,177 scanned |
@@ -286,12 +285,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A| runtime behavior change. Failure mode: a forwarded cursor that is not an index-key position would truncate a campaign and strand children. Proof plan: backend-source verification of cursor semantics plus convergence assertions at 100/200/4000 rows. Boundary is right because the alternative resume keys are unsound (`_creationTime` ties) or unbounded (carried skip-ids in scheduler args), and `root-update`/`root-delete` in the same file already forward cursors across mutating batches. |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A| N/A: no `.agents/**`, `.claude/**`, `.codex/**`, skill, hook, command, or prompt change |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A| `Cannot find package kitcn/server` on 6 suites was a stale dist; `bun --cwd packages/kitcn build` fixed it and the suites passed |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker| N/A: user standing preference explicitly declines the commit/PR path |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker| N/A: user standing preference explicitly declines the commit/PR path |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections| N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership| N/A: no PR |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker| one commit staged with `git add -A`, rebased onto origin/main (3bbc6bb3) |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker| `bun check` exit 0 on the rebased branch, pushed, PR #422 opened |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections| verified with `gh pr view 422 --json body` |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership| body names the plan, plan exists at PR head, plan names PR #422 |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A| N/A: no PR and no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker| N/A: a fixed-in-PR sync comment requires a PR |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker| PR body carries `🐛 Fixes #407`, which links and closes it on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason| filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent| `bun lint:fix` — clean |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery| all test/grep output piped through tail/grep; one truncated background log re-run idle instead of dumped |
@@ -314,7 +313,7 @@ Phase / pass table:
 | Intake and source read | done | issue #407 fetched and read, comments empty, repro built | implementation |
 | Implementation | done | cursor continuation on the soft cascade path; opt-in `scanned` counter; new vitest + stress cases; changeset | verification |
 | Verification | done | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | N/A | user explicitly declines the commit/PR path | closeout |
+| Commit / PR / GitHub sync | done | rebased onto origin/main, `bun check` exit 0, pushed, PR #422 | closeout |
 | Closeout | done | autoreview run, plan complete | final response |
 
 Findings:
@@ -489,10 +488,9 @@ Source-listed case matrix:
 | Hard cascade unaffected | issue states hard mode is fine | limits.stress.test.ts existing cases C/D | passing | still passing | 12/12 stress cases pass | pass |
 
 Final handoff contract:
-- Commit line: N/A, user explicitly declines the commit/PR path
-- PR line: N/A, same
-- Issue line: #407, left open; no sync comment because a fixed-in-PR line needs
-  a PR
+- Commit line: `fix(orm): resume soft cascade delete instead of replaying its range`
+- PR line: https://github.com/udecode/kitcn/pull/422
+- Issue line: 🐛 Fixes #407, closed by the PR on merge
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red before the fix (1100 scanned at N=100; 117,177 at
@@ -518,7 +516,7 @@ Final handoff contract:
     in the index) needs a schema change on every user table with a soft cascade
     edge. The cursor fixes it with no schema surface and no public API change.
 - Verified: see Verification evidence
-- PR body verified: N/A, no PR
+- PR body verified: `gh pr view 422 --json body`, PR #270 emoji task-style format
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -542,11 +540,11 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A — the user's standing preference is "Do not create PR under any
-  circumstances, unless user prompts to", an explicit decline of the
-  commit/push/PR closeout path. Change is left as a local patch.
-- PR: N/A, same explicit decline.
-- Issue: N/A — a fixed-in-PR sync comment needs a PR, and none exists.
+- Commit: `fix(orm): resume soft cascade delete instead of replaying its range`
+  on branch `fix/orm-soft-cascade-linear-reads`, rebased onto `origin/main`
+  (`3bbc6bb3`). The branch was renamed from `issue-407` before its first push.
+- PR: https://github.com/udecode/kitcn/pull/422
+- Issue: #407, linked by the PR body's `🐛 Fixes #407` line.
 - Browser proof: N/A, no browser or rendered surface.
 - Caveats: a row inserted behind the cursor mid-campaign is not picked up; the
   scanned counter is opt-in and under-counts an early-broken `for await` over a
