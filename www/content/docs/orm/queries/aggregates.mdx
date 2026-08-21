@@ -211,6 +211,26 @@ const users = await ctx.orm.query.users.findMany({
 
 Access counts via `row._count?.relation ?? 0`. Works on `findMany`, `findFirst`, and `findFirstOrThrow`.
 
+`_count` reads an aggregate index instead of the rows, so it resolves at every
+level of a nested `with:` — including the deepest one, whose children were not
+loaded. Ask for it there to tell a caller how much a tree withheld, rather than
+re-reading the returned nodes to count their children:
+
+```ts showLineNumbers {3,7}
+const comments = await ctx.orm.query.comments.findMany({
+  with: {
+    _count: { replies: true },
+    replies: {
+      limit: 10,
+      with: {
+        _count: { replies: true },
+      },
+    },
+  },
+});
+// comments[0].replies[0]._count?.replies => 4 replies not in this page
+```
+
 ### Mutation `returning({ _count })`
 
 You can also include `_count` in mutation returning selections — handy for returning fresh counts after a write:

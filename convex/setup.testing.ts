@@ -125,6 +125,23 @@ export function convexTest<Schema extends SchemaDefinition<any, any>>(
  * in the returned rows: a query that reads a table twice and a query that reads
  * it once can return exactly the same page. Call this before the query under
  * test and assert on `reads.documents`.
+ *
+ * This swaps `db.get` and `db.query`, and the ORM binds both when it is built.
+ * Install it **before** `withOrm`/`withOrmCtx`, then subtract a snapshot taken
+ * after seeding:
+ *
+ * ```ts
+ * const reads = countDocumentReads(baseCtx);
+ * const ctx = withOrm(baseCtx, schema);
+ * await seed(ctx);
+ * const before = reads.documents;
+ * await queryUnderTest(ctx);
+ * expect(reads.documents - before).toBeLessThanOrEqual(bound);
+ * ```
+ *
+ * Installing it on a context that already carries an ORM counts only the reads
+ * issued directly through `ctx.db`, so an assertion on ORM reads passes against
+ * a constant zero.
  */
 export function countDocumentReads(ctx: { db: GenericDatabaseWriter<any> }): {
   documents: number;
