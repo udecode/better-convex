@@ -1,5 +1,36 @@
 # kitcn
 
+## 0.26.3
+
+### Patch Changes
+
+- [#394](https://github.com/udecode/kitcn/pull/394) [`1317349`](https://github.com/udecode/kitcn/commit/13173495fa8db3d8a0568642981c1cdef4dcdf2b) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Features
+
+  - Support a per-source `index: { name, range }` on `select().union([...])`, so each source walks its own index range instead of re-walking one shared range and filtering the misses in JS.
+
+  ```ts
+  const page = await db.query.messages
+    .select()
+    .union([
+      {
+        index: {
+          name: "by_from_to",
+          range: (q) => q.eq("from", me).eq("to", them),
+        },
+      },
+      {
+        index: {
+          name: "by_from_to",
+          range: (q) => q.eq("from", them).eq("to", me),
+        },
+      },
+    ])
+    .interleaveBy(["createdAt", "id"])
+    .paginate({ cursor: null, limit: 20 });
+  ```
+
+  - Support union sources anchored on different indexes, as long as each source pins its leading fields with `eq` and ends up ordered by the `interleaveBy` fields.
+
 ## 0.26.2
 
 ### Patch Changes
