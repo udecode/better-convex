@@ -364,7 +364,7 @@ Verification evidence:
   across four attempts, from parallel Conductor workspaces holding that fixed
   port. Unreachable from this diff: the commit touches zero files under
   `packages/`, and `tooling/scenarios.ts` never references `setup.testing` or
-  `convex/orm`. CI owns that lane.
+  `convex/orm`. Closed by CI: PR #399 CI passed in 6m21s, covering that lane.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -435,6 +435,7 @@ Timeline:
 - 2026-08-21 Defect reproduced at source layer: documents 2, table 302.
 - 2026-08-21 `{ documents, scanned }` implemented; harness suite green.
 - 2026-08-21 autoreview x2 clean; limit-aware iterator fix + 14th case added.
+- 2026-08-22 branch renamed to test/scan-aware-read-counting; PR #399 opened; CI green.
 - 2026-08-21 Red-proof at HEAD: 15 failures. Full gates green except known flake.
 
 Reboot status:
