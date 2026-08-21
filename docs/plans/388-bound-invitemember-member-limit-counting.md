@@ -287,6 +287,26 @@ Phase / pass table:
 | Commit / PR / GitHub sync | complete | ce3593a5 pushed; PR #392 opened with task-style body | final response |
 | Closeout | complete | bun check green | final response |
 
+CI fix rider (not #388 scope):
+- PR #392's CI failed on `packages/kitcn/src/aggregate-core/btree.vitest.ts`,
+  a pre-existing seed-dependent flake (~1 run in 8) unrelated to this diff.
+- Root cause found and fixed: `btree.ts:858` interpolated a raw `Key` into a
+  debug-log template literal, the only key-logging site in the file that
+  skipped the module's own safe serializer `p()`. `Key = ConvexValue`, so
+  fast-check eventually generated a null-prototype object as a key; it has no
+  `toString`/`valueOf`, so `${}` throws `TypeError: Cannot convert object to
+  primitive value`. `BTREE_DEBUG` is false, but template literals evaluate
+  eagerly, so it threw with logging off.
+- Reproduced deterministically with CI seed 377911460 + shrink path, fixed,
+  re-ran same seed green, then 20/20 unseeded runs green.
+- Added a deterministic regression test. The first version was vacuous: only
+  the newly inserted key still has its original prototype, so the last insert
+  must land on the median. Caught by running it against unfixed code.
+- Ships a `patch` changeset because this is published package code, unlike the
+  example-app change.
+- Doctrine note: this violates one-PR-one-task. It rides along because it is
+  what makes PR #392's CI green; splitting it out is the caller's call.
+
 Findings:
 - `count()` aggregate-index matching is EXACT SET MATCH, not prefix
   (packages/kitcn/src/orm/aggregate-index/runtime.ts:987-1000). So
