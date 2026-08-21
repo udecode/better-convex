@@ -18,6 +18,7 @@ Applied packs:
 Task source:
 - type: GitHub issue
 - id / link: #384 — https://github.com/udecode/kitcn/issues/384
+- PR: #399 — https://github.com/udecode/kitcn/pull/399
 - title: Testing: `countDocumentReads` counts rows returned, not rows scanned behind `.filter()`
 - acceptance criteria:
   1. A scan-counting mode exists alongside the document counter (`{ documents, scanned }`).
@@ -71,8 +72,9 @@ Constraints:
 Boundaries:
 - Source of truth: GitHub issue #384.
 - Allowed edit scope: `convex/setup.testing.ts`, `convex/orm/*.test.ts`, this plan.
+- Branch: `test/scan-aware-read-counting` (renamed from `issue-384` before first push).
 - Browser surface: N/A — no rendered output.
-- GitHub issue sync: N/A — user declined PR; no PR exists to reference.
+- GitHub issue sync: PR #399 opened; `Fixes #384` in the body links it.
 - Non-goals: fixing the cross-index `OR` plan itself (this task makes it
   measurable); renaming `documents` across 30 call sites; touching `packages/`.
 
@@ -151,7 +153,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal; testing policy applied inline, no extra skills earned their keep |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | gh issue view 384 + attachment read first |
-| Exact per-PR task ownership | no | N/A: user explicitly forbids PR creation |
+| Exact per-PR task ownership | yes | PR #399 — this plan owns exactly that PR |
 | GitHub comments and attachments read | yes | issue has 0 comments; attachment read |
 | Video transcript evidence required | no | N/A: no video evidence |
 | Pre-solution issue challenge required | yes | recorded above: partially valid |
@@ -163,10 +165,10 @@ Start Gates:
 | Branch decision for code-changing task | yes | already on issue-384, dedicated to this issue |
 | Release artifact decision | no | N/A: root package is private, packages/ untouched |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user preference explicitly forbids commit/PR |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference |
+| Commit / PR expectation decision | yes | user requested the PR in a follow-up turn |
+| Task-style PR body decision | yes | PR #270 emoji task-style body |
+| Task-plan PR body evidence | yes | plan line in body; plan at head names PR #399 |
+| GitHub issue sync expectation decision | yes | `Fixes #384` in PR body |
 | Output budget strategy recorded | yes | recorded above |
 
 Work Checklist:
@@ -239,7 +241,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | vitest integration suite + bun test + typecheck + lint, all recorded |
-| Exact per-PR task ownership | no | N/A: user explicitly forbids PR creation | No PR in scope |
+| Exact per-PR task ownership | yes | This plan owns exactly PR #399 | PR #399 |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | partially valid; recorded with the disproof of option (a) |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro reproduced it; browser N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | scratch probe: documents 2 over 302 rows, before any edit |
@@ -259,12 +261,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see Open risks: internal convex shape read, loud throw on drift |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no .agents/.claude/.codex/skill/hook/command change |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption signals |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly forbids commit/PR |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly forbids commit/PR |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR to reference; user forbids PR |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | feb68240, whole checkout staged |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | PR #399 opened; `check:ci` exit 0; `test:runtime` blocked by fixed-port contention |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view --json body`, PR #270 emoji format, no self-link |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | body names this plan; plan at PR head names PR #399 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof in body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #384` in PR #399 body |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled above |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint: no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | all test output grep-filtered; source reads range-scoped |
@@ -278,7 +280,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #384 fetched, convex-test + query_impl read | implementation |
 | Implementation | complete | scan counting + 13-case suite + M4 re-seed | verification |
 | Verification | complete | 13/13 new, 174 pre-existing, 1288 bun, typecheck, lint | closeout |
-| Commit / PR / GitHub sync | N/A | user preference explicitly forbids PR | closeout |
+| Commit / PR / GitHub sync | complete | feb68240 pushed; PR #399 opened and bound to this plan | closeout |
 | Closeout | complete | autoreview + check-complete | final response |
 
 Findings:
@@ -355,6 +357,14 @@ Verification evidence:
   13 skipped, 0 failed.
 - `bun typecheck` -> 5 tasks successful.
 - `bun lint` -> no fixes applied.
+- `bun run check:ci` -> exit 0 (lint, typecheck, test, test:cli, test:concave,
+  fixtures:check). `fixtures:check` needed one retry after a bun link `EEXIST`
+  race, then passed.
+- `bun run test:runtime` -> blocked, not failed: `EADDRINUSE 127.0.0.1:3211`
+  across four attempts, from parallel Conductor workspaces holding that fixed
+  port. Unreachable from this diff: the commit touches zero files under
+  `packages/`, and `tooling/scenarios.ts` never references `setup.testing` or
+  `convex/orm`. CI owns that lane.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -367,10 +377,9 @@ Source-listed case matrix:
 | Existing invariants must not regress | — | 7 suites, 30 assertions | 174 pass | 174 pass on `scanned` | passes | done |
 
 Final handoff contract:
-- Commit line: N/A — user preference explicitly forbids commit/PR
-  ("Do not create PR under any circumstances, unless user prompts to").
-- PR line: N/A — same explicit user decline.
-- Issue line: N/A — no PR exists to reference in an issue sync.
+- Commit line: `feb68240 test(orm): count documents scanned behind .filter()`.
+- PR line: https://github.com/udecode/kitcn/pull/399 (base `main`, head `test/scan-aware-read-counting`).
+- Issue line: #384, closed by `Fixes #384` in the PR body.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests red at HEAD (15 failures), browser N/A
@@ -415,9 +424,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A — explicit user decline.
-- PR: N/A — explicit user decline.
-- Issue: N/A — no PR to reference.
+- Commit: feb68240 (plus a follow-up binding this plan to PR #399).
+- PR: #399.
+- Issue: #384 linked via `Fixes #384`.
 - Browser proof: N/A.
 - Caveats: pre-existing `btree.vitest.ts` seed flake.
 
