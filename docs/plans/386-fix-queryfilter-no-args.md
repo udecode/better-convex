@@ -420,6 +420,7 @@ Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | `bun test` 3 failures (`Cannot find module 'kitcn/auth/client'`, `kitcn/dist/orm/index.js`) | 1 | Suspect stale `dist` before suspecting the diff | `bun --cwd packages/kitcn build` → 1297 pass / 0 fail |
+| Published React skill source differed from its installed mirror | 1 | Regenerate from the package-owned source | `bun tooling/sync-kitcn-skill.ts`; byte parity and both Intent checks pass |
 
 Verification evidence:
 - RED before fix: `bun test packages/kitcn/src/react/proxy.test.ts` → 3 pass /
@@ -444,6 +445,16 @@ Verification evidence:
 - Runtime landmine proof: `createHashFn()(['convexQuery','todos:list'])` throws
   `undefined is not a valid Convex value`; guarded by the tightened arity check
   plus an `exact: true` regression test.
+- Autoclosure focused replay: 42 tests pass across React, Solid, cRPC, and HTTP;
+  no type errors.
+- Agent-native proof: published React skill source matches its installed mirror;
+  `bun run intent:validate` and `cd packages/kitcn && bunx intent stale` pass.
+- Autoclosure branch P1 autoreview: clean, patch correct at 0.94 confidence.
+- Deslop: 169 findings before and after, score unchanged; the two added and two
+  resolved pass-through-wrapper occurrences are line-fingerprint movement in
+  the unchanged `hashFn` wrappers.
+- Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0, including fixture parity and every runtime scenario.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
