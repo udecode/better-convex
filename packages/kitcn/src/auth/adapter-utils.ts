@@ -807,13 +807,42 @@ export const listOne = async <
   schema: SchemaDefinition<any, any>,
   betterAuthSchema: BetterAuthDBSchema,
   args: Infer<typeof adapterArgsValidator>
-): Promise<Doc | null> =>
-  (
-    await paginate(ctx, schema, betterAuthSchema, {
-      ...args,
-      paginationOpts: {
-        cursor: null,
-        numItems: 1,
-      },
-    })
-  ).page[0] as Doc | null;
+): Promise<Doc | null> => {
+  let cursor: string | null = null;
+
+  // A page comes back empty either because the row does not exist or because
+  // the scan budget ran out before reaching it. Those are indistinguishable
+  // from `page[0]` alone, and treating the second as "not found" turns a slow
+  // lookup into a wrong one - on `member` it reads as a false "not a member".
+  // So keep consuming pages until a row matches or the query is exhausted.
+  for (;;) {
+    const result: PaginationResult<Doc> = await paginate(
+      ctx,
+      schema,
+      betterAuthSchema,
+      {
+        ...args,
+        paginationOpts: {
+          cursor,
+          numItems: 1,
+        },
+      }
+    );
+
+    if (result.page.length > 0) {
+      return result.page[0] as Doc;
+    }
+    if (result.isDone) {
+      return null;
+    }
+    // Guard against a page that neither matches nor advances, which would
+    // otherwise spin forever.
+    if (result.continueCursor === cursor) {
+      throw new Error(
+        `Pagination made no forward progress reading one ${args.model}`
+      );
+    }
+
+    cursor = result.continueCursor;
+  }
+};

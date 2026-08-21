@@ -96,4 +96,59 @@ describe('createSchema', () => {
       '.index("personalOrganizationId", ["personalOrganizationId"])'
     );
   });
+
+  test('indexes the organization plugin composite query shapes', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      exportName: 'authSchema',
+      tables: getAuthTables({
+        emailAndPassword: { enabled: true },
+        plugins: [
+          organization({
+            dynamicAccessControl: { enabled: true },
+            teams: { enabled: true },
+          }),
+        ],
+      }),
+    });
+    const indexesOf = (table: string) => {
+      const block = result.code.split(`  ${table}: defineTable({`)[1] ?? '';
+
+      return [...block.split('\n  })')[1]!.matchAll(/\.index\("([^"]+)"/g)].map(
+        ([, name]) => name
+      );
+    };
+
+    // Every org permission check is a two-field findOne on `member`, and
+    // `listMembers` accepts `sortBy` where `role` is the only sortable field.
+    // Composites shadow the auto-emitted single-field index of their first
+    // field, so `organizationId` has to survive too: sorting by `createdAt`
+    // only matches an index of exactly the eq fields.
+    expect(indexesOf('member')).toEqual([
+      'organizationId',
+      'organizationId_role',
+      'organizationId_userId',
+      'userId',
+      'role',
+    ]);
+    expect(indexesOf('teamMember')).toEqual([
+      'teamId',
+      'teamId_userId',
+      'userId',
+    ]);
+    expect(indexesOf('invitation')).toEqual([
+      'email',
+      'email_organizationId_status',
+      'organizationId',
+      'organizationId_status',
+      'role',
+      'teamId',
+      'status',
+      'inviterId',
+    ]);
+    expect(indexesOf('organizationRole')).toEqual([
+      'organizationId',
+      'organizationId_role',
+    ]);
+  });
 });

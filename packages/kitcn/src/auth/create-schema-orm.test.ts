@@ -172,4 +172,35 @@ describe('createSchemaOrm', () => {
     expect(result.code).toContain('activeOrganization: r.one.organization({');
     expect(result.code).toContain('from: r.session.activeOrganizationId,');
   });
+
+  test('indexes the organization plugin composite query shapes', async () => {
+    const result = await createSchemaExtensionOrm({
+      extensionKey: 'auth',
+      exportName: 'authExtension',
+      file: 'convex/lib/plugins/auth/schema.ts',
+      tables: getAuthTables({
+        emailAndPassword: { enabled: true },
+        plugins: [organization({ teams: { enabled: true } })],
+      }),
+    });
+
+    expect(result.code).toContain(
+      'index("organizationId_userId").on(memberTable.organizationId, memberTable.userId)'
+    );
+    expect(result.code).toContain(
+      'index("organizationId_role").on(memberTable.organizationId, memberTable.role)'
+    );
+    expect(result.code).toContain(
+      'index("teamId_userId").on(teamMemberTable.teamId, teamMemberTable.userId)'
+    );
+    expect(result.code).toContain(
+      'index("organizationId_status").on(invitationTable.organizationId, invitationTable.status)'
+    );
+    // A composite shadows the single-field index named after its first field,
+    // so any standalone a query still needs is declared explicitly.
+    expect(result.code).toContain(
+      'index("organizationId").on(memberTable.organizationId)'
+    );
+    expect(result.code).toContain('index("teamId").on(teamMemberTable.teamId)');
+  });
 });

@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { convexTest } from '../../../../convex/setup.testing';
 import { listOne, paginate } from './adapter-utils';
 import { deleteOneHandler, updateOneHandler } from './create-api';
@@ -148,6 +148,106 @@ describe('id where clauses are scoped to the queried table', () => {
       });
 
       expect(doc?._id).toBe(memberId);
+    });
+  });
+});
+
+// Mirrors what `createSchema` emits for the organization plugin's `member`
+// table, composite included.
+const indexedSchema = defineSchema({
+  member: defineTable({
+    organizationId: v.string(),
+    role: v.string(),
+    userId: v.string(),
+  })
+    .index('organizationId', ['organizationId'])
+    .index('organizationId_role', ['organizationId', 'role'])
+    .index('organizationId_userId', ['organizationId', 'userId'])
+    .index('role', ['role'])
+    .index('userId', ['userId']),
+});
+
+// The scan bound is 200 rows, so a member seeded past it is only reachable
+// through an index or through paging.
+const seedOrgMembers = async (ctx: any, count: number) => {
+  for (let index = 0; index < count; index++) {
+    await ctx.db.insert('member', {
+      organizationId: 'org1',
+      role: 'member',
+      userId: `u${index}`,
+    });
+  }
+};
+
+const memberWhere = [
+  { field: 'organizationId', operator: 'eq' as const, value: 'org1' },
+  { field: 'userId', operator: 'eq' as const, value: 'u240' },
+];
+
+describe('two-field member lookups past the scan bound', () => {
+  test('the generated composite index answers without a table scan', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const t = convexTest(indexedSchema);
+      await t.run(async (ctx) => {
+        await seedOrgMembers(ctx, 250);
+
+        const doc: any = await listOne(
+          ctx as any,
+          indexedSchema,
+          betterAuthSchema,
+          { model: 'member', where: memberWhere }
+        );
+
+        expect(doc?.userId).toBe('u240');
+      });
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('an unindexed lookup pages instead of reporting a false miss', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      // `schema` has no composite on `member`, so this is the unindexed path.
+      const t = convexTest(schema);
+      await t.run(async (ctx) => {
+        await seedOrgMembers(ctx, 250);
+
+        const doc: any = await listOne(ctx as any, schema, betterAuthSchema, {
+          model: 'member',
+          where: memberWhere,
+        });
+
+        expect(doc?.userId).toBe('u240');
+      });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Querying without an index on table "member"')
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a genuine miss still resolves to null', async () => {
+    const t = convexTest(indexedSchema);
+    await t.run(async (ctx) => {
+      await seedOrgMembers(ctx, 250);
+
+      const doc = await listOne(ctx as any, indexedSchema, betterAuthSchema, {
+        model: 'member',
+        where: [
+          { field: 'organizationId', operator: 'eq', value: 'org1' },
+          { field: 'userId', operator: 'eq', value: 'nobody' },
+        ],
+      });
+
+      expect(doc ?? null).toBeNull();
     });
   });
 });
