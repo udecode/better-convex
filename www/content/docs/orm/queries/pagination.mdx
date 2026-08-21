@@ -152,6 +152,32 @@ const page = await db.query.messages
   .paginate({ cursor: null, limit: 20 });
 ```
 
+Each source takes `index` and `where`:
+
+- `index: { name, range }` anchors that source on its own index range. It overrides `.withIndex(...)` on the chain, and sources that omit it fall back to the chain index.
+- `where` filters the rows the source's range produces, after the read.
+
+`interleaveBy` fields must be the trailing fields each source is already ordered by — everything before them has to be pinned with `eq` in that source's range. Sources may name different indexes as long as they land on the same trailing fields:
+
+```ts showLineNumbers
+// by_author_likes is (authorId, numLikes); numLikesAndType is (type, numLikes).
+// Pinning the leading field on each leaves both ordered by numLikes.
+const page = await db.query.posts
+  .select()
+  .union([
+    {
+      index: { name: 'by_author_likes', range: (q) => q.eq('authorId', me) },
+    },
+    {
+      index: { name: 'numLikesAndType', range: (q) => q.eq('type', 'text') },
+    },
+  ])
+  .interleaveBy(['numLikes'])
+  .paginate({ cursor: null, limit: 20 });
+```
+
+Anchoring each source is what keeps the read bounded. A shared `.withIndex(...)` plus a per-source `where` makes every source walk the same range and drop the misses after reading them.
+
 ### Pre-pagination transforms
 
 You can apply transforms in order by chaining:
