@@ -46,6 +46,8 @@ Completion threshold:
   request, proven by a bun test that counts token fetches and by a mutation test
   proving the guard is load-bearing; cross-request isolation proven by an
   identity assertion that a module-scope memo fails; repo gates green.
+- PR #401 is open with the task-style body, `Fixes #387`, and this plan named
+  at the PR head.
 - Task closure is legal only when the source-of-truth acceptance criteria are
   satisfied or explicitly narrowed, required verification evidence is recorded,
   code-review and release-artifact gates are closed when applicable, verified
@@ -90,8 +92,8 @@ Boundaries:
   `.changeset/**`.
 - Browser surface: N/A — server-side request/token plumbing, no rendered output
   changes. Proof is the built client bundle, not a rendered page.
-- GitHub issue sync: N/A — user standing preference forbids PRs, so there is no
-  PR to reference; no issue comment posted.
+- GitHub issue sync: PR #401 opened at the user's explicit request; it carries
+  `Fixes #387`, so the issue closes on merge. No separate issue comment.
 - Non-goals: enabling `jwtCache` by default on Start (rejected with evidence,
   see Decisions); unifying `convex/browser` vs `convex/nextjs`; changing Next's
   always-swallow `isUnauthorized` semantics; memoizing inside `createLazyCaller`.
@@ -220,9 +222,9 @@ Start Gates:
 | Release artifact decision | yes | .changeset/eighty-moons-invent.md (minor) |
 | Browser tool decision for browser surface | no | N/A: no browser-rendered output; proof is the built client bundle |
 | Commit / PR expectation decision | partial | commit yes; push/PR N/A by explicit standing user preference |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference; no comment posted |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/387-start-scaffold-per-request-caller-memo.md`; plan is at the PR head and names PR #401 |
+| GitHub issue sync expectation decision | yes | `Fixes #387` in the PR body; no separate comment needed |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | --with package-api |
 | Public surface or package boundary identified | yes | `kitcn/auth/start/server` (convexBetterAuthReactStart) and `kitcn/server` retry path |
@@ -283,6 +285,7 @@ Work Checklist:
 - [x] Commit/PR handling recorded for code-changing work: commit and PR
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
+      (commit + push + PR #401 completed after the user requested a PR)
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason (N/A: no PR created)
       recorded, or blocker recorded.
 - [x] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan (N/A: no PR created)
@@ -325,7 +328,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | all commands under Verification surface run; results under Verification evidence |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR in scope |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #401, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | partially valid; pivoted to the library boundary |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro sufficient; higher rungs N/A (no rendered surface) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | 3/3 cases reproduced before edits |
@@ -345,12 +348,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | public API + runtime change; see High-risk note |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: only the generated kitcn skill mirror changed, from its package source; no hooks/commands/prompts/user-action tooling touched |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption signals; the two infra flakes were network/link races, resolved by retry |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | committed on issue-387 |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit standing user preference forbids PRs |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR created |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR created |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR to reference; user preference forbids PR creation |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `8502bfeb` + plan-sync commit on `fix/start-request-scoped-convex-token` |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` green across every lane, pushed, PR #401 created |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 401 --json body` read back; auto-release block present, no self-link, all required sections present |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | Plan line present; plan committed at PR head naming PR #401 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no images; no browser-rendered output changed |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #387` in PR #401 body links and closes the issue on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | see Final handoff / sync |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint: 936 files, clean |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | one oversized toContain failure dump; assertion narrowed immediately |
@@ -377,7 +380,7 @@ Phase / pass table:
 | Intake and source read | complete | issue + comments fetched; repro built | implementation |
 | Implementation | complete | library memo, scaffold hard cut, retry write-back, docs, changeset | verification |
 | Verification | complete | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | complete | committed locally; PR/issue sync declined by standing user preference | closeout |
+| Commit / PR / GitHub sync | complete | branch renamed to `fix/start-request-scoped-convex-token`, pushed, PR #401 opened with the task-style body | closeout |
 | Closeout | complete | autoreview run; findings resolved | final response |
 
 Findings:
@@ -545,11 +548,12 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: created locally on `issue-387`.
-- PR: N/A — the user's standing preference is "Do not create PR under any
-  circumstances, unless user prompts to." Explicit user decline, not a blocker.
-  Not pushed for the same reason.
-- Issue: N/A — no PR exists to reference; no comment posted.
+- Commit: `8502bfeb` plus a plan-sync commit, on `fix/start-request-scoped-convex-token`
+  (renamed from `issue-387` before the first push, per the user's branch convention).
+- PR: https://github.com/udecode/kitcn/pull/401 —
+  `fix(auth-start): resolve Convex token once per request`. Opened after the
+  user explicitly requested a PR, which overrode their standing default.
+- Issue: #387 closes on merge via `Fixes #387` in the PR body.
 - Browser proof: N/A — no browser-rendered output changed. Replaced by a built
   client/server bundle audit.
 - Caveats: `jwtCache` deliberately stays off by default on Start; a very
