@@ -18,6 +18,7 @@ Applied packs:
 Task source:
 - type: GitHub issue (attachment)
 - id / link: https://github.com/udecode/kitcn/issues/383
+- PR: https://github.com/udecode/kitcn/pull/398 (this plan owns exactly this one PR)
 - title: ORM: aggregate kickoff moves a CLEARING index straight to BUILDING without draining
 - acceptance criteria:
   - `kickoff`'s `metricChanged` branch handles `COUNT_STATUS_CLEARING` explicitly
@@ -165,7 +166,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` + `autogoal` (plan) + `changeset` + `autoreview`; no browser/video/testing skill needed |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | `.context/attachments/github-5214880463/[GITHUB]-383.md` read first |
-| Exact per-PR task ownership | no | N/A: user preference forbids PR creation; no PR exists |
+| Exact per-PR task ownership | yes | PR #398, owned solely by this plan |
 | GitHub comments and attachments read | yes | issue body supplied as attachment; no comments present |
 | Video transcript evidence required | no | N/A: no video evidence |
 | Pre-solution issue challenge required | yes | recorded above; verdict `valid` |
@@ -174,13 +175,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | chose drain-first over "stay CLEARING" and replaced the proposed trust flag with a read-only probe |
 | `docs/solutions` checked for non-trivial existing-code work | yes | no aggregate-index CLEARING entry exists |
 | TDD decision before behavior change or bug fix | yes | red-green: both tests failed with `expected 'BUILDING' to be 'CLEARING'` first |
-| Branch decision for code-changing task | yes | already on `issue-383`, the matching non-`main` branch |
+| Branch decision for code-changing task | yes | renamed `issue-383` -> `fix/drain-clearing-index-before-rebuild` per user branch convention, before any push |
 | Release artifact decision | yes | new `.changeset/wild-donkeys-shave.md`, patch |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user preference explicitly forbids creating a PR under any circumstances unless prompted |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference; user did not request an issue comment |
+| Commit / PR expectation decision | yes | User prompted for a PR; commit `97ac0577` pushed, PR #398 opened |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/383-drain-clearing-before-building.md`; plan present at PR head |
+| GitHub issue sync expectation decision | yes | PR body carries `🐛 Fixes #383`, which closes the issue on merge |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | `--with package-api` |
 | Public surface or package boundary identified | yes | none changed: `setCountState`, `isIndexStateDrained` and `rankAggregateName` are all internal; `orm/aggregate-index/index.ts` exports are untouched |
@@ -201,7 +202,7 @@ Work Checklist:
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
 - [x] Every GitHub PR in scope has its own task plan. This plan owns one exact
-      N/A: no PR in scope; user preference forbids PR creation.
+      PR #398 is the single PR this plan owns.
       PR, owns a not-yet-created PR slice, or records N/A because no PR is in
       scope; a batch plan is not used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
@@ -242,7 +243,7 @@ Work Checklist:
       Bug shape; PR/issue sync N/A.
       requirements, PR body sync, and issue sync when applicable.
 - [x] Commit/PR handling recorded for code-changing work: commit and PR
-      User explicitly declined: 'Do not create PR under any circumstances, unless user prompts to.'
+      User prompted for a PR; commit 97ac0577 pushed and PR #398 opened.
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
@@ -252,7 +253,7 @@ Work Checklist:
       N/A: no PR.
       exists at the PR head, and it identifies the exact PR before autoclosure.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
-      Already on dedicated branch `issue-383`.
+      Renamed to `fix/drain-clearing-index-before-rebuild` before pushing.
       new branch needed, or N/A with reason.
 - [x] Local-env-rot retry policy recorded for any surprising repo-wide failure:
       Stale `packages/kitcn/dist` caused 6 vitest failures; rebuilt and reran to green.
@@ -299,7 +300,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named commands | all green; see Verification evidence |
-| Exact per-PR task ownership | no | N/A | no PR created (user preference) |
+| Exact per-PR task ownership | yes | Record the exact PR | PR #398 |
 | Pre-solution issue challenge verdict | yes | Record verdict | `valid`, reproduced, recorded above |
 | Repro escalation ladder | yes | Record rungs | source-level repro succeeded; higher rungs N/A |
 | Bug reproduced before fix | yes | Record failing repro | both new tests failed `expected 'BUILDING' to be 'CLEARING'` pre-fix |
@@ -319,12 +320,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record note | see Open risks |
 | Agent-native review for agent/tooling changes | no | N/A | no agent-native surface touched |
 | Local install corruption suspected | yes | Reinstall/rerun | 6 vitest failures were stale `packages/kitcn/dist`; `bun --cwd packages/kitcn build` then rerun -> green |
-| Commit created | no | N/A | user preference: do not commit/PR unless prompted |
-| PR create or update | no | N/A | user preference explicitly forbids PR creation |
-| Task-style PR body verified | no | N/A | no PR |
-| PR task evidence verified | no | N/A | no PR |
-| PR proof image hosting | no | N/A | no PR |
-| GitHub issue sync-back | no | N/A | no PR to reference; user did not request an issue comment |
+| Commit created | yes | Stage whole checkout, commit | `97ac0577` fix(orm): drain CLEARING aggregate index before rebuilding it |
+| PR create or update | yes | Run check, push, open PR | pushed to `origin/fix/drain-clearing-index-before-rebuild`; PR #398. `bun check` green except `test:runtime`, blocked by sibling workspaces holding port 3211 |
+| Task-style PR body verified | yes | `gh pr view --json body` | verified: auto-release block, `🐛 Fixes #383`, plan line, `🟢 95-100%`, exact table header, Outcome/Caveat/Design/Verified sections, no self-link |
+| PR task evidence verified | yes | Verify plan line and PR ownership | plan path resolves at PR head and names PR #398 |
+| PR proof image hosting | no | N/A | no browser proof in body |
+| GitHub issue sync-back | yes | Sync issue | `🐛 Fixes #383` in the PR body closes it on merge |
 | Final handoff contract | yes | Fill fields | see Final handoff contract |
 | Final lint | yes | Run lint | `bun lint:fix` then `bun lint` clean (936 files) |
 | Output budget discipline | yes | Verify | all runs tail-capped; cross-file audit delegated to a background workflow |
@@ -348,7 +349,7 @@ Phase / pass table:
 | Reproduction | complete | 2 failing tests: `expected 'BUILDING' to be 'CLEARING'` | implementation |
 | Implementation | complete | drain-first branch + `setCountState` invariant | verification |
 | Verification | complete | vitest 852, bun test 1288, typecheck, lint, build, fixtures:check | closeout |
-| Commit / PR / GitHub sync | N/A | user preference forbids PR; no commit made | closeout |
+| Commit / PR / GitHub sync | complete | commit `97ac0577`, PR #398 | closeout |
 | Closeout | complete | autoreview clean | final response |
 
 Findings:
@@ -461,9 +462,9 @@ Source-listed case matrix:
 | no false positives on the guard | n/a | same file | n/a | drained rank index advances; a rank member never blocks the metric index | 2 positive-path tests | done |
 
 Final handoff contract:
-- Commit line: N/A: user preference forbids commit/PR unless prompted.
-- PR line: N/A: no PR created.
-- Issue line: fixes #383; no issue comment posted (no PR to reference, not requested).
+- Commit line: `97ac0577` on `fix/drain-clearing-index-before-rebuild`.
+- PR line: https://github.com/udecode/kitcn/pull/398
+- Issue line: closes #383 on merge via `🐛 Fixes #383`.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests red (2 new, `expected 'BUILDING' to be 'CLEARING'`), browser N/A
@@ -484,7 +485,7 @@ Final handoff contract:
     own change.
 - Verified: 7 new tests, full repo suites, build, lint, typecheck, fixtures:check,
   autoreview clean.
-- PR body verified: N/A: no PR.
+- PR body verified: `gh pr view 398 --json body` matches the PR #270 task-style contract.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -508,19 +509,21 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A: user preference forbids commit/PR unless prompted. Patch is local.
-- PR: N/A.
-- Issue: #383, fixed locally; no comment posted.
+- Commit: `97ac0577`, plus a follow-up commit recording PR #398 in this plan.
+- PR: #398.
+- Issue: #383, closed on merge by the PR body.
 - Browser proof: N/A.
-- Caveats: `keyDefinitionHash` liveness gap left for a follow-up; one unrelated flaky
-  Better Auth type test observed under full-suite load.
+- Caveats: `keyDefinitionHash` liveness gap left for a follow-up. `test:runtime` blocked by
+  sibling Conductor workspaces holding port 3211. Two unrelated ~5s-timeout flakes seen
+  under full-suite load (`ConvexAuthProvider types`, `package intent metadata`).
 
 Timeline:
 - 2026-08-21T14:16:17.034Z Task goal plan created.
 - 2026-08-21 Reproduced with 2 failing tests (rank + metric).
 - 2026-08-21 Fix landed: drain-first branch + `setCountState` invariant.
 - 2026-08-21 Background audit returned; 3 recommendations applied.
-- 2026-08-21 Full verification green; autoreview clean. No commit/PR per user preference.
+- 2026-08-21 Full verification green; autoreview clean.
+- 2026-08-21 User prompted for a PR. Branch renamed, committed `97ac0577`, pushed, PR #398 opened.
 
 Reboot status:
 | Question | Answer |
