@@ -64,9 +64,10 @@ Constraints:
   graph rather than from discipline.
 - When a GitHub PR is in scope, this plan owns exactly one PR. A coordinating
   batch plan must link a separate task plan for every PR an agent processes.
-- The user explicitly instructed "Do not create PR under any circumstances,
-  unless user prompts to", so the PR half of the default shipping path is
-  declined by the user for this run.
+- The user initially instructed "Do not create PR under any circumstances,
+  unless user prompts to", so the first pass closed local-only. The user then
+  explicitly requested a PR, which lifted that decline; this plan owns exactly
+  one PR, #393.
 - A PR created by this task must use the PR #270 emoji task-style PR body
   contract below, not a generic summary/body from a git helper skill.
 - A task-run PR body must include
@@ -82,8 +83,8 @@ Boundaries:
   `packages/kitcn/src/cli/utils/codegen-file-cache.test.ts` (new), `.changeset`,
   this plan.
 - Browser surface: N/A: CLI-only change with no rendered output.
-- GitHub issue sync: N/A: no PR exists to reference, and the user declined PR
-  creation, so there is no shipped fix to point QA at.
+- GitHub issue sync: satisfied by the PR body's `🐛 Fixes #390` link, which
+  GitHub renders on the issue. No separate comment was requested.
 - Non-goals: jiti's own transitive-graph reads, the `listGeneratedRuntimeFiles`
   walks that must observe mid-run state, and any change to generated output.
 
@@ -170,7 +171,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` plus `autogoal` task template with the package-api pack; `.agents/rules/changeset.mdc` read before writing the changeset |
 | Active goal checked or created | yes | This plan, created via `create-goal-scratchpad.mjs`, renamed to the ticket-prefixed name per repo policy |
 | Source of truth read before edits | yes | Read the issue attachment, then `codegen.ts`, `shared/meta-utils.ts` and `watcher.ts` |
-| Exact per-PR task ownership | no | N/A: user declined PR creation, so no PR exists for this plan to own |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/393 |
 | GitHub comments and attachments read | yes | The attachment is the full issue body; no additional comments were supplied |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | Recorded above; verdict `valid` with a widened fix boundary |
@@ -179,13 +180,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | Read-only cache rejected as unsafe; write and remove invalidation added |
 | `docs/solutions` checked for non-trivial existing-code work | yes | Grepped `docs/solutions` for codegen entries; none covers file-read caching |
 | TDD decision before behavior change or bug fix | yes | Red proof taken against stashed pre-fix `codegen.ts` for both claims |
-| Branch decision for code-changing task | yes | Stayed on the existing issue branch `issue-390` |
+| Branch decision for code-changing task | yes | Work started on `issue-390`; renamed to `fix/codegen-read-each-file-once` before the first push, per the user's branch-naming convention, so the remote branch and PR were created with the right name |
 | Release artifact decision | yes | `.changeset/olive-spies-shake.md`, `kitcn: patch` |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | yes | Commit created on `issue-390`; PR explicitly declined by the user preference "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
-| GitHub issue sync expectation decision | no | N/A: no PR to point QA at, and the user declined outward-facing publication |
+| Commit / PR expectation decision | yes | Commit created, branch pushed, PR #393 opened onto `main` after the user requested it |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used, not the generic summary shape |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/390-codegen-per-run-source-cache.md`; the file exists at the PR head and names PR #393 |
+| GitHub issue sync expectation decision | yes | `🐛 Fixes #390` in the PR body links the fix on the issue; no separate comment was requested |
 | Output budget strategy recorded | yes | Recorded above; measurement emitted as one JSON summary |
 | Package/API pack selected | yes | `--with package-api`, because the diff is inside published `packages/kitcn` |
 | Public surface or package boundary identified | yes | No export change: the new module is CLI-internal and unreachable from `package.json` `exports` |
@@ -204,8 +205,8 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. N/A: the user declined PR
-      creation, so no PR is in scope and no batch plan was substituted.
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly one
+      PR, #393, and no batch plan was substituted.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML. N/A: no video in the source.
 - [x] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -223,12 +224,13 @@ Work Checklist:
       `.changeset/olive-spies-shake.md`.
 - [x] Final handoff shape decided: bug fix with tests, no browser proof, no PR,
       no issue sync.
-- [x] Commit/PR handling recorded for code-changing work: commit created; PR
-      declined by explicit user instruction.
-- [x] PR body shape recorded. N/A: no PR created.
-- [x] PR task evidence recorded. N/A: no PR created.
-- [x] Branch handling recorded for code-changing work: the existing `issue-390`
-      branch was reused, which is the branch the ticket already owns.
+- [x] Commit/PR handling recorded for code-changing work: committed, pushed,
+      and PR #393 opened once the user requested a PR.
+- [x] PR body shape recorded: PR #270 emoji task-style body, verified with `gh pr view --json body`.
+- [x] PR task evidence recorded: body plan line present, plan exists at the PR head, and it names PR #393.
+- [x] Branch handling recorded for code-changing work: renamed `issue-390` to
+      `fix/codegen-read-each-file-once` before the first push, so no remote
+      branch was orphaned.
 - [x] Local-env-rot retry policy recorded. The one env-shaped failure,
       `Cannot find module .../dist/orm/index.js` while measuring `example`, was
       resolved by the required `bun --cwd packages/kitcn build`, not a
@@ -264,7 +266,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | 97 focused tests pass; read/walk A/B and output-equivalence proof recorded in the case matrix |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan | N/A: user declined PR creation |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan | This plan owns PR #393 alone |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Recorded above: `valid`, boundary widened from a read-only cache to a read/write/remove owner |
 | Repro escalation ladder | yes | Record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A reasons | Source-level counter harness reproduced both claims; browser and visual rungs N/A for a CLI |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | Pre-fix `codegen.ts` fails the new test twice over: `functionsDirWalks` expected 1, received 2; `generated/auth.ts` reads expected 1, received 2 |
@@ -284,12 +286,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record realistic failure mode, proof plan, and why the chosen boundary is right | See the High-risk note below |
 | Agent-native review for agent/tooling changes | no | Load `agent-native-reviewer` and close findings | N/A: no agent-native surface changed |
 | Local install corruption suspected | no | Run `bun install` once and rerun the exact failing command | N/A: the missing-module failure was a genuinely absent `packages/kitcn/dist`, fixed by the required package build |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit | Committed on `issue-390`: `perf(codegen): read each file once per run` |
-| PR create or update | no | Run `check`, push, create or update the PR | N/A: the user instruction "Do not create PR under any circumstances, unless user prompts to" is an explicit decline of the PR path |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body` | N/A: no PR created |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR created |
-| PR proof image hosting | no | Replace local image paths with hosted GitHub URLs | N/A: no PR and no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists | N/A: no PR exists to reference and the user declined outward-facing publication |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit | `fix(codegen): read each file once per run` on `fix/codegen-read-each-file-once` |
+| PR create or update | yes | Run `check`, push, create or update the PR, and sync the PR body to the task-style final handoff | `bun check` run on this exact tree before opening; branch pushed; https://github.com/udecode/kitcn/pull/393 opened onto `main` |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body` | Verified: auto-release block preserved, `🐛 Fixes #390`, plan line, `🟢 95-100% confidence`, `\| Phase \| 🧪 Tests \| 🌐 Browser \|` table with Reproduced/Verified rows, and the four bold emoji sections; no self-link |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | Plan line present in the body; plan pushed to the PR head naming PR #393 |
+| PR proof image hosting | no | Replace local image paths with hosted GitHub URLs | N/A: CLI-only change, the body carries no images |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists | `🐛 Fixes #390` in the PR body surfaces the fix on the issue; no separate comment was requested |
 | Final handoff contract | yes | Fill the final handoff fields below | Filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` → 937 files checked, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed | All test and check output piped through `tail` or `grep`; measurement emitted as one JSON object |
@@ -312,7 +314,7 @@ Phase / pass table:
 | Intake and source read | complete | Issue attachment, `codegen.ts`, `shared/meta-utils.ts` and `watcher.ts` read before any edit | implementation |
 | Implementation | complete | `codegen-file-cache.ts` added; every codegen read, write and remove routed through it; duplicate walk hoisted | verification |
 | Verification | complete | Red proof, 97 focused tests, typecheck, lint, package build, `bun check`, `example` output equivalence, read/walk A/B | closeout |
-| Commit / PR / GitHub sync | complete | Committed on `issue-390`; PR and issue sync declined by explicit user instruction | closeout |
+| Commit / PR / GitHub sync | complete | Committed, branch renamed and pushed, PR #393 opened, plan synced to name it | closeout |
 | Closeout | complete | Autoreview clean; plan filled; final handoff recorded | final response |
 
 Findings:
@@ -439,9 +441,9 @@ High-risk note:
   `fs.writeFileSync` and `fs.rmSync` calls leave `codegen.ts` entirely.
 
 Final handoff contract:
-- Commit line: committed on `issue-390` as `perf(codegen): read each file once per run`
-- PR line: N/A: the user instructed "Do not create PR under any circumstances, unless user prompts to"
-- Issue line: N/A: no PR exists to point QA at, and publication was declined
+- Commit line: `fix(codegen): read each file once per run` on `fix/codegen-read-each-file-once`
+- PR line: https://github.com/udecode/kitcn/pull/393
+- Issue line: linked from the PR body via `🐛 Fixes #390`
 - Confidence line: 🟢 95-100% confidence
 - Flow table:
   - Reproduced: tests 🔴 pre-fix walk count 2 and `generated/auth.ts` read count 2, browser ➖ N/A
@@ -465,21 +467,22 @@ Final handoff contract:
 - Verified: focused tests, red proof against pre-fix code, typecheck, lint,
   package build, the full `bun check` gate, autoreview, and byte-identical
   generated output on a real 82-module Convex app.
-- PR body verified: N/A: no PR created
+- PR body verified: `gh pr view 393 --json body` matches the PR #270 emoji contract
 
 Task-style PR body contract:
-- N/A for this run: the user explicitly declined PR creation, so no PR body was
-  written. If a PR is later requested it must follow the PR #270 emoji format:
-  preserve any `<!-- auto-release:start -->` block, open with `🐛 Fixes #390`,
-  then `🧭 Task plan: docs/plans/390-codegen-per-run-source-cache.md`, then
+- Applied to PR #393 in the PR #270 emoji format: the
+  `<!-- auto-release:start -->` block is preserved because a changeset ships in
+  this diff, the body opens with `🐛 Fixes #390`, then
+  `🧭 Task plan: docs/plans/390-codegen-per-run-source-cache.md`, then
   `🟢 95-100% confidence`, then a `| Phase | 🧪 Tests | 🌐 Browser |` table with
   `Reproduced` and `Verified` rows, then `**✅ Outcome**`, `**⚠️ Caveat**`,
-  `**🏗️ Design**` and `**🧪 Verified**` sections, with no self-link to the PR.
+  `**🏗️ Design**` and `**🧪 Verified**` sections. No line links to PR #393
+  itself.
 
 Final handoff / sync:
-- Commit: on `issue-390`, `perf(codegen): read each file once per run`
-- PR: N/A: explicitly declined by the user
-- Issue: N/A: no PR to reference
+- Commit: `fix(codegen): read each file once per run` on `fix/codegen-read-each-file-once`
+- PR: https://github.com/udecode/kitcn/pull/393
+- Issue: #390, linked from the PR body
 - Browser proof: N/A: CLI-only change
 - Caveats: jiti's own repeated reads remain and are out of scope for #390
 
@@ -494,7 +497,10 @@ Timeline:
   byte-identical.
 - 2026-08-21 `bun check` hit a port-3211 collision from a parallel workspace;
   the runtime lane reran clean once the port freed.
-- 2026-08-21 Autoreview clean; plan filled; commit created on `issue-390`.
+- 2026-08-21 Autoreview clean; plan filled; commit created.
+- 2026-08-21 User requested a PR, lifting the earlier decline. Branch renamed
+  `issue-390` -> `fix/codegen-read-each-file-once` before the first push, pushed,
+  and PR #393 opened onto `main` with the task-style body.
 
 Reboot status:
 | Question | Answer |
@@ -514,6 +520,5 @@ Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
   this plan records an explicit user decline, no local patch, analytical,
   blocked or inconclusive outcome, or a real commit/PR blocker.
-- Recorded decline: the user instruction "Do not create PR under any
-  circumstances, unless user prompts to" explicitly declines the PR path. The
-  work is committed locally on `issue-390`.
+- Not applicable now: the user lifted the earlier PR decline and requested a
+  PR, so this work is committed, pushed, and delivered as PR #393.
