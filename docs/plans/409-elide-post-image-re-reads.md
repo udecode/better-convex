@@ -101,9 +101,7 @@ Boundaries:
 - Source of truth: GitHub issue #409.
 - Allowed edit scope: `packages/kitcn/src/orm/**`, `.changeset/`, this plan.
 - Browser surface: N/A — server-side ORM read path, no rendered output.
-- GitHub issue sync: not performed. The user preference forbids opening a PR, so
-  there is nothing to reference in a sync-back comment, and commenting on a
-  public issue is outward-facing. Left to the user.
+- GitHub issue sync: `Fixes #409` in PR #414.
 - Non-goals: argument-less `returning()`; asymptotic read-cost redesign; new
   read-counting infrastructure; docs restructuring.
 
@@ -192,7 +190,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` + `autogoal`; `tdd` skipped (see TDD row), `major-task` not needed (no API redesign) |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | `gh issue view 409` and the attached issue file |
-| Exact per-PR task ownership | no | N/A: user preference forbids opening a PR |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #414 |
 | GitHub comments and attachments read | yes | `gh issue view 409 --json comments` → `[]` |
 | Video transcript evidence required | no | N/A: no video or recording in the source |
 | Pre-solution issue challenge required | yes | recorded above; verdict `partially valid` |
@@ -201,13 +199,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | issue's `returning-count.ts`-only fix rejected; the seam belongs on `GelRelationalQuery` |
 | `docs/solutions` checked for non-trivial existing-code work | yes | no `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | read-count assertions written against measured pre-fix integers and proved red via `git stash` |
-| Branch decision for code-changing task | yes | already on dedicated branch `issue-409` |
+| Branch decision for code-changing task | yes | dedicated branch, renamed `issue-409` -> `fix/orm-elide-post-image-re-reads` before the first push per user branch-naming preference |
 | Release artifact decision | yes | `.changeset/nervous-plums-drum.md` (patch) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | partial | Commit: yes. Push/PR: N/A — user preference states "Do not create PR under any circumstances, unless user prompts to." |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
-| GitHub issue sync expectation decision | no | N/A: syncing back to a public issue is outward-facing and no PR exists to reference; left to the user |
+| Commit / PR expectation decision | yes | Commit, push and PR all completed. The user's standing no-PR preference was lifted by an explicit later request. |
+| Task-style PR body decision | yes | PR #270 emoji format used |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/409-elide-post-image-re-reads.md`; plan present at PR head; names PR #414 |
+| GitHub issue sync expectation decision | yes | `Fixes #409` in the PR body |
 | Output budget strategy recorded | yes | recorded above |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | no export added to `kitcn/orm`; the new count seam is a `static` on `GelRelationalQuery`, so it never lands on the instance type users hold |
@@ -300,7 +298,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | Both new read-amplification suites green (12 tests); proved red on the pre-fix tree via `git stash push -- packages/kitcn/src` |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: user preference forbids opening a PR |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | This plan owns exactly one PR: #414 |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Recorded above; verdict `partially valid`, pivoted the count fix to `GelRelationalQuery` |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | Source-level test repro sufficed; browser/visual rungs N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | Pre-fix read counts: 3/1/1/2 and control+1; see case matrix |
@@ -320,12 +318,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | See Open risks |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling surface touched |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | 6 vitest files failed on `kitcn/server` resolution; root cause was unbuilt `packages/kitcn/dist`, fixed by the required package build, not a reinstall |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Committed on branch `issue-409` |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline - "Do not create PR under any circumstances, unless user prompts to." |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR created |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR created |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no browser proof |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR to reference; commenting on a public issue is outward-facing, left to the user |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Committed on branch `fix/orm-elide-post-image-re-reads` |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0; branch renamed to `fix/orm-elide-post-image-re-reads` before push; PR #414 opened |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 414 --json body` confirms auto-release block, `🐛 Fixes #409`, plan line, `🟢 95-100% confidence`, the exact table header, all four bold emoji sections, and no self-link |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | Body names `docs/plans/409-elide-post-image-re-reads.md`; that file is at the PR head and names PR #414 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof in the body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | PR #414 body carries `Fixes #409`, which closes and links the issue on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | Filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` -> 942 files checked, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Greps capped with `| head`; full-suite logs written to /tmp and grepped rather than streamed |
@@ -349,7 +347,7 @@ Phase / pass table:
 | Investigation | done | 4 parallel source probes + 3 adversarial refutation lenses; composition hole found | implementation |
 | Implementation | done | `insert.ts`, `query.ts`, `returning-count.ts`, `mutation-utils.ts`, `update.ts` | verification |
 | Verification | done | 12 new tests green and proved red pre-fix; 589 ORM tests green; typecheck, build, lint clean | closeout |
-| Commit / PR / GitHub sync | done | committed on `issue-409`; PR and issue sync N/A per user preference | final response |
+| Commit / PR / GitHub sync | done | `bun check` exit 0; pushed `fix/orm-elide-post-image-re-reads`; PR #414 opened with `Fixes #409` | final response |
 | Closeout | done | autoreview run; plan completed | final response |
 
 Findings:
@@ -501,10 +499,9 @@ Source-listed case matrix:
 | `countedEdgesReadCreationTime` predicate | not in source | `returning-count.test.ts` (3 cases) | n/a | true only for `_creationTime`/`createdAt` source fields on the named table | 5 pass | new |
 
 Final handoff contract:
-- Commit line: `e3d7cced` on branch `issue-409` (not pushed)
-- PR line: N/A - user preference forbids opening a PR
-- Issue line: #409 left open; no sync-back comment posted (no PR to reference,
-  and commenting is outward-facing)
+- Commit line: `6f6f9627` (+ plan sync) on branch `fix/orm-elide-post-image-re-reads`, pushed
+- PR line: https://github.com/udecode/kitcn/pull/414
+- Issue line: #409, closed by PR #414 via `Fixes #409`
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red on the pre-fix tree with exact integer read counts, browser N/A
@@ -529,7 +526,7 @@ Final handoff contract:
     aliasing are pre-existing properties of `update()`'s shipped derivation;
     changing them here would split insert and update semantics.
 - Verified: see Verification evidence
-- PR body verified: N/A - no PR created
+- PR body verified: `gh pr view 414 --json body` - PR #270 emoji format with auto-release block, task plan line, and no self-link
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -553,9 +550,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: `e3d7cced` on `issue-409`, not pushed
-- PR: N/A - explicit user decline
-- Issue: #409 not commented on
+- Commit: `6f6f9627` (+ plan sync) on `fix/orm-elide-post-image-re-reads`, pushed
+- PR: #414 https://github.com/udecode/kitcn/pull/414
+- Issue: #409 referenced by `Fixes #409` in PR #414
 - Browser proof: N/A
 - Caveats: see Open risks
 
