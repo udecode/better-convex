@@ -29,7 +29,7 @@ Task source:
   - `_buildBasePipelineStream`, `_buildResidualFilterStream`, the cursor
     multi-probe site, and the cursor scan-fallback site share one owner for
     base-stream construction.
-- caveats: user preference — do NOT create or push a PR.
+- caveats: PR #425 (https://github.com/udecode/kitcn/pull/425) is this plan's exact PR.
 - likely files: `packages/kitcn/src/orm/query.ts`,
   `packages/kitcn/src/orm/where-clause-compiler.ts`, `convex/orm/*.test.ts`,
   `www/content/docs/orm/**`, `packages/kitcn/skills/kitcn/**`.
@@ -153,7 +153,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` + `autogoal` + `autoreview`; `changeset` rule read |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | issue #415 attachment + `gh issue view 415` (no comments) |
-| Exact per-PR task ownership | no | N/A: user explicitly declined a PR |
+| Exact per-PR task ownership | yes | This plan owns exactly PR #425 |
 | GitHub comments and attachments read | yes | attachment read; issue has 0 comments |
 | Video transcript evidence required | no | N/A: no video evidence |
 | Pre-solution issue challenge required | yes | verdict `valid`; 3 issue constraints refuted, see Findings |
@@ -162,13 +162,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | adopted the shared builder; declined the `_buildUnionSourceStream` lowering |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: no `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | red repro first, then fix |
-| Branch decision for code-changing task | yes | already on `issue-415`; no branch change needed |
+| Branch decision for code-changing task | yes | renamed `issue-415` -> `fix/orm-index-union-cursor-pagination` before first push, per user branch convention |
 | Release artifact decision | yes | `.changeset/orm-index-union-pagination.md` (minor) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user explicitly said "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference; user declined outbound GitHub actions |
+| Commit / PR expectation decision | yes | User later requested the PR; committed, pushed, opened #425 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/415-restore-compiled-probefilters-at-orm-stream-sites.md`; plan exists at PR head |
+| GitHub issue sync expectation decision | yes | `🐛 Fixes #415` in the PR body closes the issue on merge |
 | Output budget strategy recorded | yes | recon results artifacted to `/tmp/recon_*.md`; test runs use `--reporter=dot` |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | `MAX_INDEX_UNION_PROBES` newly exported from `where-clause-compiler` (internal module, not re-exported from `orm/index.ts`); no public API signature change |
@@ -261,7 +261,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run named commands | `bun check` exit 0; `bun run test` 1316 bun + 881 vitest pass; `bun typecheck` 5/5; `bun run fixtures:check` 8/8 |
-| Exact per-PR task ownership | no | N/A | User explicitly declined a PR |
+| Exact per-PR task ownership | yes | Record exact PR | PR #425, this plan |
 | Pre-solution issue challenge verdict | yes | Record verdict | `valid`; three issue constraints refuted |
 | Repro escalation ladder | yes | Record ladder | source-level test repro reproduced all four drop sites |
 | Bug reproduced before fix | yes | Failing test | 6 red in `convex/orm/index-union-pagination.test.ts` |
@@ -281,12 +281,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record note | See Open risks |
 | Agent-native review for agent/tooling changes | no | N/A | No `.agents`/`.claude`/`.codex` source change; only the generated skill mirror |
 | Local install corruption suspected | yes | Retry once | `fixtures:check` failed twice on shared bunx cache rot (`Failed to link js-yaml: EEXIST`, then `@babel/core` MODULE_NOT_FOUND under `bunx-501-shadcn@4.3.0`); removing that tmp cache made `fixtures:check` and the full `bun check` pass with exit 0 |
-| Commit created | no | N/A | User explicitly declined commit/PR ("Do not create PR under any circumstances") |
-| PR create or update | no | N/A | Same explicit user decline |
-| Task-style PR body verified | no | N/A | No PR |
-| PR task evidence verified | no | N/A | No PR |
-| PR proof image hosting | no | N/A | No PR |
-| GitHub issue sync-back | no | N/A | No PR exists and the user declined outbound GitHub actions |
+| Commit created | yes | Stage whole checkout, commit | 3e046c49, entire checkout staged |
+| PR create or update | yes | Run check, push, open PR | `bun check` exit 0; pushed; https://github.com/udecode/kitcn/pull/425 |
+| Task-style PR body verified | yes | Verify with gh | `gh pr view 425 --json body` confirms emoji format, plan line, no self-link |
+| PR task evidence verified | yes | Verify plan line + head | Plan path resolves at PR head and names PR #425 |
+| PR proof image hosting | no | N/A | No browser proof images in the body |
+| GitHub issue sync-back | yes | Reference issue | PR #425 body opens with `🐛 Fixes #415` |
 | Final handoff contract | yes | Fill fields | See Final handoff contract |
 | Final lint | yes | `bun lint:fix` | clean, 3 files formatted |
 | Output budget discipline | yes | Verify | recon artifacted; all test output grepped or dot-reported |
@@ -309,7 +309,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #415 read, recon fan-out | implementation |
 | Implementation | complete | shared plan stream builder | verification |
 | Verification | complete | red-to-green tests, full suite, autoreview clean | closeout |
-| Commit / PR / GitHub sync | n/a | user explicitly declined commit/PR | final response |
+| Commit / PR / GitHub sync | complete | 3e046c49 pushed; PR #425 opened | final response |
 | Closeout | complete | plan gates closed | final response |
 
 Findings:
@@ -402,9 +402,9 @@ Source-listed case matrix:
 | pipeline union source without index | must keep chain index | `pipeline.test.ts:143` | exact page | unchanged | passes | preserved |
 
 Final handoff contract:
-- Commit line: N/A: user explicitly declined commit/PR
-- PR line: N/A: user explicitly declined a PR
-- Issue line: N/A: no PR to reference; no outbound GitHub action taken
+- Commit line: 3e046c49 fix(orm): read compiled index-union probes at every stream site
+- PR line: https://github.com/udecode/kitcn/pull/425
+- Issue line: closes #415 via the PR body
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests 6 red, browser N/A
@@ -426,7 +426,7 @@ Final handoff contract:
     their own pinned contracts.
 - Verified: `bun run test`, `bun typecheck`, `bun --cwd packages/kitcn build`,
   `bun run fixtures:check`, `bun lint:fix`, `autoreview --mode local`.
-- PR body verified: N/A: no PR
+- PR body verified: `gh pr view 425 --json body` matches the PR #270 emoji task-style contract
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -450,9 +450,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A: user explicitly declined
-- PR: N/A: user explicitly declined
-- Issue: N/A: no outbound GitHub action
+- Commit: 3e046c49 on `fix/orm-index-union-cursor-pagination`
+- PR: https://github.com/udecode/kitcn/pull/425
+- Issue: #415, closed by PR #425
 - Browser proof: N/A: no browser surface
 - Caveats: index-union default order change; merged-stream `maxScan` overshoot
 
