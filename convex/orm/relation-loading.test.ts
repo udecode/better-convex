@@ -877,47 +877,9 @@ describe('M6.5 Phase 2: Nested Relation Loading', () => {
     });
   });
 
-  describe('Depth Limiting', () => {
-    test('should respect max depth limit of 3', async ({ ctx }) => {
-      // We can't easily test depth > 3 without more tables,
-      // but we can verify depth 3 works and depth limiting is in place
-      const userId = await ctx.db.insert('users', {
-        name: 'Alice',
-        email: 'alice@example.com',
-      });
-
-      const postId = await ctx.db.insert('posts', {
-        text: 'Post',
-        numLikes: 10,
-        type: 'text',
-        authorId: userId,
-      });
-
-      await (ctx.db as any).insert('comments', {
-        text: 'Comment',
-        postId,
-        authorId: userId,
-      });
-
-      const db = ctx.orm;
-
-      // Depth 1: users
-      // Depth 2: users.posts
-      // Depth 3: users.posts.comments
-      const users = await db.query.users.findMany({
-        with: {
-          posts: {
-            with: {
-              comments: true,
-            },
-          },
-        },
-      });
-
-      expect((users[0] as any).posts[0].comments).toBeDefined();
-      expect((users[0] as any).posts[0].comments).toHaveLength(1);
-    });
-  });
+  // Depth limiting itself is owned by `relation-depth.test.ts`: it needs a
+  // self-referencing table to nest a `with` config past the ceiling, which none
+  // of the tables here are.
 });
 
 describe('M6.5 Phase 3: Relation Filters and Limits', () => {
