@@ -2252,18 +2252,22 @@ export class GelRelationalQuery<
 
     if (!withConfig) return;
 
-    // `_loadRelations` throws past the ceiling rather than loading, so relations
-    // beyond it are never read and need no policy. `_count` still resolves at the
-    // boundary, so its target policy is still checked there.
-    const atDepthCeiling = depth >= maxDepth;
+    const relationNames = Object.keys(withConfig).filter(
+      (relationName) => relationName !== '_count'
+    );
+    if (relationNames.length > 0 && depth >= maxDepth) {
+      throw this._createRelationDepthError(
+        tableConfig,
+        relationNames[0],
+        maxDepth
+      );
+    }
 
     for (const [relationName, relationConfig] of Object.entries(withConfig)) {
       if (relationName === '_count') {
         this._assertRelationCountRlsPlan(relationConfig, edges);
         continue;
       }
-
-      if (atDepthCeiling) continue;
 
       const edge = edges.find((entry) => entry.edgeName === relationName);
       // Unknown relations raise their own error while loading.
@@ -7390,9 +7394,10 @@ export class GelRelationalQuery<
     // aggregate index and returns a number, so it stays legal at the boundary --
     // which is what lets the deepest level of a tree report how much it omitted.
     if (relationEntries.length > 0 && depth >= maxDepth) {
-      throw new Error(
-        `${RELATION_DEPTH_ERROR}: '${tableConfig.name}.${relationEntries[0][0]}' nests \`with\` more than ${maxDepth} levels deep. ` +
-          'Trim the nesting, or check whether the config object references itself.'
+      throw this._createRelationDepthError(
+        tableConfig,
+        relationEntries[0][0],
+        maxDepth
       );
     }
 
@@ -7476,6 +7481,17 @@ export class GelRelationalQuery<
     message: string
   ): Error {
     return new Error(`${code}: ${message}`);
+  }
+
+  private _createRelationDepthError(
+    tableConfig: TableRelationalConfig,
+    relationName: string,
+    maxDepth: number
+  ): Error {
+    return new Error(
+      `${RELATION_DEPTH_ERROR}: '${tableConfig.name}.${relationName}' nests \`with\` more than ${maxDepth} levels deep. ` +
+        'Trim the nesting, or check whether the config object references itself.'
+    );
   }
 
   private _remapRelationCountError(

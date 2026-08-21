@@ -10,7 +10,7 @@ import {
 } from 'kitcn/orm';
 import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { describe, expect, it, vi } from 'vitest';
-import { convexTest } from '../setup.testing';
+import { convexTest, countDocumentReads } from '../setup.testing';
 
 const schedulerStub = { runAfter: vi.fn(async () => undefined) };
 const passthroughInternalMutation = ((definition: unknown) =>
@@ -99,10 +99,11 @@ const walkChain = (root: any) => {
 
 const withThread = async (
   chainLength: number,
-  run: (ctx: any) => Promise<void>
+  run: (ctx: any, reads: { documents: number }) => Promise<void>
 ) => {
   const t = convexTest(threadSchema);
   await t.run(async (baseCtx) => {
+    const reads = countDocumentReads(baseCtx as any);
     const client = createOrm({
       capabilities: [aggregateCapability()],
       schema: threadRelations,
@@ -126,7 +127,7 @@ const withThread = async (
     }
 
     await runBackfillToReady(client.api() as any, baseCtx as any);
-    await run(ctx);
+    await run(ctx, reads);
   });
 };
 
@@ -198,7 +199,8 @@ describe('ORM relation depth', () => {
    * a shorter thread simply runs out of children first.
    */
   it('refuses to nest past the ceiling instead of truncating silently', async () => {
-    await withThread(12, async (ctx) => {
+    await withThread(12, async (ctx, reads) => {
+      const before = reads.documents;
       await expect(
         ctx.orm.query.depthThreadNodes.findMany({
           where: { parentId: { isNull: true } },
@@ -206,6 +208,7 @@ describe('ORM relation depth', () => {
           with: { replies: repliesWith(11) },
         })
       ).rejects.toThrow(/RELATION_DEPTH_EXCEEDED/);
+      expect(reads.documents - before).toBeLessThanOrEqual(2);
     });
   });
 });

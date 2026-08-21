@@ -399,6 +399,10 @@ Review fixes:
   `maxDepth` range from 0..10 to 0..5. A public-handler regression test failed on
   explicit `10`; the API now keeps `.max(10).default(10)` and clamps only the
   relation request to `MAX_REPLY_DEPTH`.
+- The next P1 review found over-depth plans were rejected only after loading ten
+  relation levels. The depth test measured 11 document reads before the error;
+  `_assertRlsSelectPlan` now rejects the plan before expansion while leaving a
+  boundary-only `_count` legal, and the same test passes at no more than 2 reads.
 - Agent-native review passes: the published aggregate and ORM skill docs are the
   source owners, their installed mirrors are identical, and both Intent checks
   pass. Deslop has no net findings; its occurrence churn is line movement.
@@ -413,6 +417,7 @@ Error attempts:
 | Read assertion measured 0 both ways | 2 | Install `countDocumentReads` before `withOrm` | counter installed on `baseCtx` first |
 | Static `todoComments` import evaluated environment config before the test stub | 1 | Import the procedure inside `withExampleEnv` | Public-handler regression reaches input validation |
 | Branch autoreview repeated the fixed `maxDepth` finding because uncommitted changes are excluded from branch mode | 1 | Commit the proven fix, then rerun branch review on the pushed head | Pending final branch replay |
+| Over-depth guard threw only after reading every level | 1 | Move the same guard into the existing plan preflight and share its error constructor | Red at 11 reads; green at at most 2 reads |
 
 Verification evidence:
 - `npx vitest run convex/orm/relation-depth.test.ts convex/orm/example-comment-tree-reads.test.ts` -> 6 passed.
@@ -430,7 +435,7 @@ Verification evidence:
 - Agent-native proof: both published skill sources match their installed mirrors;
   `bun run intent:validate` and `cd packages/kitcn && bunx intent stale` pass.
 - Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
-  check` replay exited 0 after the P1 fix, including fixture parity and every
+  check` replay exited 0 after both P1 fixes, including fixture parity and every
   runtime scenario.
 
 Source-listed case matrix:
