@@ -79,8 +79,7 @@ Boundaries:
 - Allowed edit scope: example/convex/functions/**, convex/orm/*.test.ts,
   packages/kitcn/skills/kitcn/references/features/auth-organizations.md.
 - Browser surface: none.
-- GitHub issue sync: N/A until the user asks for a PR (PR creation declined by
-  standing user preference).
+- GitHub issue sync: PR #392 closes #388 via the commit trailer.
 - Non-goals: enforcing MEMBER_LIMIT in `addMember`/`acceptInvitation` (issue
   explicitly defers it); the four genuine `DEFAULT_LIST_LIMIT` list reads;
   count-only `findMany` in todoInternal.ts / admin.ts / ormDemo.ts.
@@ -158,7 +157,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal + autoreview; no niche skill needed |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | gh issue view 388 + attachment |
-| Exact per-PR task ownership | no | N/A: no PR created (standing user decline) |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #392 |
 | GitHub comments and attachments read | yes | issue has 0 comments; attachment read |
 | Video transcript evidence required | no | N/A: no video evidence |
 | Pre-solution issue challenge required | yes | recorded above; verdict valid |
@@ -167,13 +166,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | option 2 chosen over option 1; reasons recorded |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: docs/solutions does not exist in this repo |
 | TDD decision before behavior change or bug fix | yes | red/green read-count test |
-| Branch decision for code-changing task | yes | already on issue-388, not main |
+| Branch decision for code-changing task | yes | renamed issue-388 -> fix/invite-member-seat-count-reads before first push |
 | Release artifact decision | no | N/A: .changeset/config.json ignores example; skill docs are not published package code |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user preference explicitly declines PR creation unless prompted |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: deferred with PR; no outward-facing post without user go-ahead |
+| Commit / PR expectation decision | yes | User requested the PR; committed, pushed, opened #392 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/388-bound-invitemember-member-limit-counting.md`; plan present at PR head |
+| GitHub issue sync expectation decision | yes | `Closes #388` trailer on the commit; PR body links the issue |
 | Output budget strategy recorded | yes | recorded above |
 
 Work Checklist:
@@ -246,7 +245,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | `bunx vitest run convex/orm/example-invite-member-reads.test.ts` red 43 reads / green 4 reads |
-| Exact per-PR task ownership | no | N/A: no PR created (standing user decline) | N/A: no PR created (standing user decline) |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #392 | N/A: no PR created (standing user decline) |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | recorded in Pre-solution issue challenge; verdict valid |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level test repro reproduced it; browser/visual N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | RED: expected 43 to be less than 40 |
@@ -266,12 +265,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | failure mode: transient COUNT_INDEX_BUILDING before backfill. Proof: kitcn dev/deploy auto-backfill on fingerprint change. Boundary is right because the count belongs to the read path, not the caller |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: .agents/skills/kitcn change is generated mirror content, not agent behavior/tooling |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption signals |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly declines PR; no commit requested |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: standing user preference - do not create PR unless prompted |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR yet; outward-facing comment deferred to user |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | ce3593a5 `fix(example): count org seats off aggregateIndex`, whole checkout staged |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0 on this code; https://github.com/udecode/kitcn/pull/392 |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof in body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Closes #388` trailer links PR #392 to the issue |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` 937 files, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output read as claim lists; greps head-capped |
@@ -285,7 +284,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #388 fetched, 29-agent source investigation | implementation |
 | Implementation | complete | 4 files changed, 2 added | verification |
 | Verification | complete | red/green read proof, 465+1288 tests, typecheck, lint, autoreview clean | closeout |
-| Commit / PR / GitHub sync | N/A | standing user preference: do not create PR unless prompted | final response |
+| Commit / PR / GitHub sync | complete | ce3593a5 pushed; PR #392 opened with task-style body | final response |
 | Closeout | complete | bun check green | final response |
 
 Findings:
@@ -401,9 +400,9 @@ Source-listed case matrix:
 | third read at :930 | genuine cancel loop, leave alone | source read | untouched | untouched | unchanged in diff | done |
 
 Final handoff contract:
-- Commit line: N/A - no commit (user preference declines PR; nothing requested)
-- PR line: N/A - standing user preference: do not create PR unless prompted
-- Issue line: #388, not yet synced back (deferred with the PR)
+- Commit line: ce3593a5 fix(example): count org seats off aggregateIndex
+- PR line: https://github.com/udecode/kitcn/pull/392
+- Issue line: #388, closed by the PR's `Closes #388` trailer
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests RED at 43 reads, browser N/A
@@ -426,7 +425,7 @@ Final handoff contract:
     other count-only `findMany` sites are outside this issue.
 - Verified: red/green read proof, convex/ suite, bun test, typecheck, lint,
   autoreview clean, bun check.
-- PR body verified: N/A - no PR
+- PR body verified: `gh pr view 392 --json body` re-read after creation
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -450,9 +449,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A (not requested; user declines PR by standing preference)
-- PR: N/A
-- Issue: #388 open, sync deferred
+- Commit: ce3593a5 on fix/invite-member-seat-count-reads
+- PR: #392
+- Issue: #388, closed by PR trailer
 - Browser proof: N/A
 - Caveats: transient backfill window; invitation writes gain one aggregate
   reconcile
@@ -464,7 +463,7 @@ Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Closeout |
-| Where am I going? | Final handoff; no commit/PR (user standing decline) |
+| Where am I going? | Final handoff; PR #392 open |
 | What is the goal? | Stop inviteMember reading ~200 rows to evaluate a 5-seat limit |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
