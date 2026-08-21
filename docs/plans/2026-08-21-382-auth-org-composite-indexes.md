@@ -464,6 +464,16 @@ Verification evidence:
   0 fail and 848 vitest pass / 0 fail, `bun typecheck` 5/5 successful.
 - Final autoreview: `--mode local --engine claude` -> clean, no
   accepted/actionable findings (0.86).
+- Autoclosure focused replay: 20 schema-generation and adapter-pagination tests
+  pass; no type errors.
+- Agent-native proof: published organization skill source matches its installed
+  mirror; `bun run intent:validate` and `cd packages/kitcn && bunx intent stale`
+  pass.
+- Autoclosure branch P1 autoreview: clean, patch correct at 0.93 confidence.
+- Deslop: 169 findings before and after, score unchanged, with zero occurrence
+  changes.
+- Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0, including fixture parity and every runtime scenario.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
