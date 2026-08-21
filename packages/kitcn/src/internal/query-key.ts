@@ -11,21 +11,26 @@ import { encodeWire } from '../crpc/transformer';
 /**
  * Check if query key is for a Convex query function.
  * Format: ['convexQuery', 'namespace:functionName', { args }]
+ *
+ * Requires the args slot: a 2-element key is a `queryFilter` prefix, never a
+ * cache key, and hashing one would serialize `undefined` args and throw.
  */
 export function isConvexQuery(
   queryKey: readonly unknown[]
 ): queryKey is ['convexQuery', string, Record<string, unknown>] {
-  return queryKey.length >= 2 && queryKey[0] === 'convexQuery';
+  return queryKey.length >= 3 && queryKey[0] === 'convexQuery';
 }
 
 /**
  * Check if query key is for a Convex action function.
  * Format: ['convexAction', 'namespace:functionName', { args }]
+ *
+ * Requires the args slot, for the same reason as {@link isConvexQuery}.
  */
 export function isConvexAction(
   queryKey: readonly unknown[]
 ): queryKey is ['convexAction', string, Record<string, unknown>] {
-  return queryKey.length >= 2 && queryKey[0] === 'convexAction';
+  return queryKey.length >= 3 && queryKey[0] === 'convexAction';
 }
 
 /**

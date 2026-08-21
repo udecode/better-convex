@@ -19,13 +19,12 @@ if (globalThis.document && !globalThis.document.body) {
 expect.extend(matchers);
 
 // Import after DOM globals are registered so Testing Library binds `screen` correctly.
-// Load at setup-time, not inside a running test hook, to avoid Bun 1.3+ hook-context errors.
-const cleanupPromise = import('@testing-library/react').then(
-  ({ cleanup }) => cleanup
-);
+// Awaited here rather than left floating: Testing Library registers its own
+// `beforeAll` at module scope, and Bun 1.3+ rejects that if the import happens to
+// resolve while a test is running.
+const { cleanup } = await import('@testing-library/react');
 
 // Cleanup DOM between tests to avoid cross-test contamination.
-afterEach(async () => {
-  const cleanup = await cleanupPromise;
+afterEach(() => {
   cleanup();
 });

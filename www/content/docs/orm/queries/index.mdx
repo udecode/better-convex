@@ -316,7 +316,7 @@ const users = await db.query.users.findMany({
 });
 ```
 
-Relation filters for `many()` are applied post-fetch. Nested `with:` has a depth limit to prevent infinite recursion. The `limit` and `offset` in `with:` apply per parent relation, not globally.
+Relation filters for `many()` are applied post-fetch. Nested `with:` loads every level you ask for, up to 10 levels deep; a tree that still has rows past that throws `RELATION_DEPTH_EXCEEDED` rather than coming back shorter than you asked for. The `limit` and `offset` in `with:` apply per parent relation, not globally.
 
 <Callout icon={<InfoIcon />}>
 **Note**: For `many()` relations, provide `with.<relation>.limit` or set `defineSchema(..., { defaults: { defaultLimit } })`. Otherwise, use `allowFullScan` on the parent query.

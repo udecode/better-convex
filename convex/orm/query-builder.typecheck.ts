@@ -260,3 +260,34 @@ void db.query.users.min({
 void db.query.users.max({
   field: 'name',
 });
+
+void db.query.posts
+  .select()
+  .union([
+    {
+      index: {
+        name: 'by_author_likes',
+        range: (q) => q.eq('authorId', 'a').gt('numLikes', 3),
+      },
+    },
+    { index: { name: 'numLikesAndType' }, where: { type: 'text' } },
+  ])
+  .interleaveBy(['numLikes'])
+  .paginate({ cursor: null, limit: 20 });
+
+void db.query.posts.select().union([
+  {
+    // @ts-expect-error union source index must name a declared index
+    index: { name: 'by_nothing' },
+  },
+]);
+
+void db.query.posts.select().union([
+  {
+    index: {
+      name: 'by_author_likes',
+      // @ts-expect-error by_author_likes range cannot use a non-index field
+      range: (q) => q.eq('type', 'text'),
+    },
+  },
+]);

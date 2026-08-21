@@ -2430,16 +2430,21 @@ describe('cli/cli', () => {
       expect(authServerSource).toContain(
         "import { convexBetterAuthReactStart } from 'kitcn/auth/start/server';"
       );
+      expect(authServerSource).toContain("import { api } from '@convex/api';");
+      expect(authServerSource).toContain('createCaller');
 
       const serverSource = fs.readFileSync(
         path.join(dir, 'src', 'lib', 'convex', 'server.ts'),
         'utf8'
       );
-      expect(serverSource).toContain('createCallerFactory');
-      expect(serverSource).toContain('@tanstack/react-start/server');
       expect(serverSource).toContain(
-        "import { getToken } from '@/lib/convex/auth-server';"
+        "import { createCaller } from '@/lib/convex/auth-server';"
       );
+      expect(serverSource).toContain('export const caller = createCaller();');
+      // The caller is request-scoped by the library, so app code must not
+      // rebuild it (or its context) per call.
+      expect(serverSource).not.toContain('runServerCall');
+      expect(serverSource).not.toContain('createCallerFactory');
 
       const routeSource = fs.readFileSync(
         path.join(dir, 'src', 'routes', 'api', 'auth', '$.ts'),

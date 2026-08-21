@@ -211,6 +211,38 @@ const users = await ctx.orm.query.users.findMany({
 
 Works on `findMany`, `findFirst`, `findFirstOrThrow`. Access via `row._count?.relation ?? 0`.
 
+`_count` reads an aggregate index rather than the rows, so it resolves at every level of a nested `with:`, including the deepest level returned. Ask for it there instead of re-reading the returned tree to attach counts — that second pass costs one read per node the caller already holds:
+
+```ts
+// ❌ BAD: second pass over nodes already in hand
+const roots = await ctx.orm.query.comments.findMany({
+  where: { parentId: { isNull: true } },
+  limit: 20,
+  with: { replies: { limit: 10 } },
+});
+const ids = collectIds(roots);
+const counts = await ctx.orm.query.comments.findMany({
+  where: { id: { in: ids } },
+  limit: ids.length,
+  columns: { id: true },
+  with: { _count: { replies: true } },
+});
+
+// ✅ GOOD: counted inline, at every level
+const roots = await ctx.orm.query.comments.findMany({
+  where: { parentId: { isNull: true } },
+  limit: 20,
+  with: {
+    _count: { replies: true },
+    replies: {
+      limit: 10,
+      with: { _count: { replies: true } },
+    },
+  },
+});
+// roots[0].replies[0]._count?.replies => replies not in this page
+```
+
 ### Mutation `returning({ _count })`
 
 ```ts

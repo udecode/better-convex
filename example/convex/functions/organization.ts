@@ -8,6 +8,7 @@ import {
   authQuery,
   privateMutation,
 } from '../lib/crpc';
+import { countOrganizationSeats } from './_helpers/member_capacity';
 import { createOrganizationHandler } from './generated/organization.runtime';
 import type { MutationCtx } from './generated/server';
 import {
@@ -895,31 +896,14 @@ export const inviteMember = authMutation
       permissions: { invitation: ['create'] },
     });
 
-    // Check member count limit (5 members max per organization)
-    // Get all members for this organization
-    const members = await ctx.orm.query.member.findMany({
-      where: { organizationId: input.organizationId },
-      limit: DEFAULT_LIST_LIMIT,
-    });
+    // Check member count limit (5 members max per organization),
+    // counting members plus outstanding invitations.
+    const seats = await countOrganizationSeats(ctx, input.organizationId);
 
-    // Check current member count (including pending invitations)
-    const currentMemberCount = members.length;
-
-    // Get pending invitations count
-    // Count pending invitations to check against member limit
-    const pendingInvitations = await ctx.orm.query.invitation.findMany({
-      where: { organizationId: input.organizationId, status: 'pending' },
-      limit: DEFAULT_LIST_LIMIT,
-    }); // Limited query for counting
-
-    const pendingCount = pendingInvitations?.length || 0;
-    const totalCount = currentMemberCount + pendingCount;
-
-    // Check against limit (5 members)
-    if (totalCount >= MEMBER_LIMIT) {
+    if (seats.total >= MEMBER_LIMIT) {
       throw new CRPCError({
         code: 'FORBIDDEN',
-        message: `Organization member limit reached. Maximum ${MEMBER_LIMIT} members allowed (${currentMemberCount} current, ${pendingCount} pending invitations).`,
+        message: `Organization member limit reached. Maximum ${MEMBER_LIMIT} members allowed (${seats.members} current, ${seats.pending} pending invitations).`,
       });
     }
 

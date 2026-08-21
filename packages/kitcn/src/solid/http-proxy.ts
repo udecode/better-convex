@@ -38,6 +38,7 @@ import {
   type DataTransformerOptions,
   getTransformer,
 } from '../crpc/transformer';
+import { hasQueryFilterArgs } from '../internal/query-filter';
 import type { DistributiveOmit, Simplify } from '../internal/types';
 import type { CRPCHttpRouter, HttpRouterRecord } from '../server/http-router';
 import type { HttpProcedure } from '../server/http-types';
@@ -500,16 +501,9 @@ function createRecursiveHttpProxy(
       if (prop === 'queryFilter') {
         return (args?: unknown, filters?: Record<string, unknown>) => {
           // undefined or empty object = no args = match every args variant
-          const hasArgs =
-            args !== undefined &&
-            !(
-              typeof args === 'object' &&
-              args !== null &&
-              Object.keys(args).length === 0
-            );
           return {
             ...filters,
-            queryKey: hasArgs
+            queryKey: hasQueryFilterArgs(args)
               ? buildHttpQueryKey(routeKey, args)
               : buildHttpQueryPrefixKey(routeKey),
           };

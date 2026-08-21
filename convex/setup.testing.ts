@@ -234,6 +234,23 @@ const positionOfId = (sequence: any[], id: unknown, from = 0) => {
  * which makes it blind to exactly the regression these bounds exist to catch: a
  * cross-index `OR` that walks the whole table and returns two rows counts two
  * documents and three hundred scans.
+ *
+ * This swaps `db.get` and `db.query`, and the ORM binds both when it is built.
+ * Install it **before** `withOrm`/`withOrmCtx`, then subtract a snapshot taken
+ * after seeding:
+ *
+ * ```ts
+ * const reads = countDocumentReads(baseCtx);
+ * const ctx = withOrm(baseCtx, schema);
+ * await seed(ctx);
+ * const before = reads.scanned;
+ * await queryUnderTest(ctx);
+ * expect(reads.scanned - before).toBeLessThanOrEqual(bound);
+ * ```
+ *
+ * Installing it on a context that already carries an ORM counts only the reads
+ * issued directly through `ctx.db`, so an assertion on ORM reads passes against
+ * a constant zero.
  */
 export function countDocumentReads(ctx: {
   db: GenericDatabaseWriter<any>;

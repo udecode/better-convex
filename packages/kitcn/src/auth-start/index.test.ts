@@ -20,6 +20,19 @@ describe('auth/start', () => {
     expect(serverSource).toContain("from '@tanstack/react-start/server'");
   });
 
+  test('keeps react out of the server entry', () => {
+    const serverSource = readFileSync(
+      path.join(import.meta.dir, 'server.ts'),
+      'utf8'
+    );
+
+    // React `cache()` is a pass-through outside an RSC request scope, so it can
+    // never memoize anything in TanStack Start. Request scoping comes from
+    // `getRequest()` instead, and this server-only entry must not pull in React.
+    expect(serverSource).not.toContain("from 'react'");
+    expect(serverSource).toContain('getRequest');
+  });
+
   test('keeps the shared loader entry browser-bundleable', async () => {
     const result = await build({
       bundle: true,
@@ -64,6 +77,7 @@ describe('auth/start', () => {
 
     try {
       const auth = convexBetterAuthReactStart({
+        api: {},
         convexSiteUrl: 'https://my-app.convex.site',
         convexUrl: 'https://my-app.convex.cloud',
       });
