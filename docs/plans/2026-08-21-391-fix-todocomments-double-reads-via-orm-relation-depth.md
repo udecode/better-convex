@@ -80,10 +80,11 @@ Boundaries:
   functions, `convex/orm` tests, ORM docs + kitcn skill docs, `.changeset`.
 - Browser surface: N/A: no frontend renders comments (`grep -rin "omment"
   example/src` returns zero matches).
-- GitHub issue sync: not performed; user standing preference is no PR unless
-  asked, and there is no PR to reference.
+- GitHub issue sync: PR #395 opened on user request; issue #391 is linked from
+  the PR body via `Fixes #391`.
 - Non-goals: rearming the two pre-existing vacuous read-bound example tests;
   making the relation depth ceiling user-configurable.
+- Owned PR: https://github.com/udecode/kitcn/pull/395 (this plan owns exactly one PR).
 
 Output budget strategy:
 - Exploration ran as one background workflow whose five lens reports were
@@ -280,7 +281,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | `bun run check:ci` green; both new test files red before the query.ts change and green after |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR; user preference forbids PRs unless asked |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #395, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | recorded above: valid repro, partially-valid diagnosis, ORM boundary chosen |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level integration repro sufficed; browser/visual N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | `git stash push packages/kitcn/src/orm/query.ts` -> relation-depth 3/4 fail, example-comment-tree 2/2 fail with ZodError on missing `user` |
@@ -300,12 +301,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note below |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: `packages/kitcn/skills/**` is published end-user content, not repo agent tooling; no `.agents/**` source, hook, command, or prompt changed |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | `kitcn/server` unresolved on first vitest run; resolved by `bun --cwd packages/kitcn build` per repo rule, not reinstall |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `1f2bc4c8` on branch `issue-391`; not pushed |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline of PR creation |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR to reference; user did not ask for issue sync |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | committed and pushed on `fix/orm-nested-with-depth-and-count` |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | PR #395 opened onto `main` from `fix/orm-nested-with-depth-and-count` |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 395 --json body` matches the PR #270 contract |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | plan line resolves at PR head and names PR #395 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof or images in the body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #391` links the PR to the issue |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint` -> biome + eslint clean over 938 files |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow reports artifacted to /tmp; all test output filtered |
@@ -332,7 +333,7 @@ Phase / pass table:
 | Intake and source read | done | issue #391 read; depth budget mapped and probe-proven | implementation |
 | Implementation | done | query.ts depth budget; example second pass deleted; docs + changeset | verification |
 | Verification | done | red-green on both new suites; check:ci green | closeout |
-| Commit / PR / GitHub sync | partial | committed `1f2bc4c8`; no push/PR/issue sync per user preference | final response |
+| Commit / PR / GitHub sync | done | pushed; PR #395 opened; issue #391 linked | final response |
 | Closeout | done | autoreview closed; plan gates filled | final response |
 
 Findings:
@@ -414,6 +415,7 @@ Verification evidence:
 - `bun --cwd packages/kitcn build` -> 71 files, build complete.
 - `bun tooling/sync-kitcn-skill.ts` -> `.agents/skills/kitcn` mirror updated.
 - `bun run check:ci` -> green (lint, typecheck, test, test:cli, test:concave, fixtures:check).
+- `autoreview --mode local --engine claude` -> clean, 0 accepted/actionable findings.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -425,9 +427,9 @@ Source-listed case matrix:
 | Requested relation silently dropped past depth 3 (not in issue) | n/a | `relation-depth.test.ts` "loads every level the with config asks for" and the example suite | `buildRepliesWith(3)` left level 3 without `user`, so `.parse()` threw a ZodError on any 4-deep thread | all requested levels load | both suites green; red with query.ts stashed (ZodError on missing `user`) | fixed |
 
 Final handoff contract:
-- Commit line: `1f2bc4c8` on `issue-391`, local only (not pushed)
-- PR line: N/A: no PR
-- Issue line: #391 (not synced; no PR to reference and no sync requested)
+- Commit line: on `fix/orm-nested-with-depth-and-count`, pushed
+- PR line: https://github.com/udecode/kitcn/pull/395
+- Issue line: #391, closed by PR #395 via `Fixes #391`
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red before the fix, browser N/A
@@ -451,7 +453,7 @@ Final handoff contract:
     stop a self-referential config, and new public surface for that is
     speculative.
 - Verified: see Verification evidence.
-- PR body verified: N/A: no PR
+- PR body verified: `gh pr view 395 --json body`
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -475,9 +477,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: `1f2bc4c8` (local, not pushed)
-- PR: N/A
-- Issue: #391 not synced
+- Commit: pushed to `fix/orm-nested-with-depth-and-count`
+- PR: https://github.com/udecode/kitcn/pull/395
+- Issue: #391 linked from PR #395
 - Browser proof: N/A
 - Caveats: two pre-existing example read tests remain unarmed (see Findings)
 
@@ -489,6 +491,7 @@ Timeline:
 - Example second pass deleted; tree helper extracted; docs, skill docs, and
   changeset written.
 - `bun run check:ci` green; autoreview closed with no accepted findings.
+- Branch renamed to `fix/orm-nested-with-depth-and-count`, pushed, PR #395 opened.
 
 Reboot status:
 | Question | Answer |
