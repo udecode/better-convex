@@ -183,7 +183,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal (package-api pack) + changeset + autoreview; no others earned their keep |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | gh issue view 416 (body + 0 comments) and the attachment |
-| Exact per-PR task ownership | no | N/A: user explicitly declined PR creation |
+| Exact per-PR task ownership | yes | this plan owns exactly PR #426 |
 | GitHub comments and attachments read | yes | gh issue view 416 --json comments -> 0 comments; attachment read |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | see Pre-solution issue challenge; verdict valid, one constraint corrected |
@@ -192,13 +192,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | adopted, with the nullable guard narrowed to multi-spec only |
 | `docs/solutions` checked for non-trivial existing-code work | yes | docs/solutions/logic-errors/aggregate-isnull-must-probe-the-absent-field-bucket-20260817.md confirms the optional-column storage model |
 | TDD decision before behavior change or bug fix | yes | RED read-count repro written before the fix; stash-verified 5 of 8 fail pre-fix |
-| Branch decision for code-changing task | yes | already on issue-416-v1, which matches the issue |
+| Branch decision for code-changing task | yes | renamed the placeholder `issue-416-v1` to `fix/orm-multi-field-orderby-index-pushdown` before the first push, per the user branch-naming preference |
 | Release artifact decision | yes | .changeset/nine-planets-marry.md (patch) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | commit yes; push/PR declined by explicit user preference |
-| Task-style PR body decision | no | N/A: no PR created (explicit user decline) |
-| Task-plan PR body evidence | no | N/A: no PR created (explicit user decline) |
-| GitHub issue sync expectation decision | no | N/A: issue sync-back is gated on a PR existing; user declined PR |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | body carries `🧭 Task plan: docs/plans/416-orm-multi-field-orderby-index-pushdown.md`; plan is at the PR head and names PR #426 |
+| GitHub issue sync expectation decision | yes | `Fixes #416` in the PR body is the sync-back; no separate issue comment posted (not requested) |
 | Output budget strategy recorded | yes | workflow findings artifacted to /tmp/wf-facts.txt and grepped; single-file test runs |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | no public export change; index-utils.ts is package-internal (only orm/ and cli/utils import it) |
@@ -291,7 +291,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | bunx vitest run convex/orm/order-pushdown-reads.test.ts -> 8 passed; 5 of 8 RED pre-fix (git stash verified) |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR created (explicit user decline) |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #426, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | valid; one constraint corrected (nullable guard is multi-spec only) |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level test repro reproduced it; browser/visual N/A (no rendered output) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | expected 60 to be 5 on a 60-row table with limit 5 |
@@ -312,11 +312,11 @@ Completion Gates:
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: only the generated kitcn skill mirror changed, via its sync script; no .agents/.claude/.codex workflow, hook, command, or prompt touched |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | 7 convex suites failed with Cannot find package kitcn/server; bun --cwd packages/kitcn build fixed all 7 (stale dist, not the diff) |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | single commit at the tip of `issue-416-v1`, whole checkout staged |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user explicitly declined PR creation ("Do not create PR under any circumstances, unless user prompts to") |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR created |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR created |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR and no image proof |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: sync-back references a PR, and PR creation was declined |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0, pushed, PR #426 created with the task-style body |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 426 --json body`: auto-release block preserved, no self-link, all required sections present |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | plan line present, plan committed at PR head, names PR #426 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser surface, so no image proof |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #416` in the PR body links the fix to the issue; no separate comment posted because the user requested only a PR |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | see Final handoff contract |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
@@ -339,7 +339,7 @@ Phase / pass table:
 | Intake and source read | done | issue #416 read, repro RED at 60 reads | implementation |
 | Implementation | done | helper rewrite + 5 call sites + index scoring + docs + changeset | verification |
 | Verification | done | 8/8 new tests, 879 vitest, 1323 bun test, typecheck, lint, build | closeout |
-| Commit / PR / GitHub sync | done | commit created; push/PR/issue-sync declined by user preference | final response |
+| Commit / PR / GitHub sync | done | `bun check` green, pushed, PR #426 opened with the task-style body | final response |
 | Closeout | done | autoreview clean on re-run | final response |
 
 Findings:
@@ -455,9 +455,9 @@ Source-listed case matrix:
 | multi-probe bail (:6404) | separate bail | `in` union case | collect | bounded, order preserved | order asserted both pinned and unpinned primary | done |
 
 Final handoff contract:
-- Commit line: single commit at the tip of `issue-416-v1`, not pushed
-- PR line: N/A: user explicitly declined PR creation
-- Issue line: N/A: issue sync-back references a PR, and PR creation was declined
+- Commit line: single commit, pushed to `fix/orm-multi-field-orderby-index-pushdown`
+- PR line: https://github.com/udecode/kitcn/pull/426
+- Issue line: #416 linked from the PR body via `Fixes #416`
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests RED (60 reads for a limit-5 query; 61 for a relation;
@@ -483,7 +483,7 @@ Final handoff contract:
     order would remove the nullable carve-out entirely, but it silently changes
     shipped single-field results and is a breaking change needing sign-off.
 - Verified: see Verification evidence
-- PR body verified: N/A: no PR created
+- PR body verified: `gh pr view 426 --json body` — auto-release block preserved, emoji task-style sections present, no self-link
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -507,9 +507,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: single commit at the tip of `issue-416-v1`, not pushed
-- PR: N/A: explicit user decline
-- Issue: N/A: sync-back references a PR
+- Commit: single commit, pushed to `fix/orm-multi-field-orderby-index-pushdown`
+- PR: https://github.com/udecode/kitcn/pull/426
+- Issue: #416, linked from the PR body via `Fixes #416`
 - Browser proof: N/A: no browser surface
 - Caveats: nullable sort columns and mixed-direction sorts keep the post-fetch
   sort by design; the pre-existing single-field null-placement divergence is
