@@ -252,18 +252,26 @@ queryClient.setQueryData(queryKey, newData);
 
 ### Query Filters
 
-For advanced cache operations:
+`queryFilter` builds a filter for `invalidateQueries`, `cancelQueries`, `removeQueries`, and friends. Omit `args` to match every args variant of the function:
 
-```tsx showLineNumbers {2-4,7}
-// Create a filter with additional options
+```tsx showLineNumbers {2,5,8}
+// Every cached variant of user.list
+queryClient.invalidateQueries(crpc.user.list.queryFilter());
+
+// Only variants whose args contain `{ status: 'active' }`
+queryClient.invalidateQueries(crpc.user.list.queryFilter({ status: 'active' }));
+
+// Combine with any other TanStack filter option
 const filter = crpc.user.list.queryFilter(
-  {},
+  { status: 'active' },
   { predicate: (query) => query.state.dataUpdatedAt > Date.now() - 60000 }
 );
-
-// Use with invalidateQueries, cancelQueries, etc.
 queryClient.invalidateQueries(filter);
 ```
+
+<Callout icon={<InfoIcon />}>
+**`queryKey` vs `queryFilter`:** `queryKey(args)` is the exact key an entry is stored under — use it for `getQueryData`/`setQueryData`. `queryFilter(args?)` matches on prefix, so partial args match every query whose args contain them.
+</Callout>
 
 ## Actions as Queries
 
