@@ -85,8 +85,8 @@ Boundaries:
   `packages/kitcn/skills/kitcn/references/features/react.md`, `.changeset/**`.
 - Browser surface: N/A: no Convex deployment credentials in this workspace
   (`example/.env.local` and `example/convex/.env` absent).
-- GitHub issue sync: N/A: user preference forbids creating a PR, so there is no
-  fixed-in-PR line to post.
+- GitHub issue sync: post a QA-facing fixed-in-PR comment on #386 referencing
+  https://github.com/udecode/kitcn/pull/396.
 - Non-goals: centralizing every Convex query-key construction site; changing
   `queryKey`, `infiniteQueryKey`, or `mutationKey` arity.
 
@@ -96,8 +96,8 @@ Output budget strategy:
 - Test/lint/typecheck output piped through `tail`/`grep`.
 
 Blocked condition:
-- Nothing blocking. Browser proof is waived for a recorded environment reason,
-  and PR creation is declined by explicit user preference.
+- Nothing blocking. Browser proof is waived for a recorded environment reason;
+  the PR is open at https://github.com/udecode/kitcn/pull/396.
 
 Task state:
 - task_type: bug
@@ -168,7 +168,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` owns workflow; `autogoal` for plan; `changeset` for release artifact; `autoreview` as closeout |
 | Active goal checked or created | yes | docs/plans/386-fix-queryfilter-no-args.md |
 | Source of truth read before edits | yes | attachment + `gh issue view 386 --json title,body,comments` (no comments) |
-| Exact per-PR task ownership | no | N/A: user preference forbids creating a PR |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/396 |
 | GitHub comments and attachments read | yes | issue has zero comments |
 | Video transcript evidence required | no | N/A: no video in source |
 | Pre-solution issue challenge required | yes | recorded above; verdict `valid` |
@@ -177,13 +177,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | pivoted from copy-paste to single shared owner |
 | `docs/solutions` checked for non-trivial existing-code work | yes | directory does not exist |
 | TDD decision before behavior change or bug fix | yes | red-first regression tests written before the fix |
-| Branch decision for code-changing task | yes | already on dedicated `issue-386` branch |
+| Branch decision for code-changing task | yes | dedicated branch, renamed `issue-386` -> `fix/queryfilter-no-args-prefix-key` before first push |
 | Release artifact decision | yes | `.changeset/olive-crabs-sneeze.md` (patch) |
 | Browser tool decision for browser surface | yes | waived: no Convex credentials; owning-layer proof used instead |
-| Commit / PR expectation decision | yes | Commit: yes. Push/PR: N/A — explicit user preference "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR created |
-| Task-plan PR body evidence | no | N/A: no PR created |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference in a sync comment |
+| Commit / PR expectation decision | yes | Commit, push, and PR completed. The user explicitly requested the PR in a follow-up, superseding the earlier no-PR preference |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used on PR #396 |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/386-fix-queryfilter-no-args.md`; plan present at PR head; plan names PR #396 |
+| GitHub issue sync expectation decision | yes | Post a QA-facing comment on #386 naming PR #396 |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | published package runtime behavior changed |
 | Public surface or package boundary identified | yes | `kitcn/react` + `kitcn/solid` `queryFilter` runtime behavior; no type-signature change |
@@ -208,8 +208,8 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. N/A: no PR in scope
-      (explicit user preference).
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly one
+      PR: https://github.com/udecode/kitcn/pull/396.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason. N/A: no video.
 - [x] For public GitHub bug reports, reporter claims are challenged before
@@ -223,11 +223,14 @@ Work Checklist:
 - [x] Implementation fixes the right ownership boundary.
 - [x] Release artifact requirement recorded: new changeset (patch).
 - [x] Final handoff shape decided: bug shape, no PR/issue sync.
-- [x] Commit/PR handling recorded for code-changing work: commit yes; push/PR
-      declined by explicit user preference.
-- [x] PR body shape recorded. N/A: no PR created.
-- [x] PR task evidence recorded. N/A: no PR created.
-- [x] Branch handling recorded: dedicated `issue-386` branch already checked out.
+- [x] Commit/PR handling recorded for code-changing work: committed, pushed, and
+      PR #396 opened after the user explicitly requested a PR.
+- [x] PR body shape recorded: PR #270 emoji task-style body used on PR #396.
+- [x] PR task evidence recorded: body names this plan, the plan is at the PR head,
+      and it identifies PR #396.
+- [x] Branch handling recorded: renamed `issue-386` -> `fix/queryfilter-no-args-prefix-key`
+      before the first push, per the user's branch-naming convention. Safe because
+      the branch had no remote and no PR at rename time.
 - [x] Local-env-rot retry policy recorded: 3 initial `bun test` failures were
       stale `dist`; `bun --cwd packages/kitcn build` cleared them (1297 pass).
 - [x] Workspace authority recorded: all proofs run from repo root against
@@ -260,7 +263,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run named commands | `bun test` 1297 pass / 0 fail; `vitest run` 847 pass, 2 files skipped; `bun typecheck` 5/5 tasks successful; `bun lint` clean |
-| Exact per-PR task ownership | no | — | N/A: no PR created (user preference) |
+| Exact per-PR task ownership | yes | Record the exact PR | https://github.com/udecode/kitcn/pull/396 |
 | Pre-solution issue challenge verdict | yes | Record verdicts | recorded above: reproduced / valid / pivoted boundary |
 | Repro escalation ladder | yes | Record rungs | source-level repro reproduced; browser rung waived for missing Convex credentials |
 | Bug reproduced before fix | yes | Record failing repro | `findAll(queryFilter())` returned `[]`; 2 fail before fix, and 3 fail when the invalidate test is run against stashed pre-fix `proxy.ts` |
@@ -280,12 +283,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record failure mode + boundary | see Open risks |
 | Agent-native review for agent/tooling changes | no | — | N/A: no agent-native surface changed |
 | Local install corruption suspected | yes | Rerun after build | 3 stale-`dist` failures cleared by `bun --cwd packages/kitcn build`; no reinstall needed |
-| Commit created | yes | Create commit | see Final handoff / sync |
-| PR create or update | no | — | N/A: explicit user preference "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body verified | no | — | N/A: no PR created |
-| PR task evidence verified | no | — | N/A: no PR created |
-| PR proof image hosting | no | — | N/A: no PR created |
-| GitHub issue sync-back | no | — | N/A: no PR to reference; user preference bars the PR that a sync comment would announce |
+| Commit created | yes | Create commit | `b58255e2` plus the plan-sync commit on `fix/queryfilter-no-args-prefix-key` |
+| PR create or update | yes | Run `check`, push, open PR, sync body | `bun check` exit 0 (second run; first run died on a parallel-workspace port-3211 collision, not the diff); pushed; PR #396 opened with the task-style body |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | verified: auto-release block, `🐛 Fixes #386`, task-plan line, confidence line, Phase table, bold emoji sections, no self-link |
+| PR task evidence verified | yes | Verify plan line and PR ownership | plan at PR head names PR #396 |
+| PR proof image hosting | no | — | N/A: no browser proof images in the body |
+| GitHub issue sync-back | yes | Post issue comment | QA-facing comment posted on #386 naming PR #396 |
 | Final handoff contract | yes | Fill fields | see Final handoff contract |
 | Final lint | yes | Run lint | `bun lint:fix` then `bun lint` — clean |
 | Output budget discipline | yes | Verify | no unbounded output streamed |
@@ -312,7 +315,7 @@ Phase / pass table:
 | Intake and source read | complete | issue fetched, zero comments; four proxy impls read | implementation |
 | Implementation | complete | shared owner + 4 call sites + arity guard + dedupe | verification |
 | Verification | complete | full bun/vitest/typecheck/lint/build green | closeout |
-| Commit / PR / GitHub sync | complete | commit created; PR/sync N/A by user preference | final response |
+| Commit / PR / GitHub sync | complete | `b58255e2` + plan sync; branch renamed to `fix/queryfilter-no-args-prefix-key`; PR #396; issue #386 synced | final response |
 | Closeout | complete | autoreview clean | final response |
 
 Findings:
@@ -457,12 +460,12 @@ Source-listed case matrix:
 
 Final handoff contract:
 - Commit line: `fix(react,solid): match every args variant from no-args queryFilter`
-- PR line: N/A: user preference forbids creating a PR
-- Issue line: N/A: no PR exists to announce
+- PR line: https://github.com/udecode/kitcn/pull/396
+- Issue line: #386 synced with a QA-facing fixed-in-PR comment
 - Confidence line: 🟢 95-100% confidence
 - Flow table:
   - Reproduced: tests 🔴 (2→3 failing before fix), browser ➖ N/A
-  - Verified: tests 🟢 (full bun + vitest green), browser ➖ N/A
+  - Verified: tests 🟢 `bun check` exit 0, browser ➖ N/A
 - Browser check: N/A: `example/` has no Convex deployment credentials in this
   workspace; the bug lives in the QueryClient key layer and is proved there.
 - Outcome: `crpc.<path>.queryFilter()` with no args now returns a prefix key and
@@ -479,21 +482,23 @@ Final handoff contract:
     site would touch the hot query path for no #386 benefit.
 - Verified: full `bun test`, `vitest run`, `bun typecheck`, `bun lint`,
   package build, plus red-before/green-after proof.
-- PR body verified: N/A: no PR created
+- PR body verified: `gh pr view 396 --json body` matches the task-style contract
 
 Task-style PR body contract:
-- N/A for this run: no PR was created, by explicit user preference. If the user
-  later asks for a PR, use the PR #270 emoji task-style body with
-  `🐛 Fixes #386`, `🧭 Task plan: docs/plans/386-fix-queryfilter-no-args.md`,
-  a `🟢 95-100% confidence` line, the
+- Satisfied on https://github.com/udecode/kitcn/pull/396 using the PR #270 emoji
+  task-style body: preserved `<!-- auto-release:start -->` block (a changeset is
+  in the diff), `🐛 Fixes #386`,
+  `🧭 Task plan: docs/plans/386-fix-queryfilter-no-args.md`,
+  `🟢 95-100% confidence`, the
   `| Phase | 🧪 Tests | 🌐 Browser |` table with `Reproduced`/`Verified` rows,
   and bold emoji `**✅ Outcome**`, `**⚠️ Caveat**`, `**🏗️ Design**`,
-  `**🧪 Verified**` sections.
+  `**🧪 Verified**` sections. No self-link to PR #396 in its own body.
+- Verified with `gh pr view 396 --json body`.
 
 Final handoff / sync:
-- Commit: created on `issue-386`, not pushed
-- PR: N/A: explicit user preference
-- Issue: N/A: no PR to reference
+- Commit: `b58255e2` + plan sync, on `fix/queryfilter-no-args-prefix-key`, pushed
+- PR: https://github.com/udecode/kitcn/pull/396
+- Issue: #386 synced
 - Browser proof: N/A: no Convex credentials in this workspace
 - Caveats: more invalidation is expected and correct; `'skip'` entries now match
 
@@ -527,6 +532,6 @@ Open risks:
   instead of drifting.
 
 Hard closeout guard:
-- A local-only final response is valid here: the user preference
-  "Do not create PR under any circumstances, unless user prompts to" is an
-  explicit decline of the PR path. The commit gate is satisfied.
+- Satisfied by delivery: work is committed, pushed, and shipped as
+  https://github.com/udecode/kitcn/pull/396 after the user explicitly requested
+  a PR, superseding the earlier no-PR preference.
