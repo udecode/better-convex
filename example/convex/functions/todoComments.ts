@@ -63,7 +63,7 @@ export const getCommentThread = publicQuery
   .input(
     z.object({
       commentId: z.string(),
-      maxDepth: z.number().min(0).max(MAX_REPLY_DEPTH).default(MAX_REPLY_DEPTH),
+      maxDepth: z.number().min(0).max(10).default(10),
     })
   )
   .output(
@@ -120,7 +120,11 @@ export const getCommentThread = publicQuery
         todo: true,
         parent: { with: { user: true } },
         ...(input.maxDepth > 0
-          ? { replies: buildRepliesWith(input.maxDepth) }
+          ? {
+              replies: buildRepliesWith(
+                Math.min(input.maxDepth, MAX_REPLY_DEPTH)
+              ),
+            }
           : {}),
       },
     });

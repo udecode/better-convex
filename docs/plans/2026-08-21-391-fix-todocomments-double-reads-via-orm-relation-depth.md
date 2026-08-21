@@ -299,7 +299,7 @@ Completion Gates:
 | Docs and kitcn skill sync changed | yes | Keep `www/**` and `packages/kitcn/skills/kitcn/**` in sync, or record N/A | www relations/queries/aggregates + api-catalog updated; matching skill docs `features/orm.md` and `features/aggregates.md` updated in the same diff |
 | Docs or content changed | yes | For docs-heavy work, use `--template docs`; for incidental docs, verify source-backed claims, links, examples, and rendered output or record N/A | supporting docs; current-state voice, claims source-backed against MAX_RELATION_DEPTH |
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note below |
-| Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: `packages/kitcn/skills/**` is published end-user content, not repo agent tooling; no `.agents/**` source, hook, command, or prompt changed |
+| Agent-native review for agent/tooling changes | yes | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | PASS: published skill sources own the change, installed mirrors are byte-identical, and Intent validation plus stale checks pass |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | `kitcn/server` unresolved on first vitest run; resolved by `bun --cwd packages/kitcn build` per repo rule, not reinstall |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | committed and pushed on `fix/orm-nested-with-depth-and-count` |
 | PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | PR #395 opened onto `main` from `fix/orm-nested-with-depth-and-count` |
@@ -395,6 +395,13 @@ Review fixes:
 - Ceiling test initially passed for the wrong reason: a three-node chain runs out
   of rows before reaching the ceiling, so the guard never fires. Seeded a
   twelve-node chain so rows still exist at depth 10.
+- Autoclosure P1 autoreview found that `getCommentThread` narrowed its accepted
+  `maxDepth` range from 0..10 to 0..5. A public-handler regression test failed on
+  explicit `10`; the API now keeps `.max(10).default(10)` and clamps only the
+  relation request to `MAX_REPLY_DEPTH`.
+- Agent-native review passes: the published aggregate and ORM skill docs are the
+  source owners, their installed mirrors are identical, and both Intent checks
+  pass. Deslop has no net findings; its occurrence churn is line movement.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -404,6 +411,8 @@ Error attempts:
 | `COUNT_INDEX_BUILDING` on `todoComments.by_parent` | 1 | Drive `aggregateBackfill*` handlers as `relation-count.test.ts` does | backfill helper added |
 | `results.page` undefined | 1 | `findMany` only paginates with a `cursor` | passed `cursor: null` |
 | Read assertion measured 0 both ways | 2 | Install `countDocumentReads` before `withOrm` | counter installed on `baseCtx` first |
+| Static `todoComments` import evaluated environment config before the test stub | 1 | Import the procedure inside `withExampleEnv` | Public-handler regression reaches input validation |
+| Branch autoreview repeated the fixed `maxDepth` finding because uncommitted changes are excluded from branch mode | 1 | Commit the proven fix, then rerun branch review on the pushed head | Pending final branch replay |
 
 Verification evidence:
 - `npx vitest run convex/orm/relation-depth.test.ts convex/orm/example-comment-tree-reads.test.ts` -> 6 passed.
@@ -416,6 +425,13 @@ Verification evidence:
 - `bun tooling/sync-kitcn-skill.ts` -> `.agents/skills/kitcn` mirror updated.
 - `bun run check:ci` -> green (lint, typecheck, test, test:cli, test:concave, fixtures:check).
 - `autoreview --mode local --engine claude` -> clean, 0 accepted/actionable findings.
+- Autoclosure focused replay after the P1 fix: 52 tests pass across relation
+  depth, comment-tree reads, and relation loading; no type errors.
+- Agent-native proof: both published skill sources match their installed mirrors;
+  `bun run intent:validate` and `cd packages/kitcn && bunx intent stale` pass.
+- Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0 after the P1 fix, including fixture parity and every
+  runtime scenario.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |

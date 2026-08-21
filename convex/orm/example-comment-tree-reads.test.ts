@@ -254,3 +254,21 @@ test('every returned node reports its reply count, including the deepest', async
     ]);
   });
 });
+
+test('getCommentThread keeps accepting the previous explicit maxDepth', async () => {
+  await withExampleEnv(async () => {
+    const { getCommentThread } = await import(
+      '../../example/convex/functions/todoComments'
+    );
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      await expect(
+        (getCommentThread as any)._handler(baseCtx, {
+          commentId: 'missing-comment',
+          maxDepth: 10,
+        })
+      ).resolves.toBeNull();
+    });
+  });
+});
