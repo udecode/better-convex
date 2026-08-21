@@ -759,6 +759,38 @@ describe('btree matches simpler impl', () => {
     });
   });
 
+  // Splitting a node logs its median key. A null-prototype object has no
+  // `toString`/`valueOf`, so interpolating such a key raw throws
+  // `TypeError: Cannot convert object to primitive value` -- and the template
+  // literal is evaluated eagerly, so it throws even though `BTREE_DEBUG` is
+  // off. Only the newly inserted key still carries the null prototype; keys
+  // already in the node came back through the database with a plain one. So
+  // the last insert must be the one that lands on the median: five inserts at
+  // `minNodeSize: 2` is the smallest split, and `{ a: 2 }` goes in last.
+  test('splitting a node on a key that resists primitive coercion', async () => {
+    const nullProto = (a: number) =>
+      Object.assign(Object.create(null), { a }) as Value;
+    await testBehaviorMatch({
+      values: [
+        nullProto(0),
+        nullProto(1),
+        nullProto(2),
+        nullProto(3),
+        nullProto(4),
+      ],
+      writes: [
+        { type: 'insert', key: 0, value: 0, summand: 0 },
+        { type: 'insert', key: 0.2, value: 0, summand: 0 },
+        { type: 'insert', key: 0.6, value: 0, summand: 0 },
+        { type: 'insert', key: 0.8, value: 0, summand: 0 },
+        { type: 'insert', key: 0.4, value: 0, summand: 0 },
+      ],
+      reads: [],
+      minNodeSize: 2,
+      rootLazy: false,
+    });
+  });
+
   fcTest.prop({
     values: fc.array(arbitraryValue, { minLength: 100, maxLength: 100 }),
     writes: fc.array(arbitraryWrite, { maxLength: 100 }),

@@ -77,6 +77,7 @@ export const authClient = createAuthClient({
 ```ts
 // convex/functions/schema.ts
 import {
+  aggregateIndex,
   convexTable,
   defineSchema,
   id,
@@ -111,6 +112,8 @@ export const member = convexTable(
     index("userId").on(t.userId),
     index("organizationId_userId").on(t.organizationId, t.userId),
     index("organizationId_role").on(t.organizationId, t.role),
+    // Backs `member.count({ where: { organizationId } })` for seat limits.
+    aggregateIndex("by_organization").on(t.organizationId),
   ]
 );
 
@@ -134,6 +137,10 @@ export const invitation = convexTable(
       t.status
     ),
     index("organizationId_status").on(t.organizationId, t.status),
+    // Backs `invitation.count({ where: { organizationId, status } })`.
+    // `count()` index matching is exact-set, so the aggregate key must list
+    // every field the filter constrains.
+    aggregateIndex("by_organization_status").on(t.organizationId, t.status),
   ]
 );
 
@@ -144,6 +151,11 @@ export const session = convexTable("session", {
   activeTeamId: id("team"),
 });
 ```
+
+`count()` requires its aggregate index to be `READY`. Backfill these indexes
+before routing live traffic to the count path. When schema and count code ship
+together, catch only `COUNT_INDEX_BUILDING` and read the exact count from the
+matching native organization index until backfill completes.
 
 ### Teams (Optional)
 
@@ -506,16 +518,18 @@ export const inviteMember = authMutation
       permissions: { invitation: ["create"] },
     });
 
-    // Check member limit
-    const members = await ctx.orm.query.member.findMany({
-      where: { organizationId: input.organizationId },
-      limit: DEFAULT_LIST_LIMIT,
-    });
-    const pending = await ctx.orm.query.invitation.findMany({
-      where: { organizationId: input.organizationId, status: "pending" },
-      limit: DEFAULT_LIST_LIMIT,
-    });
-    if (members.length + pending.length >= MEMBER_LIMIT) {
+    // Check member limit. Count off `aggregateIndex`, never by collecting rows
+    // to read `.length` -- that puts every member and pending invitation into
+    // the transaction's read set to produce two integers.
+    const [members, pending] = await Promise.all([
+      ctx.orm.query.member.count({
+        where: { organizationId: input.organizationId },
+      }),
+      ctx.orm.query.invitation.count({
+        where: { organizationId: input.organizationId, status: "pending" },
+      }),
+    ]);
+    if (members + pending >= MEMBER_LIMIT) {
       throw new CRPCError({
         code: "FORBIDDEN",
         message: `Organization member limit reached. Maximum ${MEMBER_LIMIT} members allowed.`,

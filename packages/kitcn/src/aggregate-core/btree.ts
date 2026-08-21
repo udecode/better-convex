@@ -855,7 +855,7 @@ async function insertIntoNode(
     ) {
       throw new Error(`bad ${newN.items.length}`);
     }
-    log(`splitting node ${newN._id} at ${newN.items[minNodeSize].k}`);
+    log(`splitting node ${newN._id} at ${p(newN.items[minNodeSize].k)}`);
     const topLevel = nodeCounts(newN);
     const subCounts = await subtreeCounts(ctx.db, newN);
     const leftCount = add(
