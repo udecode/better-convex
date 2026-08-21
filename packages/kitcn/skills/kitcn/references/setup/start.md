@@ -34,19 +34,27 @@ export const {
 **Create:** `src/lib/convex/auth-server.ts`
 
 ```ts
+import { api } from "@convex/api";
 import { convexBetterAuthReactStart } from "kitcn/auth/start/server";
 
 export const {
   handler,
   getToken,
+  createCaller,
+  createContext,
   fetchAuthQuery,
   fetchAuthMutation,
   fetchAuthAction,
 } = convexBetterAuthReactStart({
+  api,
   convexUrl: import.meta.env.VITE_CONVEX_URL!,
   convexSiteUrl: import.meta.env.VITE_CONVEX_SITE_URL!,
 });
 ```
+
+`getToken` fetches the Convex token from the auth route. `auth.jwtCache: true`
+reads it from the session cookie instead. Leave it off when the browser Convex
+client is primed from `getToken()`.
 
 For client-side route loaders that fetch protected Convex queries through the
 router `queryClient`, prime the shared Convex client in the root `beforeLoad`
@@ -78,7 +86,7 @@ export const Route = createRootRouteWithContext<{
 });
 ```
 
-Use `runServerCall` or `fetchAuthQuery` for server-side loaders. Use
+Use the request-scoped `caller` or `fetchAuthQuery` for server-side loaders. Use
 `syncConvexAuthForStartLoader` only for client/router loaders that execute
 shared `ConvexQueryClient` queries before `ConvexAuthProvider` mounts.
 
@@ -105,42 +113,20 @@ export const Route = createFileRoute("/api/auth/$" as never)({
 **Create:** `src/lib/convex/server.ts`
 
 ```ts
-import { api } from "@convex/api";
-import { getRequestHeaders } from "@tanstack/react-start/server";
-import { createCallerFactory } from "kitcn/server";
+import { createCaller } from "@/lib/convex/auth-server";
 
-import { getToken } from "@/lib/convex/auth-server";
-
-const { createContext, createCaller } = createCallerFactory({
-  api,
-  convexSiteUrl: import.meta.env.VITE_CONVEX_SITE_URL!,
-  auth: {
-    getToken: async () => {
-      return {
-        token: await getToken(),
-      };
-    },
-  },
-});
-
-type ServerCaller = ReturnType<typeof createCaller>;
-
-async function makeContext() {
-  const headers = await getRequestHeaders();
-  return createContext({ headers });
-}
-
-function createServerCaller(): ServerCaller {
-  return createCaller(async () => {
-    return await makeContext();
-  });
-}
-
-export function runServerCall<T>(fn: (caller: ServerCaller) => Promise<T> | T) {
-  const caller = createServerCaller();
-  return fn(caller);
-}
+export const caller = createCaller();
 ```
+
+`createCaller()` binds to the current request, so every procedure call in a
+request shares one Convex auth token fetch. The module-scope `caller` holds no
+request state; it resolves the current request on each call. Pass a context
+factory (`createCaller(() => createContext({ headers }))`) only to call Convex
+with headers other than the current request's.
+
+Reach `caller` from a `createServerFn` handler or a server route. A route
+`loader` also runs in the browser on client-side navigation, where there is no
+request scope.
 
 Use the docs pattern from `tanstack-start.mdx` for:
 
