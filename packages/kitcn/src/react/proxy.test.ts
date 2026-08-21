@@ -1,5 +1,6 @@
-import { skipToken } from '@tanstack/react-query';
+import { QueryClient, skipToken } from '@tanstack/react-query';
 import { makeFunctionReference } from 'convex/server';
+import { createHashFn } from '../internal/hash';
 import { createCRPCOptionsProxy } from './proxy';
 
 const api = {
@@ -43,6 +44,125 @@ describe('createCRPCOptionsProxy', () => {
       queryKey: ['convexQuery', 'todos:list', { status: 'open' }],
       stale: true,
     });
+  });
+
+  test('queryFilter without args builds a prefix key matching every variant', () => {
+    const proxy = createCRPCOptionsProxy(api, meta);
+
+    // Omitting args (or passing an empty object) means "every args variant",
+    // so the key must stop before the args slot.
+    expect(proxy.todos.list.queryFilter()).toEqual({
+      queryKey: ['convexQuery', 'todos:list'],
+    });
+    expect(proxy.todos.list.queryFilter({})).toEqual({
+      queryKey: ['convexQuery', 'todos:list'],
+    });
+    expect(proxy.workers.run.queryFilter(undefined, { stale: true })).toEqual({
+      queryKey: ['convexAction', 'workers:run'],
+      stale: true,
+    });
+  });
+
+  test('queryFilter without args matches every cached args variant', () => {
+    const proxy = createCRPCOptionsProxy(api, meta);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { queryKeyHashFn: createHashFn() } },
+    });
+
+    queryClient.setQueryData(proxy.todos.list.queryKey({ status: 'open' }), [
+      'a',
+    ]);
+    queryClient.setQueryData(proxy.todos.list.queryKey({ status: 'done' }), [
+      'b',
+    ]);
+    queryClient.setQueryData(proxy.todos.list.queryKey(), ['c']);
+    queryClient.setQueryData(proxy.workers.run.queryKey({ id: 'w1' }), 'other');
+
+    const matched = queryClient
+      .getQueryCache()
+      .findAll(proxy.todos.list.queryFilter());
+
+    expect(matched.map((query) => query.queryKey)).toEqual([
+      ['convexQuery', 'todos:list', { status: 'open' }],
+      ['convexQuery', 'todos:list', { status: 'done' }],
+      ['convexQuery', 'todos:list', {}],
+    ]);
+
+    // Narrowing by args still partial-matches only that variant.
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll(proxy.todos.list.queryFilter({ status: 'open' }))
+        .map((query) => query.queryKey)
+    ).toEqual([['convexQuery', 'todos:list', { status: 'open' }]]);
+  });
+
+  test('invalidateQueries with a no-args filter invalidates every variant', async () => {
+    const proxy = createCRPCOptionsProxy(api, meta);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { queryKeyHashFn: createHashFn() } },
+    });
+
+    queryClient.setQueryData(proxy.todos.list.queryKey({ status: 'open' }), [
+      'a',
+    ]);
+    queryClient.setQueryData(proxy.todos.list.queryKey({ status: 'done' }), [
+      'b',
+    ]);
+    queryClient.setQueryData(proxy.workers.run.queryKey({ id: 'w1' }), 'other');
+
+    await queryClient.invalidateQueries(proxy.todos.list.queryFilter());
+
+    const invalidated = (key: readonly unknown[]) =>
+      queryClient.getQueryCache().find({ queryKey: key, exact: true })?.state
+        .isInvalidated;
+
+    expect(invalidated(proxy.todos.list.queryKey({ status: 'open' }))).toBe(
+      true
+    );
+    expect(invalidated(proxy.todos.list.queryKey({ status: 'done' }))).toBe(
+      true
+    );
+    // Scoped to the one function: a different function is untouched.
+    expect(invalidated(proxy.workers.run.queryKey({ id: 'w1' }))).toBe(false);
+  });
+
+  test('queryFilter prefix key survives skipped entries and exact matching', () => {
+    const proxy = createCRPCOptionsProxy(api, meta);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { queryKeyHashFn: createHashFn() } },
+    });
+
+    // Skipped queries park under a 'skip' sentinel instead of an args object,
+    // and hold no data — `setQueryData(key, undefined)` is a no-op, so the
+    // entry has to be built directly or this proves nothing.
+    queryClient
+      .getQueryCache()
+      .build(queryClient, { queryKey: ['convexQuery', 'todos:list', 'skip'] });
+    queryClient.setQueryData(proxy.todos.list.queryKey({ status: 'open' }), [
+      'a',
+    ]);
+
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll(proxy.todos.list.queryFilter())
+        .map((query) => query.queryKey)
+    ).toEqual([
+      ['convexQuery', 'todos:list', 'skip'],
+      ['convexQuery', 'todos:list', { status: 'open' }],
+    ]);
+
+    // The prefix key is not a cache key, so hashing must not treat it as one.
+    expect(() =>
+      queryClient.invalidateQueries(proxy.todos.list.queryFilter())
+    ).not.toThrow();
+    expect(() =>
+      queryClient.invalidateQueries({
+        ...proxy.todos.list.queryFilter({ status: 'open' }),
+        exact: true,
+      })
+    ).not.toThrow();
   });
 
   test('builds static query options for queries and actions', () => {
