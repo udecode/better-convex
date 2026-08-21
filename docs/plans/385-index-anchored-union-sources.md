@@ -293,57 +293,57 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | pending | Run the command, proof, source audit, or artifact check named in this plan | pending |
-| Exact per-PR task ownership | pending | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | pending |
-| Pre-solution issue challenge verdict | pending | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | pending |
-| Repro escalation ladder | pending | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | pending |
-| Bug reproduced before fix | pending | Record failing test/repro or N/A with reason | pending |
-| Targeted behavior verification | pending | Run focused test/proof for changed behavior or record N/A | pending |
-| TypeScript or typed config changed | pending | Run relevant typecheck | pending |
-| Package exports or file layout changed | pending | Run the relevant package build before final verification and keep generated updates | pending |
-| Package manifests, lockfile, or install graph changed | pending | Run `bun install` and relevant package checks | pending |
-| Agent rules or skills changed | pending | Run `bun install` and verify generated skill sync | pending |
-| Workspace authority proof | pending | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | pending |
-| Browser surface changed | pending | Capture Browser Use proof or record explicit waiver/blocker | pending |
-| Browser final proof | pending | Attach screenshot or exact browser verification caveat when browser proof applies | pending |
-| UI walkthrough | pending | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | pending |
-| Scaffold or fixture output changed | pending | Run `bun run fixtures:sync` and `bun run fixtures:check`, or record N/A | pending |
-| Package behavior or public API changed | pending | Add a changeset or record why no changeset applies | pending |
-| Docs and kitcn skill sync changed | pending | Keep `www/**` and `packages/kitcn/skills/kitcn/**` in sync, or record N/A | pending |
-| Docs or content changed | pending | For docs-heavy work, use `--template docs`; for incidental docs, verify source-backed claims, links, examples, and rendered output or record N/A | pending |
-| High-risk mini gate | pending | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | pending |
-| Agent-native review for agent/tooling changes | pending | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | pending |
-| Local install corruption suspected | pending | Run `bun install` once, rerun the exact failing command, or record N/A | pending |
-| Commit created | pending | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| PR create or update | pending | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | pending |
-| Task-style PR body verified | pending | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | pending |
-| PR task evidence verified | pending | Verify body plan line, plan at PR head, and exact PR ownership | pending |
-| PR proof image hosting | pending | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | pending |
-| GitHub issue sync-back | pending | Post concise issue sync after PR exists, or record N/A/blocker | pending |
-| Final handoff contract | pending | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | pending |
-| Final lint | pending | Run `bun lint:fix` or scoped equivalent | pending |
-| Output budget discipline | pending | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | pending |
-| Timed checkpoint | pending | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | pending |
-| Autoreview for non-trivial implementation changes | pending | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/385-index-anchored-union-sources.md` | pending |
-| Public API / package boundary proof | pending | Source-audit public API, exports, and package boundary impact | pending |
-| Convex bundle/import proof | pending | Audit affected function-entry static graphs or record N/A | pending |
-| CLI/scaffold/generated proof | pending | Prove command contract and regenerate owned output or record N/A | pending |
-| Release artifact classification | pending | Record whether the change is published package behavior/API/types/config/runtime or no published user-visible delta | pending |
-| Published package changeset | pending | If published package users see a delta, load `changeset` and add/update one `.changeset/*.md` per package | pending |
-| No release artifact | pending | If no artifact is needed, record the exact reason: internal-only, docs-only, agent-only, test-only, or no user-visible delta from `main` | pending |
-| Package typecheck/build/test | pending | Run owning package checks or record N/A with reason | pending |
-| Fixture/scaffold generation | pending | Run `bun run fixtures:sync` and `bun run fixtures:check` when scaffold output changed, otherwise N/A | pending |
-| Docs/package skill sync | pending | Synchronize current-state public guidance or record N/A | pending |
-| Docs source-backed claim audit | pending | Verify docs claims against current source or record N/A | pending |
-| Docs links / routes / previews | pending | Verify leaf links, routes, anchors, and preview names or record N/A | pending |
-| Docs MDX/content parser | pending | Run the relevant `www` docs parser/build for MDX/content changes, or record N/A | pending |
-| Kitcn docs sync | pending | If `www/**` changed, update matching `packages/kitcn/skills/kitcn/**` content or record N/A | pending |
-| Agent source / generated sync | pending | Run `bun install` when `.agents/rules/**` changed and verify generated mirrors | pending |
-| Installed lock audit | pending | Verify expected lock entries and removed skills through CLI-managed state | pending |
-| Agent action discoverability | pending | Source-audit the skill/rule path an agent will read | pending |
-| Helper and template smoke | pending | Syntax-check helpers and prove incomplete failure/completed representation when applicable | pending |
-| Agent-native review | pending | Load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted findings, or record N/A | pending |
+| Named verification threshold | yes | Run the named proofs | `bun check` exit 0; see Verification evidence |
+| Exact per-PR task ownership | no | — | N/A: no PR in scope (user preference forbids PR creation) |
+| Pre-solution issue challenge verdict | yes | Record claim, fix, verdicts, boundary, decision | recorded above; verdict `valid`, pivoted from option 1 to option 2 |
+| Repro escalation ladder | yes | Record each rung | source-level typecheck repro + integration repro; browser/visual rungs N/A (no browser surface) |
+| Bug reproduced before fix | yes | Record failing repro | `TS2353 ... 'index' does not exist in type 'FindManyUnionSource<...>'`, then 4 red tests with the runtime fix stashed |
+| Targeted behavior verification | yes | Focused test | `bun x vitest run convex/orm/pipeline.test.ts` -> 32 passed |
+| TypeScript or typed config changed | yes | Typecheck | `bun --cwd convex x tsc --noEmit` clean; `bun typecheck` 5/5 |
+| Package exports or file layout changed | yes | Package build | `bun --cwd packages/kitcn build` -> 71 files |
+| Package manifests, lockfile, or install graph changed | no | — | N/A: no manifest or lockfile change |
+| Agent rules or skills changed | yes | Verify generated skill sync | `bun tooling/sync-kitcn-skill.ts`; `diff -q` shows the mirror is byte-identical to source |
+| Workspace authority proof | yes | Record cwd per proof | `convex/` owns the ORM integration proof; `packages/kitcn` owns the build; `www/` owns the MDX parse |
+| Browser surface changed | no | — | N/A: ORM query API + docs prose |
+| Browser final proof | no | — | N/A |
+| UI walkthrough | no | — | N/A: no UI or rendered output changed |
+| Scaffold or fixture output changed | no | — | N/A: no `init -t` template or scaffold source touched; `fixtures:check` still passed inside `bun check` |
+| Package behavior or public API changed | yes | Add changeset | `.changeset/cuddly-bats-repeat.md` |
+| Docs and kitcn skill sync changed | yes | Keep in sync | `www` pagination/filters/api-reference + `packages/kitcn/skills/kitcn/references/features/orm.md` in the same commit |
+| Docs or content changed | yes | Verify claims, links, examples | every documented shape is covered by a passing test; no new links; no changelog voice |
+| High-risk mini gate | yes | Record failure mode, proof plan, boundary | recorded under Verification evidence |
+| Agent-native review for agent/tooling changes | yes | Close findings | ladder recorded; no findings |
+| Local install corruption suspected | no | — | N/A: the one TS2307 was stale `dist`, resolved by the required package build |
+| Commit created | yes | Commit the checkout | `d52021b4 fix(orm): let union sources anchor their own index range` |
+| PR create or update | no | — | N/A: explicit standing user decline — "Do not create PR under any circumstances, unless user prompts to". Not pushed either, since push here exists only to open the PR. |
+| Task-style PR body verified | no | — | N/A: no PR |
+| PR task evidence verified | no | — | N/A: no PR |
+| PR proof image hosting | no | — | N/A: no PR, no images |
+| GitHub issue sync-back | no | — | N/A: sync-back points QA at a PR; none exists |
+| Final handoff contract | yes | Fill handoff fields | filled below |
+| Final lint | yes | `bun lint:fix` | clean |
+| Output budget discipline | yes | Verify no unbounded output | all searches capped; `bun check` written to a file, read by tail |
+| Timed checkpoint | no | — | N/A: no duration requested |
+| Autoreview for non-trivial implementation changes | yes | Run until no actionable findings | `--mode local --engine claude`: `autoreview clean: no accepted/actionable findings reported` (first run's bundle went stale from concurrent plan edits; rerun on a frozen tree) |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/385-index-anchored-union-sources.md` | passes |
+| Public API / package boundary proof | yes | Source-audit | one optional key added to `FindManyUnionSource`; no export list change; existing `where`-only sources unaffected (test E) |
+| Convex bundle/import proof | yes | Audit static graph | no new imports; `PredicateWhereIndexConfig` already lives in `types.ts` |
+| CLI/scaffold/generated proof | no | — | N/A: no CLI or scaffold surface touched |
+| Release artifact classification | yes | Classify | published package API + runtime delta |
+| Published package changeset | yes | Add changeset | `.changeset/cuddly-bats-repeat.md`, `kitcn: patch` (additive, non-breaking, per `.agents/rules/changeset.mdc`) |
+| No release artifact | no | — | N/A: an artifact was required and added |
+| Package typecheck/build/test | yes | Owning package checks | build + `bun typecheck` + `bun run test` all pass |
+| Fixture/scaffold generation | no | — | N/A: no scaffold output changed |
+| Docs/package skill sync | yes | Synchronize guidance | done in the same commit |
+| Docs source-backed claim audit | yes | Verify against source | the ordering rule is `OrderByStream` + `getOrderingIndexFields`; the override rule is `source.index ?? this.configuredIndex`; both are test-pinned |
+| Docs links / routes / previews | yes | Verify links | no links added; the removed `### Union with index ranges` heading has no inbound reference (`grep` found only this plan) |
+| Docs MDX/content parser | yes | Run the www parser | `bun x fumadocs-mdx source.config.ts .source` in `www/` -> `[MDX] generated files` |
+| Kitcn docs sync | yes | Mirror `www` into the skill | `packages/kitcn/skills/kitcn/references/features/orm.md` updated |
+| Agent source / generated sync | yes | Verify mirrors | `.agents/skills/kitcn` regenerated from source, byte-identical |
+| Installed lock audit | no | — | N/A: no installed skill added, updated, or removed |
+| Agent action discoverability | yes | Source-audit the route | "Union + interleave" under "Select Composition (Advanced)" in the published skill reference |
+| Helper and template smoke | no | — | N/A: no helper or template script changed |
+| Agent-native review | yes | Close findings | `agent-native-reviewer` ladder applied; all five links present; no findings |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -352,7 +352,7 @@ Phase / pass table:
 | Implementation | done | type + `_buildUnionSourceStream` + 4 tests + 3 typecheck assertions + 4 doc surfaces + changeset | verification |
 | Verification | done | red-then-green, `bun check` exit 0 | closeout |
 | Commit / PR / GitHub sync | done | committed locally; push/PR/issue-sync declined by user preference | final response |
-| Closeout | in_progress | autoreview + agent-native ladder | final response |
+| Closeout | done | autoreview clean; agent-native ladder complete | final response |
 
 Findings:
 - The reported TS2353 is the shallow half of the defect. The deeper half: the
@@ -395,7 +395,17 @@ Implementation notes:
   `predicate(...)`-needs-an-index rule.
 
 Review fixes:
-- None yet.
+- Autoreview (`--mode local --engine claude`): `autoreview clean: no
+  accepted/actionable findings reported`, `overall: patch is correct (0.75)`.
+- Two sub-P0 observations checked anyway, both correctly closed:
+  - "feature shipped as a `patch` bump" — correct per
+    `.agents/rules/changeset.mdc`: breaking is `minor`, non-breaking is `patch`,
+    and this key is purely additive.
+  - "removed `### Union with index ranges` heading may orphan an anchor" —
+    `grep` across `*.md`/`*.mdx`/`*.json`/`*.ts` finds no inbound reference.
+- The first autoreview run aborted with "source changed after the review bundle
+  was created" because this plan was being edited concurrently. Rerun on a
+  frozen tree.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
