@@ -2263,6 +2263,14 @@ describe('aggregateIndex clearing is resumable', () => {
       )
       .collect();
 
+  const treesFor = (db: any, table: string, index: string) =>
+    db
+      .query('aggregate_rank_tree')
+      .withIndex('by_aggregate_name', (q: any) =>
+        q.eq('aggregateName', `${table}.${index}`)
+      )
+      .collect();
+
   it('blocks metric and rank writes before a declared index is cleared', async () => {
     const barrierUsers = convexTable(
       'barrierUsers',
@@ -2531,6 +2539,271 @@ describe('aggregateIndex clearing is resumable', () => {
           'by_org_status'
         )
       ).toHaveLength(0);
+    });
+  });
+
+  const buildRankClearFixtures = (options?: { sumWeight?: boolean }) => {
+    const rankUsers = convexTable(
+      'rankUsers',
+      {
+        orgId: text().notNull(),
+        score: integer().notNull(),
+        weight: integer().notNull(),
+      },
+      (t) => {
+        const byScore = rankIndex('by_score')
+          .partitionBy(t.orgId)
+          .orderBy(t.score);
+        // `sum()` only moves metricDefinitionHash; keyDefinitionHash covers the
+        // partition and order fields, which are identical in both variants.
+        return [options?.sumWeight ? byScore.sum(t.weight) : byScore];
+      }
+    );
+    const schema = defineSchema({ rankUsers });
+    return { relations: defineRelations(schema), schema };
+  };
+
+  const buildMetricClearFixtures = (options?: { sumScore?: boolean }) => {
+    const metricUsers = convexTable(
+      'metricUsers',
+      {
+        orgId: text().notNull(),
+        score: integer().notNull(),
+      },
+      (t) => {
+        const byOrg = aggregateIndex('by_org').on(t.orgId);
+        return [options?.sumScore ? byOrg.sum(t.score) : byOrg];
+      }
+    );
+    const schema = defineSchema({ metricUsers });
+    return { relations: defineRelations(schema), schema };
+  };
+
+  const ormFor = <
+    TRelations extends
+      | ReturnType<typeof buildRankClearFixtures>['relations']
+      | ReturnType<typeof buildMetricClearFixtures>['relations'],
+  >(
+    relations: TRelations
+  ) =>
+    createOrm({
+      capabilities: [aggregateCapability()],
+      schema: relations,
+      ormFunctions: {
+        scheduledDelete: {} as any,
+        scheduledMutationBatch: {} as any,
+      },
+      internalMutation: passthroughInternalMutation,
+    });
+
+  it('keeps a rank index CLEARING when a metric change lands mid-drain', async () => {
+    const { schema, relations } = buildRankClearFixtures();
+    const { relations: summedRelations } = buildRankClearFixtures({
+      sumWeight: true,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const api = ormFor(relations).api();
+      for (let i = 0; i < 12; i += 1) {
+        await baseCtx.db.insert('rankUsers', {
+          orgId: 'org-1',
+          score: i,
+          weight: 2,
+        });
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      // batchSize 2 cannot drain 12 rank members in a single mutation.
+      await (api as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        {
+          mode: 'rebuild',
+          batchSize: 2,
+          tableName: 'rankUsers',
+          indexName: 'by_score',
+        }
+      );
+      expect(
+        (
+          await stateFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score')
+        )[0]?.status
+      ).toBe('CLEARING');
+
+      // The index gains a sum field while the clear is still draining. A rank
+      // index always reports a metric change as needing a backfill, so this is
+      // the branch that used to jump straight to BUILDING.
+      const summedClient = ormFor(summedRelations);
+      const summedApi = summedClient.api();
+      const resumed = await (summedApi as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        { batchSize: 2, tableName: 'rankUsers', indexName: 'by_score' }
+      );
+
+      // Staying CLEARING is only correct if the drain is still scheduled.
+      // Parking the index without a follow-up chunk would stall it forever.
+      expect(resumed).toMatchObject({
+        mode: 'resume',
+        scheduled: 1,
+        skippedReady: 0,
+        needsRebuild: 0,
+      });
+
+      expect(
+        (
+          await stateFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score')
+        )[0]?.status
+      ).toBe('CLEARING');
+      expect(
+        await membersFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score')
+      ).not.toHaveLength(0);
+
+      let checkedFirstBuilding = false;
+      let reachedReady = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const state = (
+          await stateFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score')
+        )[0];
+        if (state?.status === 'READY') {
+          reachedReady = true;
+          break;
+        }
+        if (state?.status === 'BUILDING' && !checkedFirstBuilding) {
+          // The mutation that leaves CLEARING only advances the status; it never
+          // builds. Nothing may survive that hand-off, or the rebuild would
+          // insert on top of stale members and trees.
+          checkedFirstBuilding = true;
+          expect(
+            await membersFor(
+              baseCtx.db,
+              RANK_STATE_KIND,
+              'rankUsers',
+              'by_score'
+            )
+          ).toHaveLength(0);
+          expect(
+            await treesFor(baseCtx.db, 'rankUsers', 'by_score')
+          ).toHaveLength(0);
+        }
+        await (summedApi as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'rankUsers', indexName: 'by_score', batchSize: 2 }
+        );
+      }
+
+      expect(checkedFirstBuilding).toBe(true);
+      expect(reachedReady).toBe(true);
+
+      const ctx = summedClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      const leaderboard = ctx.orm.query.rankUsers.rank('by_score', {
+        where: { orgId: 'org-1' },
+      });
+      expect(await leaderboard.count()).toBe(12);
+      expect(await leaderboard.sum()).toBe(24);
+    });
+  });
+
+  it('keeps a metric index CLEARING when a metric change lands mid-drain', async () => {
+    const { schema, relations } = buildMetricClearFixtures();
+    const { relations: summedRelations } = buildMetricClearFixtures({
+      sumScore: true,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const api = ormFor(relations).api();
+      for (let i = 0; i < 12; i += 1) {
+        await baseCtx.db.insert('metricUsers', { orgId: 'org-1', score: 2 });
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      await (api as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        {
+          mode: 'rebuild',
+          batchSize: 2,
+          tableName: 'metricUsers',
+          indexName: 'by_org',
+        }
+      );
+      expect(
+        (
+          await stateFor(baseCtx.db, METRIC_STATE_KIND, 'metricUsers', 'by_org')
+        )[0]?.status
+      ).toBe('CLEARING');
+
+      const summedClient = ormFor(summedRelations);
+      const summedApi = summedClient.api();
+      const resumed = await (summedApi as any).aggregateBackfill.handler(
+        { db: baseCtx.db, scheduler: schedulerStub },
+        { batchSize: 2, tableName: 'metricUsers', indexName: 'by_org' }
+      );
+
+      expect(resumed).toMatchObject({
+        mode: 'resume',
+        scheduled: 1,
+        skippedReady: 0,
+        needsRebuild: 0,
+      });
+
+      expect(
+        (
+          await stateFor(baseCtx.db, METRIC_STATE_KIND, 'metricUsers', 'by_org')
+        )[0]?.status
+      ).toBe('CLEARING');
+      expect(
+        await membersFor(baseCtx.db, METRIC_STATE_KIND, 'metricUsers', 'by_org')
+      ).not.toHaveLength(0);
+
+      let checkedFirstBuilding = false;
+      let reachedReady = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const state = (
+          await stateFor(baseCtx.db, METRIC_STATE_KIND, 'metricUsers', 'by_org')
+        )[0];
+        if (state?.status === 'READY') {
+          reachedReady = true;
+          break;
+        }
+        if (state?.status === 'BUILDING' && !checkedFirstBuilding) {
+          checkedFirstBuilding = true;
+          expect(
+            await membersFor(
+              baseCtx.db,
+              METRIC_STATE_KIND,
+              'metricUsers',
+              'by_org'
+            )
+          ).toHaveLength(0);
+          expect(
+            await bucketsFor(baseCtx.db, 'metricUsers', 'by_org')
+          ).toHaveLength(0);
+        }
+        await (summedApi as any).aggregateBackfillChunk.handler(
+          { db: baseCtx.db, scheduler: schedulerStub },
+          { tableName: 'metricUsers', indexName: 'by_org', batchSize: 2 }
+        );
+      }
+
+      expect(checkedFirstBuilding).toBe(true);
+      expect(reachedReady).toBe(true);
+
+      const ctx = summedClient.with({
+        db: baseCtx.db,
+        scheduler: schedulerStub as any,
+      });
+      expect(
+        await ctx.orm.query.metricUsers.count({ where: { orgId: 'org-1' } })
+      ).toBe(12);
+      expect(
+        await ctx.orm.query.metricUsers.aggregate({
+          where: { orgId: 'org-1' },
+          _sum: { score: true },
+        })
+      ).toEqual({ _sum: { score: 24 } });
     });
   });
 });
