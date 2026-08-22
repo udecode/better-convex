@@ -113,7 +113,7 @@ Task state:
 Current verdict:
 - verdict: fixed
 - confidence: 95-100%
-- next owner: user (commit/PR withheld per user preference)
+- next owner: reviewer of PR #427
 - reason: 62 -> 2 reads reproduced and closed; 740 integration + 1316 bun tests
   green; typecheck, lint, package build green; every new read-count test proven
   red on pristine source and every semantics guard proven red under mutation.
@@ -172,7 +172,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal (task template, package-api pack); no niche skill owned this route |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | .context/attachments/github-5218230814/[GITHUB]-419.md read in full first |
-| Exact per-PR task ownership | no | N/A: no PR created (explicit user decline) |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #427 |
 | GitHub comments and attachments read | yes | issue supplied as a local attachment; no separate comments available |
 | Video transcript evidence required | no | N/A: no video evidence |
 | Pre-solution issue challenge required | yes | recorded above; verdict partially valid |
@@ -181,13 +181,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | issue's fix found unsound; pivoted, see Findings |
 | `docs/solutions` checked for non-trivial existing-code work | yes | grepped; no relation-filter entry |
 | TDD decision before behavior change or bug fix | yes | red repro test written before the source change |
-| Branch decision for code-changing task | yes | already on `issue-419`, not `main`; no new branch needed |
+| Branch decision for code-changing task | yes | renamed the placeholder `issue-419` to `fix/orm-relation-existence-read-bound` before the first push |
 | Release artifact decision | yes | .changeset/wild-bottles-judge.md (patch) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user preference explicitly forbids creating a PR |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no GitHub write under the no-PR preference |
+| Commit / PR expectation decision | yes | User explicitly requested the PR; commit, push and PR completed |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/2026-08-21-419-push-down-relation-existence-where.md`; plan is at the PR head and names PR #427 |
+| GitHub issue sync expectation decision | yes | `Fixes #419` in the PR body is the sync |
 | Output budget strategy recorded | yes | windowed reads, piped greps, audit delegated to a background workflow |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | none changed; the bound rides a module-private Symbol |
@@ -280,7 +280,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | 12/12 in relation-filter-pushdown.test.ts; 740 integration; 1316 bun |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR (explicit user decline) |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #427, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | recorded: valid diagnosis, partially valid fix, pivoted |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro sufficient; browser/visual N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | expected 62 to be less than or equal to 2 on pristine source |
@@ -300,12 +300,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note below |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no .agents/.claude/.codex/skill/hook/command change |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no install-shaped failure |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user preference explicitly forbids creating a PR; patch left uncommitted |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `git add -A` then `0f91b428` |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0, pushed, PR #427 |
 | Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
 | PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no GitHub write under the no-PR preference |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof in the body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #419` links the PR to the issue |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled above |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint clean |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | no unbounded output streamed; audit ran in a background workflow |
@@ -328,7 +328,7 @@ Phase / pass table:
 | Intake and source read | done | issue attachment + `query.ts` read; constraint audit workflow | implementation |
 | Implementation | done | `packages/kitcn/src/orm/query.ts` (+152/-19) | verification |
 | Verification | done | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | N/A | explicit user decline: no PR under any circumstances | final response |
+| Commit / PR / GitHub sync | done | commit `0f91b428`, branch `fix/orm-relation-existence-read-bound`, PR #427 | final response |
 | Closeout | done | autoreview + plan gates | final response |
 
 Findings:
@@ -480,8 +480,14 @@ Verification evidence:
 - `bun typecheck` -> 5/5 tasks successful.
 - `bun lint` -> clean (`bun lint:fix` reformatted one continuation line).
 - `bun --cwd packages/kitcn build` -> `Build complete`, 71 files.
-- Not run: `bun run fixtures:check` (no `init -t` template or scaffold source
-  changed), `test:e2e` / `test:auth` (auth lane untouched), Browser proof (no
+- `bun check` -> `EXIT=0` (full gate: `check:ci` + `test:verify` + `test:runtime`).
+  A first attempt failed inside `test:verify` with
+  `401 Unauthorized: BadAdminKey` against `http://127.0.0.1:3210` -- a parallel
+  Conductor workspace's local Convex backend answering on the shared port, not
+  this diff. `lsof` showed 3210/3211 free afterwards and the rerun was clean.
+- `bun run fixtures:check` ran as part of `bun check:ci` and passed, though no
+  `init -t` template or scaffold source changed.
+- Not run: `test:e2e` / `test:auth` (auth lane untouched), Browser proof (no
   rendered output).
 
 Source-listed case matrix:
@@ -503,11 +509,11 @@ Source-listed case matrix:
 | Read window (not in issue) | n/a — found during audit | `the existence probe never looks past the default-limit window` (+ inside-window twin) | 0 rows | 0 rows, <= 4 reads | red under mutation | guarded |
 
 Final handoff contract:
-- Commit line: N/A — user preference: "Do not create PR under any circumstances,
-  unless user prompts to." Treated as an explicit decline of the commit/PR
-  closeout path. Patch is left uncommitted in the working tree.
-- PR line: N/A — same explicit decline.
-- Issue line: N/A — same; no GitHub write performed.
+- Commit line: `0f91b428 fix(orm): stop relation-existence where at the first
+  matching child` on `fix/orm-relation-existence-read-bound`.
+- PR line: https://github.com/udecode/kitcn/pull/427
+- Issue line: #419 — closed by the PR's `Fixes #419` line; no separate comment
+  posted.
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests 62 -> expected <= 2 (red), browser N/A
@@ -524,7 +530,8 @@ Final handoff contract:
   - Why not broader change: `_evaluateRelationsFilter`, the public `with` type
     and the relation-limit error contract are all untouched.
 - Verified: see Verification evidence.
-- PR body verified: N/A — no PR created.
+- PR body verified: `gh pr view 427 --json body` — PR #270 emoji task-style
+  format, plan line present, no self-link.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -548,9 +555,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A — explicit user decline (no-PR preference).
-- PR: N/A — explicit user decline.
-- Issue: N/A — explicit user decline.
+- Commit: `0f91b428`.
+- PR: https://github.com/udecode/kitcn/pull/427
+- Issue: #419, linked from the PR body.
 - Browser proof: N/A — no rendered output.
 - Caveats: multi-branch relation keys keep the previous load; the pre-existing
   `NOT` overload-resolution typing gap is untouched.
@@ -566,6 +573,9 @@ Timeline:
 - Autoreview rejected the first cut with three real P0 window defects; fixed all
   three, added six more mutation-proven tests, reran every lane.
 - Full verification lanes green; changeset written.
+- User requested a PR, superseding the earlier no-PR preference. Renamed the
+  placeholder branch, ran `bun check` to exit 0, committed `0f91b428`, pushed,
+  and opened PR #427.
 
 Reboot status:
 | Question | Answer |
