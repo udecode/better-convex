@@ -151,6 +151,24 @@ Checkpoint evidence:
 - Final autoreview, `bun check`, plan closure, PR creation, and issue sync remain
   after the shared checkout is returned.
 
+Autoreview scope baseline:
+- Request/invariant: issue #428 requires honest Better Auth 1.7.1 support; the
+  prior peer range excluded 1.7 while the owned schema and adapter paths ignored
+  required table indexes, compound identity, stable joins, and atomic adapter
+  methods.
+- Target: `codex/428-support-better-auth-1-7` against
+  `origin/main@9963d33048ec532f0a2d9a06bb618486856178b1`.
+- Owner boundary: supported dependency metadata, auth schema generators,
+  adapter uniqueness/options/mutations, generated auth contracts, and React/
+  Solid structural client types; sibling surfaces are the plain/ORM generators,
+  HTTP/DB adapters, generated enabled/disabled contracts, and all auth fixture
+  templates.
+- Contracts: Better Auth 1.7.1 public adapter/schema/client types, Convex atomic
+  mutation and narrow import behavior, hard-cut dependency policy, generated
+  fixture parity, and required account issuer backfill disclosure.
+- Measurement: 34 changed files total; 25 non-test files at +1320/-129 lines,
+  including the two task plans, lockfile, manifests, and generated fixtures.
+
 Current verdict:
 - verdict: partially valid
 - confidence: high
