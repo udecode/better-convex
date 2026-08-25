@@ -499,10 +499,12 @@ export const httpAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
+          const { set, ...input } = data;
 
           return await ctx.runMutation(authFunctions.incrementOne, {
             input: {
-              ...data,
+              ...input,
+              ...(set === undefined ? {} : { set }),
               where: parseWhere(data.where),
             },
           });
@@ -840,10 +842,12 @@ export const dbAdapter = <
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
           }
+          const { set, ...input } = data;
 
           return await ctx.runMutation(authFunctions.incrementOne, {
             input: {
-              ...data,
+              ...input,
+              ...(set === undefined ? {} : { set }),
               where: parseWhere(data.where),
             },
           });

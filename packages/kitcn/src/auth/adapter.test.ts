@@ -309,7 +309,6 @@ describe('httpAdapter', () => {
       input: {
         increment: { count: 1 },
         model: 'rateLimit',
-        set: undefined,
         where: [
           {
             connector: 'AND',
@@ -321,6 +320,7 @@ describe('httpAdapter', () => {
         ],
       },
     });
+    expect('set' in runMutation.mock.calls[1][1].input).toBe(false);
   });
 
   test('createSchema keeps Convex output when schema is non-ORM', async () => {
@@ -874,6 +874,44 @@ describe('dbAdapter', () => {
       store,
     };
   };
+
+  test('incrementOne omits an absent optional set from mutation args', async () => {
+    const { ctx } = createMemoryCtx({});
+    const authFunctions = { incrementOne: 'incrementOne' } as any;
+    ctx.runMutation = mock(async () => ({
+      _id: 'rate-limit-1',
+      count: 2,
+      key: 'sign-in',
+    }));
+    const adapter = dbAdapter(ctx, {
+      authFunctions,
+      getBetterAuthSchema,
+      schema,
+    })({ rateLimit: { enabled: true, storage: 'database' } } as any);
+
+    await adapter.incrementOne({
+      increment: { count: 1 },
+      model: 'rateLimit',
+      where: [{ field: 'key', value: 'sign-in' }],
+    });
+
+    expect(ctx.runMutation).toHaveBeenCalledWith('incrementOne', {
+      input: {
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [
+          {
+            connector: 'AND',
+            field: 'key',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'sign-in',
+          },
+        ],
+      },
+    });
+    expect('set' in ctx.runMutation.mock.calls[0][1].input).toBe(false);
+  });
 
   test('updateMany and deleteMany reject mixed OR and AND where clauses', async () => {
     const { ctx, store } = createMemoryCtx({

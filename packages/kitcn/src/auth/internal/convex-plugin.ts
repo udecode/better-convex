@@ -230,6 +230,7 @@ export const convex = (opts: {
               };
             };
             ctx.context.adapter.create = noopWrite('create') as any;
+            ctx.context.adapter.incrementOne = noopWrite('incrementOne') as any;
             ctx.context.adapter.update = noopWrite('update') as any;
             ctx.context.adapter.updateMany = noopWrite('updateMany') as any;
             ctx.context.adapter.delete = noopWrite('delete') as any;
