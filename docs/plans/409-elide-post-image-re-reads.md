@@ -161,7 +161,7 @@ Pre-solution issue challenge:
 - best long-term fix boundary: as filed for `insert.ts`; for the count loader
   the durable owner is `GelRelationalQuery` itself, not `returning-count.ts` —
   the root read, the select-plan assertion and the RLS select filter all live
-  inside the query, so the seam has to be there or the semantics drift.
+  inside the query, so the accessor has to be there or the semantics drift.
 - harsh honest feedback: the issue's claim that "the `_count` loader only needs
   `row._id`" is wrong. `_countRelationForRow` reads every counted edge's
   `sourceFields` off the parent, which is usually but not always `_id`. That
@@ -196,7 +196,7 @@ Start Gates:
 | Pre-solution issue challenge required | yes | recorded above; verdict `partially valid` |
 | Reproduction verdict before implementation | yes | exact integer read counts measured pre-fix |
 | Repro escalation ladder selected | yes | source-level test repro; browser/visual rungs N/A |
-| Suggested fix reviewed against durable boundary | yes | issue's `returning-count.ts`-only fix rejected; the seam belongs on `GelRelationalQuery` |
+| Suggested fix reviewed against durable boundary | yes | issue's `returning-count.ts`-only fix rejected; the accessor belongs on `GelRelationalQuery` |
 | `docs/solutions` checked for non-trivial existing-code work | yes | no `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | read-count assertions written against measured pre-fix integers and proved red via `git stash` |
 | Branch decision for code-changing task | yes | dedicated branch, renamed `issue-409` -> `fix/orm-elide-post-image-re-reads` before the first push per user branch-naming preference |
@@ -208,7 +208,7 @@ Start Gates:
 | GitHub issue sync expectation decision | yes | `Fixes #409` in the PR body |
 | Output budget strategy recorded | yes | recorded above |
 | Package/API pack selected | yes | package-api |
-| Public surface or package boundary identified | yes | no export added to `kitcn/orm`; the new count seam is a `static` on `GelRelationalQuery`, so it never lands on the instance type users hold |
+| Public surface or package boundary identified | yes | no export added to `kitcn/orm`; the new count accessor is a `static` on `GelRelationalQuery`, so it never lands on the instance type users hold |
 | Convex entry/import graph impact identified | yes | `insert.ts` gains `write-fanout` (already in the graph via `mutation-utils`) and `returning-count` gains a type-only `extractRelationsConfig` import plus two constants from `timestamp-mode`; no new runtime module edges |
 | CLI/scaffold/generated impact identified | no | N/A: no CLI, scaffold or generated output touched |
 | Release artifact path selected | yes | `.changeset` |
@@ -330,7 +330,7 @@ Completion Gates:
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
 | Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | PENDING_AUTOREVIEW |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/409-elide-post-image-re-reads.md` | see check output below |
-| Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | No new export from `kitcn/orm`; the count seam is a `static` member, so it never appears on the `GelRelationalQuery` instance type returned by the public query builders |
+| Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | No new export from `kitcn/orm`; the count accessor is a `static` member, so it never appears on the `GelRelationalQuery` instance type returned by the public query builders |
 | Convex bundle/import proof | yes | Audit affected function-entry static graphs or record N/A | No new runtime module edges: `write-fanout` already reached `insert.ts` transitively via `mutation-utils`; the `EdgeMetadata` import is type-only |
 | CLI/scaffold/generated proof | no | Prove command contract and regenerate owned output or record N/A | N/A: no CLI, scaffold or generated output touched |
 | Release artifact classification | yes | Record whether the change is published package behavior/API/types/config/runtime or no published user-visible delta | Published runtime behavior change (read cost); returned values unchanged |
@@ -368,7 +368,7 @@ Findings:
   `_count` onto a row headed for a write.
 - `execute()`'s primary-id fast path also runs the root row through
   `_applyRlsSelectFilter`, which insert/update/delete never do themselves. Any
-  replacement seam has to keep that filter or RLS visibility silently changes.
+  replacement path has to keep that filter or RLS visibility silently changes.
 - The RLS delta is not a data-leak risk: `ensureCountAllowedForRls` throws for
   any RLS-enabled count target, so counted child tables are always ones the
   caller can already read freely.
@@ -389,7 +389,7 @@ Decisions and tradeoffs:
   counted ones. The count selection varies per statement, the schema does not,
   and the conservative answer costs one read on a schema shape that is already
   pathological.
-- Put the count seam on `GelRelationalQuery` as a private method plus a
+- Put the count accessor on `GelRelationalQuery` as a private method plus a
   `static` accessor, not on `returning-count.ts`. The root read, the
   select-plan assertion and the RLS select filter all live inside the query;
   reimplementing them outside would drift. `static` keeps it off the instance
@@ -422,8 +422,8 @@ Implementation notes:
   `{ ...preparedValue, _id: id }` for the plain path, and derives
   `{ ...existing, ...writeSet }` minus unset keys for `onConflictDoUpdate`.
 - `packages/kitcn/src/orm/query.ts`: adds private
-  `_countRelationsForHeldRow` plus the `static countRelationsForHeldRow` seam.
-- `packages/kitcn/src/orm/returning-count.ts`: `load()` now calls the seam
+  `_countRelationsForHeldRow` plus the `static countRelationsForHeldRow` accessor.
+- `packages/kitcn/src/orm/returning-count.ts`: `load()` now calls the accessor
   instead of `execute()`, and the file gains the
   `countedEdgesReadCreationTime` predicate.
 - `packages/kitcn/src/orm/mutation-utils.ts`: adds
@@ -436,9 +436,9 @@ Review fixes:
   verified as non-issues by reading the code: nested `undefined` date fields
   reach `hydrateTemporalReadValue` as `undefined` on both the derived and the
   read path, and `filterSelectRows` (`rls/evaluator.ts:399-428`) pushes the
-  rows it was given rather than copies, so the seam's carrier is the object
+  rows it was given rather than copies, so the accessor's carrier is the object
   `_count` lands on.
-- The third was real and fixed: the count seam evaluates a user-authored RLS
+- The third was real and fixed: the count accessor evaluates a user-authored RLS
   select policy against the row, and a policy expression can name any column
   including `createdAt`. Edge source fields are inspectable, a policy is not,
   so `_count` on an RLS-enabled table now keeps the read. Pinned by
@@ -505,7 +505,8 @@ Final handoff contract:
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red on the pre-fix tree with exact integer read counts, browser N/A
-  - Verified: 12 new tests green, 589 ORM tests green, typecheck/build/lint clean, browser N/A
+  - Verified: 13 new tests green, 256 Bun ORM tests and 622 Vitest ORM tests
+    green, typecheck/build/lint clean, browser N/A
 - Browser check: N/A - server-side ORM read path, no rendered output
 - Outcome: `insert().returning({ ... })`, `insert().onConflictDoUpdate().returning()`
   and `returning({ _count })` on insert/update/delete no longer re-read rows the
@@ -516,7 +517,7 @@ Final handoff contract:
   on `createdAt` all deliberately keep their read.
 - Design:
   - Chosen boundary: derivation where the payload is written (`insert.ts`), and
-    a count seam inside `GelRelationalQuery`, which owns the RLS select filter
+    a count accessor inside `GelRelationalQuery`, which owns the RLS select filter
     and the select-plan assertion the old re-read went through.
   - Why not quick patch: passing the held row into `returning-count.ts` as the
     issue proposed would have dropped the RLS filter and stamped `_count` onto
@@ -556,6 +557,18 @@ Final handoff / sync:
 - Browser proof: N/A
 - Caveats: see Open risks
 
+Autoclosure evidence (2026-08-26):
+- Merged `kitcn/main` at `10c4fa4c` into the PR branch without conflicts.
+- Focused proof: 13 read-amplification tests and 5 count-gating tests passed.
+- Broader proof: 256 Bun ORM tests and 622 Vitest ORM tests passed; 13 Vitest
+  tests were skipped by their existing conditions.
+- Package build passed with 71 output files.
+- Full `bun check` passed, including fixture parity, verify, and every runtime
+  scenario.
+- Current-main P1 autoreview was clean at 0.92 confidence before final commit.
+- Bounded cleanup kept intentional test helpers and removed prohibited wording
+  from the changed plan and source comments without changing behavior.
+
 Timeline:
 - 2026-08-21T19:24:07.938Z Task goal plan created.
 
@@ -576,7 +589,7 @@ Open risks:
   paths, and the three divergence sources (`_creationTime`, lifecycle hooks,
   `_creationTime`-keyed counted edges) each have a dedicated test that pins the
   read *staying*. Why this boundary is right: the derivation lives where the
-  payload is written, and the count seam lives inside the query that owns the
+  payload is written, and the count accessor lives inside the query that owns the
   RLS and plan semantics — no caller has to know anything new.
 - Pre-existing and unchanged: a projected object-typed column is returned by
   reference from the caller's `values()` / `set()` object, and nested

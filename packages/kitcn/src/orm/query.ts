@@ -631,7 +631,7 @@ export class GelRelationalQuery<
    * Everything else `execute()` would have done to that row — the select-plan
    * assertion and the RLS select filter — still runs here.
    *
-   * Reached through the static seam below rather than exposed on the instance:
+   * Reached through the static accessor below rather than exposed on the instance:
    * `GelRelationalQuery` is the declared return type of the public query
    * builders, so an instance method would land in every user's autocomplete.
    */
@@ -668,7 +668,7 @@ export class GelRelationalQuery<
     return (carrier._count ?? {}) as Record<string, number>;
   }
 
-  /** @internal Seam for `returning({ _count })`; see `returning-count.ts`. */
+  /** @internal Accessor for `returning({ _count })`; see `returning-count.ts`. */
   static countRelationsForHeldRow(
     query: GelRelationalQuery<any, any, any>,
     row: Record<string, unknown>,

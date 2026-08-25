@@ -365,7 +365,7 @@ describe('ORM insert() with RLS and a counted relation', () => {
       // user-authored policy is not, so this combination keeps the read.
       expect(counts.get).toBe(1);
       // A row the select filter admits must still come back counted: the
-      // filter hands back the rows it was given, so the copy the seam counts
+      // filter hands back the rows it was given, so the copy the accessor counts
       // against is the one it reads `_count` off.
       expect(rows[0]._count).toEqual({ revisions: 2 });
     });
