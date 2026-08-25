@@ -262,7 +262,7 @@
     },
     "nestedLoading": {
       "signature": "{ with: { relation: { with: { nestedRelation: true } } } }",
-      "description": "Load nested relations up to 3 levels deep",
+      "description": "Load nested relations up to 10 levels deep",
       "example": "{ with: { posts: { with: { comments: { with: { author: true } } } } } }",
       "docUrl": "/docs/orm/relations-deep-dive#nested-loading",
       "category": "relations"

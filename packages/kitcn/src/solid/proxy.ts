@@ -22,6 +22,7 @@ import { getFunctionName } from 'convex/server';
 import { convexAction, convexQuery } from '../crpc/query-options';
 import type { DataTransformerOptions } from '../crpc/transformer';
 import { type ConvexQueryHookOptions, FUNC_REF_SYMBOL } from '../crpc/types';
+import { buildConvexFilterKey } from '../internal/query-filter';
 import type { CallerMeta } from '../server/caller';
 import {
   getFuncRef,
@@ -131,6 +132,8 @@ function createRecursiveProxy(
         }
 
         // Terminal method: queryFilter
+        // Omitted args collapse to a prefix key so the filter matches every
+        // args variant. Exact keys belong to `queryKey`.
         if (prop === 'queryFilter') {
           return (args?: unknown, filters?: Omit<QueryFilters, 'queryKey'>) => {
             const funcRef = getFuncRef(api, path);
@@ -138,7 +141,7 @@ function createRecursiveProxy(
             const prefix = getQueryKeyPrefix(path, meta);
             return {
               ...filters,
-              queryKey: [prefix, funcName, args],
+              queryKey: buildConvexFilterKey(prefix, funcName, args),
             };
           };
         }

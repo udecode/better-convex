@@ -65,7 +65,7 @@ import {
 import type { ConvexQueryMeta } from '../crpc/types';
 import { clearAuthBoundQueries } from '../internal/auth-reset';
 import { createHashFn } from '../internal/hash';
-import { isConvexQuery } from '../internal/query-key';
+import { isConvexAction, isConvexQuery } from '../internal/query-key';
 import {
   canSubscribeQuery,
   isAuthBoundQuery,
@@ -91,16 +91,6 @@ function isConvexSkipped(
     ['convexQuery', 'convexAction'].includes(queryKey[0] as string) &&
     queryKey[2] === 'skip'
   );
-}
-
-/**
- * Check if query key is for a Convex action function.
- * Format: ['convexAction', 'namespace:functionName', { args }]
- */
-function isConvexAction(
-  queryKey: readonly unknown[]
-): queryKey is ['convexAction', string, Record<string, unknown>] {
-  return queryKey.length >= 2 && queryKey[0] === 'convexAction';
 }
 
 // ============================================================================

@@ -1,14 +1,41 @@
 import type { BetterAuthDBSchema, DBFieldAttribute } from 'better-auth/db';
 
 // Manually add fields to index on for schema generation,
-// all fields in the schema specialFields are automatically indexed
+// all fields in the schema specialFields are automatically indexed.
+//
+// Two rules govern the composite entries:
+//   1. Fields are emitted alphabetically sorted, because the adapter's
+//      `findIndex` localeCompare-sorts a query's eq fields before prefix
+//      matching an index. An unsorted entry never matches.
+//   2. A composite shadows the auto-emitted single-field index whose name
+//      equals the composite's first field, so any standalone that a query still
+//      needs has to be listed here explicitly. That matters for queries sorting
+//      by `createdAt`, which only match an index of exactly the eq fields.
 export const indexFields = {
   account: ['accountId', ['accountId', 'providerId'], ['providerId', 'userId']],
+  // Organization plugin. `email`/`organizationId` are relisted because the
+  // composites below shadow their auto-emitted single-field indexes.
+  invitation: [
+    'email',
+    ['email', 'organizationId', 'status'],
+    'organizationId',
+    ['organizationId', 'status'],
+  ],
+  // `organizationId_userId` backs every org permission check.
+  // `organizationId_role` backs `listMembers` with `sortBy=role`.
+  member: [
+    'organizationId',
+    ['organizationId', 'role'],
+    ['organizationId', 'userId'],
+  ],
   oauthConsent: [['clientId', 'userId']],
+  // Only present with the organization plugin's dynamic access control.
+  organizationRole: ['organizationId', ['organizationId', 'role']],
   passkey: ['credentialID'],
   ratelimit: ['key'],
   rateLimit: ['key'],
   session: ['expiresAt', ['expiresAt', 'userId']],
+  teamMember: ['teamId', ['teamId', 'userId']],
   user: [['email', 'name'], 'name'],
   verification: ['expiresAt', 'identifier'],
 };
