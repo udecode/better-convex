@@ -33,7 +33,7 @@ test('convex owns its OpenID configuration on Better Auth 1.7', async () => {
   }
 });
 
-test('query context suppresses incrementOne writes', async () => {
+test('query context acknowledges suppressed incrementOne writes', async () => {
   const plugin = convex({
     authConfig: {
       providers: [
@@ -73,6 +73,6 @@ test('query context suppresses incrementOne writes', async () => {
       model: 'rateLimit',
       where: [{ field: 'key', value: 'sign-in' }],
     } as any)
-  ).resolves.toBe(0);
+  ).resolves.toEqual({});
   expect(incrementOne).not.toHaveBeenCalled();
 });

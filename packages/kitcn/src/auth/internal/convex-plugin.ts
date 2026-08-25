@@ -219,18 +219,21 @@ export const convex = (opts: {
               ..._args: any[]
             ) => {};
             const knownSafePaths = ['/api-key/list', '/api-key/get'];
-            const noopWrite = (method: string) => {
+            const noopWrite = (method: string, result: unknown = 0) => {
               return async (..._args: any[]) => {
                 if (ctx.path && !knownSafePaths.includes(ctx.path)) {
                   console.warn(
                     `[convex-better-auth] Write operation "${method}" skipped in query context for ${ctx.path}`
                   );
                 }
-                return 0;
+                return result;
               };
             };
             ctx.context.adapter.create = noopWrite('create') as any;
-            ctx.context.adapter.incrementOne = noopWrite('incrementOne') as any;
+            ctx.context.adapter.incrementOne = noopWrite(
+              'incrementOne',
+              {}
+            ) as any;
             ctx.context.adapter.update = noopWrite('update') as any;
             ctx.context.adapter.updateMany = noopWrite('updateMany') as any;
             ctx.context.adapter.delete = noopWrite('delete') as any;

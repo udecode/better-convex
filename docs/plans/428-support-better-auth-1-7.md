@@ -404,6 +404,9 @@ Decisions and tradeoffs:
   unique tuples in the shared adapter helper.
 - Disable joins only at stable `advanced.database.joins`; keep the Convex entry
   graph free of the removed OIDC provider package.
+- Suppress query-context writes while returning a truthy adapter-shaped result
+  for `incrementOne`, so Better Auth's guarded rate limiter does not retry or
+  reject an unchanged row.
 - Require a two-deployment optional-to-required issuer transition with a
   user-supplied trusted provider map, provider-subject rewrites, indexed
   collision checks, quiesced auth writes, and organization-team backfills.
@@ -434,6 +437,7 @@ Error attempts:
 | Current-main autoclosure review found an impossible issuer backfill order | 1 | Specify an optional-schema deployment, indexed backfill/collision proof, then required-schema deployment | `.changeset/calm-auth-issuers.md` now contains the executable two-deployment protocol. |
 | Exact-head review found live-write, Microsoft subject, and team-counter migration gaps | 1 | Keep auth writes quiesced across both deployments, map Microsoft `sub` to verified `oid`, and backfill each team's indexed member count | The changeset now covers every required Convex data transition before schema hardening. |
 | Follow-up review treated optional `membershipKey` as required and used the public team ID | 1 | Generate the exact 1.7 Convex schema and inspect adapter fallback/ID mapping | Guidance records that `membershipKey` is optional and counts members with the raw team's `_id`. |
+| Exact-head review found falsy query-mode `incrementOne` acknowledgement | 1 | Read Better Auth 1.7 rate-limiter consumers and add a red regression test | Suppressed writes return `{}` without calling the mutation adapter; the focused test is green. |
 
 Verification evidence:
 - `bun test` focused auth/dependency set: 100 passed; factory suite: 19 passed.
@@ -452,6 +456,12 @@ Verification evidence:
 - Generated organization-team schema inspection: `memberCount` is required,
   `membershipKey` is optional, and the existing-pair lookup remains the runtime
   fallback; raw Better Auth IDs map to Convex `_id`.
+- Query-context atomic-write regression: red with `Received: 0`, then 2/2 green
+  after returning a truthy adapter-shaped acknowledgement without executing
+  the underlying `incrementOne` mutation.
+- Post-fix exact replay: 39/39 focused auth tests, root typecheck, lint, 71-file
+  package build, full fixture parity, verification scenarios, auth runtime
+  smoke, and `bun check` passed.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -535,6 +545,8 @@ Timeline:
 - 2026-08-26 Closed the remaining migration P1s by quiescing writes across the
   cutover, requiring verified Microsoft subject rewrites, and backfilling
   organization team counters before the required schema.
+- 2026-08-26 Repaired query-context rate-limit acknowledgement with a red-green
+  regression and replayed the full repository gate.
 
 Reboot status:
 | Question | Answer |
