@@ -169,8 +169,11 @@ const makeCampaign = (options: {
     let scanned = 0;
     let batches = 0;
     await t.run(async (baseCtx) => {
+      // `countDocumentReads` replays each query's plan through its own class, so
+      // it has to sit closest to the real writer. Wrapping it from the inside
+      // would hand it a proxied `constructor` it cannot construct.
+      const reads = countDocumentReads(baseCtx);
       const paginates = countPaginateCalls(baseCtx);
-      const reads = countDocumentReads(baseCtx, { scanned: true });
       const ctx = withOrm(baseCtx, relations, {
         scheduler: scheduler as any,
         scheduledMutationBatch,

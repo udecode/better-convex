@@ -311,15 +311,17 @@ Phase / pass table:
 | Phase | Status | Evidence | Next |
 |-------|--------|----------|------|
 | Intake and source read | done | issue #407 fetched and read, comments empty, repro built | implementation |
-| Implementation | done | cursor continuation on the soft cascade path; opt-in `scanned` counter; new vitest + stress cases; changeset | verification |
+| Implementation | done | cursor continuation on the soft cascade path; new vitest + stress cases; changeset | verification |
 | Verification | done | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | done | rebased onto origin/main, `bun check` exit 0, pushed, PR #422 | closeout |
+| Commit / PR / GitHub sync | done | rebased onto origin/main, `bun check` exit 0, pushed, PR #422; later merged origin/main back in and reconciled `scanned` against #399 | closeout |
 | Closeout | done | autoreview run, plan complete | final response |
 
 Findings:
 - `documents` in `countDocumentReads` cannot see this bug. Reads consumed by
-  `.filter()` never reach the page, and `paginate` was not counted at all.
-  The counter gained an opt-in `scanned` metric.
+  `.filter()` never reach the page. This branch briefly carried its own
+  `scanned` metric; #399 (`test(orm): count documents scanned behind
+  .filter()`) then landed on `main` with a better one, so the branch's copy was
+  dropped and `convex/setup.testing.ts` is now byte-identical to `main`.
 - The issue's recommended `_creationTime` watermark is unsound. Verified in the
   Convex backend source at ../convex-backend:
   - `crates/database/src/bootstrap_model/import_facing.rs:107-112` — snapshot
@@ -381,11 +383,11 @@ Implementation notes:
 - `packages/kitcn/src/orm/scheduled-mutation-batch.ts` — soft cascade batches
   forward `args.cursor`, drop the `deletionTime` filter, skip already-stamped
   rows in JS, and take an exact cursor when the byte budget truncates the page.
-- `convex/setup.testing.ts` — `countDocumentReads(ctx, { scanned: true })` adds
-  a scanned-row metric by replaying the unfiltered half of each chain. Opt-in
-  via a TypeScript overload so existing callers pay nothing and cannot read a
-  `scanned` field that was never measured. `paginate` now also feeds
-  `documents`, which it previously did not.
+- `convex/setup.testing.ts` — unchanged from `main`. The scanned-row metric now
+  comes from #399, which replays `QueryImpl.state.query` without its filters and
+  walks a paginated range cursor by cursor. Both implementations independently
+  report 1,100 scanned rows for the 100-child repro and 4,214 for the
+  byte-budget one, which cross-validates the measurement.
 - `packages/kitcn/src/orm/cascade-soft-delete.read-amplification.vitest.ts` —
   new. Linear scaling at two table sizes, byte-truncation convergence, a
   prefix-only foreign key index, and a per-invocation `.paginate()` call guard
@@ -458,11 +460,12 @@ Verification evidence:
   agents were saturating the machine (1161s vs 8.5s wall clock). Re-run idle:
   all green. Load flake, not the diff.
 
-Final evidence, run after the last code change (cwd
+Final evidence, run after merging `origin/main` (`10c4fa4c`) back into the
+branch and reconciling the `scanned` counter against #399 (cwd
 /Users/mikey/conductor/workspaces/kitcn/surat-v1):
-- `npx vitest run` — 80 files passed, 2 skipped; 856 tests passed, 14 skipped;
+- `npx vitest run` — 84 files passed, 2 skipped; 893 tests passed, 14 skipped;
   no type errors.
-- `bun test` — 1304 pass, 0 fail, 4008 expect() calls across 147 files.
+- `bun test` — 1333 pass, 0 fail, 4081 expect() calls across 148 files.
 - `CONVEX_LIMIT_STRESS=1 npx vitest run convex/orm/limits.stress.test.ts` —
   12 passed.
 - `bun typecheck` — 5 tasks successful.
@@ -475,12 +478,16 @@ Final evidence, run after the last code change (cwd
   "autoreview clean: no accepted/actionable findings reported".
 - Byte-truncation path after the review repair: 60 children, 82 scanned rows,
   62 batches, 0 pending.
+- Red calibration re-run against #399's counter with `main`'s pre-fix worker:
+  all three cases fail (1100 > 200, 4214 > 180, 1100 > 200). #399's counter and
+  the branch's discarded one report identical numbers, so the measurement is
+  cross-validated rather than tuned to one implementation.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Quadratic reads | batch k re-reads (k-1)*batchSize processed rows | cascade-soft-delete.read-amplification.vitest.ts, 100 and 200 children at batchSize 10 | 1100 scanned at N=100 | linear in N, ratio < 2.5 across 2x | 112 and ~212 scanned, ratio < 2.5 | pass |
-| Invisible to `documents` | wasted reads are consumed by `.filter()` | same harness | documents=110 with and without the bug | scanned must be the metric | added opt-in `scanned` to countDocumentReads | pass |
+| Invisible to `documents` | wasted reads are consumed by `.filter()` | same harness | documents=110 with and without the bug | scanned must be the metric | asserts on `reads.scanned` from #399's counter | pass |
 | Read-limit blowout at scale | campaign dies mid-flight past Convex's read limit | limits.stress.test.ts, 4000 descendants | 117,177 scanned | linear, campaign drains | 8,152 scanned, all 4000 stamped | pass |
 | Byte-budget truncation | not in the source; found while fixing | same vitest file, budget fits ~1 row of 10 | 4214 scanned pre-fix | no row skipped, no page replayed, page size settles | 82 scanned, 0 pending over 62 batches | pass |
 | One paginated query per execution | not in the source; found in review | paginate-call counter per worker invocation in the same vitest file | 2 calls on a truncated batch | at most 1 | guard fails at 2, passes at 1 | pass |
@@ -502,8 +509,7 @@ Final handoff contract:
   is still soft-deleted.
 - Caveat: a child inserted behind the cursor mid-campaign is not picked up.
   Inherent to resuming rather than replaying the range, and the race was never
-  settled. The new `scanned` counter is opt-in and under-counts a `for await`
-  over a filtered query that breaks early.
+  settled.
 - Design:
   - Chosen boundary: the cascade worker's continuation strategy. Soft cascade
     forwards the pagination cursor; every other action keeps re-querying from
@@ -546,9 +552,7 @@ Final handoff / sync:
 - PR: https://github.com/udecode/kitcn/pull/422
 - Issue: #407, linked by the PR body's `🐛 Fixes #407` line.
 - Browser proof: N/A, no browser or rendered surface.
-- Caveats: a row inserted behind the cursor mid-campaign is not picked up; the
-  scanned counter is opt-in and under-counts an early-broken `for await` over a
-  filtered query.
+- Caveats: a row inserted behind the cursor mid-campaign is not picked up.
 
 Timeline:
 - 2026-08-21T19:29:28.675Z Task goal plan created.

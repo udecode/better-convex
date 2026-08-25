@@ -618,7 +618,7 @@ describe('convex limits stress (env-gated)', () => {
       });
 
       await t.run(async (baseCtx) => {
-        const reads = countDocumentReads(baseCtx, { scanned: true });
+        const reads = countDocumentReads(baseCtx);
         const ctx = withOrm(baseCtx, relations, {
           scheduler: scheduler as any,
           scheduledMutationBatch,
