@@ -328,7 +328,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` -> 942 files checked, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Greps capped with `| head`; full-suite logs written to /tmp and grepped rather than streamed |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | PENDING_AUTOREVIEW |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | Exact-repair branch review against `kitcn/main` found no actionable P0/P1 at 0.88 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/409-elide-post-image-re-reads.md` | see check output below |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | No new export from `kitcn/orm`; the count accessor is a `static` member, so it never appears on the `GelRelationalQuery` instance type returned by the public query builders |
 | Convex bundle/import proof | yes | Audit affected function-entry static graphs or record N/A | No new runtime module edges: `write-fanout` already reached `insert.ts` transitively via `mutation-utils`; the `EdgeMetadata` import is type-only |
@@ -573,6 +573,8 @@ Autoclosure evidence (2026-08-26):
   scenario.
 - Initial current-main P1 autoreview was clean at 0.92 confidence. The
   exact-commit pass then found and drove the nested-value canonicalization fix.
+- Post-repair P1 autoreview was clean at 0.88 confidence, and the full gate was
+  rerun successfully after that repair.
 - Bounded cleanup kept intentional test helpers and removed prohibited wording
   from the changed plan and source comments without changing behavior.
 
