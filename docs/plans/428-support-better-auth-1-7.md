@@ -405,7 +405,8 @@ Decisions and tradeoffs:
 - Disable joins only at stable `advanced.database.joins`; keep the Convex entry
   graph free of the removed OIDC provider package.
 - Require a two-deployment optional-to-required issuer transition with a
-  user-supplied trusted provider map and indexed collision checks.
+  user-supplied trusted provider map, provider-subject rewrites, indexed
+  collision checks, quiesced auth writes, and organization-team backfills.
 
 Implementation notes:
 - Exact/scaffold versions are `better-auth@1.7.1` and
@@ -431,6 +432,7 @@ Error attempts:
 | Shared-checkout restore loaded Better Auth 1.6 install state | 1 | Run the allowed single `bun install` retry | Exact focused tests returned to green without code changes. |
 | First `bun check` expected five mutation builders | 1 | Update the stale contract for two Better Auth atomic methods | Second autoreview and `bun check` passed. |
 | Current-main autoclosure review found an impossible issuer backfill order | 1 | Specify an optional-schema deployment, indexed backfill/collision proof, then required-schema deployment | `.changeset/calm-auth-issuers.md` now contains the executable two-deployment protocol. |
+| Exact-head review found live-write, Microsoft subject, and team-counter migration gaps | 1 | Keep auth writes quiesced across both deployments, map Microsoft `sub` to verified `oid`, and backfill each team's indexed member count | The changeset now covers every required Convex data transition before schema hardening. |
 
 Verification evidence:
 - `bun test` focused auth/dependency set: 100 passed; factory suite: 19 passed.
@@ -507,7 +509,8 @@ Final handoff / sync:
 - Issue: https://github.com/udecode/kitcn/issues/428#issuecomment-5417476555.
 - Browser proof: N/A: no browser surface.
 - Caveats: existing accounts require the two-deployment issuer transition in
-  `.changeset/calm-auth-issuers.md`.
+  `.changeset/calm-auth-issuers.md`; organization-team users must also backfill
+  member counts, and Microsoft users require a trusted `sub`-to-`oid` map.
 
 Timeline:
 - 2026-08-25T20:30:39.504Z Task goal plan created.
@@ -525,6 +528,9 @@ Timeline:
 - 2026-08-26 Merged current `kitcn/main@f75fd10e`, replayed the focused and full
   gates, and repaired the P1 issuer deployment deadlock with an optional-field
   transition before the required Better Auth 1.7 schema.
+- 2026-08-26 Closed the remaining migration P1s by quiescing writes across the
+  cutover, requiring verified Microsoft subject rewrites, and backfilling
+  organization team counters before the required schema.
 
 Reboot status:
 | Question | Answer |
@@ -538,8 +544,9 @@ Reboot status:
 Open risks:
 - Existing accounts need the two-deployment issuer transition recorded in the
   changeset. The package cannot infer trusted OAuth issuer mappings from stored
-  Convex rows; operators must supply and verify that map during the indexed
-  backfill before hardening the field.
+  Convex rows or Microsoft `oid` from the old subject; operators must supply and
+  verify those maps during the indexed backfill. Organization-team users must
+  also backfill actual member counts before hardening the fields.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
