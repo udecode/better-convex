@@ -48,8 +48,8 @@ Timed checkpoint:
   behavior tests and Better Auth 1.7 install proof remain.
 - improvement loop: one red-green vertical slice per source case, then package,
   fixture, repo, review, and PR proof.
-- final score / loop closure: 99%; all source, package, fixture, runtime, repo,
-  and review gates are green; only GitHub bookkeeping remains.
+- final score / loop closure: 100%; all source, package, fixture, runtime, repo,
+  review, PR, and issue-sync gates are green.
 
 Completion threshold:
 - Better Auth exact install is `1.7.1` and KitCN peers hard-cut to
@@ -335,7 +335,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | complete | Run the command, proof, source audit, or artifact check named in this plan | complete |
-| Exact per-PR task ownership | complete | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | complete |
+| Exact per-PR task ownership | complete | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #430 / this plan |
 | Pre-solution issue challenge verdict | complete | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | complete |
 | Repro escalation ladder | complete | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | complete |
 | Bug reproduced before fix | complete | Record failing test/repro or N/A with reason | complete |
@@ -355,12 +355,12 @@ Completion Gates:
 | High-risk mini gate | complete | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | complete |
 | Agent-native review for agent/tooling changes | complete | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | complete |
 | Local install corruption suspected | complete | Run `bun install` once, rerun the exact failing command, or record N/A | complete |
-| Commit created | complete | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | complete |
-| PR create or update | complete | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | complete |
-| Task-style PR body verified | complete | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | complete |
-| PR task evidence verified | complete | Verify body plan line, plan at PR head, and exact PR ownership | complete |
+| Commit created | complete | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Full checkout committed from checkpoint `1db74bf9` through evidence closeout `3c0ed9f6`; final receipt commit follows. |
+| PR create or update | complete | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | https://github.com/udecode/kitcn/pull/430 |
+| Task-style PR body verified | complete | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | PR #430 body uses the auto-release block and exact task format. |
+| PR task evidence verified | complete | Verify body plan line, plan at PR head, and exact PR ownership | PR #430 body names this plan; this receipt commit records PR #430 at head. |
 | PR proof image hosting | complete | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | complete |
-| GitHub issue sync-back | complete | Post concise issue sync after PR exists, or record N/A/blocker | complete |
+| GitHub issue sync-back | complete | Post concise issue sync after PR exists, or record N/A/blocker | https://github.com/udecode/kitcn/issues/428#issuecomment-5417476555 |
 | Final handoff contract | complete | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | complete |
 | Final lint | complete | Run `bun lint:fix` or scoped equivalent | complete |
 | Output budget discipline | complete | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | complete |
@@ -383,8 +383,8 @@ Phase / pass table:
 | Intake and source read | complete | Issue, Better Auth 1.7.1, local owners, VISION, and prior notes read | implementation |
 | Implementation | complete | Dependency, generators, adapter, generated contract, types, fixtures, changeset | verification |
 | Verification | complete | Focused tests, typecheck, build, fixtures, runtime smoke, `bun check`, autoreview | GitHub sync |
-| Commit / PR / GitHub sync | in_progress | Checkpoint and follow-up commits created; exact PR/issue receipt follows creation | final response |
-| Closeout | in_progress | Plan evidence filled; exact GitHub receipts remain | final response |
+| Commit / PR / GitHub sync | complete | PR #430 created; issue #428 QA comment read back | final response |
+| Closeout | complete | Exact GitHub receipts recorded; child then parent plan checker remain | final response |
 
 Findings:
 - A range-only dependency bump would leave required Better Auth 1.7 schema and
@@ -456,10 +456,9 @@ Source-listed case matrix:
 Final handoff contract:
 - Commit line: `1db74bf9` checkpoint plus verified follow-up commits on
   `codex/428-support-better-auth-1-7`.
-- PR line: one task-style PR fixes #428; exact URL is recorded immediately
-  after GitHub assigns it.
-- Issue line: concise fix and QA receipt follows PR creation.
-- Confidence line: 99% before GitHub receipt; source and all executable gates
+- PR line: https://github.com/udecode/kitcn/pull/430 fixes #428.
+- Issue line: https://github.com/udecode/kitcn/issues/428#issuecomment-5417476555.
+- Confidence line: 100%; source, executable, review, and GitHub receipt gates
   are green.
 - Flow table:
   - Reproduced: source plus red tests; browser N/A.
@@ -473,7 +472,7 @@ Final handoff contract:
   - Why not quick patch: a version bump alone leaves schema/runtime broken.
   - Why not broader change: org/session APIs already belong to Better Auth.
 - Verified: all named proof above is green.
-- PR body verified: exact read-back follows PR creation.
+- PR body verified: `gh pr view 430 --json body,url,state,headRefOid` read-back.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -497,10 +496,10 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: checkpoint and verified follow-ups created; final plan receipt commit
-  follows GitHub assignment.
-- PR: single issue #428 PR to `main`; exact URL follows creation.
-- Issue: fix/QA sync follows PR creation.
+- Commit: checkpoint and verified follow-ups created; this receipt commit is the
+  final plan-only head update.
+- PR: https://github.com/udecode/kitcn/pull/430 to `main`.
+- Issue: https://github.com/udecode/kitcn/issues/428#issuecomment-5417476555.
 - Browser proof: N/A: no browser surface.
 - Caveats: issuer backfill is mandatory for existing accounts.
 
@@ -515,12 +514,14 @@ Timeline:
 - 2026-08-26 Merged `origin/main@9963d330`, refreshed local dependencies after
   the shared checkout, passed focused/package/fixture/runtime/repo gates, closed
   two clean autoreviews, and prepared the exact GitHub receipts.
+- 2026-08-26 Created PR #430, posted/read back the issue #428 QA sync, and
+  recorded both exact receipts before plan checker closeout.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | GitHub receipt closeout on the verified dedicated branch |
-| Where am I going? | Create PR, record exact URL, sync issue, run plan checkers |
+| Where am I? | Exact plan-checker closeout on PR #430 |
+| Where am I going? | Run child then parent completion checkers and push this final receipt |
 | What is the goal? | Support Better Auth 1.7.1 honestly through KitCN's owned package and ship one PR fixing #428. |
 | What have I learned? | The fork delta is irrelevant; honest 1.7 support requires shared schema/index, atomic adapter, and structural client type updates. |
 | What have I done? | Implemented the hard cut, regenerated fixtures, passed focused/full/runtime proof, and closed autoreview. |

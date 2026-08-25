@@ -335,8 +335,8 @@ Final handoff / sync:
 - Range: `c628916b451a6b4cff0f5464f134475464b1a6da..2f9fcf6c3966bb27d38b2b83e80a1e914ab2a3ee`.
 - Decision: fork change is no-op for KitCN; Better Auth 1.7 compatibility slice
   is implemented in the linked task plan.
-- Delegated PR: one issue #428 PR; exact URL is recorded immediately after
-  GitHub assigns it.
+- Delegated PR: https://github.com/udecode/kitcn/pull/430, owned by
+  `docs/plans/428-support-better-auth-1-7.md`.
 - Fork sync: direct fast-forward push complete at `2f9fcf6`.
 - Caveats: existing KitCN account rows require issuer backfill.
 
