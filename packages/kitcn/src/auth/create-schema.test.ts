@@ -1,5 +1,5 @@
 import { getAuthTables } from 'better-auth/db';
-import { organization } from 'better-auth/plugins';
+import { deviceAuthorization, organization } from 'better-auth/plugins';
 import { createSchema } from './create-schema';
 
 const tables = {
@@ -97,6 +97,31 @@ describe('createSchema', () => {
     );
   });
 
+  test('generates the Better Auth 1.7 account identity contract', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ emailAndPassword: { enabled: true } }),
+    });
+    const account = result.code.split('  account: defineTable({')[1] ?? '';
+
+    expect(account).toContain('issuer: v.string()');
+    expect(account).toContain(
+      '.index("accountId_issuer", ["accountId","issuer"])'
+    );
+  });
+
+  test('indexes Better Auth 1.7 device authorization lookups', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ plugins: [deviceAuthorization({})] }),
+    });
+    const deviceCode =
+      result.code.split('  deviceCode: defineTable({')[1] ?? '';
+
+    expect(deviceCode).toContain('.index("deviceCode", ["deviceCode"])');
+    expect(deviceCode).toContain('.index("userCode", ["userCode"])');
+  });
+
   test('indexes the organization plugin composite query shapes', async () => {
     const result = await createSchema({
       file: 'auth/schema.ts',
@@ -135,6 +160,7 @@ describe('createSchema', () => {
       'teamId',
       'teamId_userId',
       'userId',
+      'membershipKey',
     ]);
     expect(indexesOf('invitation')).toEqual([
       'email',

@@ -75,6 +75,15 @@ export type ConvexAuthProviderClient = {
 export type AuthClientWithPlugins<Plugins extends BetterAuthClientPlugin[]> =
   ReturnType<typeof createAuthClient<{ plugins: Plugins }>>;
 
+type HydratableAuthClient<Plugins extends BetterAuthClientPlugin[]> = Omit<
+  AuthClientWithPlugins<Plugins>,
+  'hydrateSession'
+> & {
+  hydrateSession(
+    session: Parameters<AuthClientWithPlugins<Plugins>['hydrateSession']>[0]
+  ): void;
+};
+
 export type AuthClient =
-  | AuthClientWithPlugins<PluginsWithCrossDomain>
-  | AuthClientWithPlugins<PluginsWithoutCrossDomain>;
+  | HydratableAuthClient<PluginsWithCrossDomain>
+  | HydratableAuthClient<PluginsWithoutCrossDomain>;

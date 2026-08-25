@@ -1,5 +1,5 @@
 import { getAuthTables } from 'better-auth/db';
-import { organization } from 'better-auth/plugins';
+import { deviceAuthorization, organization } from 'better-auth/plugins';
 import { createSchemaExtensionOrm, createSchemaOrm } from './create-schema-orm';
 
 const tables = {
@@ -171,6 +171,32 @@ describe('createSchemaOrm', () => {
     expect(result.code).toContain('from: r.user.personalOrganizationId,');
     expect(result.code).toContain('activeOrganization: r.one.organization({');
     expect(result.code).toContain('from: r.session.activeOrganizationId,');
+  });
+
+  test('generates the Better Auth 1.7 account identity constraint', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ emailAndPassword: { enabled: true } }),
+    });
+
+    expect(result.code).toContain('issuer: text().notNull(),');
+    expect(result.code).toContain(
+      'uniqueIndex("accountId_issuer").on(accountTable.accountId, accountTable.issuer)'
+    );
+  });
+
+  test('indexes Better Auth 1.7 device authorization lookups', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ plugins: [deviceAuthorization({})] }),
+    });
+
+    expect(result.code).toContain(
+      'uniqueIndex("deviceCode").on(deviceCodeTable.deviceCode)'
+    );
+    expect(result.code).toContain(
+      'uniqueIndex("userCode").on(deviceCodeTable.userCode)'
+    );
   });
 
   test('indexes the organization plugin composite query shapes', async () => {

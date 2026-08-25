@@ -1,8 +1,10 @@
 import { v } from 'convex/values';
 import {
+  consumeOneHandler,
   createHandler,
   deleteManyHandler,
   deleteOneHandler,
+  incrementOneHandler,
   updateManyHandler,
   updateOneHandler,
 } from './create-api';
@@ -26,6 +28,7 @@ const schema = {
         fields: {
           createdAt: v.number(),
           email: v.string(),
+          failedVerificationCount: v.optional(v.number()),
           name: v.optional(v.string()),
           updatedAt: v.number(),
         },
@@ -38,6 +41,7 @@ const betterAuthSchema = {
   user: {
     fields: {
       email: { unique: false },
+      failedVerificationCount: { required: false },
     },
     modelName: 'users',
   },
@@ -85,6 +89,64 @@ const createMemoryCtx = (docsById: Record<string, any>) => {
     store,
   };
 };
+
+describe('Better Auth atomic handlers', () => {
+  test('consumes one matching document and returns it', async () => {
+    const { db, store } = createMemoryCtx({
+      'user-1': { _id: 'user-1', email: 'a@b.com', name: 'alice' },
+    });
+
+    const consumed = await consumeOneHandler(
+      { db } as any,
+      {
+        input: {
+          model: 'users',
+          where: [{ field: '_id', operator: 'eq', value: 'user-1' }],
+        },
+      },
+      schema,
+      betterAuthSchema
+    );
+
+    expect(consumed).toMatchObject({ id: 'user-1', name: 'alice' });
+    expect(store.has('user-1')).toBe(false);
+  });
+
+  test('increments one matching document and applies absolute fields', async () => {
+    const { db, store } = createMemoryCtx({
+      'user-1': {
+        _id: 'user-1',
+        email: 'a@b.com',
+        failedVerificationCount: 2,
+        name: 'alice',
+      },
+    });
+
+    const updated = await incrementOneHandler(
+      { db } as any,
+      {
+        input: {
+          increment: { failedVerificationCount: 1 },
+          model: 'users',
+          set: { name: 'blocked' },
+          where: [{ field: '_id', operator: 'eq', value: 'user-1' }],
+        },
+      },
+      schema,
+      betterAuthSchema
+    );
+
+    expect(updated).toMatchObject({
+      failedVerificationCount: 3,
+      id: 'user-1',
+      name: 'blocked',
+    });
+    expect(store.get('user-1')).toMatchObject({
+      failedVerificationCount: 3,
+      name: 'blocked',
+    });
+  });
+});
 
 describe('createHandler', () => {
   test('runs create.before/create.after/change triggers inline', async () => {

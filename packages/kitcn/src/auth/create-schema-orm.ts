@@ -85,6 +85,20 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
           }
           return indexes;
         }, []) || [];
+      const declaredIndexes = (table.indexes ?? []).reduce<
+        Array<string | string[]>
+      >((indexes, index) => {
+        const resolved = index.fields
+          .map((fieldKey) => resolveIndexField(fieldKey))
+          .filter((fieldName): fieldName is string => fieldName !== null);
+
+        if (resolved.length === index.fields.length) {
+          indexes.push(resolved.length === 1 ? resolved[0]! : resolved);
+        }
+
+        return indexes;
+      }, []);
+      const explicitIndexes = manualIndexes.concat(declaredIndexes);
       const specialFieldIndexes = Object.entries(
         tableSpecialFields as Record<string, { unique?: boolean }>
       )
@@ -92,12 +106,26 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
         .map(([fieldName]) => fieldName)
         .filter(
           (index) =>
-            !manualIndexes.some((m) =>
+            !explicitIndexes.some((m) =>
               Array.isArray(m) ? m[0] === index : m === index
             )
         );
+      const seen = new Set<string>();
+      const indexes = explicitIndexes
+        .concat(specialFieldIndexes)
+        .filter((index) => {
+          const key = (Array.isArray(index) ? [...index].sort() : [index]).join(
+            '\0'
+          );
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
 
-      return [key, manualIndexes.concat(specialFieldIndexes)];
+          return true;
+        });
+
+      return [key, indexes];
     })
   );
 
@@ -425,13 +453,33 @@ const renderSchemaOrmFile = async ({
           ? [...indexSpec].sort()
           : [indexSpec];
         const indexName = indexArray.join('_');
-        state.ormImports.add('index');
+        const unique = (entry.table.indexes ?? []).some((index) => {
+          if (!index.unique) {
+            return false;
+          }
+
+          const resolvedFields = index.fields
+            .map((fieldKey) => {
+              const field = entry.table.fields[fieldKey];
+
+              return field ? (field.fieldName ?? fieldKey) : null;
+            })
+            .filter((fieldName): fieldName is string => fieldName !== null)
+            .sort();
+
+          return (
+            resolvedFields.length === index.fields.length &&
+            resolvedFields.join('\0') === indexArray.join('\0')
+          );
+        });
+        const indexFactory = unique ? 'uniqueIndex' : 'index';
+        state.ormImports.add(indexFactory);
 
         const fieldsCall = indexArray
           .map((fieldName) => renderPropertyAccess(entry.varName, fieldName))
           .join(', ');
 
-        return `index(${JSON.stringify(indexName)}).on(${fieldsCall})`;
+        return `${indexFactory}(${JSON.stringify(indexName)}).on(${fieldsCall})`;
       }) || [];
 
     const extraConfig =

@@ -410,4 +410,64 @@ describe('checkUniqueFields', () => {
       )
     ).rejects.toThrow('users email already exists');
   });
+
+  test('enforces Better Auth compound unique indexes', async () => {
+    const equalities: Array<{ field: string; value: string }> = [];
+    const queryBuilder = {
+      eq: (field: string, value: string) => {
+        equalities.push({ field, value });
+
+        return queryBuilder;
+      },
+    };
+
+    await expect(
+      checkUniqueFields(
+        {
+          db: {
+            query: () => ({
+              withIndex: (_name: string, build: (q: any) => any) => {
+                build(queryBuilder);
+
+                return {
+                  unique: async () => ({ _id: 'other-account' }),
+                };
+              },
+            }),
+          },
+        } as any,
+        {
+          tables: {
+            account: {
+              export: () => ({
+                indexes: [
+                  {
+                    fields: ['accountId', 'issuer'],
+                    indexDescriptor: 'by_accountId_issuer',
+                  },
+                ],
+              }),
+            },
+          },
+        } as any,
+        {
+          account: {
+            fields: {
+              accountId: { required: true, type: 'string' },
+              issuer: { required: true, type: 'string' },
+            },
+            indexes: [{ fields: ['issuer', 'accountId'], unique: true }],
+            modelName: 'account',
+          },
+        } as any,
+        'account',
+        { accountId: 'subject-1', issuer: 'https://issuer.example' }
+      )
+    ).rejects.toThrow('account issuer, accountId already exists');
+
+    expect(equalities).toEqual([
+      { field: 'accountId', value: 'subject-1' },
+      { field: 'issuer', value: 'https://issuer.example' },
+    ]);
+  });
 });

@@ -719,6 +719,57 @@ export const updateOneHandler = async (
   return toConvexSafe(normalizedUpdatedDoc);
 };
 
+export const incrementOneHandler = async (
+  ctx: any,
+  args: {
+    input: {
+      increment: Record<string, number>;
+      model: string;
+      set?: Record<string, unknown>;
+      where?: any[];
+    };
+    tableTriggers?: RuntimeTableTriggers;
+    triggerCtx?: unknown;
+  },
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+  if (!doc) {
+    return null;
+  }
+
+  const normalizedDoc = withBothIdFields(doc) as Record<string, unknown>;
+  const update: Record<string, unknown> = { ...args.input.set };
+  for (const [field, delta] of Object.entries(args.input.increment)) {
+    const current = normalizedDoc[field];
+    if (typeof current !== 'number') {
+      throw new Error(`Cannot increment non-numeric field ${field}`);
+    }
+    update[field] = current + delta;
+  }
+
+  const id = getDocId(normalizedDoc);
+  if (!id) {
+    throw new Error(`Cannot increment ${args.input.model} without an id`);
+  }
+
+  return updateOneHandler(
+    ctx,
+    {
+      input: {
+        model: args.input.model,
+        update,
+        where: [{ field: '_id', operator: 'eq', value: id }],
+      },
+      tableTriggers: args.tableTriggers,
+      triggerCtx: args.triggerCtx,
+    },
+    schema,
+    betterAuthSchema
+  );
+};
+
 export const updateManyHandler = async (
   ctx: any,
   args: {
@@ -889,6 +940,22 @@ export const deleteOneHandler = async (
   );
 
   return toConvexSafe(withBothIdFields(hookDoc));
+};
+
+export const consumeOneHandler = async (
+  ctx: any,
+  args: {
+    input: {
+      model: string;
+      where?: any[];
+    };
+    tableTriggers?: RuntimeTableTriggers;
+    triggerCtx?: unknown;
+  },
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  return (await deleteOneHandler(ctx, args, schema, betterAuthSchema)) ?? null;
 };
 
 export const deleteManyHandler = async (
@@ -1094,7 +1161,32 @@ export const createApi = <
       )
     : anyInputWithUpdate;
 
+  const incrementInput = v.object({
+    increment: v.record(v.string(), v.number()),
+    model: modelValidator,
+    set: v.optional(v.record(v.string(), v.any())),
+    where: v.optional(v.array(adapterWhereValidator)),
+  });
+
   return {
+    consumeOne: mutationBuilder({
+      args: {
+        input: deleteInput,
+      },
+      handler: async (ctx, args) => {
+        const triggerCtx = ctx as TriggerCtx;
+        return consumeOneHandler(
+          ctx,
+          {
+            input: args.input,
+            tableTriggers: resolveTableTriggers(args.input.model, triggerCtx),
+            triggerCtx,
+          },
+          schema,
+          getBetterAuthSchema()
+        );
+      },
+    }),
     create: mutationBuilder({
       args: {
         input: createInput,
@@ -1189,6 +1281,24 @@ export const createApi = <
         };
 
         return auth.api.getLatestJwks();
+      },
+    }),
+    incrementOne: mutationBuilder({
+      args: {
+        input: incrementInput,
+      },
+      handler: async (ctx, args) => {
+        const triggerCtx = ctx as TriggerCtx;
+        return incrementOneHandler(
+          ctx,
+          {
+            input: args.input,
+            tableTriggers: resolveTableTriggers(args.input.model, triggerCtx),
+            triggerCtx,
+          },
+          schema,
+          getBetterAuthSchema()
+        );
       },
     }),
     rotateKeys: internalActionGeneric({
