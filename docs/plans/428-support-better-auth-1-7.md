@@ -404,7 +404,8 @@ Decisions and tradeoffs:
   unique tuples in the shared adapter helper.
 - Disable joins only at stable `advanced.database.joins`; keep the Convex entry
   graph free of the removed OIDC provider package.
-- Require an issuer backfill receipt rather than inventing unsafe migration data.
+- Require a two-deployment optional-to-required issuer transition with a
+  user-supplied trusted provider map and indexed collision checks.
 
 Implementation notes:
 - Exact/scaffold versions are `better-auth@1.7.1` and
@@ -429,6 +430,7 @@ Error attempts:
 | Redundant dependency validator timed out fetching shadcn Vite | 1 | Preserve prior green fixture proof and rerun exact owned gates later | Exact fixture check and `bun check` subsequently passed. |
 | Shared-checkout restore loaded Better Auth 1.6 install state | 1 | Run the allowed single `bun install` retry | Exact focused tests returned to green without code changes. |
 | First `bun check` expected five mutation builders | 1 | Update the stale contract for two Better Auth atomic methods | Second autoreview and `bun check` passed. |
+| Current-main autoclosure review found an impossible issuer backfill order | 1 | Specify an optional-schema deployment, indexed backfill/collision proof, then required-schema deployment | `.changeset/calm-auth-issuers.md` now contains the executable two-deployment protocol. |
 
 Verification evidence:
 - `bun test` focused auth/dependency set: 100 passed; factory suite: 19 passed.
@@ -441,6 +443,9 @@ Verification evidence:
   clean, no accepted/actionable findings, 0.95 confidence on final code head.
 - `bun check`: passed, including auth smoke for Next and Start plus all runtime
   scenarios.
+- Current-main replay after merging `kitcn/main@f75fd10e`: 39 focused tests,
+  package build, 1,346 Bun tests, 905 Vitest tests, fixture parity, verify, and
+  every runtime scenario passed.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -501,7 +506,8 @@ Final handoff / sync:
 - PR: https://github.com/udecode/kitcn/pull/430 to `main`.
 - Issue: https://github.com/udecode/kitcn/issues/428#issuecomment-5417476555.
 - Browser proof: N/A: no browser surface.
-- Caveats: issuer backfill is mandatory for existing accounts.
+- Caveats: existing accounts require the two-deployment issuer transition in
+  `.changeset/calm-auth-issuers.md`.
 
 Timeline:
 - 2026-08-25T20:30:39.504Z Task goal plan created.
@@ -516,6 +522,9 @@ Timeline:
   two clean autoreviews, and prepared the exact GitHub receipts.
 - 2026-08-26 Created PR #430, posted/read back the issue #428 QA sync, and
   recorded both exact receipts before plan checker closeout.
+- 2026-08-26 Merged current `kitcn/main@f75fd10e`, replayed the focused and full
+  gates, and repaired the P1 issuer deployment deadlock with an optional-field
+  transition before the required Better Auth 1.7 schema.
 
 Reboot status:
 | Question | Answer |
@@ -527,9 +536,10 @@ Reboot status:
 | What have I done? | Implemented the hard cut, regenerated fixtures, passed focused/full/runtime proof, and closed autoreview. |
 
 Open risks:
-- Existing accounts need issuer backfill before deploying the required 1.7
-  schema. The package cannot infer an OAuth issuer from Convex rows; the
-  changeset must state this rather than invent unsafe migration automation.
+- Existing accounts need the two-deployment issuer transition recorded in the
+  changeset. The package cannot infer trusted OAuth issuer mappings from stored
+  Convex rows; operators must supply and verify that map during the indexed
+  backfill before hardening the field.
 
 Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
