@@ -172,22 +172,52 @@ const planHasFilter = (plan: QueryPlan | null) =>
   plan !== null && plan.operators.some((operator) => 'filter' in operator);
 
 const planLimit = (plan: QueryPlan | null) => {
-  for (const operator of plan?.operators ?? []) {
+  const limits = (plan?.operators ?? []).flatMap((operator) =>
+    typeof operator.limit === 'number' ? [operator.limit] : []
+  );
+  if (limits.length > 1) {
+    throw new Error(
+      'countDocumentReads: cannot replay more than one serialized limit.'
+    );
+  }
+  return limits[0] ?? Number.POSITIVE_INFINITY;
+};
+
+const scanReplayOperators = (plan: QueryPlan) => {
+  const leadingLimits: { limit: number }[] = [];
+  let sawFilter = false;
+  let sawPostFilterLimit = false;
+
+  for (const operator of plan.operators) {
+    if ('filter' in operator) {
+      if (sawPostFilterLimit) {
+        throw new Error(
+          'countDocumentReads: cannot replay a query whose filter follows ' +
+            'a post-filter limit.'
+        );
+      }
+      sawFilter = true;
+      continue;
+    }
     if (typeof operator.limit === 'number') {
-      return operator.limit;
+      if (sawFilter) {
+        sawPostFilterLimit = true;
+      } else {
+        leadingLimits.push({ limit: operator.limit });
+      }
     }
   }
-  return Number.POSITIVE_INFINITY;
+
+  return leadingLimits;
 };
 
 /**
- * Replay `plan`'s source with every operator dropped.
+ * Replay `plan`'s source without filters or post-filter limits.
  *
  * The result is the sequence of documents Convex walks to answer the real
- * query: `.filter()` and `.limit()` decide which of them survive, never which
- * of them are read. Running it through the engine rather than re-evaluating the
- * predicate here keeps the two passes in the same order, so the filtered result
- * is always a subsequence of this one.
+ * Leading limits bound the source before filtering and therefore stay in the
+ * replay. Running the source through the engine keeps the filtered result a
+ * subsequence of this one.
  */
 const scanSequence = async (target: any, plan: QueryPlan): Promise<any[]> => {
   const QueryConstructor = target?.constructor;
@@ -199,7 +229,7 @@ const scanSequence = async (target: any, plan: QueryPlan): Promise<any[]> => {
 
   const replay = new QueryConstructor({
     source: { ...plan.source },
-    operators: [],
+    operators: scanReplayOperators(plan),
   });
   const rows: any[] = [];
   for await (const row of replay) {
@@ -229,7 +259,7 @@ const scanPageRange = async (
   while (true) {
     const replay = new QueryConstructor({
       source: { ...plan.source },
-      operators: [],
+      operators: scanReplayOperators(plan),
     });
     const page = await replay.paginate({
       cursor: nextCursor,

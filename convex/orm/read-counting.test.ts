@@ -170,6 +170,59 @@ describe('countDocumentReads: rows rejected by .filter()', () => {
     expect(reads.scanned).toBe(3);
   });
 
+  test('a leading limit bounds the source before filtering', async ({
+    ctx,
+  }) => {
+    await seedBucket(ctx);
+
+    const reads = countDocumentReads(ctx);
+    const query = ctx.db
+      .query('users')
+      .withIndex('by_status', (q) => q.eq('status', 'bucket')) as any;
+    const rows = await query
+      .limit(5)
+      .filter((q: any) => q.eq(q.field('name'), 'u2'))
+      .collect();
+
+    expect(rows.map((row: any) => row.name)).toEqual(['u2']);
+    expect(reads.documents).toBe(1);
+    expect(reads.scanned).toBe(5);
+  });
+
+  test('stacked serialized limits fail loudly', async ({ ctx }) => {
+    await seedBucket(ctx);
+
+    const reads = countDocumentReads(ctx);
+    const query = ctx.db
+      .query('users')
+      .withIndex('by_status', (q) => q.eq('status', 'bucket'))
+      .filter((q) =>
+        q.or(q.eq(q.field('name'), 'u2'), q.eq(q.field('name'), 'u7'))
+      ) as any;
+    await expect(query.limit(10).limit(1).collect()).rejects.toThrow(
+      'more than one serialized limit'
+    );
+    expect(reads.documents).toBe(0);
+    expect(reads.scanned).toBe(0);
+  });
+
+  test('an interleaved filter after a limit fails loudly', async ({ ctx }) => {
+    await seedBucket(ctx);
+
+    countDocumentReads(ctx);
+    const query = ctx.db
+      .query('users')
+      .withIndex('by_status', (q) => q.eq('status', 'bucket'))
+      .filter((q) => q.eq(q.field('name'), 'u2')) as any;
+
+    await expect(
+      query
+        .limit(5)
+        .filter((q: any) => q.eq(q.field('status'), 'bucket'))
+        .collect()
+    ).rejects.toThrow('filter follows a post-filter limit');
+  });
+
   test('a filtered page charges for the walk, not the page', async ({
     ctx,
   }) => {
@@ -232,7 +285,9 @@ describe('countDocumentReads: rows rejected by .filter()', () => {
       }
 
       async paginate(options: { cursor: string | null }) {
-        if (this.state.query.operators.length > 0) {
+        if (
+          this.state.query.operators.some((operator) => 'filter' in operator)
+        ) {
           return {
             continueCursor: 'cursor-10',
             isDone: false,

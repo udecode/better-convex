@@ -338,6 +338,7 @@ Error attempts:
 |------------------------|-------|---------------------|------------|
 | Filtered continuation cursor treated as a document ID | 1 | Replay the source between the actual opaque cursor boundaries | Fixed and pinned |
 | Last returned row used as the scan-limited page boundary | 1 | Stop replay at `continueCursor`, not the last match | Fixed and pinned |
+| Replay dropped a source-bounding limit before a filter | 1 | Preserve leading limits and reject uncountable interleavings | Fixed and pinned |
 
 Verification evidence:
 - cwd for all commands: `/Users/mikey/conductor/workspaces/kitcn/moab`.
@@ -379,6 +380,15 @@ Verification evidence:
   Next, Start, and Vite snapshots, and `fixtures:check` passed.
 - Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
   check` replay exited 0, including fixture parity and every runtime scenario.
+- Exact-head review found that dropping a limit before a filter could inflate a
+  bounded scan. The second repair preserves leading source limits, rejects
+  filter-limit-filter and stacked-limit plans the simulator cannot count
+  honestly, and raises the focused suite to 19 passing tests.
+- Second repair-only P1 autoreview -> clean, patch correct at 0.87 confidence.
+- Final deslop delta -> 171 findings before and after, with zero occurrence
+  changes and no score change.
+- Post-limit-repair `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0, including fixture parity and every runtime scenario.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -391,6 +401,8 @@ Source-listed case matrix:
 | Existing invariants must not regress | — | 7 suites, 30 assertions | 174 pass | 174 pass on `scanned` | passes | done |
 | Filtered continuation pages | cursor is opaque, not a document ID | two one-row pages | second page can restart at row zero | each page charges only its cursor range | 16-test focused suite | done |
 | Scan-limited filtered page | cursor may advance beyond the last match | fake cursor boundary at row 10 | charges 1 returned row | charges all 10 scanned rows | 16-test focused suite | done |
+| Leading source limit | limit executes before filtering | `limit(5).filter(...)` | replay drains the full range | replay stops after 5 scanned rows | 19-test focused suite | done |
+| Uncountable operator interleaving | simulator does not preserve full operator order | filter-limit-filter and stacked limits | counter can claim a false bound | counter throws instead of lying | 19-test focused suite | done |
 
 Final handoff contract:
 - Commit line: `feb68240 test(orm): count documents scanned behind .filter()`.
