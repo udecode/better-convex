@@ -1,4 +1,5 @@
 import type { GenericDatabaseWriter } from 'convex/server';
+import { convexToJson, jsonToConvex, type Value } from 'convex/values';
 import type { ColumnBuilder } from './builders/column-builder';
 import { convexAnd } from './convex-filter-compiler';
 import type { FilterExpression } from './filter-expression';
@@ -69,6 +70,16 @@ type InsertConflictConfig<TTable extends ConvexTable<any>> =
       action: 'update';
       config: InsertOnConflictDoUpdateConfig<TTable>;
     };
+
+// Match Convex write serialization: omit undefined object fields and detach
+// nested values from the caller-owned payload.
+const canonicalizeStoredRow = (
+  row: Record<string, unknown>
+): Record<string, unknown> =>
+  jsonToConvex(convexToJson(row as unknown as Value)) as Record<
+    string,
+    unknown
+  >;
 
 export type ConvexInsertWithout<
   T extends ConvexInsertBuilder<any, any>,
@@ -272,7 +283,7 @@ export class ConvexInsertBuilder<
       }
 
       const inserted = canDerivePostImage
-        ? ({ ...(preparedValue as any), _id: id } as Record<string, unknown>)
+        ? canonicalizeStoredRow({ ...(preparedValue as any), _id: id })
         : ((await this.db.get(id as any)) as Record<string, unknown> | null);
       if (inserted) {
         results.push(
@@ -473,9 +484,11 @@ export class ConvexInsertBuilder<
     const updated = this.returningFields
       ? hasLifecycleHooks(this.db, tableName)
         ? await this.db.get((existing as any)._id)
-        : stripUnsetFields(
-            { ...(existing as any), ...(writeSet as any) },
-            unsetFieldsOf(writeSet as any)
+        : canonicalizeStoredRow(
+            stripUnsetFields(
+              { ...(existing as any), ...(writeSet as any) },
+              unsetFieldsOf(writeSet as any)
+            )
           )
       : null;
 

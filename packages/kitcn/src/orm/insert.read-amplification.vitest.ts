@@ -5,6 +5,7 @@ import { convexTest } from '../../../../convex/setup.testing';
 import {
   convexTable,
   createOrm,
+  custom,
   defineRelations,
   defineSchema,
   integer,
@@ -18,6 +19,9 @@ const cities = convexTable('ri_cities', {
   name: text().notNull(),
   region: text(),
   population: integer(),
+  profile: custom(
+    v.object({ label: v.string(), note: v.optional(v.string()) })
+  ),
 });
 
 const runtimeSchema = defineConvexSchema({
@@ -25,6 +29,9 @@ const runtimeSchema = defineConvexSchema({
     name: v.string(),
     region: v.optional(v.string()),
     population: v.optional(v.number()),
+    profile: v.optional(
+      v.object({ label: v.string(), note: v.optional(v.string()) })
+    ),
   }),
 });
 
@@ -140,6 +147,28 @@ describe('ORM insert() read amplification', () => {
     });
   });
 
+  test('a projected object matches Convex storage canonicalization', async () => {
+    const t = convexTest(runtimeSchema);
+
+    await t.run(async (ctx) => {
+      const counts: Counts = { get: 0, query: 0 };
+      const db = orm.db(countingDb(ctx.db, counts)) as any;
+      const profile = { label: 'west', note: undefined };
+
+      const [row] = await db
+        .insert(cities)
+        .values({ name: 'Quimper', profile })
+        .returning({ id: cities.id, profile: cities.profile })
+        .execute();
+
+      const stored: any = await ctx.db.get(row.id);
+      expect(row.profile).toStrictEqual(stored.profile);
+      expect(row.profile).toStrictEqual({ label: 'west' });
+      expect(row.profile).not.toBe(profile);
+      expect(counts.get).toBe(0);
+    });
+  });
+
   test('argument-less returning() keeps its read for _creationTime', async () => {
     const t = convexTest(runtimeSchema);
 
@@ -240,6 +269,9 @@ const upsertUsers = convexTable(
     nickname: text(),
     visits: integer(),
     lastSeen: timestamp(),
+    profile: custom(
+      v.object({ label: v.string(), note: v.optional(v.string()) })
+    ),
   },
   (t) => [uniqueIndex('ri_upsert_users_by_email').on(t.email)]
 );
@@ -251,6 +283,9 @@ const upsertRuntimeSchema = defineConvexSchema({
     nickname: v.optional(v.string()),
     visits: v.optional(v.number()),
     lastSeen: v.optional(v.number()),
+    profile: v.optional(
+      v.object({ label: v.string(), note: v.optional(v.string()) })
+    ),
   }).index('ri_upsert_users_by_email', ['email']),
 });
 
@@ -318,6 +353,39 @@ describe('ORM insert().onConflictDoUpdate() read amplification', () => {
       expect(Object.hasOwn(rows[0], 'nickname')).toBe(false);
       const stored: any = await ctx.db.get(rows[0].id);
       expect(Object.hasOwn(stored, 'nickname')).toBe(false);
+    });
+  });
+
+  test('a conflict object matches Convex storage canonicalization', async () => {
+    const t = convexTest(upsertRuntimeSchema);
+
+    await t.run(async (ctx) => {
+      const seedDb = upsertOrm.db(ctx.db as any) as any;
+      await seedDb
+        .insert(upsertUsers)
+        .values({ email: 'c@test.dev', name: 'Carol' })
+        .execute();
+
+      const counts: Counts = { get: 0, query: 0 };
+      const db = upsertOrm.db(countingDb(ctx.db, counts)) as any;
+      const profile = { label: 'updated', note: undefined };
+
+      const [row] = await db
+        .insert(upsertUsers)
+        .values({ email: 'c@test.dev', name: 'Ignored' })
+        .onConflictDoUpdate({
+          target: upsertUsers.email,
+          set: { profile },
+        })
+        .returning({ id: upsertUsers.id, profile: upsertUsers.profile })
+        .execute();
+
+      const stored: any = await ctx.db.get(row.id);
+      expect(row.profile).toStrictEqual(stored.profile);
+      expect(row.profile).toStrictEqual({ label: 'updated' });
+      expect(row.profile).not.toBe(profile);
+      expect(counts.get).toBe(0);
+      expect(counts.query).toBe(1);
     });
   });
 });

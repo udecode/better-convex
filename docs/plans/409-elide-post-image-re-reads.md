@@ -302,7 +302,7 @@ Completion Gates:
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Recorded above; verdict `partially valid`, pivoted the count fix to `GelRelationalQuery` |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | Source-level test repro sufficed; browser/visual rungs N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | Pre-fix read counts: 3/1/1/2 and control+1; see case matrix |
-| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | `bunx vitest run --project integration convex/orm packages/kitcn/src/orm` -> 47 files, 589 passed |
+| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | `bunx vitest run convex/orm packages/kitcn/src/orm` -> 51 passed files, 624 passed tests |
 | TypeScript or typed config changed | yes | Run relevant typecheck | `bun typecheck` -> 5/5 tasks successful, exit 0 |
 | Package exports or file layout changed | yes | Run the relevant package build before final verification and keep generated updates | `bun --cwd packages/kitcn build` -> 71 files, build complete |
 | Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant package checks | N/A: no manifest or lockfile change |
@@ -346,7 +346,7 @@ Phase / pass table:
 | Intake and source read | done | `gh issue view 409`, attached issue file, plan created | implementation |
 | Investigation | done | 4 parallel source probes + 3 adversarial refutation lenses; composition hole found | implementation |
 | Implementation | done | `insert.ts`, `query.ts`, `returning-count.ts`, `mutation-utils.ts`, `update.ts` | verification |
-| Verification | done | 12 new tests green and proved red pre-fix; 589 ORM tests green; typecheck, build, lint clean | closeout |
+| Verification | done | 15 new tests green and proved red before their fixes; 624 Vitest ORM tests green; typecheck, build, lint clean | closeout |
 | Commit / PR / GitHub sync | done | `bun check` exit 0; pushed `fix/orm-elide-post-image-re-reads`; PR #414 opened with `Fixes #409` | final response |
 | Closeout | done | autoreview run; plan completed | final response |
 
@@ -407,11 +407,11 @@ Decisions and tradeoffs:
   `unsetFieldsOf` / `stripUnsetFields` helpers rather than writing a second
   copy for the conflict path. The hoisted `unsetFields` computation that keeps
   `update()`'s loop cheap is preserved.
-- Match `update()`'s existing shallow derivation exactly rather than deep-
-  stripping nested `undefined` or deep-cloning. Convex drops nested `undefined`
-  on write and a derived row keeps it, and a projected object column is the
-  caller's own reference — but both are already true of the shipped `update()`
-  derivation, so diverging here would be worse than the gap. See Open risks.
+- Canonicalize the two new derived insert paths through Convex's own value
+  codec. This matches storage omission of `undefined` object fields, preserves
+  Convex-only values, and detaches nested values from caller-owned payloads
+  without restoring a document read. The older `update()` derivation is not
+  changed by this task.
 - Use the counting-`db` proxy from `update.read-amplification.vitest.ts`
   instead of `countDocumentReads`, which cannot see through the lifecycle
   writer on a hooked schema.
@@ -448,6 +448,12 @@ Review fixes:
   (row-reference preservation through `_applyRlsSelectFilter`) is now asserted
   directly rather than left to inspection: the RLS test checks
   `_count === { revisions: 2 }`.
+- Autoclosure exact-head review found one P1: both new derived insert paths
+  retained nested `undefined` keys and caller-owned object references while a
+  fresh Convex read returned canonical stored values. Two tests reproduced the
+  mismatch exactly. Both paths now round-trip their local post-image through
+  `convexToJson` / `jsonToConvex`; the regressions pass with zero post-image
+  reads.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -464,7 +470,7 @@ All commands run from `/Users/mikey/conductor/workspaces/kitcn/semarang-v2`.
   integer read count (`expected 3 to be +0`, `expected 1 to be +0`,
   `expected 2 to be +0`, `expected 2 to be 1`).
 - `bunx vitest run --project integration convex/orm packages/kitcn/src/orm`
-  -> 47 files, 589 passed, 13 skipped.
+  -> 51 passed files, 624 passed tests, 13 skipped tests.
 - `bun --cwd packages/kitcn build` -> 71 files, build complete.
 - `bun typecheck` -> 5/5 tasks successful, exit 0.
 - `bun lint:fix` -> 942 files checked, no fixes applied.
@@ -505,7 +511,7 @@ Final handoff contract:
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests red on the pre-fix tree with exact integer read counts, browser N/A
-  - Verified: 13 new tests green, 256 Bun ORM tests and 622 Vitest ORM tests
+  - Verified: 15 new tests green, 256 Bun ORM tests and 624 Vitest ORM tests
     green, typecheck/build/lint clean, browser N/A
 - Browser check: N/A - server-side ORM read path, no rendered output
 - Outcome: `insert().returning({ ... })`, `insert().onConflictDoUpdate().returning()`
@@ -523,9 +529,9 @@ Final handoff contract:
     issue proposed would have dropped the RLS filter and stamped `_count` onto
     a live document headed for a write, and its gate would have missed
     `_creationTime`-keyed counted edges entirely.
-  - Why not broader change: nested-`undefined` stripping and object-reference
-    aliasing are pre-existing properties of `update()`'s shipped derivation;
-    changing them here would split insert and update semantics.
+  - Why not broader change: `update()`'s older local derivation is independent
+    of the two insert paths changed here. Repairing that existing behavior is a
+    separate owner-scoped task.
 - Verified: see Verification evidence
 - PR body verified: `gh pr view 414 --json body` - PR #270 emoji format with auto-release block, task plan line, and no self-link
 
@@ -559,13 +565,14 @@ Final handoff / sync:
 
 Autoclosure evidence (2026-08-26):
 - Merged `kitcn/main` at `10c4fa4c` into the PR branch without conflicts.
-- Focused proof: 13 read-amplification tests and 5 count-gating tests passed.
-- Broader proof: 256 Bun ORM tests and 622 Vitest ORM tests passed; 13 Vitest
+- Focused proof: 15 read-amplification tests and 5 count-gating tests passed.
+- Broader proof: 256 Bun ORM tests and 624 Vitest ORM tests passed; 13 Vitest
   tests were skipped by their existing conditions.
 - Package build passed with 71 output files.
 - Full `bun check` passed, including fixture parity, verify, and every runtime
   scenario.
-- Current-main P1 autoreview was clean at 0.92 confidence before final commit.
+- Initial current-main P1 autoreview was clean at 0.92 confidence. The
+  exact-commit pass then found and drove the nested-value canonicalization fix.
 - Bounded cleanup kept intentional test helpers and removed prohibited wording
   from the changed plan and source comments without changing behavior.
 
@@ -591,11 +598,10 @@ Open risks:
   read *staying*. Why this boundary is right: the derivation lives where the
   payload is written, and the count accessor lives inside the query that owns the
   RLS and plan semantics — no caller has to know anything new.
-- Pre-existing and unchanged: a projected object-typed column is returned by
-  reference from the caller's `values()` / `set()` object, and nested
-  `undefined` keys inside it survive where a real read would have dropped them.
-  This is already the shipped behavior of `update().returning()`'s derivation;
-  insert now matches it. Fixing it belongs to both paths at once, not here.
+- Pre-existing and unchanged: `update().returning()` still derives its
+  post-image without the Convex codec. The new plain insert and conflict-update
+  paths are canonicalized and have exact fresh-read equality tests. Repairing
+  the older update path is separate from this PR's read-elision contract.
 - `returning({ _count })` on an RLS-enabled table whose select policy hides a
   row it just wrote now returns real counts instead of `{}`. Not a leak
   (`ensureCountAllowedForRls` refuses to count RLS-enabled targets), and it
