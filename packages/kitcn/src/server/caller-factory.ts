@@ -169,6 +169,13 @@ export function createCallerFactory<TApi extends Record<string, unknown>>(
         ...opts,
         forceRefresh: true,
       });
+      // Publish the refreshed token back to the context every call in this
+      // request shares. Without this, a context that outlives a single call —
+      // any memoized `createContext`, which is how both the Next RSC caller and
+      // the Start caller are wired — replays the same rejected token on every
+      // later call, re-executing non-idempotent mutations and actions.
+      tokenResult.token = newToken.token;
+      tokenResult.isFresh = newToken.isFresh;
       try {
         return await fn(newToken.token);
       } catch (retryError) {

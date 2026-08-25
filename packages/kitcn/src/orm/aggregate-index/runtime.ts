@@ -22,7 +22,9 @@ import {
   AGGREGATE_BUCKET_TABLE,
   AGGREGATE_EXTREMA_TABLE,
   AGGREGATE_MEMBER_TABLE,
+  AGGREGATE_RANK_TREE_TABLE,
   AGGREGATE_STATE_TABLE,
+  rankAggregateName,
 } from './schema';
 
 export type {
@@ -3120,6 +3122,57 @@ export const assertAggregateIndexesWritable = async (
   );
 };
 
+/**
+ * Read-only mirror of the emptiness checks the clear chunks drive to
+ * completion. `clearCountIndexChunk` and `clearRankIndexChunk` report `done`
+ * from the same conditions, so this is what "the clear finished" means without
+ * writing anything.
+ */
+const isIndexStateDrained = async (
+  db: GenericDatabaseReader<any> | GenericDatabaseWriter<any>,
+  kind: string,
+  tableName: string,
+  indexName: string
+): Promise<boolean> => {
+  const member = await db
+    .query(AGGREGATE_MEMBER_TABLE)
+    .withIndex('by_kind_table_index', (q: any) =>
+      q.eq('kind', kind).eq('tableKey', tableName).eq('indexName', indexName)
+    )
+    .first();
+  if (member) {
+    return false;
+  }
+
+  if (kind === AGGREGATE_STATE_KIND_RANK) {
+    // `deleteTrees` reports done only once no tree row is left, so a surviving
+    // row means nodes the clear never dropped are still reachable.
+    const tree = await db
+      .query(AGGREGATE_RANK_TREE_TABLE)
+      .withIndex('by_aggregate_name', (q: any) =>
+        q.eq('aggregateName', rankAggregateName(tableName, indexName))
+      )
+      .first();
+    return tree === null;
+  }
+
+  const [bucket, extrema] = await Promise.all([
+    db
+      .query(AGGREGATE_BUCKET_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      )
+      .first(),
+    db
+      .query(AGGREGATE_EXTREMA_TABLE)
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', tableName).eq('indexName', indexName)
+      )
+      .first(),
+  ]);
+  return bucket === null && extrema === null;
+};
+
 export const setCountState = async (
   db: GenericDatabaseWriter<any>,
   nextState: Omit<CountState, '_id'>,
@@ -3149,6 +3202,29 @@ export const setCountState = async (
     await db.insert(AGGREGATE_STATE_TABLE, payload as any);
     return;
   }
+
+  // Draining to empty is the only way out of CLEARING. Serving or rebuilding on
+  // top of a half-drained index inserts over stored state the clear never
+  // reached, and nothing downstream can detect that the numbers are wrong. The
+  // probe costs a bounded read at most once per clear campaign, because this is
+  // the only edge that reaches it.
+  if (
+    existing.status === COUNT_STATUS_CLEARING &&
+    payload.status !== COUNT_STATUS_CLEARING &&
+    !(await isIndexStateDrained(
+      db,
+      kind,
+      nextState.tableName,
+      nextState.indexName
+    ))
+  ) {
+    const indexType =
+      kind === AGGREGATE_STATE_KIND_RANK ? 'rankIndex' : 'aggregateIndex';
+    throw new Error(
+      `${indexType} '${nextState.tableName}.${nextState.indexName}' is CLEARING with stored state left; refusing to move it to ${payload.status}. Finish the clear before advancing the index.`
+    );
+  }
+
   await db.patch(AGGREGATE_STATE_TABLE, existing._id as any, payload as any);
 };
 

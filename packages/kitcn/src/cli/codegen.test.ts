@@ -1,3 +1,4 @@
+import { describe, expect, test, vi } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5223,6 +5224,64 @@ export default createHttpRouter({}, router({}));
       const { outputFile } = getConvexConfig();
       expect(fs.readFileSync(outputFile, 'utf-8')).toContain('todos');
       expect(fs.readFileSync(outputFile, 'utf-8')).not.toContain('kitcn-parse');
+    } finally {
+      process.chdir(oldCwd);
+    }
+  });
+
+  test('generateMeta reads each file once and walks the functions dir once', async () => {
+    const dir = mkTempDir();
+    const oldCwd = process.cwd();
+
+    process.chdir(dir);
+    try {
+      writeScopedFixture(dir);
+      // Generate first so the measured run sees the steady state a watch cycle
+      // sees: every generated file already on disk and up to date.
+      await generateMeta(undefined, { silent: true });
+
+      const functionsDir = path.join(fs.realpathSync(dir), 'convex');
+      const readsByFile = new Map<string, number>();
+      let functionsDirWalks = 0;
+      const originalReadFileSync = fs.readFileSync;
+      const originalReaddirSync = fs.readdirSync;
+      const readFileSpy = vi
+        .spyOn(fs, 'readFileSync')
+        .mockImplementation((file, options) => {
+          if (typeof file === 'string') {
+            readsByFile.set(file, (readsByFile.get(file) ?? 0) + 1);
+          }
+          return originalReadFileSync(file, options);
+        });
+      const readdirSpy = vi
+        .spyOn(fs, 'readdirSync')
+        .mockImplementation((target, options) => {
+          if (target === functionsDir) {
+            functionsDirWalks += 1;
+          }
+          return originalReaddirSync(target, options);
+        });
+
+      try {
+        await generateMeta(undefined, { silent: true });
+      } finally {
+        readFileSpy.mockRestore();
+        readdirSpy.mockRestore();
+      }
+
+      expect(functionsDirWalks).toBe(1);
+      // Both files are rewritten by the emit phase and read back by it while
+      // deciding which generated api types the module runtime imports. A cache
+      // that did not remember its own writes would read them from disk twice.
+      expect(
+        readsByFile.get(path.join(functionsDir, 'generated', 'auth.ts'))
+      ).toBe(1);
+      expect(
+        readsByFile.get(path.join(functionsDir, 'generated', 'aggregate.ts'))
+      ).toBe(1);
+      expect(
+        readsByFile.get(path.join(functionsDir, 'generated', 'server.ts'))
+      ).toBe(1);
     } finally {
       process.chdir(oldCwd);
     }

@@ -128,6 +128,45 @@ describe('proxy (solid)', () => {
     expect(key).toEqual(['convexQuery', 'todos:list', { status: 'open' }]);
   });
 
+  test('.queryFilter() without args returns a prefix key', () => {
+    getFuncRefSpy.mockReturnValue(queryRef);
+    getFunctionTypeSpy.mockReturnValue('query');
+
+    const proxy = createCRPCOptionsProxy(
+      { todos: { list: queryRef } } as any,
+      meta
+    );
+
+    // Omitted args (or `{}`) mean "every args variant", so the key must stop
+    // before the args slot or `partialMatchKey` matches nothing.
+    expect((proxy as any).todos.list.queryFilter()).toEqual({
+      queryKey: ['convexQuery', 'todos:list'],
+    });
+    expect((proxy as any).todos.list.queryFilter({})).toEqual({
+      queryKey: ['convexQuery', 'todos:list'],
+    });
+    expect(
+      (proxy as any).todos.list.queryFilter({ status: 'open' }, { stale: true })
+    ).toEqual({
+      queryKey: ['convexQuery', 'todos:list', { status: 'open' }],
+      stale: true,
+    });
+  });
+
+  test('.queryFilter() without args returns an action prefix key', () => {
+    getFuncRefSpy.mockReturnValue(actionRef);
+    getFunctionTypeSpy.mockReturnValue('action');
+
+    const proxy = createCRPCOptionsProxy(
+      { ai: { generate: actionRef } } as any,
+      meta
+    );
+
+    expect((proxy as any).ai.generate.queryFilter()).toEqual({
+      queryKey: ['convexAction', 'ai:generate'],
+    });
+  });
+
   test('.mutationKey() returns correct key format', () => {
     getFuncRefSpy.mockReturnValue(mutationRef);
     getFunctionTypeSpy.mockReturnValue('mutation');

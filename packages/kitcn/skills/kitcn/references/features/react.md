@@ -235,11 +235,20 @@ useQuery(crpc.user.get.queryOptions(userId ? { id: userId } : skipToken));
 
 ### Query Keys & Filters
 
+`queryKey(args)` is the exact cache key — use it for `getQueryData`/`setQueryData`.
+`queryFilter(args?)` matches on prefix — use it for `invalidateQueries`/`cancelQueries`/`removeQueries`.
+
 ```ts
 const queryKey = crpc.user.list.queryKey({}); // ['convexQuery', 'user:list', {}]
 const data = queryClient.getQueryData(queryKey);
 
-const filter = crpc.user.list.queryFilter({}, { predicate: (q) => q.state.dataUpdatedAt > Date.now() - 60000 });
+// Omit args to match every args variant: ['convexQuery', 'user:list']
+queryClient.invalidateQueries(crpc.user.list.queryFilter());
+
+// Partial args match every query whose args contain them
+queryClient.invalidateQueries(crpc.user.list.queryFilter({ status: 'active' }));
+
+const filter = crpc.user.list.queryFilter({ status: 'active' }, { predicate: (q) => q.state.dataUpdatedAt > Date.now() - 60000 });
 queryClient.invalidateQueries(filter);
 ```
 

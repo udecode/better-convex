@@ -669,12 +669,28 @@ export function createCountBackfillHandlers(
             continue;
           }
 
+          // A metric change restarts the build from scratch. An index that is
+          // still draining has to finish that drain first: the rebuild would
+          // otherwise insert on top of the members, buckets and trees the clear
+          // never reached.
+          const cleared =
+            existing.status === COUNT_STATUS_CLEARING
+              ? await drainIndexClear(
+                  ctx,
+                  target.kind,
+                  target.tableName,
+                  target.indexName,
+                  batchSize,
+                  clearBudget
+                )
+              : true;
+
           await setCountState(
             ctx.db,
             {
               ...nextStateBase,
               kind: stateKind,
-              status: COUNT_STATUS_BUILDING,
+              status: cleared ? COUNT_STATUS_BUILDING : COUNT_STATUS_CLEARING,
               cursor: null,
               processed: 0,
               startedAt: now,

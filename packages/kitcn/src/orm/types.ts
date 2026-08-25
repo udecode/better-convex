@@ -70,6 +70,16 @@ export type IndexKey = (Value | undefined)[];
 export type FindManyUnionSource<
   TTableConfig extends TableRelationalConfig = TableRelationalConfig,
 > = {
+  /**
+   * Index anchor for this source alone. Overrides the chain-level
+   * `.withIndex(...)`, so each source can walk its own range instead of
+   * re-walking one shared range and discarding the misses in JS.
+   *
+   * Sources may pin different indexes: `interleaveBy` re-orders every source by
+   * the same trailing fields before merging, so what has to match across
+   * sources is that ordering suffix, not the index name.
+   */
+  index?: PredicateWhereIndexConfig<TTableConfig>;
   where?: RelationsFilter<TTableConfig, any> | WhereCallback<TTableConfig>;
 };
 

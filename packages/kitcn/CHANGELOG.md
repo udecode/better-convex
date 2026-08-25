@@ -1,5 +1,225 @@
 # kitcn
 
+## 0.27.3
+
+### Patch Changes
+
+- [#398](https://github.com/udecode/kitcn/pull/398) [`71158af`](https://github.com/udecode/kitcn/commit/71158af254e97942d382c9b87f736466fb2fbdbd) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `aggregateBackfill` cutting an in-progress clear short when the same run
+    also sees a changed metric definition. A `CLEARING` index now finishes draining
+    before it moves to `BUILDING`, which is what `resume` already documented, and
+    it applies to `aggregateIndex` and `rankIndex` alike. Previously a metric or
+    sum change landing while `kitcn aggregate rebuild` was still draining could
+    abandon the rebuild halfway and still report `READY`, leaving `count()`,
+    `aggregate()` and `rank()` answering from state no document backs.
+  - Refuse to advance an index out of `CLEARING` while any of its stored state
+    survives. The backfill now fails loudly instead of rebuilding on top of a
+    half-drained index and serving numbers that are quietly wrong.
+
+## 0.27.2
+
+### Patch Changes
+
+- [#397](https://github.com/udecode/kitcn/pull/397) [`c90f821`](https://github.com/udecode/kitcn/commit/c90f821e9d416303147b93cc3a1b14a5ccff1fed) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix organization permission checks returning a false "not a member" once an
+    organization grows past ~200 members. The generated auth schema now indexes
+    the composite lookups the organization plugin actually issues:
+    `member` by `organizationId` + `userId` and by `organizationId` + `role`,
+    `teamMember` by `teamId` + `userId`, `invitation` by
+    `organizationId` + `status` and by `email` + `organizationId` + `status`, and
+    `organizationRole` by `organizationId` + `role`. Every index that was emitted
+    before is still emitted, so this is additive — rerun
+    `npx kitcn add auth --schema --yes` to pick the new ones up.
+
+  - Fix `findOne` reporting "not found" when the scan budget ran out before
+    reaching a matching row. Single-document reads now page until they match a row
+    or exhaust the query, so an unindexed lookup is slow and warns rather than
+    silently wrong. Watch for `Querying without an index on table "..."` in your
+    logs and add the index it names.
+
+## 0.27.1
+
+### Patch Changes
+
+- [#396](https://github.com/udecode/kitcn/pull/396) [`8fca5cc`](https://github.com/udecode/kitcn/commit/8fca5cc53c37bd6f651cfbfbf50b87d5461d0ce5) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Match every args variant from `crpc.<path>.queryFilter()` when `args` is
+    omitted, `null`, or `{}`, in both the React and Solid bindings. The filter
+    built a key with an empty args slot, which TanStack's partial matching never
+    matched, so `invalidateQueries` silently refreshed nothing and stale data
+    stayed on screen. Pass args to narrow the filter; omit them to reach every
+    variant. `crpc.http.*.queryFilter()` follows the same rule.
+
+  ```ts
+  // Before
+  crpc.analytics.getReport.queryFilter(); // ['convexQuery', 'analytics:getReport', undefined] — matched nothing
+  queryClient.invalidateQueries(crpc.analytics.getReport.queryFilter()); // no-op
+
+  // After
+  crpc.analytics.getReport.queryFilter(); // ['convexQuery', 'analytics:getReport']
+  queryClient.invalidateQueries(crpc.analytics.getReport.queryFilter()); // every args variant
+  ```
+
+## 0.27.0
+
+### Minor Changes
+
+- [#395](https://github.com/udecode/kitcn/pull/395) [`2c9ffd2`](https://github.com/udecode/kitcn/commit/2c9ffd20987e4a94cb5790cbb72e6249f1fdfcf4) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Nested `with:` now loads every level it is given, up to 10, instead of quietly dropping everything past the third. A config that nests deeper throws `RELATION_DEPTH_EXCEEDED` rather than returning a shorter tree. Deep `with:` configs that used to come back truncated now come back complete — and read the rows that completeness costs.
+
+  ```ts
+  // Before: the fourth level was dropped, with no error
+  const rows = await ctx.orm.query.comments.findMany({
+    limit: 20,
+    with: {
+      replies: {
+        limit: 10,
+        with: { replies: { limit: 10, with: { author: true } } },
+      },
+    },
+  });
+  rows[0].replies[0].replies[0].author; // undefined
+
+  // After: loaded, because it was asked for
+  rows[0].replies[0].replies[0].author; // { id, name }
+  ```
+
+  ## Patches
+
+  - Resolve `with: { _count }` at every level of a nested `with:`, including the deepest one returned. A tree can now report how many children it withheld without a second pass that re-reads every node the caller already holds.
+
+## 0.26.3
+
+### Patch Changes
+
+- [#394](https://github.com/udecode/kitcn/pull/394) [`1317349`](https://github.com/udecode/kitcn/commit/13173495fa8db3d8a0568642981c1cdef4dcdf2b) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Features
+
+  - Support a per-source `index: { name, range }` on `select().union([...])`, so each source walks its own index range instead of re-walking one shared range and filtering the misses in JS.
+
+  ```ts
+  const page = await db.query.messages
+    .select()
+    .union([
+      {
+        index: {
+          name: "by_from_to",
+          range: (q) => q.eq("from", me).eq("to", them),
+        },
+      },
+      {
+        index: {
+          name: "by_from_to",
+          range: (q) => q.eq("from", them).eq("to", me),
+        },
+      },
+    ])
+    .interleaveBy(["createdAt", "id"])
+    .paginate({ cursor: null, limit: 20 });
+  ```
+
+  - Support union sources anchored on different indexes, as long as each source pins its leading fields with `eq` and ends up ordered by the `interleaveBy` fields.
+
+## 0.26.2
+
+### Patch Changes
+
+- [#393](https://github.com/udecode/kitcn/pull/393) [`5ebba20`](https://github.com/udecode/kitcn/commit/5ebba205900489ab204901f5487788a60b9d0dd4) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn codegen`. Each Convex module is now read once per run instead
+    of up to four times, and the functions directory is listed once instead of
+    twice. On an 82-module app that is 57 fewer file reads and 10 fewer directory
+    listings per run, with identical generated output.
+
+## 0.26.1
+
+### Patch Changes
+
+- [#392](https://github.com/udecode/kitcn/pull/392) [`72d3270`](https://github.com/udecode/kitcn/commit/72d327003547b1f4097aa72db0d35128ed57b04d) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix a crash when writing an object key that cannot be converted to a string,
+    such as one created with `Object.create(null)`, into an `aggregateIndex` or
+    `rankIndex`. Once enough keys accumulated to rebalance the index, the write
+    failed with `TypeError: Cannot convert object to primitive value` instead of
+    succeeding.
+
+## 0.26.0
+
+### Minor Changes
+
+- [#401](https://github.com/udecode/kitcn/pull/401) [`947cd11`](https://github.com/udecode/kitcn/commit/947cd11fe4e461caca9d7cc934ef34d62599e136) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Require `api` on `convexBetterAuthReactStart`, which now returns `createCaller`
+    and `createContext` alongside the auth helpers.
+
+  ```ts
+  // Before
+  export const { handler, getToken } = convexBetterAuthReactStart({
+    convexUrl: import.meta.env.VITE_CONVEX_URL!,
+    convexSiteUrl: import.meta.env.VITE_CONVEX_SITE_URL!,
+  });
+
+  // After
+  export const { handler, getToken, createCaller, createContext } =
+    convexBetterAuthReactStart({
+      api,
+      convexUrl: import.meta.env.VITE_CONVEX_URL!,
+      convexSiteUrl: import.meta.env.VITE_CONVEX_SITE_URL!,
+    });
+  ```
+
+  - Drop `runServerCall` from the TanStack Start scaffold. Call procedures on a
+    caller bound once with `createCaller()`.
+
+  ```ts
+  // Before
+  export function runServerCall<T>(
+    fn: (caller: ServerCaller) => Promise<T> | T
+  ) {
+    const caller = createServerCaller();
+    return fn(caller);
+  }
+  await runServerCall((caller) => caller.user.getSessionUser({}));
+
+  // After
+  export const caller = createCaller();
+  await caller.user.getSessionUser({});
+  ```
+
+  - Move TanStack Start JWT caching under `auth.jwtCache`, a boolean.
+
+  ```ts
+  // Before
+  convexBetterAuthReactStart({
+    jwtCache: { enabled: true, isAuthError },
+    // ...
+  });
+
+  // After
+  convexBetterAuthReactStart({
+    auth: { jwtCache: true, isUnauthorized: isAuthError },
+    // ...
+  });
+  ```
+
+  ## Patches
+
+  - Fetch the Convex auth token once per request on TanStack Start. Every
+    procedure call, `getToken()`, and `fetchAuthQuery`/`fetchAuthMutation`/
+    `fetchAuthAction` in a request now share one token, instead of each paying its
+    own round trip.
+  - Stop replaying a rejected auth token for the rest of a request. After a
+    refresh, the remaining calls sharing that context use the new token instead of
+    re-failing and re-running non-idempotent mutations and actions.
+  - Refresh expired TanStack Start tokens instead of failing. Forced refresh and
+    token freshness now reach the token layer, so a stale token retries once and a
+    fresh one is no longer replayed on an authorization error.
+
+  Existing TanStack Start apps: re-run `kitcn add auth --overwrite` to update
+  `src/lib/convex/auth-server.ts` and `src/lib/convex/server.ts`.
+
 ## 0.25.7
 
 ### Patch Changes

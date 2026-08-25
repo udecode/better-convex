@@ -877,47 +877,9 @@ describe('M6.5 Phase 2: Nested Relation Loading', () => {
     });
   });
 
-  describe('Depth Limiting', () => {
-    test('should respect max depth limit of 3', async ({ ctx }) => {
-      // We can't easily test depth > 3 without more tables,
-      // but we can verify depth 3 works and depth limiting is in place
-      const userId = await ctx.db.insert('users', {
-        name: 'Alice',
-        email: 'alice@example.com',
-      });
-
-      const postId = await ctx.db.insert('posts', {
-        text: 'Post',
-        numLikes: 10,
-        type: 'text',
-        authorId: userId,
-      });
-
-      await (ctx.db as any).insert('comments', {
-        text: 'Comment',
-        postId,
-        authorId: userId,
-      });
-
-      const db = ctx.orm;
-
-      // Depth 1: users
-      // Depth 2: users.posts
-      // Depth 3: users.posts.comments
-      const users = await db.query.users.findMany({
-        with: {
-          posts: {
-            with: {
-              comments: true,
-            },
-          },
-        },
-      });
-
-      expect((users[0] as any).posts[0].comments).toBeDefined();
-      expect((users[0] as any).posts[0].comments).toHaveLength(1);
-    });
-  });
+  // Depth limiting itself is owned by `relation-depth.test.ts`: it needs a
+  // self-referencing table to nest a `with` config past the ceiling, which none
+  // of the tables here are.
 });
 
 describe('M6.5 Phase 3: Relation Filters and Limits', () => {
@@ -1093,7 +1055,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       });
 
       expect((rows[0] as any).posts).toHaveLength(3);
-      expect(reads.documents).toBeLessThanOrEqual(5);
+      expect(reads.scanned).toBeLessThanOrEqual(5);
     });
 
     test('offset with a relation where skips matches, not scanned rows', async ({
@@ -1407,7 +1369,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       // `by_author` pins authorId, so the rest of the index key is creation
       // order: the page comes straight off the index instead of collecting all
       // 40 children and sorting them.
-      expect(reads.documents).toBeLessThanOrEqual(5);
+      expect(reads.scanned).toBeLessThanOrEqual(5);
     });
 
     test('a later compound relation index serves order and bounds reads', async ({
@@ -1436,7 +1398,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       expect((users[0] as any).posts.map((post: any) => post.numLikes)).toEqual(
         [39, 38, 37]
       );
-      expect(reads.documents).toBeLessThanOrEqual(5);
+      expect(reads.scanned).toBeLessThanOrEqual(5);
     });
 
     test('nested with only loads the children that survive the limit', async ({
@@ -1479,7 +1441,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       expect(posts[0].comments).toHaveLength(1);
       // numLikes is not on `by_author`, so all 10 posts are read — but the 8
       // that the limit discards must not each fetch their own comments.
-      expect(reads.documents).toBeLessThanOrEqual(15);
+      expect(reads.scanned).toBeLessThanOrEqual(15);
     });
 
     test('through relation limit bounds the junction read', async ({ ctx }) => {
@@ -1504,7 +1466,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       expect((users[0] as any).groups).toHaveLength(3);
       // 1 user + 3 junction rows + 3 groups. Without the bound this reads all
       // 30 links and all 30 groups.
-      expect(reads.documents).toBeLessThanOrEqual(10);
+      expect(reads.scanned).toBeLessThanOrEqual(10);
     });
 
     test('through relation bounded read applies offset before limit', async ({
@@ -1533,7 +1495,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
         'group-3',
         'group-4',
       ]);
-      expect(reads.documents).toBeLessThanOrEqual(14);
+      expect(reads.scanned).toBeLessThanOrEqual(14);
     });
 
     test('through relation limit fills the page past filtered targets', async ({
@@ -1568,7 +1530,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
       ]);
       // Refilling still stops at the page: three rounds of three links and
       // three groups, not all 30 links and all 30 groups.
-      expect(reads.documents).toBeLessThanOrEqual(25);
+      expect(reads.scanned).toBeLessThanOrEqual(25);
     });
 
     test('through relation limit fills the page past dangling links', async ({
@@ -1604,7 +1566,7 @@ describe('M6.5 Phase 3: Relation Filters and Limits', () => {
         'group-07',
         'group-08',
       ]);
-      expect(reads.documents).toBeLessThanOrEqual(25);
+      expect(reads.scanned).toBeLessThanOrEqual(25);
     });
   });
 

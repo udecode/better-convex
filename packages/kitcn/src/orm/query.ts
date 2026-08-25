@@ -148,6 +148,16 @@ const RELATION_COUNT_ERROR = {
   NOT_INDEXED: 'RELATION_COUNT_NOT_INDEXED',
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
+const RELATION_DEPTH_ERROR = 'RELATION_DEPTH_EXCEEDED';
+/**
+ * How many levels of `with` the relation loader will follow. A `with` config is
+ * a finite object the caller wrote, so its own nesting is the real bound; this
+ * ceiling only stops a self-referential config from recursing forever. Reaching
+ * it throws rather than returning a shallower tree than was asked for, because
+ * a page that quietly drops its deepest level is indistinguishable from a page
+ * whose deepest level is genuinely empty.
+ */
+const MAX_RELATION_DEPTH = 10;
 
 /**
  * Physical-table-name lookup, keyed on schema identity. The schema is a
@@ -2240,7 +2250,18 @@ export class GelRelationalQuery<
       rls: this.rls,
     });
 
-    if (!withConfig || depth >= maxDepth) return;
+    if (!withConfig) return;
+
+    const relationNames = Object.keys(withConfig).filter(
+      (relationName) => relationName !== '_count'
+    );
+    if (relationNames.length > 0 && depth >= maxDepth) {
+      throw this._createRelationDepthError(
+        tableConfig,
+        relationNames[0],
+        maxDepth
+      );
+    }
 
     for (const [relationName, relationConfig] of Object.entries(withConfig)) {
       if (relationName === '_count') {
@@ -2368,7 +2389,7 @@ export class GelRelationalQuery<
       this.tableConfig,
       this.edgeMetadata,
       0,
-      3
+      MAX_RELATION_DEPTH
     );
 
     let rowsWithRelations = rows;
@@ -2377,7 +2398,7 @@ export class GelRelationalQuery<
         rowsWithRelations,
         effectiveWith,
         0,
-        3,
+        MAX_RELATION_DEPTH,
         this.edgeMetadata,
         this.tableConfig
       );
@@ -2864,11 +2885,13 @@ export class GelRelationalQuery<
     source: FindManyUnionSource<TTableConfig>,
     fallbackOrder: 'asc' | 'desc'
   ): QueryStream<any> {
-    const configuredIndex = this.configuredIndex;
+    // A source that pins its own index owns its range; the chain-level
+    // `.withIndex(...)` is only the default for sources that do not.
+    const sourceIndex = source.index ?? this.configuredIndex;
     this._assertWhereIndexRequirement({
       where: source.where,
       tableConfig: this.tableConfig,
-      hasConfiguredIndex: Boolean(configuredIndex?.name),
+      hasConfiguredIndex: Boolean(sourceIndex?.name),
       context: 'pipeline.union source',
     });
 
@@ -2878,10 +2901,10 @@ export class GelRelationalQuery<
       schemaDefinition
     ).query(this.tableConfig.name as any);
 
-    if (configuredIndex?.name) {
+    if (sourceIndex?.name) {
       sourceStream = sourceStream.withIndex(
-        configuredIndex.name as any,
-        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
+        sourceIndex.name as any,
+        sourceIndex.range ? (sourceIndex.range as any) : (q: any) => q
       );
     }
 
@@ -5596,7 +5619,7 @@ export class GelRelationalQuery<
       this.tableConfig,
       this.edgeMetadata,
       0,
-      3
+      MAX_RELATION_DEPTH
     );
     if (whereFilter) {
       this._assertRlsSelectPlan(
@@ -5604,7 +5627,7 @@ export class GelRelationalQuery<
         this.tableConfig,
         this.edgeMetadata,
         0,
-        3
+        MAX_RELATION_DEPTH
       );
     }
 
@@ -5706,7 +5729,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -6038,7 +6061,7 @@ export class GelRelationalQuery<
             whereFilter,
             this.edgeMetadata,
             0,
-            3,
+            MAX_RELATION_DEPTH,
             this.config.with as Record<string, unknown> | undefined
           );
         }
@@ -6075,7 +6098,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -6260,7 +6283,7 @@ export class GelRelationalQuery<
             whereFilter,
             this.edgeMetadata,
             0,
-            3,
+            MAX_RELATION_DEPTH,
             this.config.with as Record<string, unknown> | undefined
           );
         }
@@ -6301,7 +6324,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -6438,7 +6461,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -6480,7 +6503,7 @@ export class GelRelationalQuery<
         whereFilter,
         this.edgeMetadata,
         0,
-        3,
+        MAX_RELATION_DEPTH,
         this.config.with as Record<string, unknown> | undefined
       );
       return matchingRows.length > 0;
@@ -6562,7 +6585,7 @@ export class GelRelationalQuery<
               whereFilter,
               this.edgeMetadata,
               0,
-              3,
+              MAX_RELATION_DEPTH,
               this.config.with as Record<string, unknown> | undefined
             );
           }
@@ -6661,7 +6684,7 @@ export class GelRelationalQuery<
               whereFilter,
               this.edgeMetadata,
               0,
-              3,
+              MAX_RELATION_DEPTH,
               this.config.with as Record<string, unknown> | undefined
             );
           }
@@ -6809,7 +6832,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -6928,7 +6951,7 @@ export class GelRelationalQuery<
           whereFilter,
           this.edgeMetadata,
           0,
-          3,
+          MAX_RELATION_DEPTH,
           this.config.with as Record<string, unknown> | undefined
         );
       }
@@ -7349,14 +7372,14 @@ export class GelRelationalQuery<
    * @param rows - Array of parent records to load relations for
    * @param withConfig - Relation configuration object
    * @param depth - Current recursion depth (default 0)
-   * @param maxDepth - Maximum recursion depth (default 3)
+   * @param maxDepth - Runaway ceiling for self-referential configs (default `MAX_RELATION_DEPTH`)
    * @param targetTableEdges - Edge metadata for nested relations (optional, defaults to this.edgeMetadata)
    */
   private async _loadRelations(
     rows: any[],
     withConfig: Record<string, unknown>,
     depth = 0,
-    maxDepth = 3,
+    maxDepth = MAX_RELATION_DEPTH,
     targetTableEdges: EdgeMetadata[] = this.edgeMetadata,
     tableConfig: TableRelationalConfig = this.tableConfig
   ): Promise<any[]> {
@@ -7364,15 +7387,21 @@ export class GelRelationalQuery<
       return rows;
     }
 
-    // Prevent infinite recursion / memory explosion
-    if (depth >= maxDepth) {
-      return rows;
-    }
-
     const relationCountConfig = (withConfig as any)._count;
     const relationEntries = Object.entries(withConfig).filter(
       ([relationName]) => relationName !== '_count'
     );
+
+    // Only expanding the row tree spends recursion budget. `_count` reads an
+    // aggregate index and returns a number, so it stays legal at the boundary --
+    // which is what lets the deepest level of a tree report how much it omitted.
+    if (relationEntries.length > 0 && depth >= maxDepth) {
+      throw this._createRelationDepthError(
+        tableConfig,
+        relationEntries[0][0],
+        maxDepth
+      );
+    }
 
     // Load all relations in parallel to avoid sequential N+1 queries
     await Promise.all(
@@ -7454,6 +7483,17 @@ export class GelRelationalQuery<
     message: string
   ): Error {
     return new Error(`${code}: ${message}`);
+  }
+
+  private _createRelationDepthError(
+    tableConfig: TableRelationalConfig,
+    relationName: string,
+    maxDepth: number
+  ): Error {
+    return new Error(
+      `${RELATION_DEPTH_ERROR}: '${tableConfig.name}.${relationName}' nests \`with\` more than ${maxDepth} levels deep. ` +
+        'Trim the nesting, or check whether the config object references itself.'
+    );
   }
 
   private _remapRelationCountError(

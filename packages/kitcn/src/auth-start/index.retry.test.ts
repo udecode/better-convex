@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { makeFunctionReference } from 'convex/server';
 
 describe('auth/start token refresh', () => {
   afterEach(() => {
@@ -43,24 +44,58 @@ describe('auth/start token refresh', () => {
       getToken,
     }));
 
+    const request = new Request('https://app.example.com/');
     mock.module('@tanstack/react-start/server', () => ({
-      getRequestHeaders: () => new Headers(),
+      getRequest: () => request,
+      getRequestHeaders: () => request.headers,
     }));
+
+    const serverMutation = mock(
+      async (_ref: unknown, _args: unknown, options?: { token?: string }) => {
+        if (options?.token === 'stale-token') {
+          const error = new Error('unauthorized');
+          (error as Error & { code?: string }).code = 'UNAUTHORIZED';
+          throw error;
+        }
+        return 'ok';
+      }
+    );
+
+    mock.module('convex/nextjs', () => ({
+      fetchAction: serverMutation,
+      fetchMutation: serverMutation,
+      fetchQuery: serverMutation,
+    }));
+
+    const mutationRef = makeFunctionReference<'mutation'>('todos:create');
+    const api = {
+      todos: {
+        create: Object.assign(mutationRef, {
+          functionRef: mutationRef,
+          type: 'mutation',
+        }),
+      },
+    } as const;
 
     const { convexBetterAuthReactStart } = await import('./server');
 
     const auth = convexBetterAuthReactStart({
-      convexSiteUrl: 'https://app.convex.site',
-      convexUrl: 'https://app.convex.cloud',
-      jwtCache: {
-        enabled: true,
-        isAuthError: (error) =>
+      api,
+      auth: {
+        isUnauthorized: (error) =>
           (error as { code?: string } | undefined)?.code === 'UNAUTHORIZED',
       },
+      convexSiteUrl: 'https://app.convex.site',
+      convexUrl: 'https://app.convex.cloud',
     });
 
+    const caller = auth.createCaller();
+    await expect(caller.getToken()).resolves.toBe('stale-token');
     await expect(auth.fetchAuthQuery({} as never)).resolves.toBe('ok');
+    await expect(caller.todos.create({})).resolves.toBe('ok');
+
     expect(getToken).toHaveBeenCalledTimes(2);
     expect(query).toHaveBeenCalledTimes(2);
+    expect(serverMutation).toHaveBeenCalledTimes(1);
   });
 });
