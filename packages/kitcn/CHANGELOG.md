@@ -1,5 +1,53 @@
 # kitcn
 
+## 0.27.5
+
+### Patch Changes
+
+- [#414](https://github.com/udecode/kitcn/pull/414) [`7b01244`](https://github.com/udecode/kitcn/commit/7b0124498000e6e6ef190b4b529d10026f0a1f16) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Stop `insert().returning({ ... })` reading each row back after writing it. A
+    projected `returning()` is now answered from the values that were just
+    inserted, so an 8-row insert spends 0 reads on post-images instead of 8.
+    Argument-less `returning()` still reads, because `createdAt` is only known
+    once the row is stored.
+  - Stop `insert().onConflictDoUpdate({ ... }).returning()` reading the row back
+    after patching it.
+  - Stop `returning({ _count })` re-fetching each affected row before counting its
+    relations, on `insert()`, `update()` and `delete()`. That is one fewer read
+    per row, and the counts, their `where` filters and `delete()`'s
+    before-cascade ordering are unchanged.
+  - Keep reading the row back on tables with triggers, `aggregateIndex` or
+    `rankIndex`, where a hook can rewrite what gets stored.
+
+## 0.27.4
+
+### Patch Changes
+
+- [#400](https://github.com/udecode/kitcn/pull/400) [`9963d33`](https://github.com/udecode/kitcn/commit/9963d33048ec532f0a2d9a06bb618486856178b1) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn analyze` by measuring every selected entry in one bundler pass
+    instead of one pass per entry: 4.3 s → 0.8 s of bundling on the 24-entry example
+    app, with byte-identical `OutMB`. Each entry is still sized as its own
+    independently tree-shaken isolate, so the ranking is unchanged.
+  - Report the hotspot `DepMB` and `Files` columns for the files that carry weight in
+    each entry's isolate. They previously counted every file the bundler parsed,
+    including files tree-shaking dropped entirely, which disagreed with the `--details`
+    package and input tables directly beneath them. Expect both columns to read lower
+    than before for the same code; `OutMB` and `LocMB` are unaffected.
+  - Fix `kitcn analyze` crashing with a bundler stack trace when a Convex entry fails
+    to build. It now lists the entry under `Failed entries:`, keeps reporting every
+    entry that did build, and still exits `1`. This needs esbuild `0.27.7`, which is
+    now the minimum.
+  - Warn which entries had their `./schema` imports externalized after a build error,
+    instead of leaving the default mode silent about approximate dependency sizes. The
+    approximation is applied per entry, so one unbuildable schema import no longer
+    shrinks the numbers for unrelated functions.
+  - Open the interactive analyzer's package and input panes without a second bundle, so
+    moving the selection no longer pauses to rebuild.
+  - Document the hotspot ranking columns, in `--help` and in the CLI reference, along
+    with the `--top-inputs` / `--top-packages` flags.
+
 ## 0.27.3
 
 ### Patch Changes
