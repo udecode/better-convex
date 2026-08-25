@@ -39,6 +39,11 @@ membershipKey: v.optional(v.string()),
 .index("membershipKey", ["membershipKey"])
 ```
 
+`membershipKey` stays optional in the generated Better Auth 1.7 schema, and
+the 1.7 adapter falls back to the existing `(teamId, userId)` pair when it is
+absent. Existing rows do not need a membership-key backfill; new 1.7 writes
+populate it.
+
 Create a migration with `bunx kitcn migrate create backfill_account_issuer`.
 Inventory every provider and resolve both parts of its 1.7 identity from
 trusted provider data. Credential accounts use `local:credential` and their
@@ -135,7 +140,7 @@ export const teamMemberCountMigration = defineMigration({
     migrateOne: async (ctx, team) => {
       const members = await ctx.db
         .query("teamMember")
-        .withIndex("teamId", (query) => query.eq("teamId", team.id))
+        .withIndex("teamId", (query) => query.eq("teamId", team._id))
         .collect();
 
       return { memberCount: members.length };
@@ -155,9 +160,9 @@ bunx kitcn migrate status --prod
 Raw Convex apps use the same resolver and indexed collision check in a
 paginated internal mutation after deploying the optional fields and indexes.
 Team users must also count `teamMember` rows by the `teamId` index and patch
-every team. Finish every page, verify no account lacks either identity field,
-verify no `(issuer, accountId)` collision exists, and verify every team count
-before continuing.
+every team using the team's Convex `_id`. Finish every page, verify no account
+lacks either identity field, verify no `(issuer, accountId)` collision exists,
+and verify every team count before continuing.
 
 ### Deployment 2: required Better Auth 1.7 schema
 
