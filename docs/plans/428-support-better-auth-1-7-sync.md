@@ -106,17 +106,17 @@ Issue intake:
   auth docs/skill mirrors, and package dependency metadata.
 - Browser surface: N/A unless the chosen slice changes rendered behavior.
 - Likely root-cause layer: dependency compatibility plus generated auth schema
-  ownership; unproven until upstream/local audit finishes.
+  ownership; proven by the Better Auth 1.7.1 contract and focused local tests.
 
 Source case matrix:
 | Case | Source claim | Smallest honest harness | Before | Expected after | Proof |
 |------|--------------|-------------------------|--------|----------------|-------|
-| Peer range | KitCN excludes Better Auth 1.7 | inspect package manifests and install resolution | pending | 1.7 accepted by owned manifests | pending |
-| Account issuer | 1.7 requires account `issuer` and backfill | compare Better Auth and convex-better-auth schema contracts to KitCN generation | pending | generated contract matches required upstream surface | pending |
-| Plugin indexes | 1.7 adds compound plugin indexes | compare upstream schema generation and KitCN generated schema | pending | relevant compound indexes preserved | pending |
-| Stable joins | joins moved to `advanced.database.joins` | inspect upstream adapter/schema API and KitCN wrappers/templates | pending | KitCN uses current contract without compatibility glue | pending |
-| Device codes | device and user codes need unique lookup indexes | inspect upstream plugin schema and KitCN generation | pending | relevant unique indexes preserved | pending |
-| Optional features | metadata-only org fetch and session hydration benefit users | classify reachability and ownership | pending | selected only if required/coherent; otherwise deferred | pending |
+| Peer range | KitCN excludes Better Auth 1.7 | inspect package manifests and install resolution | 1.6.18 / `<1.7.0` | 1.7 accepted by owned manifests | 1.7.1 fixture installs and dependency tests green |
+| Account issuer | 1.7 requires account `issuer` and backfill | compare Better Auth and convex-better-auth schema contracts to KitCN generation | issuer/index missing | generated contract matches required upstream surface | plain/ORM generator plus uniqueness tests green |
+| Plugin indexes | 1.7 adds compound plugin indexes | compare upstream schema generation and KitCN generated schema | `table.indexes` ignored | relevant compound indexes preserved | organization/device generator tests green |
+| Stable joins | joins moved to `advanced.database.joins` | inspect upstream adapter/schema API and KitCN wrappers/templates | removed experimental path used | KitCN uses current contract without compatibility glue | adapter option test green |
+| Device codes | device and user codes need unique lookup indexes | inspect upstream plugin schema and KitCN generation | indexes absent | relevant unique indexes preserved | plain/ORM generation green |
+| Optional features | metadata-only org fetch and session hydration benefit users | classify reachability and ownership | 1.7 excluded | Better Auth-owned APIs structurally compile | React/Solid type proof green; no wrapper added |
 
 Sync refs:
 - Fork: `zbeyens/convex-better-auth` via remote `fork`
@@ -218,74 +218,74 @@ Start Gates:
 Work Checklist:
 - [x] Objective, threshold, verification surface, constraints, boundaries, and
       blocked condition are filled from the active sync goal.
-- [ ] Fork, upstream, branches/refs, behind count, ahead count, and exact range
+- [x] Fork, upstream, branches/refs, behind count, ahead count, and exact range
       are recorded.
-- [ ] Local clone exists or is created, fork/upstream remotes are identified by
+- [x] Local clone exists or is created, fork/upstream remotes are identified by
       URL, and fork/upstream refs are fetched.
-- [ ] Fork sync is executed when fast-forward-safe, represented by a fork PR
+- [x] Fork sync is executed when fast-forward-safe, represented by a fork PR
       when direct push is blocked, or stopped with a recorded blocker when the
       fork diverged.
-- [ ] Post-sync fork ref or fork PR URL is recorded before KitCN implementation
+- [x] Post-sync fork ref or fork PR URL is recorded before KitCN implementation
       delegation.
-- [ ] Upstream commit list and file summary are read.
-- [ ] Relevant upstream patches are read; large compares are grouped before
+- [x] Upstream commit list and file summary are read.
+- [x] Relevant upstream patches are read; large compares are grouped before
       deep patch review.
-- [ ] Local KitCN auth surfaces are searched and relevant hits are read.
-- [ ] `docs/solutions` and `docs/plans` institutional notes are searched and
+- [x] Local KitCN auth surfaces are searched and relevant hits are read.
+- [x] `docs/solutions` and `docs/plans` institutional notes are searched and
       relevant hits are read.
-- [ ] Every upstream change or file group is classified as `security`,
+- [x] Every upstream change or file group is classified as `security`,
       `compatibility`, `bugfix`, `feature`, `cleanup`, `docs`, `tests`, or
       `no-op`.
-- [ ] Every non-`no-op` item records commit evidence, diff evidence, local KitCN
+- [x] Every non-`no-op` item records commit evidence, diff evidence, local KitCN
       files affected, expected implementation surface, verification command(s),
       confidence, and decision.
-- [ ] Optional or ambiguous additions are either explicitly approved, rejected,
+- [x] Optional or ambiguous additions are either explicitly approved, rejected,
       or recorded as a blocker before implementation.
-- [ ] Highest-leverage slice is selected using the skill priority order, or a
+- [x] Highest-leverage slice is selected using the skill priority order, or a
       no-action verdict is recorded with evidence.
-- [ ] Delegated `task` prompt is recorded exactly enough for implementation, or
+- [x] Delegated `task` prompt is recorded exactly enough for implementation, or
       N/A reason is recorded because no actionable opportunity exists.
-- [ ] Final sync output matches the skill output contract before delegation or
+- [x] Final sync output matches the skill output contract before delegation or
       no-action closeout.
-- [ ] Workspace authority recorded: each proof names the repo/tool that owns the
+- [x] Workspace authority recorded: each proof names the repo/tool that owns the
       evidence.
-- [ ] Output budget discipline recorded and followed.
-- [ ] Autoreview decision recorded for any local implementation patch, or N/A
+- [x] Output budget discipline recorded and followed.
+- [x] Autoreview decision recorded for any local implementation patch, or N/A
       reason recorded for audit-only/no-local-patch work.
 
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Fork/upstream identity | pending | Record `gh repo view` or fallback evidence | pending |
-| Ref fetch | pending | Fetch fork and upstream refs/tags in `../convex-better-auth` | pending |
-| Behind/ahead counts | pending | Record `rev-list --count` results | pending |
-| Commit range | pending | Record exact compared range and commit summary | pending |
-| Fork sync | pending | Fast-forward/push fork, open fork PR, record already-synced state, or record divergence blocker | pending |
-| Post-sync fork proof | pending | Fetch/read post-sync fork ref or record fork PR URL | pending |
-| Upstream diff summary | pending | Record `diff --name-status` and relevant patch evidence | pending |
-| Local KitCN surface audit | pending | Run/read scoped `rg` across KitCN integration points | pending |
-| Institutional note audit | pending | Search/read relevant `docs/solutions` and `docs/plans` notes | pending |
-| Classification ledger complete | pending | Every upstream change or file group has class/evidence/decision | pending |
-| Ambiguous optional scope | pending | Ask one pointed question or record explicit N/A | pending |
-| Selected slice or no-action verdict | pending | Record priority choice, evidence, and confidence | pending |
-| Delegated task handoff | pending | Record exact delegated `task` prompt and final handoff, or N/A reason | pending |
-| Browser surface changed | pending | Capture Browser proof or record N/A | pending |
-| Package/scaffold/docs gates delegated | pending | Ensure delegated prompt includes package build, fixture, docs, or skills checks when applicable | pending |
-| Workspace authority proof | pending | Record cwd/tool for every proof surface | pending |
-| Autoreview for local implementation patch | pending | Run autoreview if this sync plan itself changes implementation code; otherwise N/A | pending |
-| Final output contract | pending | Record terse audit table and delegation/no-action result | pending |
-| Output budget discipline | pending | Verify no unbounded high-volume output was streamed, or record recovery | pending |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/428-support-better-auth-1-7-sync.md` | pending |
+| Fork/upstream identity | complete | Record `gh repo view` or fallback evidence | complete |
+| Ref fetch | complete | Fetch fork and upstream refs/tags in `../convex-better-auth` | complete |
+| Behind/ahead counts | complete | Record `rev-list --count` results | complete |
+| Commit range | complete | Record exact compared range and commit summary | complete |
+| Fork sync | complete | Fast-forward/push fork, open fork PR, record already-synced state, or record divergence blocker | complete |
+| Post-sync fork proof | complete | Fetch/read post-sync fork ref or record fork PR URL | complete |
+| Upstream diff summary | complete | Record `diff --name-status` and relevant patch evidence | complete |
+| Local KitCN surface audit | complete | Run/read scoped `rg` across KitCN integration points | complete |
+| Institutional note audit | complete | Search/read relevant `docs/solutions` and `docs/plans` notes | complete |
+| Classification ledger complete | complete | Every upstream change or file group has class/evidence/decision | complete |
+| Ambiguous optional scope | complete | Ask one pointed question or record explicit N/A | complete |
+| Selected slice or no-action verdict | complete | Record priority choice, evidence, and confidence | complete |
+| Delegated task handoff | complete | Record exact delegated `task` prompt and final handoff, or N/A reason | complete |
+| Browser surface changed | complete | Capture Browser proof or record N/A | complete |
+| Package/scaffold/docs gates delegated | complete | Ensure delegated prompt includes package build, fixture, docs, or skills checks when applicable | complete |
+| Workspace authority proof | complete | Record cwd/tool for every proof surface | complete |
+| Autoreview for local implementation patch | complete | Run autoreview if this sync plan itself changes implementation code; otherwise N/A | complete |
+| Final output contract | complete | Record terse audit table and delegation/no-action result | complete |
+| Output budget discipline | complete | Verify no unbounded high-volume output was streamed, or record recovery | complete |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/428-support-better-auth-1-7-sync.md` | complete |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
 |-------|--------|----------|------|
-| Setup refs | in_progress | created plan | fork sync |
-| Fork sync | pending | | upstream diff |
-| Upstream diff audit | pending | | local impact audit |
-| Local KitCN impact audit | pending | | classification |
-| Classification and decision | pending | | delegation or no-action closeout |
-| Delegation / closeout | pending | | final response |
+| Setup refs | complete | fork/upstream refs and exact range recorded | fork sync |
+| Fork sync | complete | fast-forward pushed `fork/main` to `2f9fcf6` | upstream diff |
+| Upstream diff audit | complete | one e2e-only URL commit classified no-op | local impact audit |
+| Local KitCN impact audit | complete | dependency, generator, adapter, type, fixture owners read | classification |
+| Classification and decision | complete | full ledger selects one compatibility slice | delegated task |
+| Delegation / closeout | complete | task plan implemented with all named gates green | final GitHub receipt |
 
 Findings:
 - GitHub fork metadata had no parent; npm metadata identifies
@@ -298,12 +298,18 @@ Findings:
   `1.6.18`; `packages/kitcn/package.json` peers `>=1.6.11 <1.7.0`.
 
 Decisions and tradeoffs:
-- None yet.
+- Ignore the fork's optional e2e-only URL change after syncing it; importing the
+  harness would add no KitCN product proof.
+- Implement one KitCN-owned compatibility slice because the issue reproduces
+  independently of `@convex-dev/better-auth`.
+- Leave organization/session convenience APIs upstream-owned and validate them
+  through Better Auth 1.7.1 structural client compilation.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | Broad auth `rg` across repo streamed 33k tokens before truncation | 1 | Read exact dependency/schema owners and named prior notes only | Narrowed all remaining searches; generated/build paths remain excluded. |
+| Shared checkout goal lifecycle was blocked while #399/#400 held package ownership | 1 | Preserve plans and checkpoint, then resume only on explicit release | Fork audit and delegated task completed without checkout collision. |
 
 Timeline:
 - 2026-08-25T20:26:14.753Z Sync audit plan created.
@@ -317,26 +323,32 @@ Timeline:
   goal; work continues under this preserved plan with degraded lifecycle state.
 
 Verification evidence:
-- Pending.
+- In `../convex-better-auth`, both remotes fetched; behind/ahead was `1/0`;
+  exact range and patch read; `fork/main` fast-forwarded to `2f9fcf6`.
+- In `/Users/zbeyens/git/better-convex`, issue, Better Auth 1.7.1 source/types,
+  VISION, local auth owners, and named prior notes were read and classified.
+- Delegated task proof: 100 focused tests, React/Solid type proof, package build,
+  all fixture families, root typecheck/lint, clean autoreview, and `bun check`.
 
 Final handoff / sync:
-- Fork/upstream: pending
-- Range: pending
-- Decision: pending
-- Delegated PR: pending
-- Fork sync: pending
-- Caveats: pending
+- Fork/upstream: `zbeyens/convex-better-auth` / `get-convex/better-auth`.
+- Range: `c628916b451a6b4cff0f5464f134475464b1a6da..2f9fcf6c3966bb27d38b2b83e80a1e914ab2a3ee`.
+- Decision: fork change is no-op for KitCN; Better Auth 1.7 compatibility slice
+  is implemented in the linked task plan.
+- Delegated PR: one issue #428 PR; exact URL is recorded immediately after
+  GitHub assigns it.
+- Fork sync: direct fast-forward push complete at `2f9fcf6`.
+- Caveats: existing KitCN account rows require issuer backfill.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Setup refs |
-| Where am I going? | Delegated task implementation, verification, PR, and sync closeout |
+| Where am I? | Final GitHub receipt closeout |
+| Where am I going? | Record exact delegated PR and run child/parent completion checkers |
 | What is the goal? | Sync the fork, classify the imported range, and deliver one evidenced KitCN #428 PR or no-action verdict. |
-| What have I learned? | Peer exclusion is proven; the only imported fork commit is e2e URL maintenance, while schema/API impact remains a hypothesis pending Better Auth 1.7 and local owner reads. |
-| What have I done? | Read source and governing skills, created the goal/plan, extracted source cases, fetched refs, snapshotted the range, fast-forwarded the fork, and resumed after the explicitly released checkout hold. |
+| What have I learned? | The fork range is e2e-only, while KitCN's vendored auth owners required the full Better Auth 1.7 schema, adapter, and type compatibility slice. |
+| What have I done? | Synced the fork, classified every source case, delegated and verified the KitCN implementation, and preserved the exact evidence boundary. |
 
 Open risks:
-- Fork divergence would require user direction; optional Better Auth 1.7
-  features remain out of scope unless they are required by the selected
-  compatibility slice.
+- Existing account rows need a correct issuer backfill before deploying the
+  required Better Auth 1.7 schema.
