@@ -538,4 +538,9 @@ Check gate:
     convert object to primitive value` at `btree.ts:858`. Its fix (`8523418d`) rides
     still-open PR #392 and is not on `main`; this diff touches no file under
     `aggregate-core/`; `bun run test:vitest` rerun was green (845 passed).
-
+- Autoclosure merged current `main`, then reran 43 focused analyzer tests and the
+  package build successfully. Exact-head P1 autoreview was clean at 0.87
+  confidence, and published/generated skill mirrors remained identical.
+- Fresh Expo SDK 55 template releases moved five patch dependencies. The
+  repository-owned fixture sync updated only `fixtures/expo*/package.json`;
+  every other generated template remained unchanged.
