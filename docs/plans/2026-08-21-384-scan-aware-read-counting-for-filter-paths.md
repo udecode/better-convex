@@ -336,7 +336,8 @@ Review fixes:
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| Filtered continuation cursor treated as a document ID | 1 | Replay the source between the actual opaque cursor boundaries | Fixed and pinned |
+| Last returned row used as the scan-limited page boundary | 1 | Stop replay at `continueCursor`, not the last match | Fixed and pinned |
 
 Verification evidence:
 - cwd for all commands: `/Users/mikey/conductor/workspaces/kitcn/moab`.
@@ -365,6 +366,19 @@ Verification evidence:
   port. Unreachable from this diff: the commit touches zero files under
   `packages/`, and `tooling/scenarios.ts` never references `setup.testing` or
   `convex/orm`. Closed by CI: PR #399 CI passed in 6m21s, covering that lane.
+- Autoclosure P1 review found that filtered pagination treated an opaque
+  continuation cursor as a document ID and could miss rejected rows on
+  scan-limited pages. The repair replays the unfiltered source one cursor step
+  at a time between the real input and output cursor boundaries.
+- Autoclosure focused replay -> 16 passed, no type errors, including filtered
+  continuation and scan-limited cursor boundaries.
+- Repair-only P1 autoreview -> clean, patch correct at 0.90 confidence.
+- Deslop delta -> 171 findings before and after; no net occurrence increase.
+- Fresh scaffold parity exposed `lucide-react` drift from `^1.33.0` to
+  `^1.34.0`; the repository-owned fixture sync updated the six generated
+  Next, Start, and Vite snapshots, and `fixtures:check` passed.
+- Autoclosure final `bun lint:fix && bun --cwd packages/kitcn build && bun
+  check` replay exited 0, including fixture parity and every runtime scenario.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -375,6 +389,8 @@ Source-listed case matrix:
 | Stream paths are already fine | `filterWith` pulls every scanned row | "a JavaScript stream filter is already fully visible" | 300 | `scanned == documents == 300` | passes | done |
 | `M4: Read bounds` overstates coverage | bucket is 3 rows, would pass under a scan | `where-filtering.test.ts` M4 block | `documents <= 6` at N=60 | `scanned <= 6` at N=300 | passes | done |
 | Existing invariants must not regress | — | 7 suites, 30 assertions | 174 pass | 174 pass on `scanned` | passes | done |
+| Filtered continuation pages | cursor is opaque, not a document ID | two one-row pages | second page can restart at row zero | each page charges only its cursor range | 16-test focused suite | done |
+| Scan-limited filtered page | cursor may advance beyond the last match | fake cursor boundary at row 10 | charges 1 returned row | charges all 10 scanned rows | 16-test focused suite | done |
 
 Final handoff contract:
 - Commit line: `feb68240 test(orm): count documents scanned behind .filter()`.
@@ -400,7 +416,8 @@ Final handoff contract:
     `where-clause-compiler.test.ts`, and renaming `documents` would churn 30
     call sites for no additional proof.
 - Verified: see Verification evidence.
-- PR body verified: N/A — no PR.
+- PR body verified: PR #399 names this plan and the plan exists at its exact
+  head.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is

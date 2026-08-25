@@ -208,6 +208,57 @@ const scanSequence = async (target: any, plan: QueryPlan): Promise<any[]> => {
   return rows;
 };
 
+const scanPageRange = async (
+  target: any,
+  plan: QueryPlan,
+  cursor: string | null,
+  endCursor: string | null
+) => {
+  const QueryConstructor = target?.constructor;
+  if (typeof QueryConstructor !== 'function') {
+    throw new Error(
+      'countDocumentReads: cannot replay a Convex query without its class.'
+    );
+  }
+
+  let scanned = 0;
+  let nextCursor = cursor;
+  if (nextCursor === endCursor) {
+    return scanned;
+  }
+  while (true) {
+    const replay = new QueryConstructor({
+      source: { ...plan.source },
+      operators: [],
+    });
+    const page = await replay.paginate({
+      cursor: nextCursor,
+      numItems: 1,
+    });
+    scanned += page.page.length;
+    if (page.continueCursor === endCursor) {
+      return scanned;
+    }
+    if (page.isDone) {
+      if (endCursor === null) {
+        return scanned;
+      }
+      throw new Error(
+        'countDocumentReads: scan replay passed its pagination boundary.'
+      );
+    }
+    if (
+      typeof page.continueCursor !== 'string' ||
+      page.continueCursor === nextCursor
+    ) {
+      throw new Error(
+        'countDocumentReads: scan replay did not advance its pagination cursor.'
+      );
+    }
+    nextCursor = page.continueCursor;
+  }
+};
+
 const positionOfId = (sequence: any[], id: unknown, from = 0) => {
   if (id === undefined || id === null) {
     return -1;
@@ -303,19 +354,20 @@ export function countDocumentReads(ctx: {
       return;
     }
 
-    const sequence = await scanSequence(target, plan as QueryPlan);
-    // A cursor names the last row of the previous page, so this page starts
-    // reading right after it.
-    const start = positionOfId(sequence, options?.cursor ?? null) + 1;
-    const remaining = Math.max(0, sequence.length - start);
-
-    if (result?.isDone || rows.length === 0) {
-      reads.scanned += remaining;
-      return;
+    const cursor = options?.cursor ?? null;
+    const endCursor = result?.continueCursor ?? null;
+    if (!result?.isDone && typeof endCursor !== 'string') {
+      throw new Error(
+        'countDocumentReads: filtered pagination stopped without a ' +
+          'continuation cursor.'
+      );
     }
-
-    const last = positionOfId(sequence, rows.at(-1)?._id, start);
-    reads.scanned += last === -1 ? remaining : last + 1 - start;
+    reads.scanned += await scanPageRange(
+      target,
+      plan as QueryPlan,
+      cursor,
+      endCursor
+    );
   };
 
   const wrapIterator = (target: any) => {

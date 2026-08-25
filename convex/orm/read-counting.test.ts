@@ -189,6 +189,79 @@ describe('countDocumentReads: rows rejected by .filter()', () => {
     // Twenty one rows had to be read to fill a two row page.
     expect(reads.scanned).toBe(21);
   });
+
+  test('filtered continuation pages charge only their own walk', async ({
+    ctx,
+  }) => {
+    await seedBucket(ctx);
+
+    const reads = countDocumentReads(ctx);
+    const buildQuery = () =>
+      ctx.db
+        .query('users')
+        .withIndex('by_status', (q) => q.eq('status', 'bucket'))
+        .filter((q) =>
+          q.or(q.eq(q.field('name'), 'u10'), q.eq(q.field('name'), 'u20'))
+        );
+    const first = await buildQuery().paginate({ cursor: null, numItems: 1 });
+    const second = await buildQuery().paginate({
+      cursor: first.continueCursor,
+      numItems: 1,
+    });
+
+    expect(first.page.map((row) => row.name)).toEqual(['u10']);
+    expect(second.page.map((row) => row.name)).toEqual(['u20']);
+    expect(reads.documents).toBe(2);
+    expect(reads.scanned).toBe(21);
+  });
+
+  test('a scan-limited page charges through its continuation cursor', async () => {
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      _id: `id-${index + 1}`,
+    }));
+    const filteredPlan = {
+      source: { type: 'FullTableScan', tableName: 'users' },
+      operators: [{ filter: { $eq: ['never', 'matches'] } }],
+    };
+
+    class FakeQuery {
+      state: { query: typeof filteredPlan; type: 'preparing' };
+
+      constructor(query = filteredPlan) {
+        this.state = { type: 'preparing', query };
+      }
+
+      async paginate(options: { cursor: string | null }) {
+        if (this.state.query.operators.length > 0) {
+          return {
+            continueCursor: 'cursor-10',
+            isDone: false,
+            page: [rows[0]],
+          };
+        }
+
+        const offset = Number(options.cursor?.split('-')[1] ?? 0);
+        const next = offset + 1;
+        return {
+          continueCursor: `cursor-${next}`,
+          isDone: next === rows.length,
+          page: [rows[next - 1]],
+        };
+      }
+    }
+
+    const fakeCtx = {
+      db: {
+        get: async () => null,
+        query: () => new FakeQuery(),
+      },
+    };
+    const reads = countDocumentReads(fakeCtx as never);
+    await fakeCtx.db.query().paginate({ cursor: null });
+
+    expect(reads.documents).toBe(1);
+    expect(reads.scanned).toBe(10);
+  });
 });
 
 describe('countDocumentReads: paths with nothing hidden', () => {
