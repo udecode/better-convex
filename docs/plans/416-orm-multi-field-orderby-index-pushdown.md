@@ -43,9 +43,11 @@ Timed checkpoint:
 
 Completion threshold:
 - `resolveIndexOrderPushdown` answers multi-spec sorts correctly (eq-pinned
-  absorbed at any position/direction; remaining specs contiguous from
+  fields absorbed without consuming an index key; remaining specs contiguous from
   `indexFields[eqCount]`; `_creationTime` legal only as the final spec after
-  every declared field is consumed; all unpinned specs share one direction),
+  every declared field is consumed; all unpinned specs share one direction;
+  opposite-direction pinned-leading sorts preserve their implicit tie order
+  unless `_creationTime` makes it explicit),
   every planner call site passes the full spec list, and the read bound is
   proven by a two-table-size read-count test on both the top-level query and
   the relation loader, with result rows unchanged.
@@ -90,8 +92,8 @@ Boundaries:
 - Allowed edit scope: `packages/kitcn/src/orm/{index-utils,query,where-clause-compiler}.ts`,
   their unit tests, `convex/orm/order-pushdown-reads.test.ts`, `.changeset/`.
 - Browser surface: N/A: server-side query planner, no rendered output.
-- GitHub issue sync: N/A: user preference forbids PR creation; no PR to
-  reference, so no issue comment is posted.
+- GitHub issue sync: `Fixes #416` in PR #426 owns the issue linkage; no separate
+  issue comment is needed.
 - Non-goals: changing `_compareByOrderSpecs` null placement to match Convex's
   value order (a breaking change that needs user sign-off); the two cursor
   branches that silently drop `orderIndexName`; `_compareGroupByValues`.
@@ -290,12 +292,12 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | original RED/green proof retained; final focused ORM suite -> 167 passed, 1 skipped; `bun check` -> exit 0 |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | original RED/green proof retained; final focused ORM suite -> 168 passed, 1 skipped; `bun check` -> exit 0 |
 | Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #426, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | valid; one constraint corrected (nullable guard is multi-spec only) |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level test repro reproduced it; browser/visual N/A (no rendered output) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | expected 60 to be 5 on a 60-row table with limit 5 |
-| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | original convex/orm and Bun unit proof retained; final focused ORM suite -> 167 passed, 1 skipped; 52 scorer/pushdown owner tests passed |
+| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | original convex/orm and Bun unit proof retained; final focused ORM suite -> 168 passed, 1 skipped; 52 scorer/pushdown owner tests passed |
 | TypeScript or typed config changed | yes | Run relevant typecheck | bun typecheck -> 5 tasks successful |
 | Package exports or file layout changed | no | Run the relevant package build before final verification and keep generated updates | N/A: no export or layout change; bun --cwd packages/kitcn build still run for the dist-dependent convex tests |
 | Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant package checks | N/A: no manifest or lockfile change |
@@ -321,7 +323,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 2 real P1s in pinned-order scoring and non-null value ordering, both repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 3 real P1s in pinned-order scoring, non-null value ordering, and implicit tie direction, all repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -340,7 +342,7 @@ Phase / pass table:
 | Implementation | done | helper rewrite + 5 call sites + index scoring + docs + changeset | verification |
 | Verification | done | 8/8 new tests, 879 vitest, 1323 bun test, typecheck, lint, build | closeout |
 | Commit / PR / GitHub sync | done | `bun check` green, pushed, PR #426 opened with the task-style body | final response |
-| Closeout | done | both exact-head P1s repaired; final full `bun check` green | immutable-head review, terminal GitHub receipt, and merge |
+| Closeout | done | all three exact-head P1s repaired; final full `bun check` green | immutable-head review, terminal GitHub receipt, and merge |
 
 Findings:
 - Two independent blanket bails, exactly as the issue said: the helper's arity
@@ -356,10 +358,10 @@ Findings:
   issue's "skip pushdown when any sort field is optional" would have regressed
   shipped behavior. The guard belongs to multi-spec sorts only.
 - The resolved pushdown direction can differ from `primaryOrder.direction` once
-  an eq-pinned field leads the sort. Three sites consumed `primaryOrder.direction`
-  as if it were the scan direction. One of them (cursor pagination with a
-  divergent sort) was already returning ascending pages for a descending
-  request on `main`; this change fixes it.
+  an eq-pinned field leads the sort, but reversing the scan also reverses the
+  implicit creation-time tie order. The differing direction is therefore only
+  pushed when `_creationTime` is explicit; otherwise post-fetch sorting keeps
+  the previous top-k identity.
 - The multi-probe union sort (`query.ts:6621`) is unconditional, not gated on
   `usePostFetchSort`, so relaxing the probe bound cannot reorder a union.
 - A predicate `where` produces no compiled index (`query.ts:7268-7271`), so
@@ -398,10 +400,11 @@ Decisions and tradeoffs:
 
 Implementation notes:
 - `resolveIndexOrderPushdown` now walks the spec list: eq-pinned fields are
-  absorbed at any position/direction without consuming an index key, the rest
-  must be contiguous from `indexFields[eqCount]` in one shared direction, and
-  `_creationTime` is legal only as the final spec once every declared key is
-  consumed. `indexFields: []` models the default `by_creation_time` index.
+  absorbed without consuming an index key, the rest must be contiguous from
+  `indexFields[eqCount]` in one shared direction, and `_creationTime` is legal
+  only as the final spec once every declared key is consumed. A pinned-leading
+  opposite direction declines unless that creation-time tie-break is explicit.
+  `indexFields: []` models the default `by_creation_time` index.
 - `usePostFetchSort` is now `postFetchOrders.length > 0 && orderPushdownDirection === null`.
   Whole-served implies primary-served, so every case the old
   `needsPostFetchSortForPrimary || hasSecondaryOrders` sorted post-fetch still does.
@@ -436,6 +439,11 @@ Review fixes:
   values. The post-fetch comparator now uses Convex `compareValues` for non-null
   values. RED/green tests cover supplementary Unicode, signed zero, and NaN;
   null placement remains unchanged and guarded from multi-field pushdown.
+- The third exact-head review found that reversing an index for a pinned-leading
+  opposite-direction sort also reverses the implicit creation-time tie-break.
+  The resolver now declines that pushdown unless `_creationTime` is explicit.
+  RED/green proof retains the older tied row without the explicit tie-break and
+  keeps both non-cursor and cursor reads bounded when it is explicit.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -443,6 +451,7 @@ Error attempts:
 | Source-sync conflict in `packages/kitcn/src/orm/query.ts` | 1 | Resolve from the current owners: #425's unified stream planner plus #426's `OrderSpec` and resolved direction | typecheck, focused tests, package build, branch review, and full `bun check` passed |
 | Exact-head autoreview P1 in candidate-index scoring | 1 | Add the missing narrow-vs-compound regression before changing the scorer | RED selected `by_type`; repair selects `by_type_likes`, with pinned-only and probe cases green |
 | Exact-head autoreview P1 in value-order equivalence | 1 | Reproduce the UTF-8 mismatch, then use Convex's public comparator at the post-fetch owner | RED put emoji before U+E000; repair follows Convex UTF-8, signed-zero, and NaN order |
+| Exact-head autoreview P1 in implicit tie direction | 1 | Add two tied rows around a limit boundary before narrowing servability | RED returned the newer tied row; repair retains the older row unless creation direction is explicit |
 
 Verification evidence:
 - cwd for every command below: /Users/mikey/conductor/workspaces/kitcn/dakar
@@ -483,6 +492,12 @@ Verification evidence:
   sync, and intent validation passed.
 - Final `bun check` -> exit 0: 1,400 Bun tests, 960 Vitest tests, CLI, Concave,
   all fixture comparisons, and bare/Expo/Next/Start/Vite runtime lanes.
+- Tie-direction RED: pinned-leading ASC plus moving DESC returned the newer of
+  two tied rows at `limit: 1`; the previous post-fetch path returned the older.
+- Tie-direction repair: 52 owner tests and 168 focused integration tests passed,
+  with 1 integration test skipped.
+- Tie-direction final `bun check` -> exit 0, including unit, typecheck, lint,
+  package build (72 files, 1623.20 kB), fixture parity, and all runtime lanes.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -493,7 +508,7 @@ Source-listed case matrix:
 | null ordering diverges | must not change output | nullable-column case | nulls last | nulls last | multi-spec guard; green both ways | done |
 | .order() reverses key tuple | mixed directions unservable | helper unit matrix | declined | declined | index-utils.test.ts | done |
 | _creationTime last spec only | only after all fields consumed | helper unit matrix | n/a | declined unless final | index-utils.test.ts | done |
-| eq-pinned any position/direction | must be preserved | helper unit + eq-pinned read test | served | served | 15->3 pre-fix | done |
+| eq-pinned any position/direction | preserve row identity and bound when safe | helper unit + eq-pinned read/tie tests | blanket post-fetch | bounded with explicit creation tie; otherwise post-fetch | 15->3 with explicit tie; older tied row retained without it | done |
 | index selection leading-field-only | needs whole-spec selection | selection branch | fields[0] match | whole-sort match, same fallback | full suite green | done |
 | multi-probe bail (:6404) | separate bail | `in` union case | collect | bounded, order preserved | order asserted both pinned and unpinned primary | done |
 
@@ -574,6 +589,8 @@ Timeline:
   index scoring; focused and full repository gates passed.
 - 2026-08-26 Reproduced and repaired the exact-head review P1 in non-null value
   ordering; UTF-8/Float64 edge proof and the full repository gate passed.
+- 2026-08-26 Reproduced and repaired the exact-head review P1 in implicit tie
+  direction; tied top-k identity and explicit-tie bounded reads passed.
 
 Reboot status:
 | Question | Answer |
@@ -592,8 +609,9 @@ High-risk note:
 - Proof plan: a 24-case helper unit matrix pinning every accept and every
   decline, plus integration tests that assert both the read bound at two table
   sizes AND the exact row order, including the eq-pinned divergent-direction
-  case, the `in` union with pinned and unpinned leading specs, cursor pages, and
-  null placement. 5 of 8 integration cases verified RED against stashed source.
+  case with and without an explicit tie-break, the `in` union with pinned and
+  unpinned leading specs, cursor pages, edge-value ordering, and null placement.
+  5 of 8 original integration cases verified RED against stashed source.
 - Why this boundary is right: the helper already documented itself as the single
   owner of the decision; the bug was two other places re-deciding it from arity.
   Moving nullability onto `OrderSpec` keeps that ownership intact instead of

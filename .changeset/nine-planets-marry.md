@@ -24,3 +24,6 @@
 - Use Convex value ordering for non-null post-fetch values, including UTF-8
   strings, signed zero, and NaN, so an index-backed top-k and its post-fetch
   fallback select the same rows.
+- Preserve the existing implicit creation-time tie order when an
+  equality-pinned leading sort field points opposite to the moving fields.
+  Add `createdAt` in the moving direction to make that sort index-bounded.

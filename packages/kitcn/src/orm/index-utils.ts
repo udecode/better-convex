@@ -209,6 +209,22 @@ export function resolveIndexOrderPushdown(params: {
     cursor += 1;
   }
 
+  // Before whole-sort pushdown, the leading requested field chose the scan
+  // direction and the stable post-fetch sort preserved that direction for
+  // otherwise-equal rows. If that field is pinned while the first moving field
+  // points the other way, reversing the index also reverses the implicit
+  // _creationTime tie-break and can change which row survives a limit. An
+  // explicit _creationTime spec makes the tie direction part of the request.
+  const primary = orderSpecs[0];
+  if (
+    direction !== null &&
+    pinnedFields.has(primary.field) &&
+    primary.direction !== direction &&
+    !consumedCreationTime
+  ) {
+    return null;
+  }
+
   // A single spec is already served straight from the index today, including
   // on nullable columns, so gating it here would change shipped output and
   // give up the read bound at the same time. A multi-spec sort is the one that

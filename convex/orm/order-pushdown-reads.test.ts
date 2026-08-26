@@ -97,6 +97,7 @@ test('an eq-pinned leading sort field does not cost the bound', async () => {
       orderBy: (posts: any, { asc, desc }: any) => [
         asc(posts.type),
         desc(posts.numLikes),
+        desc(posts.createdAt),
       ],
       limit: 3,
     })
@@ -107,6 +108,36 @@ test('an eq-pinned leading sort field does not cost the bound', async () => {
   expect((large.rows as any[]).map((row) => row.numLikes)).toEqual(
     [...(large.rows as any[])].map((row) => row.numLikes).sort((a, b) => b - a)
   );
+});
+
+test('a pinned opposite-direction sort preserves the old implicit tie order', async () => {
+  const t = convexTest(schema);
+  await t.run(async (baseCtx) => {
+    await baseCtx.db.insert('posts', {
+      text: 'older',
+      numLikes: 1,
+      type: 'a',
+    });
+    await baseCtx.db.insert('posts', {
+      text: 'newer',
+      numLikes: 1,
+      type: 'a',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const rows = await ctx.orm.query.posts.findMany({
+      where: { type: 'a' },
+      orderBy: (posts: any, { asc, desc }: any) => [
+        asc(posts.type),
+        desc(posts.numLikes),
+      ],
+      limit: 1,
+    });
+
+    expect(rows.map((row: any) => row.text)).toEqual(['older']);
+  });
 });
 
 test('two-field orderBy returns the same page a post-fetch sort would', async () => {
@@ -255,9 +286,9 @@ test('an `in` union keeps the requested order over the whole union', async () =>
   });
 });
 
-test('cursor pages honour a sort whose leading field is eq-pinned the other way', async () => {
-  // `type` is pinned by the where and `numLikes` runs the other way, so the
-  // direction the scan needs is the second spec's, not the first's.
+test('cursor pages honour an opposite-direction pinned sort with an explicit tie-break', async () => {
+  // `type` is pinned by the where and `numLikes` runs the other way. Explicit
+  // creation order makes the scan direction safe even when values tie.
   const t = convexTest(schema);
   await t.run((baseCtx) => seedPosts(baseCtx, 40));
   await t.run(async (baseCtx) => {
@@ -267,6 +298,7 @@ test('cursor pages honour a sort whose leading field is eq-pinned the other way'
       orderBy: (posts: any, { asc, desc }: any) => [
         asc(posts.type),
         desc(posts.numLikes),
+        desc(posts.createdAt),
       ],
       cursor: null,
       limit: 3,

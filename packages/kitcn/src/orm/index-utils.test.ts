@@ -377,22 +377,37 @@ describe('resolveIndexOrderPushdown', () => {
       ).toBeNull();
     });
 
-    test('absorbs an eq-pinned field at any position and any direction', () => {
-      // `type` is constant across the scan, so it is already sorted whichever
-      // way the caller asked and wherever it sits in the sort.
+    test('preserves the implicit tie direction around eq-pinned fields', () => {
+      // Reversing the scan for the moving field would also reverse the
+      // implicit _creationTime tie-break that the old stable sort preserved.
       expect(
         resolveIndexOrderPushdown({
           indexFields: ['type', 'numLikes'],
           pinnedEqCount: 1,
           orderSpecs: [spec('type', 'asc'), spec('numLikes', 'desc')],
         })
-      ).toBe('desc');
+      ).toBeNull();
 
+      // A pinned field after the moving primary cannot change the scan's
+      // established direction.
       expect(
         resolveIndexOrderPushdown({
           indexFields: ['type', 'numLikes'],
           pinnedEqCount: 1,
           orderSpecs: [spec('numLikes', 'desc'), spec('type', 'asc')],
+        })
+      ).toBe('desc');
+
+      // An explicit creation-time tie-break makes reversal safe and bounded.
+      expect(
+        resolveIndexOrderPushdown({
+          indexFields: ['type', 'numLikes'],
+          pinnedEqCount: 1,
+          orderSpecs: [
+            spec('type', 'asc'),
+            spec('numLikes', 'desc'),
+            spec('_creationTime', 'desc'),
+          ],
         })
       ).toBe('desc');
     });
