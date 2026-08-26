@@ -8,6 +8,7 @@ import {
   custom,
   defineRelations,
   defineSchema,
+  id,
   integer,
   text,
   timestamp,
@@ -212,6 +213,171 @@ describe('ORM insert() read amplification', () => {
         expect(row.createdAt).toBeGreaterThan(0);
       }
       expect(counts.get).toBe(3);
+    });
+  });
+});
+
+const orgs = convexTable('ri_orgs', {
+  name: text().notNull(),
+});
+
+const members = convexTable('ri_members', {
+  name: text().notNull(),
+  orgId: id('ri_orgs')
+    .references(() => orgs.id)
+    .notNull(),
+});
+
+const FOREIGN_KEY_VIOLATION_RE = /Foreign key violation/;
+
+const foreignKeySchema = defineSchema({
+  ri_orgs: orgs,
+  ri_members: members,
+});
+const foreignKeyOrm = createOrm({ schema: foreignKeySchema });
+
+const rowsFor = (orgId: string, count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    name: `Member ${index}`,
+    orgId,
+  }));
+
+describe('ORM insert() foreign-key read amplification', () => {
+  test('rows sharing one foreign key cost one probe', async () => {
+    const t = convexTest(foreignKeySchema);
+
+    await t.run(async (ctx) => {
+      const orgId = (await ctx.db.insert('ri_orgs', {
+        name: 'Acme',
+      })) as string;
+      const counts: Counts = { get: 0, query: 0 };
+      const db = foreignKeyOrm.db(countingDb(ctx.db, counts)) as any;
+
+      await db.insert(members).values(rowsFor(orgId, 8)).execute();
+
+      expect(counts.get).toBe(1);
+      expect(await ctx.db.query('ri_members').collect()).toHaveLength(8);
+    });
+  });
+
+  test('each distinct foreign key is still probed', async () => {
+    const t = convexTest(foreignKeySchema);
+
+    await t.run(async (ctx) => {
+      const first = (await ctx.db.insert('ri_orgs', {
+        name: 'Acme',
+      })) as string;
+      const second = (await ctx.db.insert('ri_orgs', {
+        name: 'Globex',
+      })) as string;
+      const counts: Counts = { get: 0, query: 0 };
+      const db = foreignKeyOrm.db(countingDb(ctx.db, counts)) as any;
+
+      await db
+        .insert(members)
+        .values([
+          { name: 'a', orgId: first },
+          { name: 'b', orgId: second },
+          { name: 'c', orgId: first },
+          { name: 'd', orgId: second },
+        ])
+        .execute();
+
+      expect(counts.get).toBe(2);
+    });
+  });
+
+  test('a dangling foreign key on a later row still fails', async () => {
+    const t = convexTest(foreignKeySchema);
+
+    await t.run(async (ctx) => {
+      const orgId = (await ctx.db.insert('ri_orgs', {
+        name: 'Acme',
+      })) as string;
+      const removed = (await ctx.db.insert('ri_orgs', {
+        name: 'Gone',
+      })) as string;
+      await ctx.db.delete('ri_orgs', removed as any);
+      const db = foreignKeyOrm.db(ctx.db as any) as any;
+
+      await expect(
+        db
+          .insert(members)
+          .values([
+            { name: 'a', orgId },
+            { name: 'b', orgId: removed },
+          ])
+          .execute()
+      ).rejects.toThrow(FOREIGN_KEY_VIOLATION_RE);
+
+      expect(await ctx.db.query('ri_members').collect()).toHaveLength(1);
+    });
+  });
+
+  test('a parent deleted between statements is not remembered', async () => {
+    const t = convexTest(foreignKeySchema);
+
+    await t.run(async (ctx) => {
+      const orgId = (await ctx.db.insert('ri_orgs', {
+        name: 'Acme',
+      })) as string;
+      const db = foreignKeyOrm.db(ctx.db as any) as any;
+
+      await db.insert(members).values(rowsFor(orgId, 2)).execute();
+      await ctx.db.delete('ri_orgs', orgId as any);
+
+      await expect(
+        db.insert(members).values(rowsFor(orgId, 1)).execute()
+      ).rejects.toThrow(FOREIGN_KEY_VIOLATION_RE);
+    });
+  });
+});
+
+const hookedOrgs = convexTable('rh_orgs', {
+  name: text().notNull(),
+});
+
+const hookedMembers = convexTable('rh_members', {
+  name: text().notNull(),
+  orgId: id('rh_orgs')
+    .references(() => hookedOrgs.id)
+    .notNull(),
+});
+
+const hookedSchema = defineSchema({
+  rh_orgs: hookedOrgs,
+  rh_members: hookedMembers,
+}).triggers({
+  rh_members: {
+    create: {
+      after: async (row: any, hookCtx: any) => {
+        await hookCtx.db.delete('rh_orgs', row.orgId);
+      },
+    },
+  },
+} as any);
+
+const foreignKeyHookedOrm = createOrm({ schema: hookedSchema });
+
+describe('ORM insert() foreign-key probe with triggers', () => {
+  test('a trigger that deletes the parent still fails the next row', async () => {
+    const t = convexTest(hookedSchema);
+
+    await t.run(async (ctx) => {
+      const orgId = (await ctx.db.insert('rh_orgs', {
+        name: 'Acme',
+      })) as string;
+      const db = foreignKeyHookedOrm.db(ctx.db as any) as any;
+
+      await expect(
+        db
+          .insert(hookedMembers)
+          .values([
+            { name: 'a', orgId },
+            { name: 'b', orgId },
+          ])
+          .execute()
+      ).rejects.toThrow(FOREIGN_KEY_VIOLATION_RE);
     });
   });
 });
