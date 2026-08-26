@@ -119,12 +119,11 @@ Blocked condition:
 Task state:
 - task_type: bug / performance (wasted work on a hot maintenance path)
 - task_complexity: non-trivial, non-heavyweight
-- current_phase: intake
-- current_phase_status: in_progress
-- next_phase: implementation
-- goal_status: active
-- goal tools: not available in this runtime (no `get_goal`/`create_goal` tool exposed); this
-  plan is the durable state.
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: N/A: terminal receipt and merge
+- goal_status: complete
+- goal tools: active autoclosure goal owns the final receipt and merge.
 
 Current verdict:
 - verdict: fixed and verified
@@ -308,10 +307,10 @@ Completion Gates:
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | 2 failing tests with measured baselines: 201 vs 15 node writes, 15 vs 3 bucket writes |
 | Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | `bunx vitest run convex/orm/count.test.ts -t "clearing is resumable"` -> 7 passed |
 | TypeScript or typed config changed | yes | Run relevant typecheck | `bun typecheck` -> 5 packages successful |
-| Package exports or file layout changed | yes | Run the relevant package build before final verification and keep generated updates | `bun --cwd packages/kitcn build` -> 71 files, 1577.46 kB |
+| Package exports or file layout changed | yes | Run the relevant package build before final verification and keep generated updates | `bun --cwd packages/kitcn build` -> 72 files, 1612.81 kB |
 | Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant package checks | N/A: no manifest or lockfile change |
 | Agent rules or skills changed | no | Run `bun install` and verify generated skill sync | N/A: no `.agents/**` or skill change |
-| Workspace authority proof | yes | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | All commands run at repo root `/Users/mikey/conductor/workspaces/kitcn/kyoto`, which owns `packages/kitcn`, `convex/orm` tests, and `fixtures/**` |
+| Workspace authority proof | yes | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | Final autoclosure proof ran at repo root `/Users/zbeyens/git/better-convex`, which owns `packages/kitcn`, `convex/orm` tests, and `fixtures/**` |
 | Browser surface changed | no | Capture Browser Use proof or record explicit waiver/blocker | N/A: server-side ORM internals |
 | Browser final proof | no | Attach screenshot or exact browser verification caveat when browser proof applies | N/A: no browser surface |
 | UI walkthrough | no | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | N/A: no UI or rendered output changed |
@@ -442,9 +441,9 @@ Verification evidence:
 - `bun run test` (repo root) -> `bun test` 1316 pass / 0 fail across 148 files; `vitest run` 873 passed / 13 skipped across 84 files; no type errors.
 - `bun typecheck` (repo root) -> 5 packages successful.
 - `bun lint:fix` (repo root) -> clean, no fixes applied.
-- `bun --cwd packages/kitcn build` -> 71 files, 1577.46 kB total.
+- `bun --cwd packages/kitcn build` -> 72 files, 1612.81 kB total.
 - `bun run fixtures:sync` then `bun run fixtures:check` (repo root) -> "matches fresh `kitcn init` output" for all 8 fixtures.
-- `bun check` (repo root, pre-PR gate) -> exit 0. Covers `bun lint`, `bun typecheck`, `bun run test`, `test:cli`, `test:concave`, `fixtures:check`, `test:verify`, `test:runtime`.
+- `bun check` (repo root, source-synced head) -> exit 0. Covers `bun lint`, `bun typecheck`, `bun run test`, `test:cli`, `test:concave`, `fixtures:check`, `test:verify`, `test:runtime`.
 - Source audit: `rg -n 'deleteIfExists' packages/kitcn/src/orm/aggregate-index/rank-runtime.ts` -> no hits.
 - Source audit: `aggregate-core/schema.ts` imports only `convex/values` + `../orm/{builders,indexes,table}`, all already in the ORM graph, so folding the rank tables onto it adds no transitive import to any Convex entry.
 
@@ -549,6 +548,11 @@ Timeline:
   file against HEAD by checksum, and deleted `convex/orm/zz417probe.test.ts`. Also reverted an
   unrelated `example/.../procedure-names.gen.ts` line-number drift a codegen attempt produced.
 - Regenerated the 8 committed fixtures and re-ran the full suite.
+- 2026-08-26 autoclosure source sync: merged baseline main
+  `8dbe02abeb2a0a5495a33a6a8206fbe53bfd1a16` without conflicts, then proved the
+  combined head with 7 focused clearing tests, 18 btree tests, 25 schema-integration
+  tests, all eight fixture sync/check cases, root typecheck, lint, package build, full
+  `bun check`, and source-synced branch autoreview with no P0/P1 findings.
 
 Reboot status:
 | Question | Answer |
