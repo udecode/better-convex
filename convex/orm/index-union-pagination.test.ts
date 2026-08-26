@@ -305,6 +305,36 @@ test('an index union wider than the probe cap still needs maxScan under strict',
   });
 });
 
+test('a wide index union with endCursor still needs maxScan under strict', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    await seedUsers(baseCtx.db);
+
+    const first: any = await ctx.orm.query.users
+      .withIndex('by_status')
+      .findMany({
+        where: { status: { in: [...MATCHING_STATUSES] } },
+        cursor: null,
+        limit: 2,
+      });
+    const wideList = Array.from(
+      { length: 65 },
+      (_, index) => `bucket-${index}`
+    );
+
+    await expect(
+      ctx.orm.query.users.withIndex('by_status').findMany({
+        where: { status: { in: wideList } },
+        cursor: null,
+        endCursor: first.continueCursor,
+        limit: 2,
+      })
+    ).rejects.toThrow(/maxScan/i);
+  });
+});
+
 test('an index union that cannot serve the requested order still needs maxScan under strict', async () => {
   const t = convexTest(schema);
 

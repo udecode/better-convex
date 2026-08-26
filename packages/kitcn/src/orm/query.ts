@@ -2926,16 +2926,19 @@ export class GelRelationalQuery<
     schemaDefinition: unknown;
   }): { stream: QueryStream<any>; probeUnion: boolean } {
     const { queryConfig, configuredIndex, order, primaryOrder } = params;
+    const probeIndex =
+      queryConfig.probeFilters.length > 0 ? queryConfig.index : undefined;
+    const hasProbeUnionPlan = !!probeIndex;
 
-    if (queryConfig.index && queryConfig.probeFilters.length > 0) {
+    if (hasProbeUnionPlan) {
       const probeUnion = this._buildProbeUnionStream({
         schemaDefinition: params.schemaDefinition,
-        indexName: queryConfig.index.name,
+        indexName: probeIndex.name,
         probeFilters: queryConfig.probeFilters,
         order,
         // Without an `orderBy` the read inherits the order of whatever index it
         // walks, which for this plan is the union's own index.
-        orderField: primaryOrder?.field ?? queryConfig.index.fields[0],
+        orderField: primaryOrder?.field ?? probeIndex.fields[0],
       });
       if (probeUnion) {
         return { stream: probeUnion, probeUnion: true };
@@ -2947,7 +2950,7 @@ export class GelRelationalQuery<
       params.schemaDefinition as any
     ).query(this.tableConfig.name as any);
 
-    if (queryConfig.index) {
+    if (queryConfig.index && !hasProbeUnionPlan) {
       streamQuery = streamQuery.withIndex(
         queryConfig.index.name as any,
         (q: any) => {
@@ -2958,12 +2961,12 @@ export class GelRelationalQuery<
           return indexQuery;
         }
       );
-    } else if (configuredIndex?.name) {
+    } else if (!hasProbeUnionPlan && configuredIndex?.name) {
       streamQuery = streamQuery.withIndex(
         configuredIndex.name as any,
         configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
       );
-    } else if (params.orderIndexName) {
+    } else if (!hasProbeUnionPlan && params.orderIndexName) {
       streamQuery = streamQuery.withIndex(
         params.orderIndexName as any,
         (q: any) => q
@@ -2978,11 +2981,11 @@ export class GelRelationalQuery<
     wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined,
     configuredIndex: PredicateWhereIndexConfig<TTableConfig> | undefined,
     fallbackOrder: 'asc' | 'desc'
-  ): QueryStream<any> {
+  ): { stream: QueryStream<any>; probeUnion: boolean } {
     const schemaDefinition = this._getSchemaDefinitionOrThrow();
     const primaryOrder = queryConfig.order?.[0];
 
-    let streamQuery: any = this._buildPlanStream({
+    const planStream = this._buildPlanStream({
       queryConfig,
       configuredIndex,
       order: primaryOrder?.direction ?? fallbackOrder,
@@ -2992,7 +2995,8 @@ export class GelRelationalQuery<
           ? (this._findStreamOrderIndex(primaryOrder.field)?.name ?? null)
           : null,
       schemaDefinition,
-    }).stream;
+    });
+    let streamQuery: any = planStream.stream;
 
     if (queryConfig.postFilters.length > 0 || wherePredicate) {
       streamQuery = streamQuery.filterWith(async (row: any) => {
@@ -3008,7 +3012,7 @@ export class GelRelationalQuery<
       });
     }
 
-    return streamQuery;
+    return { stream: streamQuery, probeUnion: planStream.probeUnion };
   }
 
   /**
@@ -6001,20 +6005,39 @@ export class GelRelationalQuery<
             );
           }
         }
-        streamQuery =
-          (await this._buildIdLookupStream({
-            configuredIndex,
-            idLookup,
-            order: fallbackOrder,
-            queryConfig,
-            wherePredicate,
-          })) ??
-          this._buildBasePipelineStream(
+        const idLookupStream = await this._buildIdLookupStream({
+          configuredIndex,
+          idLookup,
+          order: fallbackOrder,
+          queryConfig,
+          wherePredicate,
+        });
+        if (idLookupStream) {
+          streamQuery = idLookupStream;
+        } else {
+          const baseStream = this._buildBasePipelineStream(
             queryConfig,
             wherePredicate,
             configuredIndex,
             fallbackOrder
           );
+          const rejectedProbeUnion =
+            isCursorPaginated &&
+            queryConfig.strategy === 'multiProbe' &&
+            !!queryConfig.index &&
+            !baseStream.probeUnion;
+          if (rejectedProbeUnion && maxScan === undefined) {
+            if (strict) {
+              throw new Error(
+                'Pagination with multi-probe index-union filters requires maxScan when strict=true. Add maxScan, order by a field the union can serve, or make the query indexable.'
+              );
+            }
+            console.warn(
+              'Pagination with multi-probe index-union filters is running without maxScan because strict: false.'
+            );
+          }
+          streamQuery = baseStream.stream;
+        }
       }
 
       const rootRlsEnabled = isRlsEnabled(this.tableConfig.table as any);
