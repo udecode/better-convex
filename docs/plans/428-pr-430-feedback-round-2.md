@@ -16,8 +16,8 @@ Feedback target:
 - PR / comment URL: https://github.com/udecode/kitcn/pull/430
 - mode: full inventory with split ownership after exact-head handoff
 - exact scope: five live unresolved threads inventoried at head `c515b931`;
-  this task owns the three reopened P2 implementation threads, while the
-  autoclosure source task owns reply/resolution for two already-fixed P1s
+  this task owns the three reopened P2 implementation threads; terminal
+  autoclosure also owns two delayed changeset P1 threads discovered later
 - non-goals: changing the two P1 implementations, unrelated refactors, merge,
   or a GitHub terminal receipt
 - authority to edit / commit / push / reply / resolve: the invoked
@@ -154,7 +154,7 @@ Completion Gates:
 | Feedback ledger complete | yes | Record verdict, owner, proof, reply, and resolution state for every new actionable item | All seven rows carry verdict, owner, proof, reply, and resolution state |
 | Focused proof after fixes | yes | Run the smallest combined proof after the last material change | 50 pass, 0 fail, 176 assertions after final source edit |
 | Replies and resolutions | yes | Post source-backed replies and resolve review threads when authorized | Three quoted P2 replies posted/resolved; late changeset P1s received source-backed replies and resolutions |
-| Fresh feedback read-back | yes | Re-fetch and record remaining unresolved/pending/needs-human counts | Terminal refresh pending after late P1 push/reply work |
+| Fresh feedback read-back | yes | Re-fetch and record remaining unresolved/pending/needs-human counts | At `947b9243`: helper 0 threads/1 comment/2 review bodies; raw 2 issue comments/9 reviews; all-thread GraphQL 7 resolved, 0 unresolved |
 | PR create or update | yes | Run `check` before PR work | `bun check` passed before push/reply work |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix`: 949 files checked, no final fixes |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Owner reads stayed bounded; required `bun check` exceeded the cap, was recorded, and completion came from the live exit code |
@@ -179,7 +179,7 @@ Feedback ledger:
 | `PRRT_kwDOPTlS686cREWl` / [r3857918112](https://github.com/udecode/kitcn/pull/430#discussion_r3857918112) | inline thread | `packages/kitcn/src/auth/create-schema.ts` | Declared compound-index order is sorted and reversed sequences dedupe together | P2: generated lookup prefixes are wrong | valid-fixed: ordered sequences drive dedupe, names, fields, ORM uniqueness, and tuple validation | both schema renderers / `adapter-utils.ts` | focused Convex/ORM ordered-index tests green | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858557585) | resolved |
 | `PRRT_kwDOPTlS686cREWn` / [r3857918115](https://github.com/udecode/kitcn/pull/430#discussion_r3857918115) | inline thread | `packages/kitcn/src/auth/create-api.ts` | consumeOne returns delete.before-transformed hook data instead of stored consumed row | P2: verification can evaluate data never stored | valid-fixed: shared delete execution returns stored and hook views; deleteOne keeps hook contract, consumeOne selects stored view | `create-api.ts` | focused consumeOne/delete-hook test green | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858557750) | resolved |
 | `PRRT_kwDOPTlS686cR3bC` / [r3858242637](https://github.com/udecode/kitcn/pull/430#discussion_r3858242637) | inline thread | `.changeset/calm-auth-issuers.md` | Reuse existing unreleased changeset | P1: release-note owner fragmentation if two drafts exist | rejected-current-source: the referenced draft was consumed by the merged main release; `calm-auth-issuers.md` is the only live unreleased changeset | `.changeset/` inventory | exact final-head file inventory | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858600209) | resolved |
-| `PRRT_kwDOPTlS686cR3bK` / [r3858242645](https://github.com/udecode/kitcn/pull/430#discussion_r3858242645) | inline thread | `.changeset/calm-auth-issuers.md` | Add required before/after migration example | P1: breaking migration instructions incomplete | valid-fixed: add the required short account-shape comparison immediately under Breaking changes | `.changeset/calm-auth-issuers.md` | source diff plus changeset-rule audit | pending | pending |
+| `PRRT_kwDOPTlS686cR3bK` / [r3858242645](https://github.com/udecode/kitcn/pull/430#discussion_r3858242645) | inline thread | `.changeset/calm-auth-issuers.md` | Add required before/after migration example | P1: breaking migration instructions incomplete | valid-fixed: add the required short account-shape comparison immediately under Breaking changes | `.changeset/calm-auth-issuers.md` | source diff plus changeset-rule audit | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858604719) | resolved |
 
 Findings:
 - Goal handle predicted three remaining threads from the prior round; live full
@@ -227,6 +227,8 @@ Timeline:
 - 2026-08-26 Terminal helper refresh exposed two delayed changeset P1s; current
   source disproved the duplicate-draft claim and the required Before/After
   comparison was added to the live changeset owner.
+- 2026-08-26 Both delayed P1s received quoted replies and were resolved; raw
+  terminal inventory found seven resolved threads and zero unresolved.
 
 Verification evidence:
 - `bun test packages/kitcn/src/auth/adapter-utils.test.ts packages/kitcn/src/auth/create-api.test.ts packages/kitcn/src/auth/create-schema.test.ts packages/kitcn/src/auth/create-schema-orm.test.ts`: 50 pass, 0 fail, 176 assertions.
@@ -235,14 +237,17 @@ Verification evidence:
 - `bun lint:fix`: 949 files checked, no final fixes.
 - `bun check`: exit 0 across CI, verify, fixture, and runtime lanes.
 - GitHub replies: `r3858557464`, `r3858557585`, and `r3858557750`; each parent thread resolved.
-- Fresh `get-pr-comments 430`: unresolved 0, issue comments 0, review bodies 0.
+- Late P1 replies: `r3858600209` and `r3858604719`; each parent thread resolved.
+- Fresh `get-pr-comments 430`: 0 unresolved threads, 1 included issue comment,
+  2 included review bodies. Raw inventory: 2 issue comments, 9 review records,
+  7 resolved threads, 0 unresolved.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Terminal closeout of two delayed changeset P1 threads |
 | Where am I going? | Push, reply/resolve, exact-head proof, terminal receipt |
-| What is the goal? | Close the three reopened P2s and reach an empty full feedback inventory with the source owner |
+| What is the goal? | Close every actionable PR #430 item and reach zero unresolved threads |
 | What have I learned? | Three direct defects were independently testable; delayed review delivery required another unfiltered terminal fetch |
 | What have I done? | Fixed/proved/pushed all three P2s and repaired or source-rejected both delayed changeset P1s |
 
