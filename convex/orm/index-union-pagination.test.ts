@@ -171,6 +171,40 @@ test('endCursor pagination over an index union stays index-bounded', async () =>
   });
 });
 
+test('endCursor preserves the default cursor order for an index union', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const reads = countDocumentReads(baseCtx);
+    const ctx = await runCtx(baseCtx);
+    await seedUsers(baseCtx.db);
+
+    const first: any = await ctx.orm.query.users
+      .withIndex('by_status')
+      .findMany({
+        where: { status: { in: [...MATCHING_STATUSES] } },
+        cursor: null,
+        limit: 2,
+      });
+
+    const before = reads.documents;
+    const pinned: any = await ctx.orm.query.users
+      .withIndex('by_status')
+      .findMany({
+        where: { status: { in: [...MATCHING_STATUSES] } },
+        cursor: null,
+        endCursor: first.continueCursor,
+        limit: 2,
+      });
+
+    expect(pinned.page.map((row: any) => row.name)).toEqual([
+      'User 118',
+      'User 001',
+    ]);
+    expect(reads.documents - before).toBeLessThanOrEqual(6);
+  });
+});
+
 test('a residual post-filter over an index union stays index-bounded', async () => {
   const t = convexTest(schema);
 

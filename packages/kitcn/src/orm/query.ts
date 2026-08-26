@@ -2976,7 +2976,8 @@ export class GelRelationalQuery<
   private _buildBasePipelineStream(
     queryConfig: CompiledQueryPlan,
     wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined,
-    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
+    configuredIndex: PredicateWhereIndexConfig<TTableConfig> | undefined,
+    fallbackOrder: 'asc' | 'desc'
   ): QueryStream<any> {
     const schemaDefinition = this._getSchemaDefinitionOrThrow();
     const primaryOrder = queryConfig.order?.[0];
@@ -2984,7 +2985,7 @@ export class GelRelationalQuery<
     let streamQuery: any = this._buildPlanStream({
       queryConfig,
       configuredIndex,
-      order: primaryOrder?.direction ?? 'asc',
+      order: primaryOrder?.direction ?? fallbackOrder,
       primaryOrder,
       orderIndexName:
         primaryOrder && primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD
@@ -5946,7 +5947,9 @@ export class GelRelationalQuery<
 
     if (useAdvancedStreamPath) {
       const primaryOrder = queryConfig.order?.[0];
-      const fallbackOrder = primaryOrder?.direction ?? 'asc';
+      const fallbackOrder =
+        primaryOrder?.direction ??
+        (endCursor !== undefined && !pipeline ? 'desc' : 'asc');
       let streamQuery: QueryStream<any>;
 
       const unionSources = pipeline?.union ?? [];
@@ -6009,7 +6012,8 @@ export class GelRelationalQuery<
           this._buildBasePipelineStream(
             queryConfig,
             wherePredicate,
-            configuredIndex
+            configuredIndex,
+            fallbackOrder
           );
       }
 

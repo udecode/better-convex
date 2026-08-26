@@ -31,5 +31,7 @@ const page = await db.query.users.withIndex('by_status').findMany({
 ## Patches
 
 - Fix `select()` composition and `endCursor` pagination reading a whole index instead of the compiled index ranges when the filter is an index union.
+- Keep no-`orderBy` cursor direction consistent when `endCursor` routes an index union through the advanced stream path.
+- Prevent `endCursor` narrowing from reopening disjoint equality ranges and duplicating merged-stream rows.
 - Fix cursor pagination with a residual post-filter reading a whole index instead of the compiled index ranges when the filter is an index union.
 - Fall back to a bounded scan when the probed index cannot supply the requested `orderBy` or the union is wider than 64 ranges.

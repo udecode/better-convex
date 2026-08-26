@@ -91,9 +91,9 @@ Blocked condition:
 Task state:
 - task_type: bug
 - task_complexity: non-trivial
-- current_phase: verification
-- current_phase_status: in_progress
-- next_phase: closeout
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: terminal GitHub receipt and merge
 - goal_status: active
 
 Current verdict:
@@ -260,12 +260,12 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run named commands | `bun check` exit 0; `bun run test` 1316 bun + 881 vitest pass; `bun typecheck` 5/5; `bun run fixtures:check` 8/8 |
+| Named verification threshold | yes | Run named commands | source-sync `bun check` exit 0; focused regression set 155 passed / 1 skipped; `bun typecheck` 5/5; `bun run fixtures:sync` and `bun run fixtures:check` 8/8 |
 | Exact per-PR task ownership | yes | Record exact PR | PR #425, this plan |
 | Pre-solution issue challenge verdict | yes | Record verdict | `valid`; three issue constraints refuted |
 | Repro escalation ladder | yes | Record ladder | source-level test repro reproduced all four drop sites |
 | Bug reproduced before fix | yes | Failing test | 6 red in `convex/orm/index-union-pagination.test.ts` |
-| Targeted behavior verification | yes | Focused proof | same file 10/10 green; read counts 2-4 docs / 120 rows |
+| Targeted behavior verification | yes | Focused proof | six-file source-sync regression set 155 passed / 1 skipped; read counts 2-4 docs / 120 rows |
 | TypeScript or typed config changed | yes | Typecheck | `bun typecheck` 5/5 pass |
 | Package exports or file layout changed | yes | Package build | `bun --cwd packages/kitcn build` complete |
 | Package manifests, lockfile, or install graph changed | no | N/A | No manifest change; `bun install` reported no changes |
@@ -281,8 +281,8 @@ Completion Gates:
 | High-risk mini gate | yes | Record note | See Open risks |
 | Agent-native review for agent/tooling changes | no | N/A | No `.agents`/`.claude`/`.codex` source change; only the generated skill mirror |
 | Local install corruption suspected | yes | Retry once | `fixtures:check` failed twice on shared bunx cache rot (`Failed to link js-yaml: EEXIST`, then `@babel/core` MODULE_NOT_FOUND under `bunx-501-shadcn@4.3.0`); removing that tmp cache made `fixtures:check` and the full `bun check` pass with exit 0 |
-| Commit created | yes | Stage whole checkout, commit | 3e046c49, entire checkout staged |
-| PR create or update | yes | Run check, push, open PR | `bun check` exit 0; pushed; https://github.com/udecode/kitcn/pull/425 |
+| Commit created | yes | Stage whole checkout, commit | original task commit 3e046c49; autoclosure repair commit recorded at exact PR head before receipt |
+| PR create or update | yes | Run check, push, open PR | source-sync `bun check` exit 0; exact repair head pushed to https://github.com/udecode/kitcn/pull/425 before receipt |
 | Task-style PR body verified | yes | Verify with gh | `gh pr view 425 --json body` confirms emoji format, plan line, no self-link |
 | PR task evidence verified | yes | Verify plan line + head | Plan path resolves at PR head and names PR #425 |
 | PR proof image hosting | no | N/A | No browser proof images in the body |
@@ -291,7 +291,7 @@ Completion Gates:
 | Final lint | yes | `bun lint:fix` | clean, 3 files formatted |
 | Output budget discipline | yes | Verify | recon artifacted; all test output grepped or dot-reported |
 | Timed checkpoint | no | N/A | No duration requested |
-| Autoreview for non-trivial implementation changes | yes | Run until clean | `autoreview --mode local --engine claude`: clean, 0 findings, correctness 0.72 |
+| Autoreview for non-trivial implementation changes | yes | Run until clean | original review clean; source-sync local repair review clean, 0 findings, confidence 0.91; final branch review required after commit |
 | Goal plan complete | yes | Run check-complete | see Verification evidence |
 | Public API / package boundary proof | yes | Source audit | `orm/index.ts` exports unchanged; `MAX_INDEX_UNION_PROBES` stays internal |
 | Convex bundle/import proof | yes | Audit | no new module or import edge; `import-graph.test.ts` green |
@@ -308,9 +308,9 @@ Phase / pass table:
 |-------|--------|----------|------|
 | Intake and source read | complete | issue #415 read, recon fan-out | implementation |
 | Implementation | complete | shared plan stream builder | verification |
-| Verification | complete | red-to-green tests, full suite, autoreview clean | closeout |
-| Commit / PR / GitHub sync | complete | 3e046c49 pushed; PR #425 opened | final response |
-| Closeout | complete | plan gates closed | final response |
+| Verification | complete | source-sync red-to-green tests, fixtures, package build, full `bun check`, autoreview clean | closeout |
+| Commit / PR / GitHub sync | complete | PR #425 exists; exact-head push and terminal receipt are the autoclosure delivery step | exact-head delivery |
+| Closeout | complete | all local plan gates closed | terminal receipt and merge |
 
 Findings:
 - `_toConvexQuery` returns `probeFilters`, but only the non-cursor `db.query`
@@ -334,6 +334,13 @@ Findings:
   alone.
 - No doc anywhere promised a default result order, so making an index-union
   page read in index order breaks no documented contract.
+- Source-sync against main `0e3a2214e8e1037b323e603f19c2df89b0d95602`
+  exposed that the advanced `endCursor` path defaulted to ascending while the
+  normal no-`orderBy` cursor path defaults to descending.
+- Repairing that direction exposed a second defect: narrowing a merged child
+  against a disjoint cursor bound constructed an inverted range, which reopened
+  the child and duplicated rows. An empty narrowed child must retain its
+  equality-prefix metadata so suffix-key merges remain valid.
 
 Decisions and tradeoffs:
 - `CompiledQueryPlan` is the single parameter type for every plan consumer, so a
@@ -365,12 +372,19 @@ Implementation notes:
 - Docs + `packages/kitcn/skills/kitcn/**` updated; `.changeset/orm-index-union-pagination.md` added.
 
 Review fixes:
-- None yet.
+- P1: preserve the normal descending fallback order when a no-`orderBy`
+  `endCursor` uses the advanced index-union path. The new regression failed on
+  ascending rows before the repair and passes after it.
+- P1: return an equality-aware `EmptyStream` when cursor narrowing produces a
+  disjoint interval. The new merged-stream regressions failed first with
+  duplicate rows and then a suffix-key equality-prefix error; both pass after
+  preserving the narrowed stream metadata.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| Broadly applying descending fallback to every advanced stream | 1 | Restrict it to non-pipeline `endCursor` reads | Existing pipeline cursor tests returned to their pinned ascending order |
+| `fixtures:check` GitHub sparse-checkout timeout | 1 | Rerun the exact check without code changes | All 8 fixtures passed |
 
 Verification evidence:
 - cwd repo root: `bunx vitest run convex/orm/index-union-pagination.test.ts` —
@@ -385,6 +399,17 @@ Verification evidence:
 - cwd repo root: `bun run fixtures:check` — 8/8 fixtures match (two clean runs).
 - cwd repo root: `bun check` — exit 0 (full repo gate, including scenario
   verify/runtime lanes).
+- cwd repo root after source sync: focused `vitest` over index-union pagination,
+  pagination, pipeline, where filtering, and both stream suites — 155 passed,
+  1 skipped, no type errors.
+- cwd repo root after source sync: `bun run fixtures:sync` completed all eight
+  fixtures; the exact `bun run fixtures:check` retry passed all eight after one
+  transient GitHub sparse-checkout timeout.
+- cwd repo root after source sync: `bun run intent:validate && bun run
+  intent:stale` — kitcn skill valid and generated guidance up to date; the
+  published and generated ORM guidance files are byte-identical.
+- cwd repo root after source sync: local repair `autoreview` — clean, 0
+  findings, confidence 0.91.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -393,6 +418,9 @@ Source-listed case matrix:
 | cursor `in()` + `orderBy createdAt` | probe order not global | same file, "honors orderBy createdAt" | threw | newest-first across probes | exact page pinned | fixed |
 | cursor walk | page boundaries over a merged stream | same file, "every match exactly once" | threw | all matches once, no dupes | set equality | fixed |
 | `endCursor` / `select()` (`_buildBasePipelineStream`) | rangeless full-index walk | same file, "endCursor ... index-bounded" | full index walk | <=6 reads | 3 reads | fixed |
+| no-`orderBy` `endCursor` direction | advanced path silently used ascending fallback | same file, "preserves the default cursor order" | returned ascending rows | same descending rows as the normal cursor path | red then green | fixed during autoclosure |
+| disjoint merged child bound | inverted narrow range reopened a child | `stream.regression.vitest.ts`, "descending merged endCursor excludes disjoint equality ranges" | duplicated rows | closed child contributes no rows | red then green | fixed during autoclosure |
+| empty suffix-ordered child metadata | empty child erased its equality prefix | same file, "suffix-ordered merged endCursor accepts an empty child range" | merge threw on 0 equality fields | remaining child paginates normally | red then green | fixed during autoclosure |
 | residual post-filter (`_buildResidualFilterStream`) | rangeless full-index walk | same file, "residual post-filter ... index-bounded" | full index walk under maxScan 50 | <=6 reads | 4 reads | fixed |
 | `ne` complement ranges | union claimed unmergeable | same file, "complement range union" | full table scan | <=6 reads, ordered by probed field | 3 reads | fixed |
 | union wider than 64 probes | no cap | same file, "wider than the probe cap" | n/a | still requires maxScan | throws | pinned |
@@ -402,13 +430,13 @@ Source-listed case matrix:
 | pipeline union source without index | must keep chain index | `pipeline.test.ts:143` | exact page | unchanged | passes | preserved |
 
 Final handoff contract:
-- Commit line: 3e046c49 fix(orm): read compiled index-union probes at every stream site
+- Commit line: original task commit 3e046c49 plus the exact source-sync repair head recorded in the terminal receipt
 - PR line: https://github.com/udecode/kitcn/pull/425
 - Issue line: closes #415 via the PR body
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests 6 red, browser N/A
-  - Verified: tests 10/10 + full suite green, browser N/A
+- Verified: source-sync focused tests 155 passed / 1 skipped + full `bun check` green, browser N/A
 - Browser check: N/A: no browser surface
 - Outcome: the compiled plan now reaches every stream site; a cursor-paginated
   `in()` reads its index probes instead of the whole table, and no longer needs
@@ -424,8 +452,10 @@ Final handoff contract:
   - Why not broader change: the duplicate `update.ts`/`delete.ts` probe fan-outs
     and the `pipeline.union` `source.where` lowering are separate owners with
     their own pinned contracts.
-- Verified: `bun run test`, `bun typecheck`, `bun --cwd packages/kitcn build`,
-  `bun run fixtures:check`, `bun lint:fix`, `autoreview --mode local`.
+- Verified: focused 155-test regression set, `bun typecheck`,
+  `bun --cwd packages/kitcn build`, `bun run fixtures:sync`,
+  `bun run fixtures:check`, `bun lint:fix`, full `bun check`, intent
+  validation/staleness, and local repair autoreview.
 - PR body verified: `gh pr view 425 --json body` matches the PR #270 emoji task-style contract
 
 Task-style PR body contract:
@@ -460,6 +490,11 @@ Timeline:
 - 2026-08-21T21:22:54.405Z Task goal plan created.
 - Recon fan-out over tests, planners, docs, and stream contracts.
 - Red repro added (6 failing), fix implemented, all suites green.
+- 2026-08-26: autoclosure merged main
+  `0e3a2214e8e1037b323e603f19c2df89b0d95602`, found and repaired two P1
+  cursor-boundary defects with three red-to-green regressions.
+- 2026-08-26: focused tests, typecheck, lint, package build, fixture
+  sync/check, intent validation, local autoreview, and full `bun check` green.
 
 Reboot status:
 | Question | Answer |
