@@ -1,5 +1,13 @@
 # kitcn
 
+## 0.30.0
+
+### Minor Changes
+
+- [#422](https://github.com/udecode/kitcn/pull/422) [`f677251`](https://github.com/udecode/kitcn/commit/f6772514d2525104ac6878c0eeb7334a84af981b) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix soft cascade delete re-reading every child it had already processed. New scheduled campaigns require and resume through an exact foreign-key index, keeping reads linear without allowing mutable trailing index fields to strand a child. Queued jobs reselect a newly available exact index or drain through the legacy replay path.
+
 ## 0.29.0
 
 ### Minor Changes
