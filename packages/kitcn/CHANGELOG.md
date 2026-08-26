@@ -1,5 +1,15 @@
 # kitcn
 
+## 0.28.1
+
+### Patch Changes
+
+- [#420](https://github.com/udecode/kitcn/pull/420) [`73741ed`](https://github.com/udecode/kitcn/commit/73741ed08779d539c9f186db366e326b138dbd36) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `insert()` re-reading the same parent row once per inserted row. Rows of one statement that share a foreign key now cost one existence check instead of one per row.
+  - Fix the aggregate write barrier re-scanning the `CLEARING` index-state range once per written row. A multi-row write now checks it once per transaction, and a backfill that starts clearing an index still blocks the writes that follow it.
+  - Fix a relation `where` re-reading the same related document once per scanned row. Filtering by a relation now reads each distinct related document once per query instead of once per candidate row.
+
 ## 0.28.0
 
 ### Minor Changes
