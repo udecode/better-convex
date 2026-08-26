@@ -439,6 +439,7 @@ Error attempts:
 | Follow-up review treated optional `membershipKey` as required and used the public team ID | 1 | Generate the exact 1.7 Convex schema and inspect adapter fallback/ID mapping | Guidance records that `membershipKey` is optional and counts members with the raw team's `_id`. |
 | Exact-head review found falsy query-mode `incrementOne` acknowledgement | 1 | Read Better Auth 1.7 rate-limiter consumers and add a red regression test | Suppressed writes return `{}` without calling the mutation adapter; the focused test is green. |
 | Terminal feedback refresh exposed two delayed changeset P1s | 1 | Re-read the live changeset inventory/rule and add the missing comparison | Duplicate-draft claim was stale after the main release; the valid Before/After requirement is repaired. |
+| Terminal exact-head review found OpenID discovery hard-coded to `HS256` | 1 | Resolve the provider algorithm once and share it with JWT/JWKS plus discovery | Red default/configured algorithm regressions are green for `EdDSA` and `RS256`. |
 
 Verification evidence:
 - `bun test` focused auth/dependency set: 100 passed; factory suite: 19 passed.
@@ -463,6 +464,8 @@ Verification evidence:
 - Post-fix exact replay: 39/39 focused auth tests, root typecheck, lint, 71-file
   package build, full fixture parity, verification scenarios, auth runtime
   smoke, and `bun check` passed.
+- OpenID signing metadata regression: red with `HS256` for both providers, then
+  3/3 green after discovery reused the JWT/JWKS signing algorithm.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -548,6 +551,8 @@ Timeline:
   organization team counters before the required schema.
 - 2026-08-26 Repaired query-context rate-limit acknowledgement with a red-green
   regression and replayed the full repository gate.
+- 2026-08-26 Repaired OpenID discovery signing metadata with default `EdDSA`
+  and configured `RS256` red-green coverage.
 
 Reboot status:
 | Question | Answer |

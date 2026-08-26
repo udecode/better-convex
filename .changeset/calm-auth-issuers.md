@@ -195,3 +195,7 @@ changes against the migrated data. Resume writes only after these checks pass.
 - Support Better Auth 1.7 account identity constraints, declared table indexes,
   atomic adapter mutations, stable join configuration, session hydration, and
   organization metadata reads.
+
+## Patches
+
+- Fix OpenID discovery to advertise the configured JWT signing algorithm.

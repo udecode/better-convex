@@ -24,6 +24,37 @@ test('convex owns its OpenID configuration on Better Auth 1.7', async () => {
     expect(config.authorization_endpoint).toBe(
       'https://convex.invalid/api/other/oauth2/authorize'
     );
+    expect(config.id_token_signing_alg_values_supported).toEqual(['EdDSA']);
+  } finally {
+    if (originalSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL;
+    } else {
+      process.env.CONVEX_SITE_URL = originalSiteUrl;
+    }
+  }
+});
+
+test('OpenID configuration advertises the configured JWT algorithm', async () => {
+  const originalSiteUrl = process.env.CONVEX_SITE_URL;
+  process.env.CONVEX_SITE_URL = 'https://convex.invalid';
+
+  try {
+    const plugin = convex({
+      authConfig: {
+        providers: [
+          {
+            algorithm: 'RS256',
+            applicationID: 'convex',
+            issuer: 'https://convex.invalid',
+            jwks: 'https://convex.invalid/api/auth/convex/jwks',
+            type: 'customJwt',
+          },
+        ],
+      } as AuthConfig,
+    });
+    const config = await plugin.endpoints.getOpenIdConfig({} as never);
+
+    expect(config.id_token_signing_alg_values_supported).toEqual(['RS256']);
   } finally {
     if (originalSiteUrl === undefined) {
       delete process.env.CONVEX_SITE_URL;

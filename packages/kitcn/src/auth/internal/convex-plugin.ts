@@ -59,7 +59,7 @@ const parseAuthConfig = (authConfig: AuthConfig, opts: { jwks?: string }) => {
   return providerConfig;
 };
 
-const createOpenIdConfig = (basePath: string) => {
+const createOpenIdConfig = (basePath: string, signingAlgorithm: string) => {
   const siteUrl = `${process.env.CONVEX_SITE_URL}`;
   const baseUrl = `${siteUrl}${basePath}`;
 
@@ -80,7 +80,7 @@ const createOpenIdConfig = (basePath: string) => {
       'urn:mace:incommon:iap:bronze',
     ],
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['HS256'],
+    id_token_signing_alg_values_supported: [signingAlgorithm],
     token_endpoint_auth_methods_supported: [
       'client_secret_basic',
       'client_secret_post',
@@ -121,10 +121,12 @@ export const convex = (opts: {
 }) => {
   const jwtExpirationSeconds =
     opts.jwt?.expirationSeconds ?? opts.jwtExpirationSeconds ?? 60 * 15;
-  const openIdConfig = createOpenIdConfig(
-    opts.options?.basePath ?? '/api/auth'
-  );
   const providerConfig = parseAuthConfig(opts.authConfig, opts);
+  const signingAlgorithm = getJwksAlg(providerConfig);
+  const openIdConfig = createOpenIdConfig(
+    opts.options?.basePath ?? '/api/auth',
+    signingAlgorithm
+  );
 
   const jwtOptions = {
     jwt: {
@@ -141,7 +143,7 @@ export const convex = (opts: {
     },
     jwks: {
       keyPairConfig: {
-        alg: getJwksAlg(providerConfig),
+        alg: signingAlgorithm,
       },
     },
   } satisfies JwtOptions;
