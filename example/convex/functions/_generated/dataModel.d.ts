@@ -495,6 +495,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_run_id: ["runId", "_creationTime"];
+      by_started_at: ["startedAt", "_creationTime"];
       by_status: ["status", "_creationTime"];
     };
     searchIndexes: {};

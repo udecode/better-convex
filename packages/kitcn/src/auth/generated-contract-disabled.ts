@@ -128,6 +128,7 @@ export const createDisabledAuthRuntime = <
     getAuth: createDisabledError(message, 'getAuth') as (
       ctx: GenericCtx
     ) => Runtime['auth'],
+    count: createDisabledRuntimeExport<Runtime['count']>(message, 'count'),
     consumeOne: createDisabledRuntimeExport<Runtime['consumeOne']>(
       message,
       'consumeOne'
