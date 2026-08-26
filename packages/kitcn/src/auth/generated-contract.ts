@@ -184,12 +184,14 @@ type ProcedureExportLike = {
 };
 
 const AUTH_RUNTIME_PROCEDURE_TYPES = {
+  consumeOne: 'mutation',
   create: 'mutation',
   deleteMany: 'mutation',
   deleteOne: 'mutation',
   findMany: 'query',
   findOne: 'query',
   getLatestJwks: 'action',
+  incrementOne: 'mutation',
   rotateKeys: 'action',
   updateMany: 'mutation',
   updateOne: 'mutation',
@@ -208,6 +210,11 @@ const resolveAuthFunctions = (
   ] ?? {}) as Partial<AuthFunctions>;
 
   return {
+    consumeOne:
+      existing.consumeOne ??
+      createGeneratedInternalFunctionReference<'mutation'>(
+        `${moduleName}:consumeOne`
+      ),
     create:
       existing.create ??
       createGeneratedInternalFunctionReference<'mutation'>(
@@ -232,6 +239,11 @@ const resolveAuthFunctions = (
       existing.findOne ??
       createGeneratedInternalFunctionReference<'query'>(
         `${moduleName}:findOne`
+      ),
+    incrementOne:
+      existing.incrementOne ??
+      createGeneratedInternalFunctionReference<'mutation'>(
+        `${moduleName}:incrementOne`
       ),
     updateMany:
       existing.updateMany ??

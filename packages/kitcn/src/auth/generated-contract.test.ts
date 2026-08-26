@@ -85,6 +85,22 @@ describe('auth/generated-contract', () => {
         >
       )[Symbol.for('functionName')]
     ).toBe('generated/auth:updateOne');
+    expect(
+      (
+        authRuntime.authClient.authFunctions.consumeOne as Record<
+          symbol,
+          unknown
+        >
+      )[Symbol.for('functionName')]
+    ).toBe('generated/auth:consumeOne');
+    expect(
+      (
+        authRuntime.authClient.authFunctions.incrementOne as Record<
+          symbol,
+          unknown
+        >
+      )[Symbol.for('functionName')]
+    ).toBe('generated/auth:incrementOne');
   });
 
   test('getAuth evaluates the auth definition once per call and memoizes the table schema', async () => {

@@ -1,5 +1,5 @@
 import { getAuthTables } from 'better-auth/db';
-import { organization } from 'better-auth/plugins';
+import { deviceAuthorization, organization } from 'better-auth/plugins';
 import { createSchema } from './create-schema';
 
 const tables = {
@@ -70,6 +70,32 @@ describe('createSchema', () => {
     );
   });
 
+  test('preserves declared compound-index order and reversed sequences', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: {
+        lookup: {
+          fields: {
+            organizationId: { required: true, type: 'string' },
+            userId: { required: true, type: 'string' },
+          },
+          indexes: [
+            { fields: ['userId', 'organizationId'] },
+            { fields: ['organizationId', 'userId'] },
+          ],
+          modelName: 'lookup',
+        },
+      } as any,
+    });
+
+    expect(result.code).toContain(
+      '.index("userId_organizationId", ["userId","organizationId"])'
+    );
+    expect(result.code).toContain(
+      '.index("organizationId_userId", ["organizationId","userId"])'
+    );
+  });
+
   test('adds organization helper fields for kitcn auth schema', async () => {
     const result = await createSchema({
       file: 'auth/schema.ts',
@@ -95,6 +121,31 @@ describe('createSchema', () => {
     expect(result.code).toContain(
       '.index("personalOrganizationId", ["personalOrganizationId"])'
     );
+  });
+
+  test('generates the Better Auth 1.7 account identity contract', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ emailAndPassword: { enabled: true } }),
+    });
+    const account = result.code.split('  account: defineTable({')[1] ?? '';
+
+    expect(account).toContain('issuer: v.string()');
+    expect(account).toContain(
+      '.index("issuer_accountId", ["issuer","accountId"])'
+    );
+  });
+
+  test('indexes Better Auth 1.7 device authorization lookups', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ plugins: [deviceAuthorization({})] }),
+    });
+    const deviceCode =
+      result.code.split('  deviceCode: defineTable({')[1] ?? '';
+
+    expect(deviceCode).toContain('.index("deviceCode", ["deviceCode"])');
+    expect(deviceCode).toContain('.index("userCode", ["userCode"])');
   });
 
   test('indexes the organization plugin composite query shapes', async () => {
@@ -135,6 +186,7 @@ describe('createSchema', () => {
       'teamId',
       'teamId_userId',
       'userId',
+      'membershipKey',
     ]);
     expect(indexesOf('invitation')).toEqual([
       'email',
