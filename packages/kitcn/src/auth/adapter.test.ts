@@ -242,6 +242,87 @@ describe('adapterConfig', () => {
 });
 
 describe('httpAdapter', () => {
+  test('disables Better Auth native joins through the stable option', () => {
+    const options = { advanced: { database: { joins: true } } };
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const adapterFactory = httpAdapter(
+        { runQuery: mock(async () => ({})) } as any,
+        { authFunctions: {} as any }
+      );
+
+      adapterFactory(options as any);
+
+      expect(options.advanced.database.joins).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        '[kitcn] Better Auth advanced.database.joins is not supported by the Convex adapter yet. Forcing advanced.database.joins = false.'
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('delegates Better Auth atomic mutations to Convex mutations', async () => {
+    const authFunctions = {
+      consumeOne: 'consumeOne',
+      incrementOne: 'incrementOne',
+    } as any;
+    const runMutation = mock(async (handle: string) => {
+      return handle === authFunctions.consumeOne
+        ? { _id: 'verification-1', identifier: 'code' }
+        : { _id: 'rate-limit-1', count: 2, key: 'sign-in' };
+    });
+    const adapter = httpAdapter({ runMutation } as any, { authFunctions })({
+      rateLimit: { enabled: true, storage: 'database' },
+    } as any);
+
+    await expect(
+      adapter.consumeOne({
+        model: 'verification',
+        where: [{ field: 'identifier', value: 'code' }],
+      })
+    ).resolves.toMatchObject({ id: 'verification-1' });
+    await expect(
+      adapter.incrementOne({
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [{ field: 'key', value: 'sign-in' }],
+      })
+    ).resolves.toMatchObject({ count: 2, id: 'rate-limit-1' });
+
+    expect(runMutation).toHaveBeenNthCalledWith(1, 'consumeOne', {
+      input: {
+        model: 'verification',
+        where: [
+          {
+            connector: 'AND',
+            field: 'identifier',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'code',
+          },
+        ],
+      },
+    });
+    expect(runMutation).toHaveBeenNthCalledWith(2, 'incrementOne', {
+      input: {
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [
+          {
+            connector: 'AND',
+            field: 'key',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'sign-in',
+          },
+        ],
+      },
+    });
+    expect('set' in runMutation.mock.calls[1][1].input).toBe(false);
+  });
+
   test('createSchema keeps Convex output when schema is non-ORM', async () => {
     const adapterFactory = httpAdapter(
       { runQuery: mock(async () => ({})) } as any,
@@ -826,6 +907,44 @@ describe('dbAdapter', () => {
       store,
     };
   };
+
+  test('incrementOne omits an absent optional set from mutation args', async () => {
+    const { ctx } = createMemoryCtx({});
+    const authFunctions = { incrementOne: 'incrementOne' } as any;
+    ctx.runMutation = mock(async () => ({
+      _id: 'rate-limit-1',
+      count: 2,
+      key: 'sign-in',
+    }));
+    const adapter = dbAdapter(ctx, {
+      authFunctions,
+      getBetterAuthSchema,
+      schema,
+    })({ rateLimit: { enabled: true, storage: 'database' } } as any);
+
+    await adapter.incrementOne({
+      increment: { count: 1 },
+      model: 'rateLimit',
+      where: [{ field: 'key', value: 'sign-in' }],
+    });
+
+    expect(ctx.runMutation).toHaveBeenCalledWith('incrementOne', {
+      input: {
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [
+          {
+            connector: 'AND',
+            field: 'key',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'sign-in',
+          },
+        ],
+      },
+    });
+    expect('set' in ctx.runMutation.mock.calls[0][1].input).toBe(false);
+  });
 
   test('updateMany and deleteMany reject mixed OR and AND where clauses', async () => {
     const { ctx, store } = createMemoryCtx({

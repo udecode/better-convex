@@ -21,7 +21,6 @@ import { unsetToken } from '../orm/unset-token';
 import {
   adapterWhereValidator,
   checkUniqueFields,
-  hasUniqueFields,
   listOne,
   paginate,
   selectFields,
@@ -809,6 +808,57 @@ export const updateOneHandler = async (
   return toConvexSafe(normalizedUpdatedDoc);
 };
 
+export const incrementOneHandler = async (
+  ctx: any,
+  args: {
+    input: {
+      increment: Record<string, number>;
+      model: string;
+      set?: Record<string, unknown>;
+      where?: any[];
+    };
+    tableTriggers?: RuntimeTableTriggers;
+    triggerCtx?: unknown;
+  },
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+  if (!doc) {
+    return null;
+  }
+
+  const normalizedDoc = withBothIdFields(doc) as Record<string, unknown>;
+  const update: Record<string, unknown> = { ...args.input.set };
+  for (const [field, delta] of Object.entries(args.input.increment)) {
+    const current = normalizedDoc[field];
+    if (typeof current !== 'number') {
+      throw new Error(`Cannot increment non-numeric field ${field}`);
+    }
+    update[field] = current + delta;
+  }
+
+  const id = getDocId(normalizedDoc);
+  if (!id) {
+    throw new Error(`Cannot increment ${args.input.model} without an id`);
+  }
+
+  return updateOneHandler(
+    ctx,
+    {
+      input: {
+        model: args.input.model,
+        update,
+        where: [{ field: '_id', operator: 'eq', value: id }],
+      },
+      tableTriggers: args.tableTriggers,
+      triggerCtx: args.triggerCtx,
+    },
+    schema,
+    betterAuthSchema
+  );
+};
+
 export const updateManyHandler = async (
   ctx: any,
   args: {
@@ -838,20 +888,7 @@ export const updateManyHandler = async (
   );
 
   if (args.input.update) {
-    if (
-      hasUniqueFields(
-        betterAuthSchema,
-        args.input.model,
-        args.input.update ?? {}
-      ) &&
-      page.length > 1
-    ) {
-      throw new Error(
-        `Attempted to set unique fields in multiple documents in ${args.input.model} with the same value. Fields: ${Object.keys(args.input.update ?? {}).join(', ')}`
-      );
-    }
-
-    await asyncMap(page, async (doc: any) => {
+    for (const doc of page) {
       const normalizedDoc = withBothIdFields(doc);
       const transformedUpdate = await applyBeforeHook(
         args.input.model,
@@ -909,7 +946,7 @@ export const updateManyHandler = async (
         },
         triggerCtx
       );
-    });
+    }
   }
 
   return toConvexSafe({
@@ -919,16 +956,18 @@ export const updateManyHandler = async (
   });
 };
 
-export const deleteOneHandler = async (
+type DeleteOneArgs = {
+  input: {
+    model: string;
+    where?: any[];
+  };
+  tableTriggers?: RuntimeTableTriggers;
+  triggerCtx?: unknown;
+};
+
+const deleteOneWithStoredDoc = async (
   ctx: any,
-  args: {
-    input: {
-      model: string;
-      where?: any[];
-    };
-    tableTriggers?: RuntimeTableTriggers;
-    triggerCtx?: unknown;
-  },
+  args: DeleteOneArgs,
   schema: Schema,
   betterAuthSchema: any
 ) => {
@@ -978,7 +1017,42 @@ export const deleteOneHandler = async (
     triggerCtx
   );
 
-  return toConvexSafe(withBothIdFields(hookDoc));
+  return {
+    hookDoc: toConvexSafe(withBothIdFields(hookDoc)),
+    storedDoc: toConvexSafe(withBothIdFields(normalizedDoc)),
+  };
+};
+
+export const deleteOneHandler = async (
+  ctx: any,
+  args: DeleteOneArgs,
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  const deleted = await deleteOneWithStoredDoc(
+    ctx,
+    args,
+    schema,
+    betterAuthSchema
+  );
+
+  return deleted?.hookDoc;
+};
+
+export const consumeOneHandler = async (
+  ctx: any,
+  args: DeleteOneArgs,
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  const deleted = await deleteOneWithStoredDoc(
+    ctx,
+    args,
+    schema,
+    betterAuthSchema
+  );
+
+  return deleted?.storedDoc ?? null;
 };
 
 export const deleteManyHandler = async (
@@ -1198,6 +1272,13 @@ export const createApi = <
       )
     : anyInputWithUpdate;
 
+  const incrementInput = v.object({
+    increment: v.record(v.string(), v.number()),
+    model: modelValidator,
+    set: v.optional(v.record(v.string(), v.any())),
+    where: v.optional(v.array(adapterWhereValidator)),
+  });
+
   return {
     count: countQueryBuilder({
       args: {
@@ -1206,6 +1287,24 @@ export const createApi = <
       },
       handler: async (ctx, args) =>
         countHandler(ctx, args, schema, getBetterAuthSchema()),
+    }),
+    consumeOne: mutationBuilder({
+      args: {
+        input: deleteInput,
+      },
+      handler: async (ctx, args) => {
+        const triggerCtx = ctx as TriggerCtx;
+        return consumeOneHandler(
+          ctx,
+          {
+            input: args.input,
+            tableTriggers: resolveTableTriggers(args.input.model, triggerCtx),
+            triggerCtx,
+          },
+          schema,
+          getBetterAuthSchema()
+        );
+      },
     }),
     create: mutationBuilder({
       args: {
@@ -1301,6 +1400,24 @@ export const createApi = <
         };
 
         return auth.api.getLatestJwks();
+      },
+    }),
+    incrementOne: mutationBuilder({
+      args: {
+        input: incrementInput,
+      },
+      handler: async (ctx, args) => {
+        const triggerCtx = ctx as TriggerCtx;
+        return incrementOneHandler(
+          ctx,
+          {
+            input: args.input,
+            tableTriggers: resolveTableTriggers(args.input.model, triggerCtx),
+            triggerCtx,
+          },
+          schema,
+          getBetterAuthSchema()
+        );
       },
     }),
     rotateKeys: internalActionGeneric({

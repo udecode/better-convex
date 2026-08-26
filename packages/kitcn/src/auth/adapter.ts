@@ -4,6 +4,7 @@ import {
   type DBAdapterDebugLogOption,
 } from 'better-auth/adapters';
 import type { BetterAuthDBSchema } from 'better-auth/db';
+import type { BetterAuthOptions } from 'better-auth/minimal';
 import type { Where } from 'better-auth/types';
 import type {
   GenericDataModel,
@@ -19,7 +20,28 @@ import { isRunMutationCtx } from '../server/context-utils';
 import { countHandler, findManyHandler, findOneHandler } from './create-api';
 import type { AuthFunctions } from './create-client';
 
-let didWarnExperimentalJoinsUnsupported = false;
+let didWarnJoinsUnsupported = false;
+
+const disableUnsupportedJoins = (options: BetterAuthOptions) => {
+  if (!options.advanced?.database?.joins) {
+    return;
+  }
+
+  options.advanced = {
+    ...options.advanced,
+    database: {
+      ...options.advanced.database,
+      joins: false,
+    },
+  };
+
+  if (!didWarnJoinsUnsupported) {
+    didWarnJoinsUnsupported = true;
+    console.warn(
+      '[kitcn] Better Auth advanced.database.joins is not supported by the Convex adapter yet. Forcing advanced.database.joins = false.'
+    );
+  }
+};
 
 export const handlePagination = async (
   next: ({
@@ -280,18 +302,7 @@ export const httpAdapter = <
     adapter: ({ options }) => {
       // Disable telemetry in all cases because it requires Node
       options.telemetry = { enabled: false };
-      if (options.experimental?.joins) {
-        options.experimental = {
-          ...options.experimental,
-          joins: false,
-        };
-        if (!didWarnExperimentalJoinsUnsupported) {
-          didWarnExperimentalJoinsUnsupported = true;
-          console.warn(
-            '[kitcn] Better Auth experimental.joins is not supported by the Convex adapter yet. Forcing experimental.joins = false.'
-          );
-        }
-      }
+      disableUnsupportedJoins(options);
 
       const collectIdsForOrWhere = async (data: {
         model: string;
@@ -357,6 +368,18 @@ export const httpAdapter = <
           );
 
           return result.count;
+        },
+        consumeOne: async (data): Promise<any> => {
+          if (!('runMutation' in ctx)) {
+            throw new Error('ctx is not a mutation ctx');
+          }
+
+          return await ctx.runMutation(authFunctions.consumeOne, {
+            input: {
+              model: data.model,
+              where: parseWhere(data.where),
+            },
+          });
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {
@@ -482,6 +505,20 @@ export const httpAdapter = <
             where: parsedWhere,
           });
         },
+        incrementOne: async (data): Promise<any> => {
+          if (!('runMutation' in ctx)) {
+            throw new Error('ctx is not a mutation ctx');
+          }
+          const { set, ...input } = data;
+
+          return await ctx.runMutation(authFunctions.incrementOne, {
+            input: {
+              ...input,
+              ...(set === undefined ? {} : { set }),
+              where: parseWhere(data.where),
+            },
+          });
+        },
         update: async (data): Promise<any> => {
           if (!('runMutation' in ctx)) {
             throw new Error('ctx is not a mutation ctx');
@@ -586,18 +623,7 @@ export const dbAdapter = <
     adapter: ({ options }) => {
       // Disable telemetry in all cases because it requires Node
       options.telemetry = { enabled: false };
-      if (options.experimental?.joins) {
-        options.experimental = {
-          ...options.experimental,
-          joins: false,
-        };
-        if (!didWarnExperimentalJoinsUnsupported) {
-          didWarnExperimentalJoinsUnsupported = true;
-          console.warn(
-            '[kitcn] Better Auth experimental.joins is not supported by the Convex adapter yet. Forcing experimental.joins = false.'
-          );
-        }
-      }
+      disableUnsupportedJoins(options);
 
       const collectIdsForOrWhere = async (data: {
         model: string;
@@ -680,6 +706,18 @@ export const dbAdapter = <
           );
 
           return result.count;
+        },
+        consumeOne: async (data): Promise<any> => {
+          if (!('runMutation' in ctx)) {
+            throw new Error('ctx is not a mutation ctx');
+          }
+
+          return await ctx.runMutation(authFunctions.consumeOne, {
+            input: {
+              model: data.model,
+              where: parseWhere(data.where),
+            },
+          });
         },
         create: async ({ data, model, select }): Promise<any> => {
           if (!('runMutation' in ctx)) {
@@ -822,6 +860,20 @@ export const dbAdapter = <
             schema,
             betterAuthSchema
           );
+        },
+        incrementOne: async (data): Promise<any> => {
+          if (!('runMutation' in ctx)) {
+            throw new Error('ctx is not a mutation ctx');
+          }
+          const { set, ...input } = data;
+
+          return await ctx.runMutation(authFunctions.incrementOne, {
+            input: {
+              ...input,
+              ...(set === undefined ? {} : { set }),
+              where: parseWhere(data.where),
+            },
+          });
         },
         update: async (data): Promise<any> => {
           if (!data.where?.length) {

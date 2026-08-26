@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import {
   BASELINE_DEPENDENCY_INSTALL_SPECS,
+  BETTER_AUTH_EXPO_INSTALL_SPEC,
   BETTER_AUTH_INSTALL_SPEC,
   getPackageNameFromInstallSpec,
   KITCN_INSTALL_SPEC_ENV,
@@ -45,6 +46,13 @@ describe('cli/supported-dependencies', () => {
     expect(BETTER_AUTH_INSTALL_SPEC).toBe(
       `better-auth@${SUPPORTED_DEPENDENCY_VERSIONS.betterAuth.exact}`
     );
+    expect(BETTER_AUTH_EXPO_INSTALL_SPEC).toBe(
+      `@better-auth/expo@${SUPPORTED_DEPENDENCY_VERSIONS.betterAuth.exact}`
+    );
+    expect(SUPPORTED_DEPENDENCY_VERSIONS.betterAuth).toEqual({
+      exact: '1.7.1',
+      peer: '>=1.7.0 <1.8.0',
+    });
     expect(OPENTELEMETRY_API_INSTALL_SPEC).toBe(
       `@opentelemetry/api@${SUPPORTED_DEPENDENCY_VERSIONS.opentelemetryApi.exact}`
     );

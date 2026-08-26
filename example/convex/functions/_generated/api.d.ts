@@ -128,7 +128,7 @@ export declare const api: {
   };
   migrationDemo: {
     cancel: FunctionReference<"mutation", "public", {}, any>;
-    getStatus: FunctionReference<"mutation", "public", {}, any>;
+    getStatus: FunctionReference<"query", "public", {}, any>;
     runDown: FunctionReference<
       "mutation",
       "public",
@@ -918,12 +918,7 @@ export declare const internal: {
         any,
         any
       >;
-      aggregateBackfillStatus: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
+      aggregateBackfillStatus: FunctionReference<"query", "internal", any, any>;
     };
     auth: {
       count: FunctionReference<
@@ -1093,7 +1088,7 @@ export declare const internal: {
       migrationCancel: FunctionReference<"mutation", "internal", any, any>;
       migrationRun: FunctionReference<"mutation", "internal", any, any>;
       migrationRunChunk: FunctionReference<"mutation", "internal", any, any>;
-      migrationStatus: FunctionReference<"mutation", "internal", any, any>;
+      migrationStatus: FunctionReference<"query", "internal", any, any>;
       reset: FunctionReference<"action", "internal", any, any>;
       resetChunk: FunctionReference<
         "mutation",

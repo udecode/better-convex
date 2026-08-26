@@ -14,11 +14,13 @@ import type { GenericAuthTriggers } from './define-auth';
 
 export type AuthFunctions = {
   count: FunctionReference<'query', 'internal', Record<string, any>>;
+  consumeOne: FunctionReference<'mutation', 'internal', Record<string, any>>;
   create: FunctionReference<'mutation', 'internal', Record<string, any>>;
   deleteMany: FunctionReference<'mutation', 'internal', Record<string, any>>;
   deleteOne: FunctionReference<'mutation', 'internal', Record<string, any>>;
   findMany: FunctionReference<'query', 'internal', Record<string, any>>;
   findOne: FunctionReference<'query', 'internal', Record<string, any>>;
+  incrementOne: FunctionReference<'mutation', 'internal', Record<string, any>>;
   updateMany: FunctionReference<'mutation', 'internal', Record<string, any>>;
   updateOne: FunctionReference<'mutation', 'internal', Record<string, any>>;
 };

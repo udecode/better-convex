@@ -1,15 +1,18 @@
 import type { GenericDatabaseWriter } from 'convex/server';
+import { convexToJson, jsonToConvex, type Value } from 'convex/values';
 import type { ColumnBuilder } from './builders/column-builder';
 import { convexAnd } from './convex-filter-compiler';
 import type { FilterExpression } from './filter-expression';
 import { findIndexForColumns, getIndexes } from './index-utils';
 import {
   applyDefaults,
+  createForeignKeyProbeMemo,
   enforceCheckConstraints,
   enforceForeignKeys,
   enforcePolymorphicWrite,
   enforceUniqueIndexes,
   evaluateFilter,
+  type ForeignKeyProbeMemo,
   getColumnName,
   getOrmContext,
   getTableColumns,
@@ -17,11 +20,15 @@ import {
   getUniqueIndexes,
   hydrateDateFieldsForRead,
   normalizeDateFieldsForWrite,
+  returningSelectionReadsCreationTime,
   selectReturningRowWithHydration,
   splitReturningSelection,
+  stripUnsetFields,
+  unsetFieldsOf,
 } from './mutation-utils';
 import { QueryPromise } from './query-promise';
 import {
+  countedEdgesReadCreationTime,
   createReturningCountLoader,
   type ReturningCountLoader,
 } from './returning-count';
@@ -29,6 +36,7 @@ import {
   canInsertRow,
   createRlsPolicyResolutionCache,
   evaluateUpdateDecision,
+  isRlsEnabled,
   type RlsPolicyResolutionCache,
 } from './rls/evaluator';
 import type { ConvexTable } from './table';
@@ -40,6 +48,7 @@ import type {
   UpdateSet,
 } from './types';
 import { isUnsetToken } from './unset-token';
+import { hasLifecycleHooks } from './write-fanout';
 
 export type InsertOnConflictDoNothingConfig<_TTable extends ConvexTable<any>> =
   {
@@ -63,6 +72,16 @@ type InsertConflictConfig<TTable extends ConvexTable<any>> =
       action: 'update';
       config: InsertOnConflictDoUpdateConfig<TTable>;
     };
+
+// Match Convex write serialization: omit undefined object fields and detach
+// nested values from the caller-owned payload.
+const canonicalizeStoredRow = (
+  row: Record<string, unknown>
+): Record<string, unknown> =>
+  jsonToConvex(convexToJson(row as unknown as Value)) as Record<
+    string,
+    unknown
+  >;
 
 export type ConvexInsertWithout<
   T extends ConvexInsertBuilder<any, any>,
@@ -167,12 +186,59 @@ export class ConvexInsertBuilder<
     }
 
     const ormContext = getOrmContext(this.db);
+    const tableName = getTableName(this.table);
     const returningSelection =
       this.returningFields && this.returningFields !== true
         ? splitReturningSelection(
             this.returningFields as Record<string, unknown>
           )
         : undefined;
+    const statementTableName = getTableName(this.table);
+    // This loop writes nothing but `statementTableName` — an insert, and a
+    // conflict patch that cannot change an `_id` — so a parent proven present
+    // for row 1 is still present for row N. A lifecycle hook on that table
+    // breaks the argument: it runs arbitrary user code between rows and can
+    // delete the parent, which is exactly what update() guards against too.
+    //
+    // Statement-scoped on purpose. A per-transaction memo would survive an
+    // intervening `delete()` and let the next statement write a dangling key.
+    const probedForeignIds: ForeignKeyProbeMemo | undefined = hasLifecycleHooks(
+      this.db,
+      statementTableName
+    )
+      ? undefined
+      : createForeignKeyProbeMemo();
+    // The document `db.insert` stores is the payload we hand it plus an `_id`
+    // it hands back, so re-reading it buys nothing. Nothing in this loop can
+    // touch a row it already wrote either: the four `enforce*` helpers only
+    // read, and insert runs no cascades.
+    //
+    // What the derived row cannot have is `_creationTime` — Convex's insert
+    // syscall returns the id and nothing else. So it may only be handed to
+    // consumers that provably never read it:
+    //
+    // - the projection, which names its columns up front. Argument-less
+    //   `returning()` names all of them, `_creationTime` included.
+    // - the `_count` loader, which reads each counted edge's source fields off
+    //   the row, and — on an RLS table — evaluates a user-authored select
+    //   policy against it. Edge sources are inspectable; a policy expression is
+    //   not, so RLS plus `_count` keeps the read.
+    //
+    // Lifecycle hooks are the separate case: `create.before` rewrites the
+    // payload, and `create.after`/`change` run with a writer before
+    // `db.insert` resolves, so the stored row is not the payload at all.
+    const countSelection = returningSelection?.countSelection;
+    const derivedRowSatisfiesCount =
+      countSelection === undefined ||
+      (!countedEdgesReadCreationTime(ormContext?.edgeMetadata, tableName) &&
+        !isRlsEnabled(this.table));
+    const canDerivePostImage =
+      returningSelection !== undefined &&
+      !hasLifecycleHooks(this.db, tableName) &&
+      !returningSelectionReadsCreationTime(
+        returningSelection.columnSelection
+      ) &&
+      derivedRowSatisfiesCount;
     const results: Record<string, unknown>[] = [];
     for (const value of this.valuesList) {
       const preparedValue = normalizeDateFieldsForWrite(
@@ -181,7 +247,6 @@ export class ConvexInsertBuilder<
       );
       enforcePolymorphicWrite(this.table, preparedValue as any);
       const rls = ormContext?.rls;
-      const tableName = getTableName(this.table);
       // Each iteration can write before the next policy check. Keep one cache
       // across this row's insert/conflict decision, never across rows.
       const rlsResolution = createRlsPolicyResolutionCache();
@@ -201,7 +266,8 @@ export class ConvexInsertBuilder<
 
       const conflictResult = await this.handleConflict(
         preparedValue,
-        rlsResolution
+        rlsResolution,
+        probedForeignIds
       );
 
       if (conflictResult?.status === 'skip') {
@@ -224,6 +290,7 @@ export class ConvexInsertBuilder<
       enforceCheckConstraints(this.table, preparedValue as any);
       await enforceForeignKeys(this.db, this.table, preparedValue as any, {
         changedFields: new Set(Object.keys(preparedValue as any)),
+        probed: probedForeignIds,
       });
       await enforceUniqueIndexes(this.db, this.table, preparedValue as any, {
         changedFields: new Set(Object.keys(preparedValue as any)),
@@ -234,7 +301,9 @@ export class ConvexInsertBuilder<
         continue;
       }
 
-      const inserted = await this.db.get(id as any);
+      const inserted = canDerivePostImage
+        ? canonicalizeStoredRow({ ...(preparedValue as any), _id: id })
+        : ((await this.db.get(id as any)) as Record<string, unknown> | null);
       if (inserted) {
         results.push(
           await this.resolveReturningRow(
@@ -280,7 +349,8 @@ export class ConvexInsertBuilder<
 
   private async handleConflict(
     value: InsertValue<TTable>,
-    rlsResolution: RlsPolicyResolutionCache
+    rlsResolution: RlsPolicyResolutionCache,
+    probedForeignIds: ForeignKeyProbeMemo | undefined
   ): Promise<
     | {
         status: 'skip';
@@ -412,6 +482,7 @@ export class ConvexInsertBuilder<
       })(),
       {
         changedFields: new Set(Object.keys(writeSet as any)),
+        probed: probedForeignIds,
       }
     );
     await enforceUniqueIndexes(
@@ -424,8 +495,22 @@ export class ConvexInsertBuilder<
       }
     );
     await this.db.patch(tableName, (existing as any)._id, writeSet as any);
+    // Same reasoning as `update()`: the patch wrote exactly `writeSet` over a
+    // document already in hand, so the post-image is derivable. `existing` is a
+    // stored document, so `_creationTime` is present and argument-less
+    // `returning()` works here too. Only lifecycle hooks can invalidate it —
+    // `update.before` rewrites the payload and `update.after`/`change` run
+    // before `db.patch` resolves. `insert()` runs no cascades, so `update()`'s
+    // self-referencing-cascade term has no counterpart here.
     const updated = this.returningFields
-      ? await this.db.get((existing as any)._id)
+      ? hasLifecycleHooks(this.db, tableName)
+        ? await this.db.get((existing as any)._id)
+        : canonicalizeStoredRow(
+            stripUnsetFields(
+              { ...(existing as any), ...(writeSet as any) },
+              unsetFieldsOf(writeSet as any)
+            )
+          )
       : null;
 
     return { status: 'updated', row: updated };
