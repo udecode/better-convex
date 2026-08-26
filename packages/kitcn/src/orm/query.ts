@@ -71,6 +71,7 @@ import {
   findSearchIndexByName,
   findVectorIndexByName,
   getIndexes,
+  type OrderSpec,
   resolveIndexOrderPushdown,
 } from './index-utils';
 import {
@@ -128,6 +129,7 @@ import type {
 } from './types';
 import {
   type IndexStrategy,
+  MAX_INDEX_UNION_PROBES,
   WhereClauseCompiler,
 } from './where-clause-compiler';
 
@@ -163,6 +165,30 @@ const RELATION_COUNT_ERROR = {
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
 const RELATION_DEPTH_ERROR = 'RELATION_DEPTH_EXCEEDED';
+/**
+ * Whether a compiled column validator admits an absent or null value.
+ *
+ * `v.optional(...)` is how a non-`.notNull()` column is emitted, and absent is
+ * a legal stored value for every document written before the column existed, so
+ * both halves matter. Unrecognized shapes answer true: the only caller uses
+ * this to decide whether it may skip a sort, and guessing "never null" there
+ * silently reorders rows.
+ */
+const validatorAcceptsMissingOrNull = (validator: any): boolean => {
+  if (!validator) {
+    return true;
+  }
+  if (validator.isOptional === 'optional') {
+    return true;
+  }
+  if (validator.kind === 'null' || validator.kind === 'any') {
+    return true;
+  }
+  if (validator.kind === 'union') {
+    return (validator.members ?? []).some(validatorAcceptsMissingOrNull);
+  }
+  return false;
+};
 /**
  * How many levels of `with` the relation loader will follow. A `with` config is
  * a finite object the caller wrote, so its own nesting is the real bound; this
@@ -555,6 +581,29 @@ const countConfiguredIndexEqPrefix = (
 };
 
 /**
+ * The read `_toConvexQuery` compiled, in full.
+ *
+ * Every site that turns a plan into a read takes this whole shape rather than a
+ * narrowed view of it. A narrowed parameter type is how `probeFilters` came to
+ * be silently dropped at each stream site: the plan carried an index union and
+ * the builder's signature could not even name it, so `if (queryConfig.index)`
+ * walked the index with no range at all.
+ */
+type CompiledQueryPlan = {
+  table: string;
+  strategy: IndexStrategy;
+  index?: {
+    name: string;
+    fields: string[];
+    filters: FilterExpression<boolean>[];
+  };
+  /** One index range per probe for `in`/`ne`/`notIn`/same-field `OR` plans. */
+  probeFilters: FilterExpression<boolean>[][];
+  postFilters: FilterExpression<boolean>[];
+  order?: OrderSpec[];
+};
+
+/**
  * Relational query builder with promise-based execution
  *
  * @template TResult - The final result type after execution
@@ -603,6 +652,25 @@ export class GelRelationalQuery<
    * hands it to the next run rather than re-probing.
    */
   private _aggregateIndexReadinessByKey = new Map<string, Promise<void>>();
+  /**
+   * Documents resolved by id during one execution, keyed on the normalized id.
+   *
+   * A relation `where` never compiles into the index plan, so it runs as a
+   * post-fetch membership predicate over a residual stream — one row at a time.
+   * Every de-duplication map inside the relation loaders is scoped to the batch
+   * it is handed, and a batch of one makes all of them no-ops, so a page whose
+   * rows share two parents re-read those two documents once per scanned row.
+   *
+   * Scoped to one execution, like `_rlsPolicyResolution`: `_executionClaimed`
+   * diverts later executions to a fresh instance, and an execution reads
+   * without writing, so a hit is always the document the caller would have read
+   * for itself. It must not be handed to the next run by `_forExecution` — an
+   * intervening write would make it stale.
+   */
+  private readonly _documentByNormalizedId = new Map<
+    string,
+    Promise<any | null>
+  >();
 
   constructor(
     private schema: TSchema,
@@ -632,6 +700,63 @@ export class GelRelationalQuery<
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
     this._countIndexReadinessByKey = countIndexReadiness ?? new Map();
+  }
+
+  /**
+   * Relation counts for a document the caller is already holding.
+   *
+   * `returning({ _count })` runs inside the mutation that just wrote the row,
+   * so resolving it through `execute()` spends one `db.get` re-reading a
+   * document that is already in the transaction's write set. The count engine
+   * only ever reads the counted edges' source fields off its parent, and the
+   * caller's document carries all of them, so the root read is pure waste.
+   * Everything else `execute()` would have done to that row — the select-plan
+   * assertion and the RLS select filter — still runs here.
+   *
+   * Reached through the static accessor below rather than exposed on the instance:
+   * `GelRelationalQuery` is the declared return type of the public query
+   * builders, so an instance method would land in every user's autocomplete.
+   */
+  private async _countRelationsForHeldRow(
+    row: Record<string, unknown>,
+    countSelection: Record<string, unknown>
+  ): Promise<Record<string, number>> {
+    this._assertRlsSelectPlan(
+      { _count: countSelection },
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
+
+    // `_loadRelationCounts` stamps `_count` onto the rows it is handed, and the
+    // caller's document goes on to be patched, cascaded or soft-deleted. Count
+    // against a copy so nothing of ours reaches the write path.
+    const carrier: Record<string, unknown> = { ...row };
+    const visible = await this._applyRlsSelectFilter(
+      [carrier],
+      this.tableConfig
+    );
+    if (visible.length === 0) {
+      return {};
+    }
+
+    await this._loadRelationCounts(
+      visible,
+      countSelection,
+      this.edgeMetadata,
+      this.tableConfig
+    );
+    return (carrier._count ?? {}) as Record<string, number>;
+  }
+
+  /** @internal Accessor for `returning({ _count })`; see `returning-count.ts`. */
+  static countRelationsForHeldRow(
+    query: GelRelationalQuery<any, any, any>,
+    row: Record<string, unknown>,
+    countSelection: Record<string, unknown>
+  ): Promise<Record<string, number>> {
+    return query._countRelationsForHeldRow(row, countSelection);
   }
 
   /**
@@ -847,7 +972,15 @@ export class GelRelationalQuery<
       | Record<string, 'asc' | 'desc' | undefined>
       | undefined,
     tableConfig: TableRelationalConfig = this.tableConfig
-  ): { field: string; direction: 'asc' | 'desc' }[] {
+  ): OrderSpec[] {
+    const withNullability = (spec: {
+      field: string;
+      direction: 'asc' | 'desc';
+    }): OrderSpec => ({
+      ...spec,
+      nullable: this._isNullableOrderField(spec.field, tableConfig),
+    });
+
     if (
       orderBy &&
       typeof orderBy === 'object' &&
@@ -868,18 +1001,44 @@ export class GelRelationalQuery<
             direction: 'asc' | 'desc';
           } => entry.direction === 'asc' || entry.direction === 'desc'
         )
-        .map((entry) => ({
-          field: entry.field,
-          direction: entry.direction,
-        }));
+        .map((entry) =>
+          withNullability({ field: entry.field, direction: entry.direction })
+        );
     }
 
     return this._normalizeOrderBy(
       orderBy as ValueOrArray<OrderByValue> | undefined
-    ).map((clause) => ({
-      field: clause.column.columnName,
-      direction: clause.direction,
-    }));
+    ).map((clause) =>
+      withNullability({
+        field: clause.column.columnName,
+        direction: clause.direction,
+      })
+    );
+  }
+
+  /**
+   * Whether rows can be missing this sort column or hold null in it.
+   *
+   * Only the declared validator can answer: a column that is not `.notNull()`
+   * compiles to `v.optional(v.union(v.null(), T))`, so both absent and null are
+   * legal stored values — and `timestamp().notNull().defaultNow()` on
+   * `createdAt` is deliberately emitted as optional for migration safety, so
+   * reading `config.notNull` alone would answer wrong for it. Anything the
+   * lookup cannot resolve counts as nullable, which only costs a pushdown.
+   */
+  private _isNullableOrderField(
+    field: string,
+    tableConfig: TableRelationalConfig
+  ): boolean {
+    if (field === INTERNAL_ID_FIELD || field === INTERNAL_CREATION_TIME_FIELD) {
+      return false;
+    }
+    try {
+      const builder = this._getColumns(tableConfig)[field] as any;
+      return validatorAcceptsMissingOrNull(builder?.build?.());
+    } catch {
+      return true;
+    }
   }
 
   private _resolveNonPaginatedLimit(config: any): number | undefined {
@@ -923,11 +1082,9 @@ export class GelRelationalQuery<
         return -1;
       }
 
-      if (aVal < bVal) {
-        return order.direction === 'asc' ? -1 : 1;
-      }
-      if (aVal > bVal) {
-        return order.direction === 'asc' ? 1 : -1;
+      const comparison = compareValues(aVal, bVal);
+      if (comparison !== 0) {
+        return order.direction === 'asc' ? comparison : -comparison;
       }
     }
     return 0;
@@ -2756,7 +2913,7 @@ export class GelRelationalQuery<
     order: 'asc' | 'desc';
     queryConfig: {
       index?: { name: string; filters: FilterExpression<boolean>[] };
-      order?: { direction: 'asc' | 'desc'; field: string }[];
+      order?: OrderSpec[];
     };
     wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined;
   }): Promise<QueryStream<any> | null> {
@@ -2841,25 +2998,128 @@ export class GelRelationalQuery<
     );
   }
 
-  private _buildBasePipelineStream(
-    queryConfig: {
-      index?: { name: string; filters: FilterExpression<boolean>[] };
-      postFilters: FilterExpression<boolean>[];
-      order?: { direction: 'asc' | 'desc'; field: string }[];
-    },
-    wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined,
-    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
-  ): QueryStream<any> {
-    const schemaDefinition = this._getSchemaDefinitionOrThrow();
+  /**
+   * The compiled index union, as one ordered stream.
+   *
+   * Each probe is its own index range, so the union is only usable where the
+   * merged order is the order the read has to produce. `mergedStream` orders by
+   * a *suffix* of the index key, and a suffix may only drop key components the
+   * probes all pin to a single value — so the requested field has to sit inside
+   * the pinned run or immediately after it. Returns null when it does not, and
+   * the caller falls back to the plan's plain index range or a bounded scan.
+   */
+  private _buildProbeUnionStream(params: {
+    schemaDefinition: unknown;
+    indexName: string;
+    probeFilters: FilterExpression<boolean>[][];
+    order: 'asc' | 'desc';
+    /**
+     * Field the merged stream must be ordered by. Callers pass the requested
+     * `orderBy` field, or the index's own leading field when the read has no
+     * `orderBy` and therefore inherits the scanned index's order.
+     */
+    orderField: string;
+  }): QueryStream<any> | null {
+    const { probeFilters } = params;
+    // A merged stream registers every probe query up front and holds them open
+    // for the life of the read, so a wide fan-out is worse here than the single
+    // scan it would replace.
+    if (
+      probeFilters.length === 0 ||
+      probeFilters.length > MAX_INDEX_UNION_PROBES
+    ) {
+      return null;
+    }
+
+    const streamIndexFields = getIndexFields(
+      this.tableConfig.name as any,
+      params.indexName as any,
+      params.schemaDefinition as any
+    );
+    const pinned = this._indexEqPrefixCount({ probeFilters });
+    let mergeOffset = -1;
+    for (let i = 0; i <= pinned && i < streamIndexFields.length; i += 1) {
+      if (streamIndexFields[i] === params.orderField) {
+        mergeOffset = i;
+        break;
+      }
+    }
+    if (mergeOffset === -1) {
+      return null;
+    }
+
+    const probeStreams = probeFilters.map((filters) =>
+      stream(
+        this.db as GenericDatabaseReader<any>,
+        params.schemaDefinition as any
+      )
+        .query(this.tableConfig.name as any)
+        .withIndex(params.indexName as any, (q: any) => {
+          let indexQuery = q;
+          for (const filter of filters) {
+            indexQuery = this._applyFilterToQuery(indexQuery, filter);
+          }
+          return indexQuery;
+        })
+        .order(params.order)
+    );
+
+    return mergedStream(
+      probeStreams as QueryStream<any>[],
+      streamIndexFields.slice(mergeOffset)
+    );
+  }
+
+  /**
+   * The read the compiled plan describes, as a stream, with nothing filtered
+   * yet.
+   *
+   * Precedence: the compiled index union, then the compiled index range, then
+   * the caller's pinned `.withIndex(...)`, then an index that supplies the
+   * requested order, then a full scan. The first two rungs can only ever refine
+   * what the caller pinned — `_toConvexQuery` discards a compiled plan that
+   * would displace a caller's index or its bounds before it gets here.
+   *
+   * `probeUnion` tells the caller the read is bounded by index ranges rather
+   * than by scan length, which is what makes a scan budget unnecessary. A
+   * rejected union stays unanchored; its original predicate remains in
+   * `queryConfig.postFilters` for the caller to apply while pulling the scan.
+   */
+  private _buildPlanStream(params: {
+    queryConfig: CompiledQueryPlan;
+    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
+    order: 'asc' | 'desc';
+    primaryOrder?: { direction: 'asc' | 'desc'; field: string };
+    /** Index to walk for the requested order when the plan pins none. */
+    orderIndexName?: string | null;
+    schemaDefinition: unknown;
+  }): { stream: QueryStream<any>; probeUnion: boolean } {
+    const { queryConfig, configuredIndex, order, primaryOrder } = params;
+    const probeIndex =
+      queryConfig.probeFilters.length > 0 ? queryConfig.index : undefined;
+    const hasProbeUnionPlan = !!probeIndex;
+
+    if (hasProbeUnionPlan) {
+      const probeUnion = this._buildProbeUnionStream({
+        schemaDefinition: params.schemaDefinition,
+        indexName: probeIndex.name,
+        probeFilters: queryConfig.probeFilters,
+        order,
+        // Without an `orderBy` the read inherits the order of whatever index it
+        // walks, which for this plan is the union's own index.
+        orderField: primaryOrder?.field ?? probeIndex.fields[0],
+      });
+      if (probeUnion) {
+        return { stream: probeUnion, probeUnion: true };
+      }
+    }
+
     let streamQuery: any = stream(
       this.db as GenericDatabaseReader<any>,
-      schemaDefinition
+      params.schemaDefinition as any
     ).query(this.tableConfig.name as any);
 
-    const primaryOrder = queryConfig.order?.[0];
-    const primaryOrderDirection = primaryOrder?.direction ?? 'asc';
-
-    if (queryConfig.index) {
+    if (queryConfig.index && !hasProbeUnionPlan) {
       streamQuery = streamQuery.withIndex(
         queryConfig.index.name as any,
         (q: any) => {
@@ -2870,25 +3130,42 @@ export class GelRelationalQuery<
           return indexQuery;
         }
       );
-    } else if (configuredIndex?.name) {
+    } else if (!hasProbeUnionPlan && configuredIndex?.name) {
       streamQuery = streamQuery.withIndex(
         configuredIndex.name as any,
         configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
       );
-    } else if (
-      primaryOrder &&
-      primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD
-    ) {
-      const orderIndex = this._findStreamOrderIndex(primaryOrder.field);
-      if (orderIndex) {
-        streamQuery = streamQuery.withIndex(
-          orderIndex.name as any,
-          (q: any) => q
-        );
-      }
+    } else if (!hasProbeUnionPlan && params.orderIndexName) {
+      streamQuery = streamQuery.withIndex(
+        params.orderIndexName as any,
+        (q: any) => q
+      );
     }
 
-    streamQuery = streamQuery.order(primaryOrderDirection);
+    return { stream: streamQuery.order(order), probeUnion: false };
+  }
+
+  private _buildBasePipelineStream(
+    queryConfig: CompiledQueryPlan,
+    wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined,
+    configuredIndex: PredicateWhereIndexConfig<TTableConfig> | undefined,
+    fallbackOrder: 'asc' | 'desc'
+  ): { stream: QueryStream<any>; probeUnion: boolean } {
+    const schemaDefinition = this._getSchemaDefinitionOrThrow();
+    const primaryOrder = queryConfig.order?.[0];
+
+    const planStream = this._buildPlanStream({
+      queryConfig,
+      configuredIndex,
+      order: primaryOrder?.direction ?? fallbackOrder,
+      primaryOrder,
+      orderIndexName:
+        primaryOrder && primaryOrder.field !== INTERNAL_CREATION_TIME_FIELD
+          ? (this._findStreamOrderIndex(primaryOrder.field)?.name ?? null)
+          : null,
+      schemaDefinition,
+    });
+    let streamQuery: any = planStream.stream;
 
     if (queryConfig.postFilters.length > 0 || wherePredicate) {
       streamQuery = streamQuery.filterWith(async (row: any) => {
@@ -2904,7 +3181,7 @@ export class GelRelationalQuery<
       });
     }
 
-    return streamQuery;
+    return { stream: streamQuery, probeUnion: planStream.probeUnion };
   }
 
   /**
@@ -2921,14 +3198,17 @@ export class GelRelationalQuery<
    * the caller then falls back to its plain-query path.
    */
   private _buildResidualFilterStream(params: {
-    queryConfig: {
-      index?: { name: string; filters: FilterExpression<boolean>[] };
-      postFilters: FilterExpression<boolean>[];
-    };
+    queryConfig: CompiledQueryPlan;
     configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
     membershipFilter?: (row: any) => boolean | Promise<boolean>;
     orderIndexName: string | null;
     primaryOrder?: { direction: 'asc' | 'desc'; field: string };
+    /**
+     * Direction the mirrored index can be walked in to produce the whole sort,
+     * when the caller resolved one. It can differ from `primaryOrder.direction`
+     * once an eq-pinned field leads the sort, and it is the correct one then.
+     */
+    pushdownDirection?: 'asc' | 'desc' | null;
     /** Direction to use when the query has no orderBy at all. */
     fallbackOrder: 'asc' | 'desc';
   }): QueryStream<any> | null {
@@ -2943,41 +3223,24 @@ export class GelRelationalQuery<
       membershipFilter,
       orderIndexName,
       primaryOrder,
+      pushdownDirection,
       fallbackOrder,
     } = params;
-
-    let streamQuery: any = stream(
-      this.db as GenericDatabaseReader<any>,
-      schemaDefinition
-    ).query(this.tableConfig.name as any);
-
-    if (queryConfig.index) {
-      streamQuery = streamQuery.withIndex(
-        queryConfig.index.name as any,
-        (q: any) => {
-          let indexQuery = q;
-          for (const filter of queryConfig.index!.filters) {
-            indexQuery = this._applyFilterToQuery(indexQuery, filter);
-          }
-          return indexQuery;
-        }
-      );
-    } else if (configuredIndex?.name) {
-      streamQuery = streamQuery.withIndex(
-        configuredIndex.name as any,
-        configuredIndex.range ? (configuredIndex.range as any) : (q: any) => q
-      );
-    } else if (orderIndexName) {
-      streamQuery = streamQuery.withIndex(orderIndexName as any, (q: any) => q);
-    }
 
     // Streams always need an explicit direction. The plain query leaves the
     // Convex default (ascending) when there is no orderBy in the non-paginated
     // path, and explicitly orders 'desc' in the cursor path, so the caller
     // supplies which of the two applies.
-    streamQuery = streamQuery.order(
-      primaryOrder ? primaryOrder.direction : fallbackOrder
-    );
+    let streamQuery: any = this._buildPlanStream({
+      queryConfig,
+      configuredIndex,
+      order:
+        pushdownDirection ??
+        (primaryOrder ? primaryOrder.direction : fallbackOrder),
+      primaryOrder,
+      orderIndexName,
+      schemaDefinition,
+    }).stream;
 
     streamQuery = streamQuery.filterWith(async (row: any) => {
       for (const filter of queryConfig.postFilters) {
@@ -5866,7 +6129,9 @@ export class GelRelationalQuery<
 
     if (useAdvancedStreamPath) {
       const primaryOrder = queryConfig.order?.[0];
-      const fallbackOrder = primaryOrder?.direction ?? 'asc';
+      const fallbackOrder =
+        primaryOrder?.direction ??
+        (endCursor !== undefined && !pipeline ? 'desc' : 'asc');
       let streamQuery: QueryStream<any>;
 
       const unionSources = pipeline?.union ?? [];
@@ -5918,19 +6183,39 @@ export class GelRelationalQuery<
             );
           }
         }
-        streamQuery =
-          (await this._buildIdLookupStream({
+        const idLookupStream = await this._buildIdLookupStream({
+          configuredIndex,
+          idLookup,
+          order: fallbackOrder,
+          queryConfig,
+          wherePredicate,
+        });
+        if (idLookupStream) {
+          streamQuery = idLookupStream;
+        } else {
+          const baseStream = this._buildBasePipelineStream(
+            queryConfig,
+            wherePredicate,
             configuredIndex,
-            idLookup,
-            order: fallbackOrder,
-            queryConfig,
-            wherePredicate,
-          })) ??
-          this._buildBasePipelineStream(
-            queryConfig,
-            wherePredicate,
-            configuredIndex
+            fallbackOrder
           );
+          const rejectedProbeUnion =
+            isCursorPaginated &&
+            queryConfig.strategy === 'multiProbe' &&
+            !!queryConfig.index &&
+            !baseStream.probeUnion;
+          if (rejectedProbeUnion && maxScan === undefined) {
+            if (strict) {
+              throw new Error(
+                'Pagination with multi-probe index-union filters requires maxScan when strict=true. Add maxScan, order by a field the union can serve, or make the query indexable.'
+              );
+            }
+            console.warn(
+              'Pagination with multi-probe index-union filters is running without maxScan because strict: false.'
+            );
+          }
+          streamQuery = baseStream.stream;
+        }
       }
 
       const rootRlsEnabled = isRlsEnabled(this.tableConfig.table as any);
@@ -6227,6 +6512,45 @@ export class GelRelationalQuery<
     const primaryOrder = postFetchOrders[0];
     const hasSecondaryOrders = postFetchOrders.length > 1;
     let orderIndexName: string | null = null;
+    /**
+     * Direction the scanned index can be walked in to produce the *whole*
+     * requested sort, or null when some of it still has to run in JavaScript.
+     * This is the read bound: a non-null answer means `take(limit)` is the
+     * exact page.
+     */
+    let orderPushdownDirection: 'asc' | 'desc' | null = null;
+
+    /**
+     * Ask the one owner both questions an index has to answer.
+     *
+     * `whole` decides the read bound. `primary` is narrower and only feeds the
+     * cursor-pagination diagnostics, which are about the leading sort field
+     * having an index at all — an index that anchors the primary but not the
+     * tie-break is still the right index to scan, and must not start reporting
+     * itself as unindexed.
+     */
+    const resolveOrderForIndex = (
+      indexFields: readonly string[] | null | undefined,
+      pinnedEqCount: number
+    ) => {
+      const whole = resolveIndexOrderPushdown({
+        indexFields,
+        pinnedEqCount,
+        orderSpecs: postFetchOrders,
+      });
+      return {
+        whole,
+        primary:
+          whole ??
+          (primaryOrder
+            ? resolveIndexOrderPushdown({
+                indexFields,
+                pinnedEqCount,
+                orderSpecs: [primaryOrder],
+              })
+            : null),
+      };
+    };
 
     // Apply index if selected for WHERE filtering
     if (queryConfig.index) {
@@ -6240,15 +6564,15 @@ export class GelRelationalQuery<
         return indexQuery;
       });
 
-      // Check if orderBy field matches WHERE index
+      // Check if orderBy matches WHERE index
       if (primaryOrder) {
-        const pushdownDirection = resolveIndexOrderPushdown({
-          indexFields: indexConfig.fields,
-          pinnedEqCount: this._indexEqPrefixCount(queryConfig),
-          orderSpecs: [primaryOrder],
-        });
-        if (pushdownDirection) {
-          query = query.order(pushdownDirection);
+        const resolved = resolveOrderForIndex(
+          indexConfig.fields,
+          this._indexEqPrefixCount(queryConfig)
+        );
+        orderPushdownDirection = resolved.whole;
+        if (resolved.primary) {
+          query = query.order(resolved.primary);
         } else {
           // Different field - need post-fetch sort
           needsPostFetchSortForPrimary = true;
@@ -6269,16 +6593,13 @@ export class GelRelationalQuery<
       );
 
       if (primaryOrder) {
-        const pushdownDirection = resolveIndexOrderPushdown({
-          indexFields: configuredIndexFields,
-          pinnedEqCount: countConfiguredIndexEqPrefix(
-            configuredIndexFields,
-            rangeOperations
-          ),
-          orderSpecs: [primaryOrder],
-        });
-        if (pushdownDirection) {
-          query = query.order(pushdownDirection);
+        const resolved = resolveOrderForIndex(
+          configuredIndexFields,
+          countConfiguredIndexEqPrefix(configuredIndexFields, rangeOperations)
+        );
+        orderPushdownDirection = resolved.whole;
+        if (resolved.primary) {
+          query = query.order(resolved.primary);
         } else {
           needsPostFetchSortForPrimary = true;
         }
@@ -6288,25 +6609,57 @@ export class GelRelationalQuery<
       const orderField = primaryOrder.field;
 
       // Special case: _creationTime uses Convex's default index
-      if (orderField === '_creationTime') {
-        // Default index on _creationTime - no withIndex() needed
+      if (orderField === INTERNAL_CREATION_TIME_FIELD) {
+        // Default index on _creationTime - no withIndex() needed. An empty
+        // field list is exactly that index: its only key is the implicit
+        // `_creationTime` suffix, so nothing can follow it in the sort.
         query = query.order(primaryOrder.direction);
+        orderPushdownDirection = resolveIndexOrderPushdown({
+          indexFields: [],
+          pinnedEqCount: 0,
+          orderSpecs: postFetchOrders,
+        });
       } else {
         // Convex walks an index in full index-key order, so only an index
-        // whose *leading* field is the sort field yields the requested order.
-        // Matching on any position sorts by a different column entirely.
-        const orderIndex =
-          getIndexes(this.tableConfig.table).find(
-            (idx) => idx.fields[0] === orderField
-          ) ??
-          this.edgeMetadata.find((idx) => idx.indexFields[0] === orderField);
+        // whose *leading* keys are the requested sort keys, in order, yields
+        // the requested order. Matching on any other position sorts by a
+        // different column entirely.
+        const candidates: { fields: readonly string[]; name: string }[] = [
+          ...getIndexes(this.tableConfig.table).map((idx) => ({
+            fields: idx.fields,
+            name: idx.name,
+          })),
+          ...this.edgeMetadata.map((idx) => ({
+            fields: idx.indexFields,
+            name: idx.indexName,
+          })),
+        ];
 
-        if (orderIndex) {
-          orderIndexName =
-            'indexName' in orderIndex ? orderIndex.indexName : orderIndex.name;
+        let selected: { fields: readonly string[]; name: string } | undefined;
+        for (const candidate of candidates) {
+          const direction = resolveIndexOrderPushdown({
+            indexFields: candidate.fields,
+            pinnedEqCount: 0,
+            orderSpecs: postFetchOrders,
+          });
+          if (direction) {
+            selected = candidate;
+            orderPushdownDirection = direction;
+            break;
+          }
+        }
+        // Nothing serves the whole sort. Anchoring the scan on the primary
+        // field alone is still worth it: the tie-break then runs in JavaScript
+        // over rows that are already in the right primary order.
+        selected ??= candidates.find(
+          (candidate) => candidate.fields[0] === orderField
+        );
+
+        if (selected) {
+          orderIndexName = selected.name;
           // Use orderBy field's index
           query = query.withIndex(orderIndexName, (q: any) => q);
-          query = query.order(primaryOrder.direction);
+          query = query.order(orderPushdownDirection ?? primaryOrder.direction);
         } else {
           // No index for orderBy field - post-fetch sort
           needsPostFetchSortForPrimary = true;
@@ -6314,7 +6667,21 @@ export class GelRelationalQuery<
       }
     }
 
-    usePostFetchSort = needsPostFetchSortForPrimary || hasSecondaryOrders;
+    // The sort runs in JavaScript unless the index walk produced all of it.
+    // Testing arity here instead is what made every 2-field `orderBy` collect
+    // the table: an index that serves the whole tuple was scanned in the right
+    // order and then thrown away.
+    usePostFetchSort =
+      postFetchOrders.length > 0 && orderPushdownDirection === null;
+    // A Convex cursor is the serialized index key, so once the page is read
+    // through an index that carries every sort field, the page boundary carries
+    // them too. Warning about cross-page instability there would be false.
+    //
+    // Only for pages actually read through that index, though. Two cursor
+    // branches below build a stream that anchors to a different index or to
+    // none at all, so they answer this question for themselves.
+    const hasUnservedSecondaryOrders =
+      hasSecondaryOrders && orderPushdownDirection === null;
 
     if (wherePredicate) {
       const predicateIndex = configuredIndex;
@@ -6352,16 +6719,23 @@ export class GelRelationalQuery<
               'Falling back to _creationTime ordering.'
           );
         }
-        if (hasSecondaryOrders) {
+        if (hasUnservedSecondaryOrders) {
           console.warn(
             'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-              'Secondary orderBy fields are applied per page and may be unstable across pages.'
+              'Secondary orderBy fields are ignored because no index serves the whole sort.'
           );
         }
       }
 
       if (primaryOrder && !needsPostFetchSortForPrimary) {
-        streamQuery = streamQuery.order(primaryOrder.direction);
+        // This stream walks `predicateIndex` with the caller's own range, which
+        // is the index and pinned prefix the branch above resolved against.
+        // Prefer its answer: once an eq-pinned field leads the sort, the scan
+        // has to follow the first spec that actually moves, which can point the
+        // other way from `primaryOrder`.
+        streamQuery = streamQuery.order(
+          orderPushdownDirection ?? primaryOrder.direction
+        );
       } else if (isCursorPaginated) {
         streamQuery = streamQuery.order('desc');
       }
@@ -6498,20 +6872,17 @@ export class GelRelationalQuery<
           isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
       // when that order is the requested order, so the global top-k is
-      // guaranteed to live inside the union of the per-probe top-k.
-      const probeOrderDirection = primaryOrder
-        ? resolveIndexOrderPushdown({
-            indexFields: queryConfig.index.fields,
-            pinnedEqCount: this._indexEqPrefixCount(queryConfig),
-            orderSpecs: [primaryOrder],
-          })
-        : null;
+      // guaranteed to live inside the union of the per-probe top-k. Every probe
+      // walks the same index with the same pinned prefix the branch above
+      // already resolved, and `_indexEqPrefixCount` takes the minimum across
+      // probes — so the answer that holds for the least-pinned probe holds for
+      // all of them.
+      const probeOrderDirection = orderPushdownDirection;
       const probeBound =
         probeLimit !== undefined &&
         !probeHasResidualFilter &&
         !probeHasPostFetchMembership &&
-        (postFetchOrders.length === 0 ||
-          (probeOrderDirection !== null && !hasSecondaryOrders))
+        (postFetchOrders.length === 0 || probeOrderDirection !== null)
           ? probeOffset + probeLimit
           : undefined;
 
@@ -6621,28 +6992,76 @@ export class GelRelationalQuery<
 
     // M6.5 Phase 4: Handle cursor pagination separately
     if (isCursorPaginated) {
-      if (queryConfig.strategy === 'multiProbe') {
-        if (maxScan === undefined) {
+      const isMultiProbePlan =
+        queryConfig.strategy === 'multiProbe' && !!queryConfig.index;
+      const isScanFallbackPlan =
+        !queryConfig.index && queryConfig.postFilters.length > 0;
+
+      if (isMultiProbePlan || isScanFallbackPlan) {
+        const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+
+        // A compiled index union is bounded by its probe ranges, not by scan
+        // length, so it needs no scan budget. `maxScan` is still honoured when
+        // the caller asked for one.
+        const probeUnion =
+          isMultiProbePlan && schemaDefinition
+            ? this._buildProbeUnionStream({
+                schemaDefinition,
+                indexName: queryConfig.index!.name,
+                probeFilters: queryConfig.probeFilters,
+                order: primaryOrder?.direction ?? 'desc',
+                orderField: primaryOrder?.field ?? queryConfig.index!.fields[0],
+              })
+            : null;
+
+        if (!probeUnion && maxScan === undefined) {
           if (strict) {
             throw new Error(
-              'Pagination with multi-probe index-union filters requires maxScan when strict=true. Add maxScan or make the query indexable.'
+              isMultiProbePlan
+                ? 'Pagination with multi-probe index-union filters requires maxScan when strict=true. Add maxScan, order by a field the union can serve, or make the query indexable.'
+                : 'Cursor pagination with scan fallback requires maxScan when strict=true. Add maxScan or make the query indexable.'
             );
           }
-          console.warn(
-            'Pagination with multi-probe index-union filters is running without maxScan because strict: false.'
-          );
-        } else {
-          const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+          if (isMultiProbePlan) {
+            console.warn(
+              'Pagination with multi-probe index-union filters is running without maxScan because strict: false.'
+            );
+          }
+        }
+
+        if (probeUnion || maxScan !== undefined) {
           if (!schemaDefinition) {
             throw new Error(
               'Pagination with maxScan requires defineSchema(). Ensure defineSchema(tables) was used with the same tables object passed to defineRelations.'
             );
           }
 
-          let streamQuery: any = stream(
-            this.db as GenericDatabaseReader<any>,
-            schemaDefinition
-          ).query(this.tableConfig.name as any);
+          let streamQuery: any = probeUnion;
+          if (!streamQuery) {
+            streamQuery = stream(
+              this.db as GenericDatabaseReader<any>,
+              schemaDefinition
+            ).query(this.tableConfig.name as any);
+
+            // An explicit `.withIndex(name, range)` anchors this read too. A
+            // where clause that is not index-compilable leaves
+            // `queryConfig.index` unset and lands here, so without this the
+            // caller's index and its bounds — a tenant scope, say — would never
+            // reach the scan.
+            //
+            // A declined union deliberately does not anchor to the plan's
+            // index: its probes carry the ranges, and walking that index with
+            // no range would sort the page by the probed field while the
+            // warning below promises creation-time order.
+            if (isScanFallbackPlan && configuredIndex?.name) {
+              streamQuery = streamQuery.withIndex(
+                configuredIndex.name as any,
+                configuredIndex.range
+                  ? (configuredIndex.range as any)
+                  : (q: any) => q
+              );
+            }
+          }
 
           if (queryConfig.order && primaryOrder) {
             if (needsPostFetchSortForPrimary) {
@@ -6656,17 +7075,29 @@ export class GelRelationalQuery<
                   'Falling back to _creationTime ordering.'
               );
             }
+            // This stream never anchors to an index, so it reads creation
+            // order whatever the sort asked for. An index that could have
+            // carried the whole tuple is irrelevant to this page.
             if (hasSecondaryOrders) {
               console.warn(
                 'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-                  'Secondary orderBy fields are applied per page and may be unstable across pages.'
+                  'Secondary orderBy fields are ignored because this page is not read through an index that orders by them.'
               );
             }
-            streamQuery = streamQuery.order(primaryOrder.direction);
-          } else {
-            streamQuery = streamQuery.order('desc');
+          }
+          // The union already carries its direction: every probe was opened
+          // with it so the merge could compare index keys.
+          if (!probeUnion) {
+            streamQuery = streamQuery.order(
+              queryConfig.order && primaryOrder
+                ? primaryOrder.direction
+                : 'desc'
+            );
           }
 
+          // A rejected multi-probe plan keeps its original expression here.
+          // Applying postFilters while pulling is what makes the budgeted scan
+          // fallback preserve the union predicate and still fill each page.
           if (queryConfig.postFilters.length > 0) {
             streamQuery = streamQuery.filterWith(async (row: any) =>
               queryConfig.postFilters.every((filter) =>
@@ -6675,105 +7106,8 @@ export class GelRelationalQuery<
             );
           }
 
-          const paginationResult = await streamQuery.paginate({
-            cursor: cursor ?? null,
-            limit: config.limit,
-            maxScan,
-          });
-
-          let pageRows = paginationResult.page;
-
-          pageRows = await this._applyRlsSelectFilter(
-            pageRows,
-            this.tableConfig
-          );
-
-          if (whereFilter) {
-            pageRows = await this._applyRelationsFilterToRows(
-              pageRows,
-              this.tableConfig,
-              whereFilter,
-              this.edgeMetadata,
-              0,
-              MAX_RELATION_DEPTH,
-              this.config.with as Record<string, unknown> | undefined
-            );
-          }
-
-          const selectedPage = await this._finalizeRows(pageRows);
-
-          return {
-            page: selectedPage,
-            continueCursor: paginationResult.continueCursor,
-            isDone: paginationResult.isDone,
-            pageStatus: (paginationResult as any).pageStatus,
-            splitCursor: (paginationResult as any).splitCursor,
-          } as TResult;
-        }
-      }
-
-      if (!queryConfig.index && queryConfig.postFilters.length > 0) {
-        if (maxScan === undefined) {
-          if (strict) {
-            throw new Error(
-              'Cursor pagination with scan fallback requires maxScan when strict=true. Add maxScan or make the query indexable.'
-            );
-          }
-        } else {
-          const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
-          if (!schemaDefinition) {
-            throw new Error(
-              'Pagination with maxScan requires defineSchema(). Ensure defineSchema(tables) was used with the same tables object passed to defineRelations.'
-            );
-          }
-
-          let streamQuery: any = stream(
-            this.db as GenericDatabaseReader<any>,
-            schemaDefinition
-          ).query(this.tableConfig.name as any);
-
-          // An explicit `.withIndex(name, range)` anchors this read too. A
-          // where clause that is not index-compilable leaves `queryConfig.index`
-          // unset and lands here, so without this the caller's index and its
-          // bounds — a tenant scope, say — would never reach the scan.
-          if (configuredIndex?.name) {
-            streamQuery = streamQuery.withIndex(
-              configuredIndex.name as any,
-              configuredIndex.range
-                ? (configuredIndex.range as any)
-                : (q: any) => q
-            );
-          }
-
-          if (queryConfig.order && primaryOrder) {
-            if (needsPostFetchSortForPrimary) {
-              if (strict) {
-                throw new Error(
-                  `Pagination: Field '${primaryOrder.field}' has no index. Add an index or disable strict.`
-                );
-              }
-              console.warn(
-                `Pagination: Field '${primaryOrder.field}' has no index. ` +
-                  'Falling back to _creationTime ordering.'
-              );
-            }
-            if (hasSecondaryOrders) {
-              console.warn(
-                'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-                  'Secondary orderBy fields are applied per page and may be unstable across pages.'
-              );
-            }
-            streamQuery = streamQuery.order(primaryOrder.direction);
-          } else {
-            streamQuery = streamQuery.order('desc');
-          }
-
-          streamQuery = streamQuery.filterWith(async (row: any) =>
-            queryConfig.postFilters.every((filter) =>
-              this._evaluatePostFetchFilter(row, filter)
-            )
-          );
-
+          // `endCursor` routes through the advanced stream path above, so it
+          // never reaches this branch.
           const paginationResult = await streamQuery.paginate({
             cursor: cursor ?? null,
             limit: config.limit,
@@ -6834,6 +7168,7 @@ export class GelRelationalQuery<
             membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
+            pushdownDirection: orderPushdownDirection,
             fallbackOrder: 'desc',
           })
         : null;
@@ -6855,10 +7190,10 @@ export class GelRelationalQuery<
                 'Falling back to _creationTime ordering.'
             );
           }
-          if (hasSecondaryOrders) {
+          if (hasUnservedSecondaryOrders) {
             console.warn(
               'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-                'Secondary orderBy fields are applied per page and may be unstable across pages.'
+                'Secondary orderBy fields are ignored because no index serves the whole sort.'
             );
           }
         }
@@ -6914,10 +7249,10 @@ export class GelRelationalQuery<
           // Ordering already applied via index - query is ready for pagination
           // No additional action needed
         }
-        if (hasSecondaryOrders) {
+        if (hasUnservedSecondaryOrders) {
           console.warn(
             'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-              'Secondary orderBy fields are applied per page and may be unstable across pages.'
+              'Secondary orderBy fields are ignored because no index serves the whole sort.'
           );
         }
       } else {
@@ -7014,6 +7349,7 @@ export class GelRelationalQuery<
             membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
+            pushdownDirection: orderPushdownDirection,
             fallbackOrder: 'asc',
           })
         : null;
@@ -7110,18 +7446,7 @@ export class GelRelationalQuery<
      * can be scanned, so a compiled plan that would replace it is discarded.
      */
     configuredIndex?: PredicateWhereIndexConfig<TTableConfig>
-  ): {
-    table: string;
-    strategy: IndexStrategy;
-    index?: {
-      name: string;
-      fields: string[];
-      filters: FilterExpression<boolean>[];
-    };
-    probeFilters: FilterExpression<boolean>[][];
-    postFilters: FilterExpression<boolean>[];
-    order?: { direction: 'asc' | 'desc'; field: string }[];
-  } {
+  ): CompiledQueryPlan {
     const config = this.config as any;
 
     // Initialize compiler for this table using declared indexes
@@ -7137,7 +7462,7 @@ export class GelRelationalQuery<
 
     // Resolved before index selection: which index is cheapest depends on
     // whether it can also supply the requested order.
-    let orderSpecs: { direction: 'asc' | 'desc'; field: string }[] = [];
+    let orderSpecs: OrderSpec[] = [];
     if (config.orderBy) {
       const orderByValue =
         typeof config.orderBy === 'function'
@@ -7190,18 +7515,7 @@ export class GelRelationalQuery<
         };
 
     // Build query config
-    const result: {
-      table: string;
-      strategy: IndexStrategy;
-      index?: {
-        name: string;
-        fields: string[];
-        filters: FilterExpression<boolean>[];
-      };
-      probeFilters: FilterExpression<boolean>[][];
-      postFilters: FilterExpression<boolean>[];
-      order?: { direction: 'asc' | 'desc'; field: string }[];
-    } = {
+    const result: CompiledQueryPlan = {
       table: this.tableConfig.table.tableName,
       strategy: compiled.strategy,
       probeFilters: [...compiled.probeFilters],
@@ -7413,9 +7727,24 @@ export class GelRelationalQuery<
       return null;
     }
     const normalizedId = this.db.normalizeId(tableName as any, id as any);
-    return normalizedId === null
-      ? null
-      : await this.db.get(normalizedId as any);
+    if (normalizedId === null) {
+      return null;
+    }
+    // A normalized id encodes its table, so it identifies the read on its own.
+    const existing = this._documentByNormalizedId.get(normalizedId);
+    if (existing) {
+      return await existing;
+    }
+    // Stored before it settles so concurrent relation loaders share one
+    // in-flight read; evicted on rejection so a failure is never cached.
+    const pending = Promise.resolve(this.db.get(normalizedId as any)).catch(
+      (error) => {
+        this._documentByNormalizedId.delete(normalizedId);
+        throw error;
+      }
+    );
+    this._documentByNormalizedId.set(normalizedId, pending);
+    return await pending;
   }
 
   private _getRelationConcurrency(): number {

@@ -339,6 +339,76 @@ describe('stream regression', () => {
     });
   });
 
+  test('descending merged endCursor excludes disjoint equality ranges', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('foo', { a: 1, b: 2, c: 3 });
+      await ctx.db.insert('foo', { a: 1, b: 3, c: 3 });
+      await ctx.db.insert('foo', { a: 2, b: 1, c: 3 });
+      await ctx.db.insert('foo', { a: 2, b: 4, c: 4 });
+      const build = () =>
+        mergedStream(
+          [
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 1))
+              .order('desc'),
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 2))
+              .order('desc'),
+          ],
+          ['a', 'b', 'c']
+        );
+
+      const first = await build().paginate({ cursor: null, limit: 2 });
+      const pinned = await build().paginate({
+        cursor: null,
+        endCursor: first.continueCursor,
+        limit: 2,
+      });
+
+      expect(pinned.page.map(stripSystemFields)).toEqual([
+        { a: 2, b: 4, c: 4 },
+        { a: 2, b: 1, c: 3 },
+      ]);
+    });
+  });
+
+  test('suffix-ordered merged endCursor accepts an empty child range', async () => {
+    const t = convexTest(schema);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('foo', { a: 1, b: 2, c: 3 });
+      await ctx.db.insert('foo', { a: 1, b: 3, c: 3 });
+      await ctx.db.insert('foo', { a: 2, b: 1, c: 3 });
+      const build = () =>
+        mergedStream(
+          [
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 1))
+              .order('desc'),
+            stream(ctx.db, schema)
+              .query('foo')
+              .withIndex('abc', (q) => q.eq('a', 2).lt('b', 2))
+              .order('desc'),
+          ],
+          ['b', 'c']
+        );
+
+      const first = await build().paginate({ cursor: null, limit: 1 });
+      const pinned = await build().paginate({
+        cursor: null,
+        endCursor: first.continueCursor,
+        limit: 1,
+      });
+
+      expect(pinned.page.map(stripSystemFields)).toEqual([
+        { a: 1, b: 3, c: 3 },
+      ]);
+    });
+  });
+
   test('filter stream and maxScan split metadata', async () => {
     const t = convexTest(schema);
     await t.run(async (ctx) => {

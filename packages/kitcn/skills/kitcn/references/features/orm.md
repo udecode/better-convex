@@ -89,6 +89,11 @@ import { foreignKey } from "kitcn/orm";
 (t) => [foreignKey({ columns: [t.userSlug], foreignColumns: [users.slug] })];
 ```
 
+Delta from parity: async soft cascade requires an exact child index on the
+referencing columns. `index("by_author").on(t.authorId)` qualifies;
+`index("by_author_rank").on(t.authorId, t.rank)` does not, because a mutable
+trailing field cannot provide stable continuation across scheduled mutations.
+
 ### Check Constraints
 
 ```ts
@@ -257,9 +262,22 @@ Rules:
 Relation `limit`/`orderBy` are pushed into the relation index when the index
 already walks in that order. After the FK, `index('by_user').on(t.userId)`
 orders by creation time, so `with: { posts: { limit: 5, orderBy: { createdAt:
-'desc' } } }` reads 5 posts per parent. Sorting by any other column reads the
-parent's whole child partition and sorts in memory — put the sort column in the
-relation index (`index('by_user_rank').on(t.userId, t.rank)`) to stay bounded.
+'desc' } } }` reads 5 posts per parent. Multi-field sorts are pushed down too
+when the index carries all of them: `index('by_user_rank').on(t.userId, t.rank)`
+serves `orderBy: { rank: 'asc', createdAt: 'asc' }`, since the FK pins `userId`,
+`rank` is the next key and `createdAt` is Convex's implicit trailing one.
+Non-null values use Convex value ordering on both index-backed and post-fetch
+paths, including UTF-8 strings, signed zero, and NaN.
+When the first requested field is equality-pinned but points opposite to the
+moving fields, include `createdAt` in the moving direction as the final sort
+field. Without that explicit tie-break, the ORM post-fetch sorts to preserve
+which tied rows survive `limit`.
+Every unpinned declared index key must be requested. An extra key after the
+requested fields would break ties before Convex's implicit creation-time key,
+so the ORM keeps the post-fetch sort to preserve which rows survive `limit`.
+Sorting by any other column — or by one that can be missing or `null` — reads
+the parent's whole child partition and sorts in memory; put the sort columns in
+the relation index, in sort order, to stay bounded.
 
 ### Nested `with` depth
 
@@ -644,6 +662,23 @@ const page2 = await ctx.orm.query.posts.findMany({
 
 Return: `{ page, continueCursor, isDone, pageStatus?, splitCursor? }`
 
+### Index-union filters
+
+`in`, `notIn`, `ne`, and same-field equality `OR` compile to one index range per value when the field is one an index leads with. Cursor pages come from those ranges as a merged stream, so `orderBy` sorts across the whole result and no scan budget is needed.
+
+```ts
+const page = await ctx.orm.query.users.withIndex("by_status").findMany({
+  where: { status: { in: ["active", "pending"] } },
+  orderBy: { createdAt: "desc" },
+  cursor: null,
+  limit: 20,
+});
+```
+
+Falls back to a bounded scan (needs `maxScan`) when the probed index cannot supply the requested `orderBy`, or when the union is wider than 64 ranges.
+
+Without an `orderBy`, an index-union page is in the order of the index it walks — grouped by the probed value — not in creation order.
+
 ### Boundary pinning with `endCursor`
 
 ```ts
@@ -731,7 +766,7 @@ const filtered = results.filter((a) => a.publishedAt >= startDate);
 ### Performance
 
 1. **Index first** — constrain leading index fields. Compound indexes follow prefix rules. Put the `orderBy` column right after the constrained prefix so the scan is already sorted and `limit` bounds the read.
-2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only). A `.select()` ID-list query with `orderBy` needs a single field that an index leads with.
+2. **Bound scans** — use `maxScan` for predicate `where` (cursor mode only). `in`/`notIn`/`ne` on an indexed leading field page from index ranges and need no budget. A `.select()` ID-list query with `orderBy` needs a single field that an index leads with.
 3. **Limit results** — always use `limit` or cursor pagination.
 4. **Cursor stability** — keep same `where`/`orderBy` between page requests.
 5. **`allowFullScan`** — non-cursor only. Cursor mode uses `maxScan` instead.

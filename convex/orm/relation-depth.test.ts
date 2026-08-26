@@ -15,6 +15,7 @@ import { convexTest, countDocumentReads } from '../setup.testing';
 const schedulerStub = { runAfter: vi.fn(async () => undefined) };
 const passthroughInternalMutation = ((definition: unknown) =>
   definition) as never;
+const passthroughInternalQuery = ((definition: unknown) => definition) as never;
 
 /**
  * A self-referencing thread is the shape that makes relation depth observable:
@@ -99,7 +100,7 @@ const walkChain = (root: any) => {
 
 const withThread = async (
   chainLength: number,
-  run: (ctx: any, reads: { documents: number }) => Promise<void>
+  run: (ctx: any, reads: { scanned: number }) => Promise<void>
 ) => {
   const t = convexTest(threadSchema);
   await t.run(async (baseCtx) => {
@@ -112,6 +113,7 @@ const withThread = async (
         scheduledMutationBatch: {} as any,
       },
       internalMutation: passthroughInternalMutation,
+      internalQuery: passthroughInternalQuery,
     });
     const ctx = client.with({
       db: baseCtx.db,
@@ -200,7 +202,7 @@ describe('ORM relation depth', () => {
    */
   it('refuses to nest past the ceiling instead of truncating silently', async () => {
     await withThread(12, async (ctx, reads) => {
-      const before = reads.documents;
+      const before = reads.scanned;
       await expect(
         ctx.orm.query.depthThreadNodes.findMany({
           where: { parentId: { isNull: true } },
@@ -208,7 +210,7 @@ describe('ORM relation depth', () => {
           with: { replies: repliesWith(11) },
         })
       ).rejects.toThrow(/RELATION_DEPTH_EXCEEDED/);
-      expect(reads.documents - before).toBeLessThanOrEqual(2);
+      expect(reads.scanned - before).toBeLessThanOrEqual(2);
     });
   });
 });

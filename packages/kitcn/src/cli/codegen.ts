@@ -132,6 +132,7 @@ const AUTH_RUNTIME_PROCEDURES: readonly Omit<
   ProcedureRegistryEntry,
   'moduleName' | 'kind'
 >[] = [
+  { exportName: 'count', internal: true, type: 'query' },
   { exportName: 'create', internal: true, type: 'mutation' },
   { exportName: 'deleteMany', internal: true, type: 'mutation' },
   { exportName: 'deleteOne', internal: true, type: 'mutation' },
@@ -151,7 +152,7 @@ const GENERATED_ORM_RUNTIME_PROCEDURES: readonly Omit<
   { exportName: 'scheduledDelete', internal: true, type: 'mutation' },
   { exportName: 'migrationRun', internal: true, type: 'mutation' },
   { exportName: 'migrationRunChunk', internal: true, type: 'mutation' },
-  { exportName: 'migrationStatus', internal: true, type: 'mutation' },
+  { exportName: 'migrationStatus', internal: true, type: 'query' },
   { exportName: 'migrationCancel', internal: true, type: 'mutation' },
   { exportName: 'resetChunk', internal: true, type: 'mutation' },
   { exportName: 'reset', internal: true, type: 'action' },
@@ -163,7 +164,7 @@ const GENERATED_AGGREGATE_RUNTIME_PROCEDURES: readonly Omit<
 >[] = [
   { exportName: 'aggregateBackfill', internal: true, type: 'mutation' },
   { exportName: 'aggregateBackfillChunk', internal: true, type: 'mutation' },
-  { exportName: 'aggregateBackfillStatus', internal: true, type: 'mutation' },
+  { exportName: 'aggregateBackfillStatus', internal: true, type: 'query' },
 ];
 
 function listFilesRecursive(cwd: string, relDir = ''): string[] {
@@ -1238,7 +1239,7 @@ import type {
   MutationCtx as ServerMutationCtx,
   QueryCtx as ServerQueryCtx,
 } from ${serverTypesImportLiteral};
-import { httpAction, internalMutation } from ${serverTypesImportLiteral};
+import { httpAction, internalMutation, internalQuery } from ${serverTypesImportLiteral};
 import schema from ${schemaImportLiteral};
 import { procedureNames } from ${procedureNamesImportLiteral};
 ${migrationsImportLine}
@@ -1252,6 +1253,7 @@ export const orm = createOrm({
   schema: ormSchema,
   ormFunctions,
 ${capabilitiesConfigLine}${migrationsConfigLine}  internalMutation,
+  internalQuery,
 });
 
 export type OrmCtx<Ctx extends ServerQueryCtx | ServerMutationCtx = ServerQueryCtx> = GenericOrmCtx<Ctx, typeof ormSchema>;
@@ -1307,7 +1309,7 @@ function emitGeneratedAggregateFile(
 import { createOrm, type OrmFunctions } from 'kitcn/orm';
 import { aggregateCapability } from 'kitcn/orm/aggregate-index';
 import { createGeneratedFunctionReference } from 'kitcn/server';
-import { internalMutation } from ${serverTypesImportLiteral};
+import { internalMutation, internalQuery } from ${serverTypesImportLiteral};
 import schema from ${schemaImportLiteral};
 
 const ormFunctions: OrmFunctions = {
@@ -1327,6 +1329,7 @@ const orm = createOrm({
   ormFunctions,
   capabilities: [aggregateCapability()],
   internalMutation,
+  internalQuery,
 });
 
 export const {
@@ -1495,6 +1498,7 @@ export const {
   authClient,
   getAuth,
   auth,
+  count,
   create,
   deleteMany,
   deleteOne,

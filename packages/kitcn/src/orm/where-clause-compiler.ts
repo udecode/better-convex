@@ -87,11 +87,15 @@ export interface IndexLike {
 const INDEX_ORDER_BONUS = 30;
 
 /**
- * Widest `in` list still worth turning into an index union when it is the only
- * indexable term. Each value becomes its own index range, so past this width
- * the fan-out costs more than the single scan it would replace.
+ * Widest index union worth opening. Each probe becomes its own index range, and
+ * a streamed union holds every one of them open at once, so past this width the
+ * fan-out costs more than the single scan it would replace.
+ *
+ * Owns both ends of that decision: whether to promote an `in` inside an AND to
+ * a union here, and whether the executor may read a compiled union as a merged
+ * stream instead of a bounded scan.
  */
-const MAX_PROMOTED_PROBES = 64;
+export const MAX_INDEX_UNION_PROBES = 64;
 
 export class WhereClauseCompiler {
   /**
@@ -231,7 +235,10 @@ export class WhereClauseCompiler {
       const probePlan = this.tryCompileInArray(term as BinaryExpression);
       // A wide `in` opens one index range per value, which past some width
       // costs more than the single scan it replaces. Leave those alone.
-      if (!probePlan || probePlan.probeFilters.length > MAX_PROMOTED_PROBES) {
+      if (
+        !probePlan ||
+        probePlan.probeFilters.length > MAX_INDEX_UNION_PROBES
+      ) {
         continue;
       }
       return { ...probePlan, postFilters: [expression] };
@@ -615,17 +622,23 @@ export class WhereClauseCompiler {
     const candidates = this.availableIndexes
       .filter((index) => index.indexFields[0] === fieldName)
       .sort((a, b) => a.indexFields.length - b.indexFields.length);
-    // Each probe pins the leading field, so an index whose second key is the
-    // sort field serves the order from the scan. Otherwise the narrowest index
-    // wins, since extra keys only widen the range without pinning anything.
+    // Each probe pins the leading field, so an index whose next keys are the
+    // sort fields serves the order from the scan — and the more of the sort it
+    // carries, the more of the per-probe read bound survives. Otherwise the
+    // narrowest index wins, since extra keys only widen the range without
+    // pinning anything.
     if (this.orderFields.length > 0) {
-      const orderField = this.orderFields[0];
-      const serving = candidates.find(
-        (index) =>
-          index.indexFields.length > 1 && index.indexFields[1] === orderField
-      );
-      if (serving) {
-        return serving;
+      let best: IndexLike | null = null;
+      let bestServed = 0;
+      for (const index of candidates) {
+        const served = this.servedOrderFieldCount(index.indexFields, 1);
+        if (served > bestServed) {
+          best = index;
+          bestServed = served;
+        }
+      }
+      if (best) {
+        return best;
       }
     }
     return candidates[0] ?? null;
@@ -928,14 +941,63 @@ export class WhereClauseCompiler {
    * Reward an index that also supplies the requested order. Large enough to
    * clear the 25-point exact-over-prefix premium, so `(orgId, createdAt)` beats
    * `(orgId)` for `where { orgId } orderBy { createdAt }`.
+   *
+   * The reward grows with how much of the sort the index carries, so
+   * `(orgId, createdAt, title)` beats `(orgId, createdAt)` for a two-field
+   * sort: only the longer one lets the scan produce the whole tuple, and
+   * picking the shorter one costs the entire read bound. The extra point per
+   * field is deliberately small — order coverage breaks ties between indexes
+   * that already serve the filter equally well, it does not outrank filtering.
    */
   private indexOrderBonus(indexFields: string[], pinnedLength: number): number {
     if (this.orderFields.length === 0 || pinnedLength >= indexFields.length) {
       return 0;
     }
-    return indexFields[pinnedLength] === this.orderFields[0]
-      ? INDEX_ORDER_BONUS
-      : 0;
+    const served = this.servedOrderFieldCount(indexFields, pinnedLength);
+    return served === 0 ? 0 : INDEX_ORDER_BONUS + (served - 1);
+  }
+
+  /**
+   * How many moving sort fields this index would produce for free. Sort fields
+   * inside the pinned prefix are constant and can appear anywhere in the
+   * request; every other field must match the remaining index keys in order.
+   */
+  private servedOrderFieldCount(
+    indexFields: string[],
+    pinnedLength: number
+  ): number {
+    const pinnedFields = new Set(indexFields.slice(0, pinnedLength));
+    let indexOffset = pinnedLength;
+    let orderOffset = 0;
+    let served = 0;
+
+    while (orderOffset < this.orderFields.length) {
+      const orderField = this.orderFields[orderOffset];
+      if (pinnedFields.has(orderField)) {
+        orderOffset += 1;
+        continue;
+      }
+      if (indexFields[indexOffset] !== orderField) {
+        break;
+      }
+      served += 1;
+      indexOffset += 1;
+      orderOffset += 1;
+    }
+
+    // For a multi-field sort, a candidate that covers the whole request but
+    // keeps another moving key would replace the old implicit creation-time
+    // tie order with that key. Do not reward it over the shorter baseline
+    // index; the query planner will keep the stable post-fetch sort.
+    if (
+      this.orderFields.length > 1 &&
+      orderOffset === this.orderFields.length &&
+      indexOffset < indexFields.length
+    ) {
+      return 0;
+    }
+
+    return served;
   }
 
   /**

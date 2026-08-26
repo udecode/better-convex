@@ -58,9 +58,10 @@ const withOrmCtxAndBackfill = async (
   const t = convexTest(schema);
 
   await t.run(async (baseCtx) => {
-    // `ormFunctions` + `internalMutation` are what gate `orm.api()`, which owns
-    // the backfill handlers. Chunks are drained by hand below, so the scheduled
-    // references are never dereferenced.
+    // `ormFunctions` is what gates `orm.api()`, which owns the backfill
+    // handlers. The builders are passthroughs so the handlers stay reachable as
+    // `.handler`; the real Convex builders expose `_handler` instead. Chunks are
+    // drained by hand below, so the scheduled references are never dereferenced.
     const ormClient = createOrm({
       schema,
       capabilities: [aggregateCapability()],
@@ -69,6 +70,7 @@ const withOrmCtxAndBackfill = async (
         scheduledMutationBatch: {} as any,
       },
       internalMutation: ((definition: unknown) => definition) as never,
+      internalQuery: ((definition: unknown) => definition) as never,
     });
     const scheduler = { runAfter: vi.fn(async () => undefined) };
     const handlerCtx = { db: baseCtx.db, scheduler } as any;
@@ -203,7 +205,7 @@ test('organization seat counting does not read one row per member', async () => 
       // Aggregate bucket reads only: 4 observed, flat in organization size.
       // Collecting the rows reported 43 reads here
       // (DECOY_MEMBERS + PENDING_INVITATIONS).
-      expect(reads.documents).toBeLessThanOrEqual(6);
+      expect(reads.scanned).toBeLessThanOrEqual(6);
     });
   });
 });

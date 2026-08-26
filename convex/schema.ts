@@ -62,6 +62,12 @@ export const posts = convexTable(
     index('by_published_at').on(t.publishedAt),
     index('by_title').on(t.title),
     index('numLikesAndType').on(t.type, t.numLikes),
+    index('by_type_likes_text_published').on(
+      t.type,
+      t.numLikes,
+      t.text,
+      t.publishedAt
+    ),
     searchIndex('text_search').on(t.text).filter(t.type),
     vectorIndex('embedding_vec')
       .on(t.embedding)
