@@ -958,22 +958,33 @@ export class WhereClauseCompiler {
   }
 
   /**
-   * How many leading sort fields this index would produce for free, counting
-   * from its first unpinned key. Convex walks an index in full key order, so
-   * the run has to be contiguous and start at `pinnedLength`.
+   * How many moving sort fields this index would produce for free. Sort fields
+   * inside the pinned prefix are constant and can appear anywhere in the
+   * request; every other field must match the remaining index keys in order.
    */
   private servedOrderFieldCount(
     indexFields: string[],
     pinnedLength: number
   ): number {
+    const pinnedFields = new Set(indexFields.slice(0, pinnedLength));
+    let indexOffset = pinnedLength;
+    let orderOffset = 0;
     let served = 0;
-    while (
-      served < this.orderFields.length &&
-      pinnedLength + served < indexFields.length &&
-      indexFields[pinnedLength + served] === this.orderFields[served]
-    ) {
+
+    while (orderOffset < this.orderFields.length) {
+      const orderField = this.orderFields[orderOffset];
+      if (pinnedFields.has(orderField)) {
+        orderOffset += 1;
+        continue;
+      }
+      if (indexFields[indexOffset] !== orderField) {
+        break;
+      }
       served += 1;
+      indexOffset += 1;
+      orderOffset += 1;
     }
+
     return served;
   }
 

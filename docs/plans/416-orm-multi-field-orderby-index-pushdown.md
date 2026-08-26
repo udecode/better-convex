@@ -321,7 +321,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local autoreview closed 2 conditional findings; source-synced branch autoreview against `kitcn/main` is clean with no P0/P1 (0.87) |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head review found one real P1 in pinned-order index scoring, repaired with RED/green owner tests; immutable-head rerun is recorded in the terminal receipt |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -424,11 +424,18 @@ Review fixes:
   stream planner, and threaded this task's resolved pushdown direction through
   the residual-filter path. Branch autoreview against that `main` found no
   P0/P1 at 0.87 confidence.
+- Final exact-head review then found one real P1: candidate-index scoring did
+  not absorb requested fields already fixed by the filter prefix, so it could
+  prefer a narrow filter index over the compound index that preserves the read
+  bound. The scorer now skips those fixed sort fields before matching moving
+  index keys. RED/green tests cover equality-pinned fields at the start and end
+  of the sort list, the pinned-only narrow-index case, and probe selection.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | Source-sync conflict in `packages/kitcn/src/orm/query.ts` | 1 | Resolve from the current owners: #425's unified stream planner plus #426's `OrderSpec` and resolved direction | typecheck, focused tests, package build, branch review, and full `bun check` passed |
+| Exact-head autoreview P1 in candidate-index scoring | 1 | Add the missing narrow-vs-compound regression before changing the scorer | RED selected `by_type`; repair selects `by_type_likes`, with pinned-only and probe cases green |
 
 Verification evidence:
 - cwd for every command below: /Users/mikey/conductor/workspaces/kitcn/dakar
@@ -453,6 +460,14 @@ Verification evidence:
 - Source-synced branch autoreview against `kitcn/main` -> no P0/P1 (0.87).
 - Source-synced `bun check` -> exit 0, including all fixture comparisons and
   scenario/runtime lanes.
+- P1 RED: pinned `[type, numLikes]` sort selected `by_type`, not
+  `by_type_likes`.
+- P1 focused repair: 52 Bun owner tests and 66 Vitest integration tests passed,
+  with 1 integration test skipped.
+- P1 repair `bun typecheck` -> 5 tasks successful; `bun lint:fix` -> clean;
+  package build -> 72 files, 1623.03 kB; intent validation -> current.
+- P1 repair `bun check` -> exit 0: 1,400 Bun tests, 958 Vitest tests, CLI,
+  Concave, all fixture comparisons, and bare/Expo/Next/Start/Vite runtime lanes.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -539,6 +554,8 @@ Timeline:
 - 2026-08-26 Re-proved the combined branch: focused ORM suite, typecheck,
   package build, intent validation, branch autoreview, and full `bun check`
   green.
+- 2026-08-26 Reproduced and repaired the exact-head review P1 in pinned-order
+  index scoring; focused and full repository gates passed.
 
 Reboot status:
 | Question | Answer |

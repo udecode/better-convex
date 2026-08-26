@@ -323,6 +323,34 @@ describe('WhereClauseCompiler advanced index planning', () => {
     expect(withoutOrder.selectedIndex?.indexName).toBe('by_org');
   });
 
+  test('absorbs an equality-pinned order field when scoring indexes', () => {
+    const compiler = new WhereClauseCompiler('posts', [
+      { indexName: 'by_type', indexFields: ['type'] },
+      {
+        indexName: 'by_type_likes',
+        indexFields: ['type', 'numLikes'],
+      },
+    ]);
+
+    const result = compiler.compile(eq(fieldRef<string>('type') as any, 'a'), {
+      orderFields: ['type', 'numLikes'],
+    }) as any;
+
+    expect(result.selectedIndex?.indexName).toBe('by_type_likes');
+
+    const pinnedLater = compiler.compile(
+      eq(fieldRef<string>('type') as any, 'a'),
+      { orderFields: ['numLikes', 'type'] }
+    ) as any;
+    expect(pinnedLater.selectedIndex?.indexName).toBe('by_type_likes');
+
+    const pinnedOnly = compiler.compile(
+      eq(fieldRef<string>('type') as any, 'a'),
+      { orderFields: ['type'] }
+    ) as any;
+    expect(pinnedOnly.selectedIndex?.indexName).toBe('by_type');
+  });
+
   test('keeps the narrow index when no candidate supplies the order', () => {
     const compiler = new WhereClauseCompiler('posts', [
       { indexName: 'by_org', indexFields: ['orgId'] },
@@ -353,6 +381,14 @@ describe('WhereClauseCompiler advanced index planning', () => {
 
     expect(result.strategy).toBe('multiProbe');
     expect(result.selectedIndex?.indexName).toBe('by_status_age');
+
+    const withProbeFieldInOrder = compiler.compile(
+      inArray(fieldRef<string>('status') as any, ['active', 'pending']),
+      { orderFields: ['status', 'age'] }
+    ) as any;
+    expect(withProbeFieldInOrder.selectedIndex?.indexName).toBe(
+      'by_status_age'
+    );
   });
 
   test('lands every unconsumed binary in postFilters exactly once', () => {
