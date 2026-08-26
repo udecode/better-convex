@@ -143,6 +143,8 @@ describe('dbAdapter count on an ORM auth schema', () => {
   const schedulerStub = { runAfter: vi.fn(async () => undefined) };
   const passthroughInternalMutation = ((definition: unknown) =>
     definition) as never;
+  const passthroughInternalQuery = ((definition: unknown) =>
+    definition) as never;
 
   const withReadyOrm = async (
     baseCtx: any,
@@ -151,6 +153,7 @@ describe('dbAdapter count on an ORM auth schema', () => {
     const ormClient = createOrm({
       capabilities: [aggregateCapability()],
       internalMutation: passthroughInternalMutation,
+      internalQuery: passthroughInternalQuery,
       ormFunctions: {
         scheduledDelete: {} as any,
         scheduledMutationBatch: {} as any,

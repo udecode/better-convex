@@ -585,7 +585,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: 1468f880 on fix/bound-auth-adapter-count
+- Commits: original implementation 1468f880, current-main source sync
+  fc42c112, and the final autoclosure repair at the PR head on
+  fix/bound-auth-adapter-count
 - PR: #423
 - Issue: #418, closed by the PR trailer
 - Browser proof: N/A
@@ -594,6 +596,14 @@ Final handoff / sync:
 
 Timeline:
 - 2026-08-21T21:21:37.514Z Task goal plan created.
+- 2026-08-26 Autoclosure source sync merged current main at 4cd4ee08. Conflict
+  resolution preserved both this PR's `count` contract and main's `consumeOne`
+  contract, then regenerated the owned procedure map and example bindings.
+- 2026-08-26 Main's `aggregateBackfillStatus` is a query, so the focused
+  read-bound harness now supplies the same passthrough internal-query builder
+  as current ORM integration tests. Proof is green: read bounds 4/4, auth
+  188/188, codegen 75/75, typecheck 5/5, both package builds, fixture
+  sync/check across all eight templates, final lint, and `bun check`.
 
 Reboot status:
 | Question | Answer |
