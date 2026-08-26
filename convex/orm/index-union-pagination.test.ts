@@ -335,6 +335,46 @@ test('a wide index union with endCursor still needs maxScan under strict', async
   });
 });
 
+test('a rejected wide union preserves its predicate with maxScan and endCursor', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    await seedUsers(baseCtx.db);
+    const wideList = [
+      'active',
+      ...Array.from({ length: 64 }, (_, index) => `bucket-${index}`),
+    ];
+
+    const first: any = await ctx.orm.query.users
+      .withIndex('by_status')
+      .findMany({
+        where: { status: { in: wideList } },
+        cursor: null,
+        limit: 2,
+        maxScan: TABLE_ROWS,
+      });
+    const pinned: any = await ctx.orm.query.users
+      .withIndex('by_status')
+      .findMany({
+        where: { status: { in: wideList } },
+        cursor: null,
+        endCursor: first.continueCursor,
+        limit: 2,
+        maxScan: TABLE_ROWS,
+      });
+
+    expect(first.page.map((row: any) => row.name)).toEqual([
+      'User 119',
+      'User 000',
+    ]);
+    expect(pinned.page.map((row: any) => row.name)).toEqual([
+      'User 119',
+      'User 000',
+    ]);
+  });
+});
+
 test('an index union that cannot serve the requested order still needs maxScan under strict', async () => {
   const t = convexTest(schema);
 

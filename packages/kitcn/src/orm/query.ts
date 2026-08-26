@@ -2914,7 +2914,9 @@ export class GelRelationalQuery<
    * would displace a caller's index or its bounds before it gets here.
    *
    * `probeUnion` tells the caller the read is bounded by index ranges rather
-   * than by scan length, which is what makes a scan budget unnecessary.
+   * than by scan length, which is what makes a scan budget unnecessary. A
+   * rejected union stays unanchored; its original predicate remains in
+   * `queryConfig.postFilters` for the caller to apply while pulling the scan.
    */
   private _buildPlanStream(params: {
     queryConfig: CompiledQueryPlan;
@@ -6828,6 +6830,9 @@ export class GelRelationalQuery<
             );
           }
 
+          // A rejected multi-probe plan keeps its original expression here.
+          // Applying postFilters while pulling is what makes the budgeted scan
+          // fallback preserve the union predicate and still fill each page.
           if (queryConfig.postFilters.length > 0) {
             streamQuery = streamQuery.filterWith(async (row: any) =>
               queryConfig.postFilters.every((filter) =>
