@@ -325,7 +325,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 4 real P1s in pinned-order scoring, non-null value ordering, implicit tie direction, and trailing-key tie identity, all repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 4 real P1s in pinned-order scoring, non-null value ordering, implicit tie direction, and trailing-key tie identity, all repaired with RED/green proof; final immutable code-head rerun is clean at 0.89 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -515,6 +515,8 @@ Verification evidence:
 - Trailing-key final `bun check` -> exit 0, including lint, typecheck, complete
   unit/integration suites, CLI and Concave smoke, fixture parity, package builds,
   and all bare/Expo/Next/Start/Vite runtime lanes.
+- Final immutable code-head autoreview against `kitcn/main` -> clean, no
+  accepted/actionable P0/P1 findings (0.89 confidence).
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
