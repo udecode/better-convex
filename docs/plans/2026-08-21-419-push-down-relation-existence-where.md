@@ -280,7 +280,7 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | source-synced focused suite 18/18; root typecheck 5/5; package build, lint, and full `bun check` green |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | source-synced focused suite 19/19; root typecheck 5/5; package build, lint, and full `bun check` green |
 | Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #427, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | recorded: valid diagnosis, partially valid fix, pivoted |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro sufficient; browser/visual N/A |
@@ -455,13 +455,20 @@ Error attempts:
 Verification evidence:
 - Source-sync closeout from `/Users/zbeyens/git/better-convex`:
   - merged current `kitcn/main` into the PR branch without conflicts;
-  - `bunx vitest run convex/orm/relation-filter-pushdown.test.ts` -> 18/18;
+  - `bunx vitest run convex/orm/relation-filter-pushdown.test.ts` -> 19/19;
   - `bun typecheck` -> 5/5 tasks successful;
   - `bun --cwd packages/kitcn build` -> 72 files, 1628.38 kB;
   - `bun lint:fix` -> clean;
   - exact committed branch autoreview against `kitcn/main` -> no actionable
     P0/P1 finding, 0.9 confidence;
   - `bun check` -> exit 0.
+- Autoclosure branch review raised one P1 hypothesis: object-form requested
+  `with` might merge with the generated existence probe. Source tracing showed
+  the filter load runs before `_finalizeRows` and requested relations load
+  independently afterwards. A regression with a match beyond the requested
+  window plus a distinct requested filter/limit passes, falsifying both the
+  claimed parent false-negative and returned-list truncation. Local autoreview
+  of that proof is clean at 0.98 confidence.
 - cwd for every command below: `/Users/mikey/conductor/workspaces/kitcn/sun-valley-v1`.
 - `npx vitest run convex/orm/relation-filter-pushdown.test.ts --project integration`
   -> 12 passed.
@@ -516,6 +523,7 @@ Source-listed case matrix:
 | Nested key under a repeated parent (autoreview) | n/a — found in review | `a repeated relation key disables the bound for its whole subtree` | 1 row | 1 row | red under mutation | guarded |
 | Constraint 1 merge collapse | only exactly-once keys are eligible | `a relation key used by two branches keeps the unbounded load` | 1 row | 1 row | red under mutation | guarded |
 | Constraint 5 truncated-list leak | must not survive on the row | `drops the filter-loaded children` + `still returns the full requested relation` | absent / 61 | absent / 61 | green both sides | guarded |
+| Object-form requested relation | autoclosure review hypothesis | `object-form with stays independent from the existence probe` | parent match + 10 requested rows | parent match + 10 requested rows | focused regression green; review hypothesis falsified | guarded |
 | Read window (not in issue) | n/a — found during audit | `the existence probe never looks past the default-limit window` (+ inside-window twin) | 0 rows | 0 rows, <= 4 reads | red under mutation | guarded |
 
 Final handoff contract:
@@ -576,6 +584,9 @@ Timeline:
 - 2026-08-26: merged current `kitcn/main`, reran the focused suite, root
   typecheck, package build, lint, exact-branch autoreview, and full `bun check`;
   every lane passed.
+- Autoclosure review raised an object-form `with` collision hypothesis; source
+  order plus a new 19th focused regression falsified it, and local autoreview
+  accepted the proof at 0.98 confidence.
 - 2026-08-21T21:21:27.214Z Task goal plan created.
 - Reproduced #419 at 62 reads on pristine `3bbc6bb3`.
 - Ran a 10-agent constraint audit over the issue's 7 named constraints; it

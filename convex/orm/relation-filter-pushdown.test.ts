@@ -331,6 +331,29 @@ test('relation-existence where still returns the full requested relation', async
   });
 });
 
+test('object-form with stays independent from the existence probe', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    await seedUserWithPosts(baseCtx, { matchAt: 20 });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    const rows = await ctx.orm.query.users.findMany({
+      where: { posts: { type: 'wanted' } },
+      with: { posts: { where: { type: 'other' }, limit: 10 } },
+    });
+
+    expect(rows).toHaveLength(1);
+    expect((rows[0] as any).posts).toHaveLength(10);
+    expect(
+      (rows[0] as any).posts.every((post: any) => post.type === 'other')
+    ).toBe(true);
+  });
+});
+
 test('a through-relation match beyond the first link is still found', async () => {
   const t = convexTest(schema);
 
