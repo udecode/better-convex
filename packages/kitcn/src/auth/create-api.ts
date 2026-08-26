@@ -20,7 +20,6 @@ import { unsetToken } from '../orm/unset-token';
 import {
   adapterWhereValidator,
   checkUniqueFields,
-  hasUniqueFields,
   listOne,
   paginate,
   selectFields,
@@ -799,20 +798,7 @@ export const updateManyHandler = async (
   );
 
   if (args.input.update) {
-    if (
-      hasUniqueFields(
-        betterAuthSchema,
-        args.input.model,
-        args.input.update ?? {}
-      ) &&
-      page.length > 1
-    ) {
-      throw new Error(
-        `Attempted to set unique fields in multiple documents in ${args.input.model} with the same value. Fields: ${Object.keys(args.input.update ?? {}).join(', ')}`
-      );
-    }
-
-    await asyncMap(page, async (doc: any) => {
+    for (const doc of page) {
       const normalizedDoc = withBothIdFields(doc);
       const transformedUpdate = await applyBeforeHook(
         args.input.model,
@@ -870,7 +856,7 @@ export const updateManyHandler = async (
         },
         triggerCtx
       );
-    });
+    }
   }
 
   return toConvexSafe({
@@ -880,16 +866,18 @@ export const updateManyHandler = async (
   });
 };
 
-export const deleteOneHandler = async (
+type DeleteOneArgs = {
+  input: {
+    model: string;
+    where?: any[];
+  };
+  tableTriggers?: RuntimeTableTriggers;
+  triggerCtx?: unknown;
+};
+
+const deleteOneWithStoredDoc = async (
   ctx: any,
-  args: {
-    input: {
-      model: string;
-      where?: any[];
-    };
-    tableTriggers?: RuntimeTableTriggers;
-    triggerCtx?: unknown;
-  },
+  args: DeleteOneArgs,
   schema: Schema,
   betterAuthSchema: any
 ) => {
@@ -939,23 +927,42 @@ export const deleteOneHandler = async (
     triggerCtx
   );
 
-  return toConvexSafe(withBothIdFields(hookDoc));
+  return {
+    hookDoc: toConvexSafe(withBothIdFields(hookDoc)),
+    storedDoc: toConvexSafe(withBothIdFields(normalizedDoc)),
+  };
+};
+
+export const deleteOneHandler = async (
+  ctx: any,
+  args: DeleteOneArgs,
+  schema: Schema,
+  betterAuthSchema: any
+) => {
+  const deleted = await deleteOneWithStoredDoc(
+    ctx,
+    args,
+    schema,
+    betterAuthSchema
+  );
+
+  return deleted?.hookDoc;
 };
 
 export const consumeOneHandler = async (
   ctx: any,
-  args: {
-    input: {
-      model: string;
-      where?: any[];
-    };
-    tableTriggers?: RuntimeTableTriggers;
-    triggerCtx?: unknown;
-  },
+  args: DeleteOneArgs,
   schema: Schema,
   betterAuthSchema: any
 ) => {
-  return (await deleteOneHandler(ctx, args, schema, betterAuthSchema)) ?? null;
+  const deleted = await deleteOneWithStoredDoc(
+    ctx,
+    args,
+    schema,
+    betterAuthSchema
+  );
+
+  return deleted?.storedDoc ?? null;
 };
 
 export const deleteManyHandler = async (

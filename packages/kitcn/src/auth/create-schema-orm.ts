@@ -114,9 +114,7 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
       const indexes = explicitIndexes
         .concat(specialFieldIndexes)
         .filter((index) => {
-          const key = (Array.isArray(index) ? [...index].sort() : [index]).join(
-            '\0'
-          );
+          const key = (Array.isArray(index) ? index : [index]).join('\0');
           if (seen.has(key)) {
             return false;
           }
@@ -449,9 +447,7 @@ const renderSchemaOrmFile = async ({
       mergedIndexFields(tables)[
         entry.key as keyof ReturnType<typeof mergedIndexFields>
       ]?.map((indexSpec) => {
-        const indexArray = Array.isArray(indexSpec)
-          ? [...indexSpec].sort()
-          : [indexSpec];
+        const indexArray = Array.isArray(indexSpec) ? indexSpec : [indexSpec];
         const indexName = indexArray.join('_');
         const unique = (entry.table.indexes ?? []).some((index) => {
           if (!index.unique) {
@@ -464,8 +460,7 @@ const renderSchemaOrmFile = async ({
 
               return field ? (field.fieldName ?? fieldKey) : null;
             })
-            .filter((fieldName): fieldName is string => fieldName !== null)
-            .sort();
+            .filter((fieldName): fieldName is string => fieldName !== null);
 
           return (
             resolvedFields.length === index.fields.length &&

@@ -70,6 +70,32 @@ describe('createSchema', () => {
     );
   });
 
+  test('preserves declared compound-index order and reversed sequences', async () => {
+    const result = await createSchema({
+      file: 'auth/schema.ts',
+      tables: {
+        lookup: {
+          fields: {
+            organizationId: { required: true, type: 'string' },
+            userId: { required: true, type: 'string' },
+          },
+          indexes: [
+            { fields: ['userId', 'organizationId'] },
+            { fields: ['organizationId', 'userId'] },
+          ],
+          modelName: 'lookup',
+        },
+      } as any,
+    });
+
+    expect(result.code).toContain(
+      '.index("userId_organizationId", ["userId","organizationId"])'
+    );
+    expect(result.code).toContain(
+      '.index("organizationId_userId", ["organizationId","userId"])'
+    );
+  });
+
   test('adds organization helper fields for kitcn auth schema', async () => {
     const result = await createSchema({
       file: 'auth/schema.ts',
@@ -106,7 +132,7 @@ describe('createSchema', () => {
 
     expect(account).toContain('issuer: v.string()');
     expect(account).toContain(
-      '.index("accountId_issuer", ["accountId","issuer"])'
+      '.index("issuer_accountId", ["issuer","accountId"])'
     );
   });
 

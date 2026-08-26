@@ -215,9 +215,7 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
       const indexes = explicitIndexes
         .concat(specialFieldIndexes)
         .filter((index) => {
-          const key = (Array.isArray(index) ? [...index].sort() : [index]).join(
-            '\0'
-          );
+          const key = (Array.isArray(index) ? index : [index]).join('\0');
           if (seen.has(key)) {
             return false;
           }
@@ -301,7 +299,7 @@ export const ${exportName} = {
       mergedIndexFields(tables)[
         tableKey as keyof typeof mergedIndexFields
       ]?.map((index) => {
-        const indexArray = Array.isArray(index) ? index.sort() : [index];
+        const indexArray = Array.isArray(index) ? index : [index];
         const indexName = indexArray.join('_');
 
         return `.index("${indexName}", ${JSON.stringify(indexArray)})`;

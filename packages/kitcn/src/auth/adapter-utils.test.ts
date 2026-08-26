@@ -442,8 +442,8 @@ describe('checkUniqueFields', () => {
               export: () => ({
                 indexes: [
                   {
-                    fields: ['accountId', 'issuer'],
-                    indexDescriptor: 'by_accountId_issuer',
+                    fields: ['issuer', 'accountId'],
+                    indexDescriptor: 'by_issuer_accountId',
                   },
                 ],
               }),
@@ -466,8 +466,8 @@ describe('checkUniqueFields', () => {
     ).rejects.toThrow('account issuer, accountId already exists');
 
     expect(equalities).toEqual([
-      { field: 'accountId', value: 'subject-1' },
       { field: 'issuer', value: 'https://issuer.example' },
+      { field: 'accountId', value: 'subject-1' },
     ]);
   });
 });

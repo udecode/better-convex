@@ -117,6 +117,32 @@ describe('createSchemaOrm', () => {
     expect(result.code).toContain('accounts: r.many.account({');
   });
 
+  test('preserves declared compound-index order and reversed sequences', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: {
+        lookup: {
+          fields: {
+            organizationId: { required: true, type: 'string' },
+            userId: { required: true, type: 'string' },
+          },
+          indexes: [
+            { fields: ['userId', 'organizationId'], unique: true },
+            { fields: ['organizationId', 'userId'] },
+          ],
+          modelName: 'lookup',
+        },
+      } as any,
+    });
+
+    expect(result.code).toContain(
+      'uniqueIndex("userId_organizationId").on(lookupTable.userId, lookupTable.organizationId)'
+    );
+    expect(result.code).toContain(
+      'index("organizationId_userId").on(lookupTable.organizationId, lookupTable.userId)'
+    );
+  });
+
   test('generates ORM extension code for scaffold-owned plugin schema files', async () => {
     const result = await createSchemaExtensionOrm({
       extensionKey: 'auth',
@@ -181,7 +207,7 @@ describe('createSchemaOrm', () => {
 
     expect(result.code).toContain('issuer: text().notNull(),');
     expect(result.code).toContain(
-      'uniqueIndex("accountId_issuer").on(accountTable.accountId, accountTable.issuer)'
+      'uniqueIndex("issuer_accountId").on(accountTable.issuer, accountTable.accountId)'
     );
   });
 

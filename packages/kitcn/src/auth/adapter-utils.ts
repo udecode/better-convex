@@ -402,16 +402,19 @@ export const checkUniqueFields = async <
       continue;
     }
 
-    const fields = [...uniqueIndex].sort();
-    const { index } =
-      findIndex(schema, {
-        model: table,
-        where: fields.map((field) => ({
-          field,
-          operator: 'eq' as const,
-          value: nextDoc[field],
-        })),
-      }) || {};
+    const fields = [...uniqueIndex];
+    const tableSchema = schema.tables[table as keyof typeof schema.tables];
+    let indexes: Array<{ fields: string[]; indexDescriptor: string }> = [];
+    if (tableSchema) {
+      indexes = tableSchema[' indexes']
+        ? tableSchema[' indexes']()
+        : (tableSchema as any).export().indexes;
+    }
+    const index = indexes.find(
+      ({ fields: indexFields }: { fields: string[] }) =>
+        fields.length === indexFields.length &&
+        fields.every((field, index) => field === indexFields[index])
+    );
 
     if (!index) {
       throw new Error(`No index found for ${table} ${fields.join(', ')}`);

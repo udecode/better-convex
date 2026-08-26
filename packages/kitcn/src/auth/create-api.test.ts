@@ -23,7 +23,14 @@ const schema = {
       },
     },
     users: {
-      export: () => ({ indexes: [] }),
+      export: () => ({
+        indexes: [
+          {
+            fields: ['email'],
+            indexDescriptor: 'by_email',
+          },
+        ],
+      }),
       validator: {
         fields: {
           createdAt: v.number(),
@@ -56,6 +63,38 @@ const betterAuthSchemaUniqueEmail = {
   },
 } as any;
 
+const memberSchema = {
+  tables: {
+    members: {
+      export: () => ({
+        indexes: [
+          {
+            fields: ['organizationId', 'userId'],
+            indexDescriptor: 'by_organizationId_userId',
+          },
+        ],
+      }),
+      validator: {
+        fields: {
+          organizationId: v.string(),
+          userId: v.string(),
+        },
+      },
+    },
+  },
+} as any;
+
+const memberBetterAuthSchema = {
+  member: {
+    fields: {
+      organizationId: { required: true },
+      userId: { required: true },
+    },
+    indexes: [{ fields: ['organizationId', 'userId'], unique: true }],
+    modelName: 'members',
+  },
+} as any;
+
 const subscriptionBetterAuthSchema = {
   subscription: {
     fields: {
@@ -82,6 +121,32 @@ const createMemoryCtx = (docsById: Record<string, any>) => {
       if (!existing) return;
       store.set(id, { ...existing, ...update });
     },
+    query: () => ({
+      withIndex: (_name: string, build: (query: any) => any) => {
+        const equalities: Array<{ field: string; value: unknown }> = [];
+        const query = {
+          eq: (field: string, value: unknown) => {
+            equalities.push({ field, value });
+
+            return query;
+          },
+        };
+        build(query);
+
+        return {
+          unique: async () => {
+            const matches = [...store.values()].filter((doc) =>
+              equalities.every(({ field, value }) => doc[field] === value)
+            );
+            if (matches.length > 1) {
+              throw new Error('Query returned more than one document');
+            }
+
+            return matches[0] ?? null;
+          },
+        };
+      },
+    }),
   };
 
   return {
@@ -110,6 +175,48 @@ describe('Better Auth atomic handlers', () => {
 
     expect(consumed).toMatchObject({ id: 'user-1', name: 'alice' });
     expect(store.has('user-1')).toBe(false);
+  });
+
+  test('returns the stored row when delete.before transforms hook data', async () => {
+    const { db, store } = createMemoryCtx({
+      'user-1': { _id: 'user-1', email: 'a@b.com', name: 'stored' },
+    });
+    const after = mock(async () => undefined);
+    const change = mock(async () => undefined);
+
+    const consumed = await consumeOneHandler(
+      { db } as any,
+      {
+        input: {
+          model: 'users',
+          where: [{ field: '_id', operator: 'eq', value: 'user-1' }],
+        },
+        tableTriggers: {
+          change,
+          delete: {
+            after,
+            before: mock(async (doc: any) => ({
+              data: { ...doc, name: 'hook-only' },
+            })),
+          },
+        } as any,
+      },
+      schema,
+      betterAuthSchema
+    );
+
+    expect(consumed).toMatchObject({ id: 'user-1', name: 'stored' });
+    expect(store.has('user-1')).toBe(false);
+    expect(after).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-1', name: 'hook-only' }),
+      expect.anything()
+    );
+    expect(change).toHaveBeenCalledWith(
+      expect.objectContaining({
+        oldDoc: expect.objectContaining({ name: 'hook-only' }),
+      }),
+      expect.anything()
+    );
   });
 
   test('increments one matching document and applies absolute fields', async () => {
@@ -636,7 +743,7 @@ describe('updateManyHandler', () => {
         schema,
         betterAuthSchemaUniqueEmail
       )
-    ).rejects.toThrow('Attempted to set unique fields in multiple documents');
+    ).rejects.toThrow('users email already exists');
   });
 
   test('patches all returned docs and returns count + ids', async () => {
@@ -679,6 +786,81 @@ describe('updateManyHandler', () => {
       ids: ['user-1', 'user-2'],
       isDone: true,
     });
+  });
+
+  test('updates one field of compound-unique tuples when tuples stay distinct', async () => {
+    const { db, store } = createMemoryCtx({
+      'member-1': {
+        _id: 'member-1',
+        organizationId: 'organization-a',
+        userId: 'user-1',
+      },
+      'member-2': {
+        _id: 'member-2',
+        organizationId: 'organization-a',
+        userId: 'user-2',
+      },
+    });
+
+    await updateManyHandler(
+      { db } as any,
+      {
+        input: {
+          model: 'members',
+          update: { organizationId: 'organization-b' },
+          where: [
+            {
+              field: '_id',
+              operator: 'in',
+              value: ['member-1', 'member-2'],
+            },
+          ],
+        },
+        paginationOpts: { cursor: null, numItems: 100 },
+      },
+      memberSchema,
+      memberBetterAuthSchema
+    );
+
+    expect(store.get('member-1')?.organizationId).toBe('organization-b');
+    expect(store.get('member-2')?.organizationId).toBe('organization-b');
+  });
+
+  test('rejects compound-unique collisions between updated rows', async () => {
+    const { db } = createMemoryCtx({
+      'member-1': {
+        _id: 'member-1',
+        organizationId: 'organization-a',
+        userId: 'user-1',
+      },
+      'member-2': {
+        _id: 'member-2',
+        organizationId: 'organization-b',
+        userId: 'user-1',
+      },
+    });
+
+    await expect(
+      updateManyHandler(
+        { db } as any,
+        {
+          input: {
+            model: 'members',
+            update: { organizationId: 'organization-c' },
+            where: [
+              {
+                field: '_id',
+                operator: 'in',
+                value: ['member-1', 'member-2'],
+              },
+            ],
+          },
+          paginationOpts: { cursor: null, numItems: 100 },
+        },
+        memberSchema,
+        memberBetterAuthSchema
+      )
+    ).rejects.toThrow('members organizationId, userId already exists');
   });
 });
 
