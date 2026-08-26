@@ -491,7 +491,8 @@ Source-listed case matrix:
 | Read-limit blowout at scale | campaign dies mid-flight past Convex's read limit | limits.stress.test.ts, 4000 descendants | 117,177 scanned | linear, campaign drains | 8,152 scanned, all 4000 stamped | pass |
 | Byte-budget truncation | not in the source; found while fixing | same vitest file, budget fits ~1 row of 10 | 4214 scanned pre-fix | no row skipped, no page replayed, page size settles | 82 scanned, 0 pending over 62 batches | pass |
 | One paginated query per execution | not in the source; found in review | paginate-call counter per worker invocation in the same vitest file | 2 calls on a truncated batch | at most 1 | guard fails at 2, passes at 1 | pass |
-| Prefix-only FK index | not in the source; found while fixing | same vitest file, index on (parentId, rank) | n/a | same linear bound | 100 children, <=200 scanned, 0 pending | pass |
+| Prefix-only FK index | not in the source; found while fixing | same vitest file, index on (parentId, rank) | n/a | stable linear traversal | 100 children, <=200 scanned, 0 pending | pass |
+| Pending row moves behind cursor | P1 autoreview at synced head | same vitest file, rank 25 moves behind progress after batch 1 | 1 child stranded | stable traversal cannot skip it | red at 1 pending, green at 0 pending and <=200 scanned | pass |
 | Hard cascade unaffected | issue states hard mode is fine | limits.stress.test.ts existing cases C/D | passing | still passing | 12/12 stress cases pass | pass |
 
 Final handoff contract:
@@ -507,13 +508,15 @@ Final handoff contract:
 - Outcome: a full soft cascade delete campaign now reads a linear number of
   rows. 4000 descendants dropped from 117,177 scanned to 8,152, and every child
   is still soft-deleted.
-- Caveat: a child inserted behind the cursor mid-campaign is not picked up.
-  Inherent to resuming rather than replaying the range, and the race was never
-  settled.
+- Caveat: a prefix-only foreign-key index uses stable source-table order, so
+  reads scale with the source table rather than only the matching range. Declare
+  an exact foreign-key index for the narrowest scan.
 - Design:
   - Chosen boundary: the cascade worker's continuation strategy. Soft cascade
-    forwards the pagination cursor; every other action keeps re-querying from
-    null, which is already linear because processed rows leave the range.
+    forwards an exact foreign-key index cursor. A prefix index uses immutable
+    source-table order because mutable trailing fields can move pending rows
+    behind progress. Every other action keeps re-querying from null because
+    processed rows leave the range.
   - Why not quick patch: the issue's recommended `_creationTime` watermark is
     unsound. `_creationTime` is not unique within a Convex table, and `.gt`
     excludes every tie-twin regardless of `_id`, so it can silently drop an
@@ -552,10 +555,17 @@ Final handoff / sync:
 - PR: https://github.com/udecode/kitcn/pull/422
 - Issue: #407, linked by the PR body's `🐛 Fixes #407` line.
 - Browser proof: N/A, no browser or rendered surface.
-- Caveats: a row inserted behind the cursor mid-campaign is not picked up.
+- Caveats: prefix-only foreign-key indexes scan stable source-table order; use
+  an exact index to limit reads to the matching range.
 
 Timeline:
 - 2026-08-21T19:29:28.675Z Task goal plan created.
+- 2026-08-26 Autoclosure source sync exposed a P1 concurrency regression. A
+  red test stranded one child after its trailing index key moved behind the
+  cursor; stable source-table traversal repaired it without replaying rows.
+- 2026-08-26 Closeout proof: focused regression 4/4, limit stress 12/12, root
+  typecheck 5/5 tasks, lint clean, package build green, and `bun check` green
+  with 1360 Bun tests plus 927 Vitest tests.
 
 Reboot status:
 | Question | Answer |
@@ -567,10 +577,8 @@ Reboot status:
 | What have I done? | See Timeline |
 
 Open risks:
-- Cursor continuation across scheduled batches relies on Convex cursors being
-  index-key positions. Verified in the backend source and already relied on by
-  `root-update` / `root-delete` in the same file, but it is the assumption to
-  revisit first if a campaign ever truncates early.
+- Exact foreign-key index continuation relies on its declared fields remaining
+  pinned for the campaign. Prefix indexes deliberately avoid that assumption.
 - convex-test resolves a cursor by scanning for its `_id` in the query result,
   so a test where the cursor's row is hard-deleted by unrelated work would end
   the campaign silently. Real Convex is unaffected. Not reachable in the soft

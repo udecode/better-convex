@@ -102,6 +102,7 @@ const makeCampaign = (options: {
   childIndexFields: 'exact' | 'wider';
   payloadBytes?: number;
   maxBytesPerBatch?: number;
+  movePendingRowBehindCursor?: boolean;
 }) => {
   const { parents, children } = makeTables(
     options.prefix,
@@ -200,6 +201,18 @@ const makeCampaign = (options: {
           },
           queue.shift()
         );
+        if (options.movePendingRowBehindCursor && batches === 1) {
+          const moved = await (ctx.db as GenericDatabaseWriter<any>)
+            .query(`${options.prefix}_children`)
+            .withIndex('by_parent_rank', (q: any) =>
+              q.eq('parentId', parentId).eq('rank', 25)
+            )
+            .first();
+          if (!moved) {
+            throw new Error('expected a pending child at rank 25');
+          }
+          await ctx.db.patch(moved._id, { rank: -1 });
+        }
         if (paginates.calls > 1) {
           throw new Error(
             `batch ${batches} ran ${paginates.calls} paginated queries; Convex allows one per function execution`
@@ -267,6 +280,19 @@ describe('ORM soft cascade delete read amplification', () => {
     const run = makeCampaign({
       prefix: 'csd_wider',
       childIndexFields: 'wider',
+    });
+
+    const result = await run(100);
+
+    expect(result.pending).toBe(0);
+    expect(result.scanned).toBeLessThanOrEqual(200);
+  }, 60_000);
+
+  test('a pending row moved behind a wider-index cursor is still deleted', async () => {
+    const run = makeCampaign({
+      prefix: 'csd_moved',
+      childIndexFields: 'wider',
+      movePendingRowBehindCursor: true,
     });
 
     const result = await run(100);

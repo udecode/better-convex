@@ -5,6 +5,7 @@ import type {
 } from 'convex/server';
 import { createDatabase } from './database';
 import type { EdgeMetadata } from './extractRelationsConfig';
+import { getIndexes } from './index-utils';
 import {
   applyIncomingForeignKeyActionsOnDelete,
   type CascadeMode,
@@ -235,24 +236,46 @@ export function scheduledMutationBatchFactory<
           return builder;
         }
       );
-    // Continuation is a forwarded pagination cursor only for soft cascade.
-    // Every other action rewrites the indexed foreign key columns or removes the
-    // row outright, which moves rows relative to a cursor taken before those
-    // mutations — and drops them out of the range, so re-querying from null is
-    // already linear there. Soft cascade moves nothing: `deletionTime` is not an
-    // indexed column, so the page resumes exactly where the last batch stopped.
+    const foreignIndexFields = getIndexes(table).find(
+      (candidate) => candidate.name === args.foreignIndexName
+    )?.fields;
+    const hasExactForeignIndex =
+      foreignIndexFields?.length === sourceColumns.length &&
+      foreignIndexFields.every(
+        (field, index) => field === sourceColumns[index]
+      );
+    const queryInStableOrder = () =>
+      (ctx.db.query(args.table) as any).filter((q: any) => {
+        let expression = q.eq(q.field(sourceColumns[0]), targetValues[0]);
+        for (let i = 1; i < sourceColumns.length; i += 1) {
+          expression = q.and(
+            expression,
+            q.eq(q.field(sourceColumns[i]), targetValues[i])
+          );
+        }
+        return expression;
+      });
+    const useStableTableOrder = isSoftCascade && !hasExactForeignIndex;
+
+    // A cursor on an exact foreign-key index is stable because the campaign
+    // pins every declared key field. A prefix index is not: another mutation
+    // can move a pending row behind the cursor by changing a trailing field.
+    // Traverse the table's immutable creation order in that case and bound the
+    // scanned rows per transaction. The campaign still reads every source row
+    // at most once instead of replaying the matching range.
     //
     // Rows this campaign already stamped must not be filtered out of the query.
     // Convex reads them either way — a `.filter()` only hides them from the page
     // while still paying for the scan — and excluding the cursor's own row from
     // the result strands the cursor. They are skipped in JS below instead.
     //
-    // Resuming means a row inserted behind the cursor mid-campaign is not picked
-    // up. That is inherent to not re-reading the range, and the race was never
-    // settled anyway: the campaign could have passed that key before the insert.
-    const paged = await queryWithIndex().paginate({
+    const paged = await (useStableTableOrder
+      ? queryInStableOrder()
+      : queryWithIndex()
+    ).paginate({
       cursor: isSoftCascade ? args.cursor : null,
       numItems: args.batchSize,
+      ...(useStableTableOrder ? { maximumRowsRead: args.batchSize } : {}),
     });
     const resolvedMaxBytesPerBatch = args.maxBytesPerBatch ?? maxBytesPerBatch;
     const bounded = takeRowsWithinByteBudget(
