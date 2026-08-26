@@ -4,4 +4,4 @@
 
 ## Patches
 
-- Fix soft cascade delete re-reading every child it had already processed. Exact foreign-key indexes resume from their cursor; prefix indexes traverse stable creation order so concurrent updates to trailing index fields cannot strand a child. Scheduled campaigns stay linear instead of failing on Convex's read limit.
+- Fix soft cascade delete re-reading every child it had already processed. Scheduled campaigns resume through an exact foreign-key index, keeping reads linear without allowing mutable trailing index fields to strand a child. Async soft cascades reject prefix-only indexes with setup guidance.

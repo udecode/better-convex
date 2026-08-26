@@ -390,10 +390,15 @@ Implementation notes:
   byte-budget one, which cross-validates the measurement.
 - `packages/kitcn/src/orm/cascade-soft-delete.read-amplification.vitest.ts` —
   new. Linear scaling at two table sizes, byte-truncation convergence, a
-  prefix-only foreign key index, and a per-invocation `.paginate()` call guard
-  for the single-paginated-query limit convex-test does not model.
+  prefix-only index rejection, exact-index selection ahead of a wider index,
+  and a per-invocation `.paginate()` call guard for the single-paginated-query
+  limit convex-test does not model.
 - `convex/orm/limits.stress.test.ts` — new env-gated 4k-descendant soft cascade
   case asserting both convergence and the read bound.
+- Docs sync coverage: `www/content/docs/orm/schema/indexes-constraints.mdx`
+  Actions maps to `packages/kitcn/skills/kitcn/references/features/orm.md`
+  Constraints. The exact-index rule is a kitcn/Convex runtime delta; no parity
+  content was dropped, and the feature reference remains its published owner.
 
 Review fixes:
 - Cycle 1 (`autoreview --mode local --engine claude`), 2 P0s, both accepted:
@@ -491,8 +496,8 @@ Source-listed case matrix:
 | Read-limit blowout at scale | campaign dies mid-flight past Convex's read limit | limits.stress.test.ts, 4000 descendants | 117,177 scanned | linear, campaign drains | 8,152 scanned, all 4000 stamped | pass |
 | Byte-budget truncation | not in the source; found while fixing | same vitest file, budget fits ~1 row of 10 | 4214 scanned pre-fix | no row skipped, no page replayed, page size settles | 82 scanned, 0 pending over 62 batches | pass |
 | One paginated query per execution | not in the source; found in review | paginate-call counter per worker invocation in the same vitest file | 2 calls on a truncated batch | at most 1 | guard fails at 2, passes at 1 | pass |
-| Prefix-only FK index | not in the source; found while fixing | same vitest file, index on (parentId, rank) | n/a | stable linear traversal | 100 children, <=200 scanned, 0 pending | pass |
-| Pending row moves behind cursor | P1 autoreview at synced head | same vitest file, rank 25 moves behind progress after batch 1 | 1 child stranded | stable traversal cannot skip it | red at 1 pending, green at 0 pending and <=200 scanned | pass |
+| Prefix-only FK index | P1 autoreview at synced head | same vitest file, only index on (parentId, rank) | unsafe cursor or whole-table amplification | reject before scheduling | clear exact-index error | pass |
+| Pending row moves behind cursor | P1 autoreview at synced head | same vitest file, wider index declared before exact index; rank 25 moves behind progress after batch 1 | 1 child stranded when wider cursor is used | select exact index | red at 1 pending, green at 0 pending and <=200 scanned | pass |
 | Hard cascade unaffected | issue states hard mode is fine | limits.stress.test.ts existing cases C/D | passing | still passing | 12/12 stress cases pass | pass |
 
 Final handoff contract:
@@ -508,15 +513,15 @@ Final handoff contract:
 - Outcome: a full soft cascade delete campaign now reads a linear number of
   rows. 4000 descendants dropped from 117,177 scanned to 8,152, and every child
   is still soft-deleted.
-- Caveat: a prefix-only foreign-key index uses stable source-table order, so
-  reads scale with the source table rather than only the matching range. Declare
-  an exact foreign-key index for the narrowest scan.
+- Caveat: async soft cascade requires an exact foreign-key index. A prefix-only
+  index is rejected because neither its mutable cursor nor a whole-table scan is
+  safe at scale.
 - Design:
   - Chosen boundary: the cascade worker's continuation strategy. Soft cascade
-    forwards an exact foreign-key index cursor. A prefix index uses immutable
-    source-table order because mutable trailing fields can move pending rows
-    behind progress. Every other action keeps re-querying from null because
-    processed rows leave the range.
+    selects and forwards an exact foreign-key index cursor, even when a wider
+    prefix index is declared first. Prefix-only schemas fail before scheduling.
+    Every other action keeps re-querying from null because processed rows leave
+    the range.
   - Why not quick patch: the issue's recommended `_creationTime` watermark is
     unsound. `_creationTime` is not unique within a Convex table, and `.gt`
     excludes every tie-twin regardless of `_id`, so it can silently drop an
@@ -555,17 +560,23 @@ Final handoff / sync:
 - PR: https://github.com/udecode/kitcn/pull/422
 - Issue: #407, linked by the PR body's `🐛 Fixes #407` line.
 - Browser proof: N/A, no browser or rendered surface.
-- Caveats: prefix-only foreign-key indexes scan stable source-table order; use
-  an exact index to limit reads to the matching range.
+- Caveats: async soft cascade requires an exact foreign-key index; prefix-only
+  schemas fail with setup guidance.
 
 Timeline:
 - 2026-08-21T19:29:28.675Z Task goal plan created.
 - 2026-08-26 Autoclosure source sync exposed a P1 concurrency regression. A
   red test stranded one child after its trailing index key moved behind the
-  cursor; stable source-table traversal repaired it without replaying rows.
+  cursor. A whole-table fallback fixed correctness but failed review for
+  cross-parent amplification. The final repair requires and selects an exact
+  foreign-key index before scheduling.
 - 2026-08-26 Closeout proof: focused regression 4/4, limit stress 12/12, root
   typecheck 5/5 tasks, lint clean, package build green, and `bun check` green
-  with 1360 Bun tests plus 927 Vitest tests.
+  with 1361 Bun tests plus 927 Vitest tests.
+- 2026-08-26 Agent-native review: PASS. The user action (configure async soft
+  cascade), agent route (kitcn ORM reference), source owner (ORM mutation
+  runtime), public docs, generated mirror, and focused proof are all present.
+  Source/mirror diff and intent validation are green; no actionable findings.
 
 Reboot status:
 | Question | Answer |
@@ -578,7 +589,7 @@ Reboot status:
 
 Open risks:
 - Exact foreign-key index continuation relies on its declared fields remaining
-  pinned for the campaign. Prefix indexes deliberately avoid that assumption.
+  pinned for the campaign. Prefix-only indexes are rejected.
 - convex-test resolves a cursor by scanning for its `_id` in the query result,
   so a test where the cursor's row is hard-deleted by unrelated work would end
   the campaign silently. Real Convex is unaffected. Not reachable in the soft

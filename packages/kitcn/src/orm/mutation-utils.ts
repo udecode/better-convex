@@ -26,7 +26,11 @@ import {
   isFieldReference,
   matchLikePattern,
 } from './filter-expression';
-import { findIndexForColumns, getIndexes } from './index-utils';
+import {
+  findExactIndexForColumns,
+  findIndexForColumns,
+  getIndexes,
+} from './index-utils';
 import type { TablesRelationalConfig } from './relations';
 import type { RlsContext } from './rls/types';
 import type {
@@ -1430,12 +1434,13 @@ export type DeleteMode = OrmDeleteMode;
 export type CascadeMode = 'hard' | 'soft';
 
 function getIndexForForeignKey(
-  foreignKey: IncomingForeignKeyDefinition
+  foreignKey: IncomingForeignKeyDefinition,
+  exact = false
 ): string | null {
-  return findIndexForColumns(
-    getIndexes(foreignKey.sourceTable),
-    foreignKey.sourceColumns
-  );
+  const indexes = getIndexes(foreignKey.sourceTable);
+  return exact
+    ? findExactIndexForColumns(indexes, foreignKey.sourceColumns)
+    : findIndexForColumns(indexes, foreignKey.sourceColumns);
 }
 
 function foreignKeyIndexError(foreignKey: IncomingForeignKeyDefinition): Error {
@@ -1686,7 +1691,19 @@ export async function applyIncomingForeignKeyActionsOnDelete(
       continue;
     }
 
-    const indexName = getIndexForForeignKey(foreignKey);
+    const requiresExactIndex =
+      options.executionMode === 'async' &&
+      options.cascadeMode === 'soft' &&
+      action === 'cascade';
+    const indexName = getIndexForForeignKey(foreignKey, requiresExactIndex);
+
+    if (requiresExactIndex && !indexName) {
+      throw new Error(
+        `Async soft cascade on '${foreignKey.sourceTableName}' requires an exact foreign-key index on (${foreignKey.sourceColumns.join(
+          ', '
+        )}). Prefix indexes with trailing fields cannot provide stable scheduled continuation.`
+      );
+    }
 
     if (action === 'restrict' || action === 'no action') {
       if (!indexName && !options.allowFullScan) {

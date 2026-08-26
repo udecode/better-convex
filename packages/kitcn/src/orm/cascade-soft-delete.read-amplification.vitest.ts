@@ -31,6 +31,7 @@ import {
  */
 
 const BATCH_SIZE = 10;
+const EXACT_FOREIGN_KEY_INDEX_ERROR = /exact foreign-key index/i;
 
 /**
  * Convex rejects a second paginated query in one function execution with
@@ -67,7 +68,10 @@ const countPaginateCalls = (ctx: { db: GenericDatabaseWriter<any> }) => {
   return counts;
 };
 
-const makeTables = (prefix: string, childIndexFields: 'exact' | 'wider') => {
+const makeTables = (
+  prefix: string,
+  childIndexFields: 'exact' | 'wider' | 'both'
+) => {
   const parents = convexTable(
     `${prefix}_parents`,
     {
@@ -85,9 +89,12 @@ const makeTables = (prefix: string, childIndexFields: 'exact' | 'wider') => {
       deletionTime: integer(),
     },
     (t) => [
-      childIndexFields === 'exact'
-        ? index('by_parent').on(t.parentId)
-        : index('by_parent_rank').on(t.parentId, t.rank),
+      ...(childIndexFields === 'exact'
+        ? [index('by_parent').on(t.parentId)]
+        : [index('by_parent_rank').on(t.parentId, t.rank)]),
+      ...(childIndexFields === 'both'
+        ? [index('by_parent').on(t.parentId)]
+        : []),
       foreignKey({
         columns: [t.parentId],
         foreignColumns: [parents.id],
@@ -99,7 +106,7 @@ const makeTables = (prefix: string, childIndexFields: 'exact' | 'wider') => {
 
 const makeCampaign = (options: {
   prefix: string;
-  childIndexFields: 'exact' | 'wider';
+  childIndexFields: 'exact' | 'wider' | 'both';
   payloadBytes?: number;
   maxBytesPerBatch?: number;
   movePendingRowBehindCursor?: boolean;
@@ -273,25 +280,19 @@ describe('ORM soft cascade delete read amplification', () => {
     expect(result.scanned).toBeLessThanOrEqual(60 * 3);
   }, 60_000);
 
-  test('a foreign key index with trailing fields is bounded the same way', async () => {
-    // The foreign key columns are only a prefix of this index, so the scan is
-    // ordered by `rank` before Convex's trailing keys. Resuming must not depend
-    // on the shape of the index.
+  test('an unsafe prefix-only foreign key index is rejected', async () => {
     const run = makeCampaign({
       prefix: 'csd_wider',
       childIndexFields: 'wider',
     });
 
-    const result = await run(100);
-
-    expect(result.pending).toBe(0);
-    expect(result.scanned).toBeLessThanOrEqual(200);
+    await expect(run(100)).rejects.toThrow(EXACT_FOREIGN_KEY_INDEX_ERROR);
   }, 60_000);
 
-  test('a pending row moved behind a wider-index cursor is still deleted', async () => {
+  test('an exact index stays stable when a wider index field moves', async () => {
     const run = makeCampaign({
       prefix: 'csd_moved',
-      childIndexFields: 'wider',
+      childIndexFields: 'both',
       movePendingRowBehindCursor: true,
     });
 

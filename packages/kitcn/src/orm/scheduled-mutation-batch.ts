@@ -244,38 +244,28 @@ export function scheduledMutationBatchFactory<
       foreignIndexFields.every(
         (field, index) => field === sourceColumns[index]
       );
-    const queryInStableOrder = () =>
-      (ctx.db.query(args.table) as any).filter((q: any) => {
-        let expression = q.eq(q.field(sourceColumns[0]), targetValues[0]);
-        for (let i = 1; i < sourceColumns.length; i += 1) {
-          expression = q.and(
-            expression,
-            q.eq(q.field(sourceColumns[i]), targetValues[i])
-          );
-        }
-        return expression;
-      });
-    const useStableTableOrder = isSoftCascade && !hasExactForeignIndex;
-
     // A cursor on an exact foreign-key index is stable because the campaign
-    // pins every declared key field. A prefix index is not: another mutation
-    // can move a pending row behind the cursor by changing a trailing field.
-    // Traverse the table's immutable creation order in that case and bound the
-    // scanned rows per transaction. The campaign still reads every source row
-    // at most once instead of replaying the matching range.
+    // pins every declared key field. Reject a prefix index defensively: another
+    // mutation can move a pending row behind its cursor by changing a trailing
+    // field, while a table scan would amplify each cascade across unrelated
+    // rows. Normal scheduling selects the exact index before creating this job.
+    if (isSoftCascade && !hasExactForeignIndex) {
+      throw new Error(
+        `scheduledMutationBatch: async soft cascade on '${args.table}' requires an exact foreign-key index on (${sourceColumns.join(
+          ', '
+        )}).`
+      );
+    }
+
     //
     // Rows this campaign already stamped must not be filtered out of the query.
     // Convex reads them either way — a `.filter()` only hides them from the page
     // while still paying for the scan — and excluding the cursor's own row from
     // the result strands the cursor. They are skipped in JS below instead.
     //
-    const paged = await (useStableTableOrder
-      ? queryInStableOrder()
-      : queryWithIndex()
-    ).paginate({
+    const paged = await queryWithIndex().paginate({
       cursor: isSoftCascade ? args.cursor : null,
       numItems: args.batchSize,
-      ...(useStableTableOrder ? { maximumRowsRead: args.batchSize } : {}),
     });
     const resolvedMaxBytesPerBatch = args.maxBytesPerBatch ?? maxBytesPerBatch;
     const bounded = takeRowsWithinByteBudget(
