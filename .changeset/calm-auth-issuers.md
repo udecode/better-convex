@@ -9,6 +9,14 @@
   first: the old schema rejects new fields, while the required schema rejects
   old rows.
 
+```ts
+// Before
+const account = { accountId, providerId, userId };
+
+// After
+const account = { accountId, issuer, providerId, userId };
+```
+
 ### Deployment 1: optional fields and backfills
 
 Stop authentication writes, background jobs, and admin APIs that write

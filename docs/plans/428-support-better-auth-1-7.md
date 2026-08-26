@@ -438,6 +438,7 @@ Error attempts:
 | Exact-head review found live-write, Microsoft subject, and team-counter migration gaps | 1 | Keep auth writes quiesced across both deployments, map Microsoft `sub` to verified `oid`, and backfill each team's indexed member count | The changeset now covers every required Convex data transition before schema hardening. |
 | Follow-up review treated optional `membershipKey` as required and used the public team ID | 1 | Generate the exact 1.7 Convex schema and inspect adapter fallback/ID mapping | Guidance records that `membershipKey` is optional and counts members with the raw team's `_id`. |
 | Exact-head review found falsy query-mode `incrementOne` acknowledgement | 1 | Read Better Auth 1.7 rate-limiter consumers and add a red regression test | Suppressed writes return `{}` without calling the mutation adapter; the focused test is green. |
+| Terminal feedback refresh exposed two delayed changeset P1s | 1 | Re-read the live changeset inventory/rule and add the missing comparison | Duplicate-draft claim was stale after the main release; the valid Before/After requirement is repaired. |
 
 Verification evidence:
 - `bun test` focused auth/dependency set: 100 passed; factory suite: 19 passed.
