@@ -1,5 +1,5 @@
 import { getAuthTables } from 'better-auth/db';
-import { organization } from 'better-auth/plugins';
+import { deviceAuthorization, organization } from 'better-auth/plugins';
 import { createSchemaExtensionOrm, createSchemaOrm } from './create-schema-orm';
 
 const tables = {
@@ -117,6 +117,32 @@ describe('createSchemaOrm', () => {
     expect(result.code).toContain('accounts: r.many.account({');
   });
 
+  test('preserves declared compound-index order and reversed sequences', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: {
+        lookup: {
+          fields: {
+            organizationId: { required: true, type: 'string' },
+            userId: { required: true, type: 'string' },
+          },
+          indexes: [
+            { fields: ['userId', 'organizationId'], unique: true },
+            { fields: ['organizationId', 'userId'] },
+          ],
+          modelName: 'lookup',
+        },
+      } as any,
+    });
+
+    expect(result.code).toContain(
+      'uniqueIndex("userId_organizationId").on(lookupTable.userId, lookupTable.organizationId)'
+    );
+    expect(result.code).toContain(
+      'index("organizationId_userId").on(lookupTable.organizationId, lookupTable.userId)'
+    );
+  });
+
   test('generates ORM extension code for scaffold-owned plugin schema files', async () => {
     const result = await createSchemaExtensionOrm({
       extensionKey: 'auth',
@@ -171,6 +197,32 @@ describe('createSchemaOrm', () => {
     expect(result.code).toContain('from: r.user.personalOrganizationId,');
     expect(result.code).toContain('activeOrganization: r.one.organization({');
     expect(result.code).toContain('from: r.session.activeOrganizationId,');
+  });
+
+  test('generates the Better Auth 1.7 account identity constraint', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ emailAndPassword: { enabled: true } }),
+    });
+
+    expect(result.code).toContain('issuer: text().notNull(),');
+    expect(result.code).toContain(
+      'uniqueIndex("issuer_accountId").on(accountTable.issuer, accountTable.accountId)'
+    );
+  });
+
+  test('indexes Better Auth 1.7 device authorization lookups', async () => {
+    const result = await createSchemaOrm({
+      file: 'auth/schema.ts',
+      tables: getAuthTables({ plugins: [deviceAuthorization({})] }),
+    });
+
+    expect(result.code).toContain(
+      'uniqueIndex("deviceCode").on(deviceCodeTable.deviceCode)'
+    );
+    expect(result.code).toContain(
+      'uniqueIndex("userCode").on(deviceCodeTable.userCode)'
+    );
   });
 
   test('indexes the organization plugin composite query shapes', async () => {
