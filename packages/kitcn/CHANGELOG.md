@@ -1,5 +1,73 @@
 # kitcn
 
+## 0.32.0
+
+### Minor Changes
+
+- [#425](https://github.com/udecode/kitcn/pull/425) [`495eb0b`](https://github.com/udecode/kitcn/commit/495eb0b2bd285484250ca69d75de135287531bbb) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Cursor pages for an index-union filter with no `orderBy` are now in the order of the index the read walks, grouped by the probed value, instead of creation order. Add `orderBy` to keep newest-first paging.
+
+  ```ts
+  // Before
+  const page = await db.query.users.withIndex("by_status").findMany({
+    where: { status: { in: ["active", "pending"] } },
+    cursor: null,
+    limit: 20,
+    maxScan: 500,
+  });
+
+  // After
+  const page = await db.query.users.withIndex("by_status").findMany({
+    where: { status: { in: ["active", "pending"] } },
+    orderBy: { createdAt: "desc" },
+    cursor: null,
+    limit: 20,
+  });
+  ```
+
+  ## Features
+
+  - Page `in`, `notIn`, `ne`, and same-field equality `OR` filters from one index range per value instead of scanning the table. Cursor pagination over these filters no longer needs `maxScan`, and `orderBy` sorts across the whole result rather than per value.
+
+  ## Patches
+
+  - Fix `select()` composition and `endCursor` pagination reading a whole index instead of the compiled index ranges when the filter is an index union.
+  - Keep no-`orderBy` cursor direction consistent when `endCursor` routes an index union through the advanced stream path.
+  - Prevent `endCursor` narrowing from reopening disjoint equality ranges and duplicating merged-stream rows.
+  - Fix cursor pagination with a residual post-filter reading a whole index instead of the compiled index ranges when the filter is an index union.
+  - Fall back to a bounded scan when the probed index cannot supply the requested `orderBy` or the union is wider than 64 ranges.
+
+### Patch Changes
+
+- [#426](https://github.com/udecode/kitcn/pull/426) [`466623c`](https://github.com/udecode/kitcn/commit/466623c8b581c38a066fa078309d25cfab166ea7) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix a multi-field `orderBy` reading the whole table even when a declared
+    compound index already produces that exact order. `orderBy: [asc(type),
+asc(numLikes)]` with `limit: 5` against an index on `(type, numLikes)` now
+    reads 5 documents instead of every row, at any table size — previously the
+    read cost was the same whether you asked for 5 rows or 50. The same bound
+    applies to relations: `with: { posts: { orderBy: { numLikes: 'asc' },
+limit: 2 } }` now reads 2 children per parent instead of all of them.
+  - Prefer an index that supplies more of the requested sort when several serve
+    the filter equally well, so `(orgId, createdAt, title)` is chosen over
+    `(orgId, createdAt)` for a sort on both `createdAt` and `title`. An index with
+    another unrequested key after `title` is not treated as an exact sort because
+    that key would change which tied rows survive `limit`.
+  - Stop warning that secondary `orderBy` fields are unstable across pages when
+    the index carries the whole sort. A Convex cursor is the index key, so those
+    pages are stable. The warning still fires — with corrected wording — when no
+    index serves the full sort and the extra fields really are dropped.
+  - Sorts that mix directions, skip an index key, or run over a column that can
+    be missing or null keep using the post-fetch sort, so row order and null
+    placement are unchanged.
+  - Use Convex value ordering for non-null post-fetch values, including UTF-8
+    strings, signed zero, and NaN, so an index-backed top-k and its post-fetch
+    fallback select the same rows.
+  - Preserve the existing implicit creation-time tie order when an
+    equality-pinned leading sort field points opposite to the moving fields.
+    Add `createdAt` in the moving direction to make that sort index-bounded.
+
 ## 0.31.1
 
 ### Patch Changes
