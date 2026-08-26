@@ -722,7 +722,7 @@ Timeline:
   create-orm, codegen, backfill, CLI, tests, fixtures, and docs.
 - Red: 3 failing tests added to `runtime.vitest.ts` against current code.
 - Implemented `by_started_at` index, bounded indexed read, `limit` clamp,
-  reader ctx widening, `internalQuery` seam, codegen registry + emitters.
+  reader ctx widening, `internalQuery` passthrough, codegen registry + emitters.
 - Green: 11 focused tests.
 - Adversarial review pass: accepted the tie-break, clamp, `internalQuery`
   passthrough, export, and docs findings; rejected the `by_status` reshape and
@@ -730,6 +730,10 @@ Timeline:
 - Regenerated root `convex/`, `example/`, and all 8 fixtures with the local CLI.
 - Full gates: lint, typecheck, `test`, `test:cli`, `test:concave`,
   `fixtures:sync`, `fixtures:check` all green.
+- Autoclosure source sync merged current `main`. The full gate exposed five
+  red returning-count integration tests whose local ORM factory only supplied
+  the mutation builder. Supplying the query builder made all five green and
+  preserves the production query contract.
 
 Reboot status:
 | Question | Answer |

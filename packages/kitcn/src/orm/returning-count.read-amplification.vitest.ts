@@ -48,6 +48,7 @@ const buildOrm = (schema: any) =>
       scheduledMutationBatch: {} as any,
     },
     internalMutation: ((definition: unknown) => definition) as never,
+    internalQuery: ((definition: unknown) => definition) as never,
   });
 
 const runBackfillToReady = async (api: any, db: any) => {
