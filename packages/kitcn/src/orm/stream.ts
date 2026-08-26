@@ -851,6 +851,25 @@ export class OrderedStreamQuery<
       minUpperBound = indexBounds.upperBound;
       minUpperBoundInclusive = indexBounds.upperBoundInclusive;
     }
+    const lowerPosition = {
+      value: maxLowerBound,
+      kind: maxLowerBoundInclusive
+        ? ('predecessor' as const)
+        : ('successor' as const),
+    };
+    const upperPosition = {
+      value: minUpperBound,
+      kind: minUpperBoundInclusive
+        ? ('successor' as const)
+        : ('predecessor' as const),
+    };
+    if (compareKeys(lowerPosition, upperPosition) >= 0) {
+      return new EmptyStream(
+        order,
+        this.getIndexFields(),
+        this.getEqualityIndexFilter()
+      );
+    }
     return streamIndexRange(
       db,
       schema,
@@ -1622,7 +1641,11 @@ export class SingletonStream<
         this.#equalityIndexFilter
       );
     }
-    return new EmptyStream(this.#order, this.#indexFields);
+    return new EmptyStream(
+      this.#order,
+      this.#indexFields,
+      this.#equalityIndexFilter
+    );
   }
 }
 
@@ -1669,12 +1692,18 @@ export function indexKeyWithinBounds(
  * towards maxScan.
  */
 export class EmptyStream<T extends GenericStreamItem> extends QueryStream<T> {
+  #equalityIndexFilter: Value[];
   #order: 'asc' | 'desc';
   #indexFields: string[];
-  constructor(order: 'asc' | 'desc', indexFields: string[]) {
+  constructor(
+    order: 'asc' | 'desc',
+    indexFields: string[],
+    equalityIndexFilter: Value[] = []
+  ) {
     super();
     this.#order = order;
     this.#indexFields = indexFields;
+    this.#equalityIndexFilter = equalityIndexFilter;
   }
   iterWithKeys(): AsyncIterable<[T | null, IndexKey]> {
     return {
@@ -1694,7 +1723,7 @@ export class EmptyStream<T extends GenericStreamItem> extends QueryStream<T> {
     return this.#indexFields;
   }
   getEqualityIndexFilter(): Value[] {
-    return [];
+    return this.#equalityIndexFilter;
   }
   narrow(_indexBounds: IndexBounds) {
     return this;
