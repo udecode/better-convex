@@ -290,12 +290,12 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | original RED/green proof retained; source-synced focused ORM suite -> 165 passed, 1 skipped; `bun check` -> exit 0 |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | original RED/green proof retained; final focused ORM suite -> 167 passed, 1 skipped; `bun check` -> exit 0 |
 | Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #426, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | valid; one constraint corrected (nullable guard is multi-spec only) |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level test repro reproduced it; browser/visual N/A (no rendered output) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | expected 60 to be 5 on a 60-row table with limit 5 |
-| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | original convex/orm and Bun unit proof retained; source-synced focused ORM suite -> 165 passed, 1 skipped |
+| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | original convex/orm and Bun unit proof retained; final focused ORM suite -> 167 passed, 1 skipped; 52 scorer/pushdown owner tests passed |
 | TypeScript or typed config changed | yes | Run relevant typecheck | bun typecheck -> 5 tasks successful |
 | Package exports or file layout changed | no | Run the relevant package build before final verification and keep generated updates | N/A: no export or layout change; bun --cwd packages/kitcn build still run for the dist-dependent convex tests |
 | Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant package checks | N/A: no manifest or lockfile change |
@@ -321,7 +321,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head review found one real P1 in pinned-order index scoring, repaired with RED/green owner tests; immutable-head rerun is recorded in the terminal receipt |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 2 real P1s in pinned-order scoring and non-null value ordering, both repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -340,7 +340,7 @@ Phase / pass table:
 | Implementation | done | helper rewrite + 5 call sites + index scoring + docs + changeset | verification |
 | Verification | done | 8/8 new tests, 879 vitest, 1323 bun test, typecheck, lint, build | closeout |
 | Commit / PR / GitHub sync | done | `bun check` green, pushed, PR #426 opened with the task-style body | final response |
-| Closeout | done | source-synced branch autoreview clean; full `bun check` green | terminal GitHub receipt and merge |
+| Closeout | done | both exact-head P1s repaired; final full `bun check` green | immutable-head review, terminal GitHub receipt, and merge |
 
 Findings:
 - Two independent blanket bails, exactly as the issue said: the helper's arity
@@ -368,10 +368,10 @@ Findings:
 - Index scoring only ever looked at `orderFields[0]`, so without widening it the
   planner would keep picking a shorter index and the fix would rarely fire on
   `where` + multi-field sorts.
-- `convex-test` vendors its own fork of Convex's `compareValues`. Ranks for
-  `undefined`/`null` match, so the null-placement evidence transfers; string
-  (supplementary-plane), `-0`, and NaN ordering do not. The regression fixtures
-  deliberately use ASCII strings and small positive integers.
+- `convex-test` vendors its own index comparator, and its supplementary-plane
+  string order differs from production Convex. Edge-value executable proof
+  therefore targets the ORM post-fetch owner, while the production index order
+  is sourced from Convex's exported `compareValues` contract.
 
 Decisions and tradeoffs:
 - Nullability travels on `OrderSpec` rather than as a new helper parameter, so
@@ -386,9 +386,10 @@ Decisions and tradeoffs:
 - Kept `needsPostFetchSortForPrimary` separate from the whole-sort answer. Fusing
   them would make an index that anchors the primary but not the tie-break report
   itself as unindexed, which throws under strict cursor pagination.
-- Left `_compareByOrderSpecs` alone. Aligning it with Convex's value order would
-  fix the pre-existing single-field null divergence but is a breaking change and
-  needs user sign-off (recorded under Open risks).
+- `_compareByOrderSpecs` now delegates every non-null comparison to Convex's
+  exported `compareValues`, so UTF-8 strings, signed zero, NaN, and mixed Convex
+  value types agree with index order. The existing nulls-last policy remains;
+  nullable multi-field sorts therefore still decline pushdown.
 - Accepted multi-probe cursor plans use the probe-union streams introduced by
   #425, where every probe owns its index range and direction. Rejected unions
   and scan fallback remain budgeted fallback reads. This task does not claim a
@@ -430,12 +431,18 @@ Review fixes:
   bound. The scorer now skips those fixed sort fields before matching moving
   index keys. RED/green tests cover equality-pinned fields at the start and end
   of the sort list, the pinned-only narrow-index case, and probe selection.
+- The next exact-head review found a second real P1: JavaScript relational
+  comparison differs from Convex index order for legal UTF-8 and Float64 edge
+  values. The post-fetch comparator now uses Convex `compareValues` for non-null
+  values. RED/green tests cover supplementary Unicode, signed zero, and NaN;
+  null placement remains unchanged and guarded from multi-field pushdown.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
 | Source-sync conflict in `packages/kitcn/src/orm/query.ts` | 1 | Resolve from the current owners: #425's unified stream planner plus #426's `OrderSpec` and resolved direction | typecheck, focused tests, package build, branch review, and full `bun check` passed |
 | Exact-head autoreview P1 in candidate-index scoring | 1 | Add the missing narrow-vs-compound regression before changing the scorer | RED selected `by_type`; repair selects `by_type_likes`, with pinned-only and probe cases green |
+| Exact-head autoreview P1 in value-order equivalence | 1 | Reproduce the UTF-8 mismatch, then use Convex's public comparator at the post-fetch owner | RED put emoji before U+E000; repair follows Convex UTF-8, signed-zero, and NaN order |
 
 Verification evidence:
 - cwd for every command below: /Users/mikey/conductor/workspaces/kitcn/dakar
@@ -468,6 +475,14 @@ Verification evidence:
   package build -> 72 files, 1623.03 kB; intent validation -> current.
 - P1 repair `bun check` -> exit 0: 1,400 Bun tests, 958 Vitest tests, CLI,
   Concave, all fixture comparisons, and bare/Expo/Next/Start/Vite runtime lanes.
+- Value-order RED: post-fetch sort put emoji before U+E000, opposite Convex
+  UTF-8 order.
+- Value-order repair: final focused ORM suite -> 167 passed, 1 skipped; 52 Bun
+  owner tests passed. Supplementary Unicode, signed zero, and NaN are covered.
+- Final `bun typecheck`, lint, package build (72 files, 1623.03 kB), docs/skill
+  sync, and intent validation passed.
+- Final `bun check` -> exit 0: 1,400 Bun tests, 960 Vitest tests, CLI, Concave,
+  all fixture comparisons, and bare/Expo/Next/Start/Vite runtime lanes.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -509,9 +524,10 @@ Final handoff contract:
   - Why not quick patch: narrowing only the helper is a no-op — three call
     sites truncated the spec list and two planner booleans re-decided it on
     arity. Fixing one without the others changes nothing.
-  - Why not broader change: aligning `_compareByOrderSpecs` with Convex's value
-    order would remove the nullable carve-out entirely, but it silently changes
-    shipped single-field results and is a breaking change needing sign-off.
+  - Why not broader change: changing null placement would remove the nullable
+    carve-out entirely, but it silently changes shipped single-field results
+    and remains a breaking change needing sign-off. Non-null values use Convex
+    ordering on every path.
 - Verified: see Verification evidence
 - PR body verified: `gh pr view 426 --json body` — auto-release block preserved, emoji task-style sections present, no self-link
 
@@ -556,6 +572,8 @@ Timeline:
   green.
 - 2026-08-26 Reproduced and repaired the exact-head review P1 in pinned-order
   index scoring; focused and full repository gates passed.
+- 2026-08-26 Reproduced and repaired the exact-head review P1 in non-null value
+  ordering; UTF-8/Float64 edge proof and the full repository gate passed.
 
 Reboot status:
 | Question | Answer |
@@ -587,8 +605,8 @@ Open risks:
   A single-field `orderBy` on a nullable column therefore already returns a
   different null placement depending on whether an index exists. This change
   neither widens nor narrows that; it only refuses to let a multi-field sort
-  inherit it. Aligning the comparator with Convex's value order is the real fix
-  and is a breaking change that needs user sign-off.
+  inherit it. Aligning null placement with Convex is the remaining fix and is a
+  breaking change that needs user sign-off.
 - Pre-existing: a rejected multi-probe plan and scan fallback without a caller
   index use a budgeted unanchored stream. Accepted probe unions are index-backed
   after #425; this task does not broaden their merge-order contract.

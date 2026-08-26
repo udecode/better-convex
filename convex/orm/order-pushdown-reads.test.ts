@@ -135,6 +135,67 @@ test('two-field orderBy returns the same page a post-fetch sort would', async ()
   });
 });
 
+test('post-fetch ordering follows Convex UTF-8 string order', async () => {
+  const t = convexTest(schema);
+  await t.run(async (baseCtx) => {
+    for (const type of ['😀', '\uE000']) {
+      await baseCtx.db.insert('posts', {
+        text: type,
+        numLikes: 0,
+        type,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const postFetchOrdered = await ctx.orm.query.posts.findMany({
+      orderBy: (posts: any, { asc, desc }: any) => [
+        asc(posts.type),
+        desc(posts.numLikes),
+      ],
+      limit: 2,
+    });
+
+    expect(postFetchOrdered.map((row: any) => row.type)).toEqual([
+      '\uE000',
+      '😀',
+    ]);
+  });
+});
+
+test('post-fetch ordering follows Convex float edge order', async () => {
+  const t = convexTest(schema);
+  await t.run(async (baseCtx) => {
+    for (const [text, numLikes] of [
+      ['nan', Number.NaN],
+      ['positive-zero', 0],
+      ['negative-zero', -0],
+      ['one', 1],
+    ] as const) {
+      await baseCtx.db.insert('posts', { text, numLikes, type: 'a' });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const rows = await ctx.orm.query.posts.findMany({
+      orderBy: (posts: any, { asc, desc }: any) => [
+        desc(posts.type),
+        asc(posts.numLikes),
+      ],
+      limit: 4,
+    });
+
+    expect(rows.map((row: any) => row.text)).toEqual([
+      'negative-zero',
+      'positive-zero',
+      'one',
+      'nan',
+    ]);
+  });
+});
+
 test('an `in` union keeps the requested order over the whole union', async () => {
   // Each probe pins `type` to a different value, so the field is constant
   // inside a probe but not across the union. The per-probe truncation is still

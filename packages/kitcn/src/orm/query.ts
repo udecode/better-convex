@@ -1068,11 +1068,9 @@ export class GelRelationalQuery<
         return -1;
       }
 
-      if (aVal < bVal) {
-        return order.direction === 'asc' ? -1 : 1;
-      }
-      if (aVal > bVal) {
-        return order.direction === 'asc' ? 1 : -1;
+      const comparison = compareValues(aVal, bVal);
+      if (comparison !== 0) {
+        return order.direction === 'asc' ? comparison : -comparison;
       }
     }
     return 0;

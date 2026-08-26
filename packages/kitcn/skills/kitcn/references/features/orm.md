@@ -266,6 +266,8 @@ orders by creation time, so `with: { posts: { limit: 5, orderBy: { createdAt:
 when the index carries all of them: `index('by_user_rank').on(t.userId, t.rank)`
 serves `orderBy: { rank: 'asc', createdAt: 'asc' }`, since the FK pins `userId`,
 `rank` is the next key and `createdAt` is Convex's implicit trailing one.
+Non-null values use Convex value ordering on both index-backed and post-fetch
+paths, including UTF-8 strings, signed zero, and NaN.
 Sorting by any other column — or by one that can be missing or `null` — reads
 the parent's whole child partition and sorts in memory; put the sort columns in
 the relation index, in sort order, to stay bounded.

@@ -21,3 +21,6 @@
 - Sorts that mix directions, skip an index key, or run over a column that can
   be missing or null keep using the post-fetch sort, so row order and null
   placement are unchanged.
+- Use Convex value ordering for non-null post-fetch values, including UTF-8
+  strings, signed zero, and NaN, so an index-backed top-k and its post-fetch
+  fallback select the same rows.
