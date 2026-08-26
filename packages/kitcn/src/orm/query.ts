@@ -613,6 +613,25 @@ export class GelRelationalQuery<
    * hands it to the next run rather than re-probing.
    */
   private _aggregateIndexReadinessByKey = new Map<string, Promise<void>>();
+  /**
+   * Documents resolved by id during one execution, keyed on the normalized id.
+   *
+   * A relation `where` never compiles into the index plan, so it runs as a
+   * post-fetch membership predicate over a residual stream — one row at a time.
+   * Every de-duplication map inside the relation loaders is scoped to the batch
+   * it is handed, and a batch of one makes all of them no-ops, so a page whose
+   * rows share two parents re-read those two documents once per scanned row.
+   *
+   * Scoped to one execution, like `_rlsPolicyResolution`: `_executionClaimed`
+   * diverts later executions to a fresh instance, and an execution reads
+   * without writing, so a hit is always the document the caller would have read
+   * for itself. It must not be handed to the next run by `_forExecution` — an
+   * intervening write would make it stale.
+   */
+  private readonly _documentByNormalizedId = new Map<
+    string,
+    Promise<any | null>
+  >();
 
   constructor(
     private schema: TSchema,
@@ -642,6 +661,63 @@ export class GelRelationalQuery<
     super();
     this.allowFullScan = (config as any).allowFullScan === true;
     this._countIndexReadinessByKey = countIndexReadiness ?? new Map();
+  }
+
+  /**
+   * Relation counts for a document the caller is already holding.
+   *
+   * `returning({ _count })` runs inside the mutation that just wrote the row,
+   * so resolving it through `execute()` spends one `db.get` re-reading a
+   * document that is already in the transaction's write set. The count engine
+   * only ever reads the counted edges' source fields off its parent, and the
+   * caller's document carries all of them, so the root read is pure waste.
+   * Everything else `execute()` would have done to that row — the select-plan
+   * assertion and the RLS select filter — still runs here.
+   *
+   * Reached through the static accessor below rather than exposed on the instance:
+   * `GelRelationalQuery` is the declared return type of the public query
+   * builders, so an instance method would land in every user's autocomplete.
+   */
+  private async _countRelationsForHeldRow(
+    row: Record<string, unknown>,
+    countSelection: Record<string, unknown>
+  ): Promise<Record<string, number>> {
+    this._assertRlsSelectPlan(
+      { _count: countSelection },
+      this.tableConfig,
+      this.edgeMetadata,
+      0,
+      3
+    );
+
+    // `_loadRelationCounts` stamps `_count` onto the rows it is handed, and the
+    // caller's document goes on to be patched, cascaded or soft-deleted. Count
+    // against a copy so nothing of ours reaches the write path.
+    const carrier: Record<string, unknown> = { ...row };
+    const visible = await this._applyRlsSelectFilter(
+      [carrier],
+      this.tableConfig
+    );
+    if (visible.length === 0) {
+      return {};
+    }
+
+    await this._loadRelationCounts(
+      visible,
+      countSelection,
+      this.edgeMetadata,
+      this.tableConfig
+    );
+    return (carrier._count ?? {}) as Record<string, number>;
+  }
+
+  /** @internal Accessor for `returning({ _count })`; see `returning-count.ts`. */
+  static countRelationsForHeldRow(
+    query: GelRelationalQuery<any, any, any>,
+    row: Record<string, unknown>,
+    countSelection: Record<string, unknown>
+  ): Promise<Record<string, number>> {
+    return query._countRelationsForHeldRow(row, countSelection);
   }
 
   /**
@@ -7352,9 +7428,24 @@ export class GelRelationalQuery<
       return null;
     }
     const normalizedId = this.db.normalizeId(tableName as any, id as any);
-    return normalizedId === null
-      ? null
-      : await this.db.get(normalizedId as any);
+    if (normalizedId === null) {
+      return null;
+    }
+    // A normalized id encodes its table, so it identifies the read on its own.
+    const existing = this._documentByNormalizedId.get(normalizedId);
+    if (existing) {
+      return await existing;
+    }
+    // Stored before it settles so concurrent relation loaders share one
+    // in-flight read; evicted on rejection so a failure is never cached.
+    const pending = Promise.resolve(this.db.get(normalizedId as any)).catch(
+      (error) => {
+        this._documentByNormalizedId.delete(normalizedId);
+        throw error;
+      }
+    );
+    this._documentByNormalizedId.set(normalizedId, pending);
+    return await pending;
   }
 
   private _getRelationConcurrency(): number {

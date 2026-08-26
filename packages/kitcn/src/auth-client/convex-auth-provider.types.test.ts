@@ -123,6 +123,11 @@ if (activeOrganization) {
   organizationSlug;
 }
 
+authClient.hydrateSession(null);
+authClient.organization.getOrganization({
+  query: { organizationId: "org-id" },
+});
+
 const typedAuthClient: AuthClient = authClient;
 const typedProviderClient: ConvexAuthProviderClient = authClient;
 providerSessionDataIsNotNever;

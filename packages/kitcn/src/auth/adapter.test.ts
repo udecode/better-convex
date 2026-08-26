@@ -242,6 +242,87 @@ describe('adapterConfig', () => {
 });
 
 describe('httpAdapter', () => {
+  test('disables Better Auth native joins through the stable option', () => {
+    const options = { advanced: { database: { joins: true } } };
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const adapterFactory = httpAdapter(
+        { runQuery: mock(async () => ({})) } as any,
+        { authFunctions: {} as any }
+      );
+
+      adapterFactory(options as any);
+
+      expect(options.advanced.database.joins).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        '[kitcn] Better Auth advanced.database.joins is not supported by the Convex adapter yet. Forcing advanced.database.joins = false.'
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('delegates Better Auth atomic mutations to Convex mutations', async () => {
+    const authFunctions = {
+      consumeOne: 'consumeOne',
+      incrementOne: 'incrementOne',
+    } as any;
+    const runMutation = mock(async (handle: string) => {
+      return handle === authFunctions.consumeOne
+        ? { _id: 'verification-1', identifier: 'code' }
+        : { _id: 'rate-limit-1', count: 2, key: 'sign-in' };
+    });
+    const adapter = httpAdapter({ runMutation } as any, { authFunctions })({
+      rateLimit: { enabled: true, storage: 'database' },
+    } as any);
+
+    await expect(
+      adapter.consumeOne({
+        model: 'verification',
+        where: [{ field: 'identifier', value: 'code' }],
+      })
+    ).resolves.toMatchObject({ id: 'verification-1' });
+    await expect(
+      adapter.incrementOne({
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [{ field: 'key', value: 'sign-in' }],
+      })
+    ).resolves.toMatchObject({ count: 2, id: 'rate-limit-1' });
+
+    expect(runMutation).toHaveBeenNthCalledWith(1, 'consumeOne', {
+      input: {
+        model: 'verification',
+        where: [
+          {
+            connector: 'AND',
+            field: 'identifier',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'code',
+          },
+        ],
+      },
+    });
+    expect(runMutation).toHaveBeenNthCalledWith(2, 'incrementOne', {
+      input: {
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [
+          {
+            connector: 'AND',
+            field: 'key',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'sign-in',
+          },
+        ],
+      },
+    });
+    expect('set' in runMutation.mock.calls[1][1].input).toBe(false);
+  });
+
   test('createSchema keeps Convex output when schema is non-ORM', async () => {
     const adapterFactory = httpAdapter(
       { runQuery: mock(async () => ({})) } as any,
@@ -308,7 +389,7 @@ describe('httpAdapter', () => {
     });
 
     const adapterFactory = httpAdapter({ runQuery } as any, {
-      authFunctions: { findMany: 'findMany' } as any,
+      authFunctions: { count: 'count', findMany: 'findMany' } as any,
     });
     const adapter = adapterFactory({} as any);
 
@@ -322,6 +403,9 @@ describe('httpAdapter', () => {
 
     const count = await adapter.count({ model: 'user', where });
     expect(count).toBe(1);
+    // A scalar count cannot reproduce the cross-clause de-duplication, so the
+    // OR branch must never reach the bounded count.
+    expect(runQuery).not.toHaveBeenCalledWith('count', expect.anything());
   });
 
   test('findMany throws when offset is provided', async () => {
@@ -690,9 +774,34 @@ describe('httpAdapter', () => {
     expect(runMutation).not.toHaveBeenCalled();
   });
 
-  test('count totals every page without materializing the table', async () => {
+  test('count reads the bounded count instead of walking pages', async () => {
+    const runQuery = mock(async (handle: unknown) => {
+      if (handle !== 'count') {
+        throw new Error(`findMany must not run for a bounded count: ${handle}`);
+      }
+      return 205;
+    });
+    const adapterFactory = httpAdapter({ runQuery } as any, {
+      authFunctions: { count: 'count', findMany: 'findMany' } as any,
+    });
+    const adapter = adapterFactory({} as any);
+
+    await expect(adapter.count({ model: 'user' })).resolves.toBe(205);
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(runQuery).toHaveBeenCalledWith('count', {
+      model: 'user',
+      where: [],
+    });
+  });
+
+  test('count totals every page when the shape cannot be bounded', async () => {
     let index = 0;
-    const runQuery = mock(async () => {
+    const runQuery = mock(async (handle: unknown) => {
+      // `null` is the handler telling the adapter it cannot bound this shape.
+      if (handle === 'count') {
+        return null;
+      }
+
       index++;
       return {
         continueCursor: `cursor-${index}`,
@@ -705,12 +814,17 @@ describe('httpAdapter', () => {
       };
     });
     const adapterFactory = httpAdapter({ runQuery } as any, {
-      authFunctions: { findMany: 'findMany' } as any,
+      authFunctions: { count: 'count', findMany: 'findMany' } as any,
     });
     const adapter = adapterFactory({} as any);
 
-    await expect(adapter.count({ model: 'user' })).resolves.toBe(205);
-    expect(runQuery).toHaveBeenCalledTimes(2);
+    await expect(
+      adapter.count({
+        model: 'user',
+        where: [{ field: 'email', operator: 'contains', value: '@b.com' }],
+      } as any)
+    ).resolves.toBe(205);
+    expect(runQuery).toHaveBeenCalledTimes(3);
   });
 
   test('update dispatches one mutation and no pre-check query', async () => {
@@ -793,6 +907,44 @@ describe('dbAdapter', () => {
       store,
     };
   };
+
+  test('incrementOne omits an absent optional set from mutation args', async () => {
+    const { ctx } = createMemoryCtx({});
+    const authFunctions = { incrementOne: 'incrementOne' } as any;
+    ctx.runMutation = mock(async () => ({
+      _id: 'rate-limit-1',
+      count: 2,
+      key: 'sign-in',
+    }));
+    const adapter = dbAdapter(ctx, {
+      authFunctions,
+      getBetterAuthSchema,
+      schema,
+    })({ rateLimit: { enabled: true, storage: 'database' } } as any);
+
+    await adapter.incrementOne({
+      increment: { count: 1 },
+      model: 'rateLimit',
+      where: [{ field: 'key', value: 'sign-in' }],
+    });
+
+    expect(ctx.runMutation).toHaveBeenCalledWith('incrementOne', {
+      input: {
+        increment: { count: 1 },
+        model: 'rateLimit',
+        where: [
+          {
+            connector: 'AND',
+            field: 'key',
+            mode: 'sensitive',
+            operator: 'eq',
+            value: 'sign-in',
+          },
+        ],
+      },
+    });
+    expect('set' in ctx.runMutation.mock.calls[0][1].input).toBe(false);
+  });
 
   test('updateMany and deleteMany reject mixed OR and AND where clauses', async () => {
     const { ctx, store } = createMemoryCtx({

@@ -188,17 +188,43 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
           }
           return indexes;
         }, []) || [];
+      const declaredIndexes = (table.indexes ?? []).reduce<
+        Array<string | string[]>
+      >((indexes, index) => {
+        const resolved = index.fields
+          .map((fieldKey) => resolveIndexField(fieldKey))
+          .filter((fieldName): fieldName is string => fieldName !== null);
+
+        if (resolved.length === index.fields.length) {
+          indexes.push(resolved.length === 1 ? resolved[0]! : resolved);
+        }
+
+        return indexes;
+      }, []);
+      const explicitIndexes = manualIndexes.concat(declaredIndexes);
       const specialFieldIndexes = Object.keys(
         specialFields(tables)[key as keyof ReturnType<typeof specialFields>] ||
           {}
       ).filter(
         (index) =>
-          !manualIndexes.some((m) =>
+          !explicitIndexes.some((m) =>
             Array.isArray(m) ? m[0] === index : m === index
           )
       );
+      const seen = new Set<string>();
+      const indexes = explicitIndexes
+        .concat(specialFieldIndexes)
+        .filter((index) => {
+          const key = (Array.isArray(index) ? index : [index]).join('\0');
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
 
-      return [key, manualIndexes.concat(specialFieldIndexes)];
+          return true;
+        });
+
+      return [key, indexes];
     })
   );
 
@@ -273,7 +299,7 @@ export const ${exportName} = {
       mergedIndexFields(tables)[
         tableKey as keyof typeof mergedIndexFields
       ]?.map((index) => {
-        const indexArray = Array.isArray(index) ? index.sort() : [index];
+        const indexArray = Array.isArray(index) ? index : [index];
         const indexName = indexArray.join('_');
 
         return `.index("${indexName}", ${JSON.stringify(indexArray)})`;

@@ -34,6 +34,7 @@ const schedulerStub = {
 
 const passthroughInternalMutation = ((definition: unknown) =>
   definition) as never;
+const passthroughInternalQuery = ((definition: unknown) => definition) as never;
 const METRIC_STATE_KIND = 'metric' as const;
 const RANK_STATE_KIND = 'rank' as const;
 
@@ -109,6 +110,53 @@ const createReadCountingDb = (db: unknown) => {
     },
   });
   return { db: dbProxy, reads };
+};
+
+/**
+ * Count writes per table on top of `createReadCountingDb`.
+ *
+ * Read counts cannot see the cost this guards: rewriting a btree node or an
+ * aggregate bucket that the very next branch deletes is invisible in every row
+ * a query returns. `convex-test` ids are `<n>;<table>`, so the id-first
+ * `patch`/`delete` overloads the btree uses attribute to a table too.
+ */
+const createWriteCountingDb = (db: unknown) => {
+  const { db: readCountingDb, reads } = createReadCountingDb(db);
+  const writes = new Map<string, number>();
+  const tableOf = (id: unknown) =>
+    typeof id === 'string' ? (id.split(';')[1] ?? '#unknown') : '#unknown';
+  const recordWrite = (table: string) => {
+    writes.set(table, (writes.get(table) ?? 0) + 1);
+  };
+  const dbProxy = new Proxy(readCountingDb as object, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop);
+      if (prop === 'insert') {
+        return (...args: unknown[]) => {
+          recordWrite(args[0] as string);
+          return (value as Function).apply(target, args);
+        };
+      }
+      if (prop === 'patch' || prop === 'replace') {
+        return (...args: unknown[]) => {
+          recordWrite(
+            args.length >= 3 ? (args[0] as string) : tableOf(args[0])
+          );
+          return (value as Function).apply(target, args);
+        };
+      }
+      if (prop === 'delete') {
+        return (...args: unknown[]) => {
+          recordWrite(
+            args.length >= 2 ? (args[0] as string) : tableOf(args[0])
+          );
+          return (value as Function).apply(target, args);
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { db: dbProxy, reads, writes };
 };
 
 const buildCountIndexedFixtures = (options?: {
@@ -385,6 +433,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -487,6 +536,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -606,6 +656,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -696,6 +747,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -802,6 +854,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -866,6 +919,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -927,6 +981,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -1011,6 +1066,7 @@ describe('ORM count() with aggregateIndex', () => {
           aggregateBackfillChunk: aggregateBackfillChunkRef,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -1045,6 +1101,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -1112,6 +1169,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
       const ctx = ormClient.with({
@@ -1189,6 +1247,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -1254,6 +1313,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const initialApi = initialOrmClient.api();
 
@@ -1304,6 +1364,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const prunedApi = prunedOrmClient.api();
 
@@ -1400,6 +1461,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const prunedApi = prunedOrmClient.api();
 
@@ -1586,6 +1648,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const prunedApi = prunedOrmClient.api();
 
@@ -1678,6 +1741,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -1768,6 +1832,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
       await baseCtx.db.insert('countUsers', {
@@ -1834,6 +1899,7 @@ describe('ORM count() with aggregateIndex', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -1967,6 +2033,7 @@ describe('aggregateIndex write amplification', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -2027,6 +2094,7 @@ describe('aggregateIndex write amplification', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -2089,6 +2157,7 @@ describe('aggregateIndex range scan budget', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -2126,6 +2195,7 @@ describe('aggregateIndex range scan budget', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -2164,6 +2234,7 @@ describe('aggregateIndex range scan budget', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -2208,6 +2279,7 @@ describe('aggregateIndex range scan budget', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const api = ormClient.api();
 
@@ -2271,6 +2343,17 @@ describe('aggregateIndex clearing is resumable', () => {
       )
       .collect();
 
+  const extremaFor = (db: any, table: string, index: string) =>
+    db
+      .query('aggregate_extrema')
+      .withIndex('by_table_index', (q: any) =>
+        q.eq('tableKey', table).eq('indexName', index)
+      )
+      .collect();
+
+  // Nodes carry no table/index columns; a single-index fixture owns them all.
+  const allNodes = (db: any) => db.query('aggregate_rank_node').collect();
+
   it('blocks metric and rank writes before a declared index is cleared', async () => {
     const barrierUsers = convexTable(
       'barrierUsers',
@@ -2296,6 +2379,7 @@ describe('aggregateIndex clearing is resumable', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -2348,6 +2432,7 @@ describe('aggregateIndex clearing is resumable', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const ctx = ormClient.with({
         db: baseCtx.db,
@@ -2481,6 +2566,7 @@ describe('aggregateIndex clearing is resumable', () => {
           scheduledMutationBatch: {} as any,
         },
         internalMutation: passthroughInternalMutation,
+        internalQuery: passthroughInternalQuery,
       });
       const prunedApi = prunedOrmClient.api();
 
@@ -2542,7 +2628,10 @@ describe('aggregateIndex clearing is resumable', () => {
     });
   });
 
-  const buildRankClearFixtures = (options?: { sumWeight?: boolean }) => {
+  const buildRankClearFixtures = (options?: {
+    dropRankIndex?: boolean;
+    sumWeight?: boolean;
+  }) => {
     const rankUsers = convexTable(
       'rankUsers',
       {
@@ -2551,6 +2640,9 @@ describe('aggregateIndex clearing is resumable', () => {
         weight: integer().notNull(),
       },
       (t) => {
+        if (options?.dropRankIndex) {
+          return [index('by_org').on(t.orgId)];
+        }
         const byScore = rankIndex('by_score')
           .partitionBy(t.orgId)
           .orderBy(t.score);
@@ -2563,7 +2655,11 @@ describe('aggregateIndex clearing is resumable', () => {
     return { relations: defineRelations(schema), schema };
   };
 
-  const buildMetricClearFixtures = (options?: { sumScore?: boolean }) => {
+  const buildMetricClearFixtures = (options?: {
+    dropIndex?: boolean;
+    extrema?: boolean;
+    sumScore?: boolean;
+  }) => {
     const metricUsers = convexTable(
       'metricUsers',
       {
@@ -2571,7 +2667,13 @@ describe('aggregateIndex clearing is resumable', () => {
         score: integer().notNull(),
       },
       (t) => {
+        if (options?.dropIndex) {
+          return [index('by_org_id').on(t.orgId)];
+        }
         const byOrg = aggregateIndex('by_org').on(t.orgId);
+        if (options?.extrema) {
+          return [byOrg.sum(t.score).min(t.score).max(t.score)];
+        }
         return [options?.sumScore ? byOrg.sum(t.score) : byOrg];
       }
     );
@@ -2594,6 +2696,7 @@ describe('aggregateIndex clearing is resumable', () => {
         scheduledMutationBatch: {} as any,
       },
       internalMutation: passthroughInternalMutation,
+      internalQuery: passthroughInternalQuery,
     });
 
   it('keeps a rank index CLEARING when a metric change lands mid-drain', async () => {
@@ -2804,6 +2907,151 @@ describe('aggregateIndex clearing is resumable', () => {
           _sum: { score: true },
         })
       ).toEqual({ _sum: { score: 24 } });
+    });
+  });
+
+  // A clear ends with every stored document deleted, so any write it makes to a
+  // document before deleting it is thrown away. Pinning "at most one write per
+  // stored document" is what stops the clear from paying per-member btree
+  // descents and bucket decrements it is about to discard.
+  it('drops a multi-namespace rank btree without rewriting the nodes it deletes', async () => {
+    const { schema, relations } = buildRankClearFixtures();
+    const { relations: withoutRank } = buildRankClearFixtures({
+      dropRankIndex: true,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const api = ormFor(relations).api();
+      // 3 namespaces x 40 rows: past maxNodeSize 16, so every namespace owns a
+      // multi-level tree and a member delete has real internal nodes to patch.
+      for (let org = 0; org < 3; org += 1) {
+        for (let i = 0; i < 40; i += 1) {
+          await baseCtx.db.insert('rankUsers', {
+            orgId: `org-${org}`,
+            score: i,
+            weight: 1,
+          });
+        }
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      const nodesBefore = (await allNodes(baseCtx.db)).length;
+      expect(nodesBefore).toBeGreaterThan(3);
+      expect(await treesFor(baseCtx.db, 'rankUsers', 'by_score')).toHaveLength(
+        3
+      );
+
+      const { db: countingDb, writes } = createWriteCountingDb(baseCtx.db);
+      const prunedApi = ormFor(withoutRank).api();
+
+      // Prune clears without rebuilding, so every write below belongs to the
+      // clear campaign alone.
+      await (prunedApi as any).aggregateBackfill.handler(
+        { db: countingDb, scheduler: schedulerStub },
+        { mode: 'prune', batchSize: 8 }
+      );
+      let cleared = false;
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (
+          (await stateFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score'))
+            .length === 0
+        ) {
+          cleared = true;
+          break;
+        }
+        await (prunedApi as any).aggregateBackfillChunk.handler(
+          { db: countingDb, scheduler: schedulerStub },
+          { tableName: 'rankUsers', indexName: 'by_score', batchSize: 8 }
+        );
+      }
+
+      expect(cleared).toBe(true);
+      expect(
+        await membersFor(baseCtx.db, RANK_STATE_KIND, 'rankUsers', 'by_score')
+      ).toHaveLength(0);
+      expect(await treesFor(baseCtx.db, 'rankUsers', 'by_score')).toHaveLength(
+        0
+      );
+      expect(await allNodes(baseCtx.db)).toHaveLength(0);
+
+      // Every node is deleted exactly once and never patched on the way out.
+      expect(writes.get('aggregate_rank_node') ?? 0).toBe(nodesBefore);
+      // Every member row is deleted exactly once.
+      expect(writes.get('aggregate_member') ?? 0).toBe(120);
+    });
+  });
+
+  it('drops metric buckets and extrema without decrementing them first', async () => {
+    const { schema, relations } = buildMetricClearFixtures({ extrema: true });
+    const { relations: withoutIndex } = buildMetricClearFixtures({
+      dropIndex: true,
+    });
+    const t = convexTest(schema);
+
+    await t.run(async (baseCtx) => {
+      const api = ormFor(relations).api();
+      for (let org = 0; org < 3; org += 1) {
+        for (let i = 0; i < 40; i += 1) {
+          await baseCtx.db.insert('metricUsers', {
+            orgId: `org-${org}`,
+            score: i,
+          });
+        }
+      }
+      await backfillToReady(api, baseCtx.db);
+
+      const bucketsBefore = (
+        await bucketsFor(baseCtx.db, 'metricUsers', 'by_org')
+      ).length;
+      const extremaBefore = (
+        await extremaFor(baseCtx.db, 'metricUsers', 'by_org')
+      ).length;
+      expect(bucketsBefore).toBe(3);
+      expect(extremaBefore).toBeGreaterThan(0);
+
+      const { db: countingDb, writes } = createWriteCountingDb(baseCtx.db);
+      const prunedApi = ormFor(withoutIndex).api();
+
+      await (prunedApi as any).aggregateBackfill.handler(
+        { db: countingDb, scheduler: schedulerStub },
+        { mode: 'prune', batchSize: 8 }
+      );
+      let cleared = false;
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (
+          (
+            await stateFor(
+              baseCtx.db,
+              METRIC_STATE_KIND,
+              'metricUsers',
+              'by_org'
+            )
+          ).length === 0
+        ) {
+          cleared = true;
+          break;
+        }
+        await (prunedApi as any).aggregateBackfillChunk.handler(
+          { db: countingDb, scheduler: schedulerStub },
+          { tableName: 'metricUsers', indexName: 'by_org', batchSize: 8 }
+        );
+      }
+
+      expect(cleared).toBe(true);
+      expect(
+        await membersFor(baseCtx.db, METRIC_STATE_KIND, 'metricUsers', 'by_org')
+      ).toHaveLength(0);
+      expect(
+        await bucketsFor(baseCtx.db, 'metricUsers', 'by_org')
+      ).toHaveLength(0);
+      expect(
+        await extremaFor(baseCtx.db, 'metricUsers', 'by_org')
+      ).toHaveLength(0);
+
+      expect(writes.get('aggregate_bucket') ?? 0).toBe(bucketsBefore);
+      expect(writes.get('aggregate_extrema') ?? 0).toBe(extremaBefore);
+      expect(writes.get('aggregate_member') ?? 0).toBe(120);
     });
   });
 });
