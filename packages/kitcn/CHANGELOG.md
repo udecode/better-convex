@@ -1,5 +1,253 @@
 # kitcn
 
+## 0.28.0
+
+### Minor Changes
+
+- [#430](https://github.com/udecode/kitcn/pull/430) [`d90c209`](https://github.com/udecode/kitcn/commit/d90c20987a5a94a29d3fcb57aee85e060146a2a8) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Breaking changes
+
+  - Require Better Auth 1.7. Existing deployments need a maintenance window and
+    two schema deployments. Do not refresh the required Better Auth 1.7 schema
+    first: the old schema rejects new fields, while the required schema rejects
+    old rows.
+
+  ```ts
+  // Before
+  const account = { accountId, providerId, userId };
+
+  // After
+  const account = { accountId, issuer, providerId, userId };
+  ```
+
+  ### Deployment 1: optional fields and backfills
+
+  Stop authentication writes, background jobs, and admin APIs that write
+  `account`, `team`, or `teamMember`. Keep them stopped through deployment 2.
+
+  Keep the currently deployed Better Auth version. Temporarily add `issuer` and
+  the lookup index to the existing account schema owner. Apps using organization
+  teams must also add optional `memberCount` and `membershipKey` fields plus the
+  `membershipKey` index:
+
+  ```ts
+  // ORM account field/index
+  issuer: text(),
+  index("accountId_issuer").on(accountTable.accountId, accountTable.issuer),
+
+  // ORM team and teamMember fields/index
+  memberCount: integer(),
+  membershipKey: text(),
+  uniqueIndex("membershipKey").on(teamMemberTable.membershipKey),
+
+  // Raw Convex account field/index
+  issuer: v.optional(v.string()),
+  .index("accountId_issuer", ["accountId", "issuer"])
+
+  // Raw Convex team and teamMember fields/index
+  memberCount: v.optional(v.number()),
+  membershipKey: v.optional(v.string()),
+  .index("membershipKey", ["membershipKey"])
+  ```
+
+  `membershipKey` stays optional in the generated Better Auth 1.7 schema, and
+  the 1.7 adapter falls back to the existing `(teamId, userId)` pair when it is
+  absent. Existing rows do not need a membership-key backfill; new 1.7 writes
+  populate it.
+
+  Create a migration with `bunx kitcn migrate create backfill_account_issuer`.
+  Inventory every provider and resolve both parts of its 1.7 identity from
+  trusted provider data. Credential accounts use `local:credential` and their
+  linked user ID. OAuth providers without an issuer use
+  `local:oauth:${encodeURIComponent(providerId)}` and keep their stable provider
+  subject unless the 1.7 provider contract changed it.
+
+  Microsoft is a required exception: map every `microsoft` and
+  `microsoft-entra-id` row from its old `sub` to the verified directory `oid`
+  from a verified stored ID token or trusted Entra export. Apply the same rule to
+  custom OAuth/OIDC providers whose 1.7 `accountSubject` differs. Never derive an
+  identity from email or another mutable profile field. The
+  [Better Auth 1.7 upgrade guide](https://www.better-auth.com/docs/guides/1-7-upgrade-guide)
+  owns the provider-specific mapping rules.
+
+  ```ts
+  import { defineMigration } from "kitcn/orm";
+
+  const issuerByProviderId = {
+    credential: "local:credential",
+    github: "local:oauth:github",
+    google: "https://accounts.google.com",
+  } as const;
+
+  // Add every row whose trusted 1.7 provider subject differs from accountId.
+  const accountIdByRowId: Record<string, string> = {
+    "microsoft-account-row-id": "verified-directory-oid",
+  };
+
+  export const migration = defineMigration({
+    id: "20260826_000000_backfill_account_issuer",
+    up: {
+      table: "account",
+      migrateOne: async (ctx, account) => {
+        const issuer =
+          issuerByProviderId[
+            account.providerId as keyof typeof issuerByProviderId
+          ];
+
+        if (!issuer) {
+          throw new Error(`Map issuer for provider ${account.providerId}`);
+        }
+        const mappedAccountId = accountIdByRowId[account._id];
+        if (
+          (account.providerId === "microsoft" ||
+            account.providerId === "microsoft-entra-id") &&
+          !mappedAccountId
+        ) {
+          throw new Error(`Map verified Microsoft oid for ${account._id}`);
+        }
+        const accountId =
+          mappedAccountId ??
+          (account.providerId === "credential"
+            ? account.userId
+            : account.accountId);
+        if (!accountId) {
+          throw new Error(`Map account subject for ${account._id}`);
+        }
+
+        if (account.issuer !== undefined && account.issuer !== issuer) {
+          throw new Error(`Issuer mismatch for account ${account._id}`);
+        }
+        if (account.issuer === issuer && account.accountId === accountId) {
+          return;
+        }
+
+        const collision = await ctx.db
+          .query("account")
+          .withIndex("accountId_issuer", (query) =>
+            query.eq("accountId", accountId).eq("issuer", issuer)
+          )
+          .unique();
+
+        if (collision && collision._id !== account._id) {
+          throw new Error(`Duplicate account identity ${issuer}:${accountId}`);
+        }
+
+        return { accountId, issuer };
+      },
+    },
+  });
+  ```
+
+  Apps using organization teams must also create a migration that sets every
+  team's count from the indexed `teamMember` rows:
+
+  ```ts
+  export const teamMemberCountMigration = defineMigration({
+    id: "20260826_000001_backfill_team_member_count",
+    up: {
+      table: "team",
+      migrateOne: async (ctx, team) => {
+        const members = await ctx.db
+          .query("teamMember")
+          .withIndex("teamId", (query) => query.eq("teamId", team._id))
+          .collect();
+
+        return { memberCount: members.length };
+      },
+    },
+  });
+  ```
+
+  Deploy the optional schema and migration, then require a completed status:
+
+  ```bash
+  bunx kitcn codegen
+  bunx kitcn deploy --prod
+  bunx kitcn migrate status --prod
+  ```
+
+  Raw Convex apps use the same resolver and indexed collision check in a
+  paginated internal mutation after deploying the optional fields and indexes.
+  Team users must also count `teamMember` rows by the `teamId` index and patch
+  every team using the team's Convex `_id`. Finish every page, verify no account
+  lacks either identity field, verify no `(issuer, accountId)` collision exists,
+  and verify every team count before continuing.
+
+  ### Deployment 2: required Better Auth 1.7 schema
+
+  After the backfill is complete, upgrade KitCN and Better Auth, refresh the
+  auth-owned schema, and deploy the required field and compound identity index:
+
+  ```bash
+  # Default KitCN schema owner
+  bunx kitcn add auth --schema --yes
+
+  # Raw Convex schema owner; use this command instead of the default command
+  bunx kitcn add auth --preset convex --yes
+
+  bunx kitcn deploy --prod
+  ```
+
+  Verify returning credential, OAuth, and Microsoft sign-in plus team membership
+  changes against the migrated data. Resume writes only after these checks pass.
+
+  ## Features
+
+  - Support Better Auth 1.7 account identity constraints, declared table indexes,
+    atomic adapter mutations, stable join configuration, session hydration, and
+    organization metadata reads.
+
+  ## Patches
+
+  - Fix OpenID discovery to advertise the configured JWT signing algorithm.
+
+## 0.27.5
+
+### Patch Changes
+
+- [#414](https://github.com/udecode/kitcn/pull/414) [`7b01244`](https://github.com/udecode/kitcn/commit/7b0124498000e6e6ef190b4b529d10026f0a1f16) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Stop `insert().returning({ ... })` reading each row back after writing it. A
+    projected `returning()` is now answered from the values that were just
+    inserted, so an 8-row insert spends 0 reads on post-images instead of 8.
+    Argument-less `returning()` still reads, because `createdAt` is only known
+    once the row is stored.
+  - Stop `insert().onConflictDoUpdate({ ... }).returning()` reading the row back
+    after patching it.
+  - Stop `returning({ _count })` re-fetching each affected row before counting its
+    relations, on `insert()`, `update()` and `delete()`. That is one fewer read
+    per row, and the counts, their `where` filters and `delete()`'s
+    before-cascade ordering are unchanged.
+  - Keep reading the row back on tables with triggers, `aggregateIndex` or
+    `rankIndex`, where a hook can rewrite what gets stored.
+
+## 0.27.4
+
+### Patch Changes
+
+- [#400](https://github.com/udecode/kitcn/pull/400) [`9963d33`](https://github.com/udecode/kitcn/commit/9963d33048ec532f0a2d9a06bb618486856178b1) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn analyze` by measuring every selected entry in one bundler pass
+    instead of one pass per entry: 4.3 s → 0.8 s of bundling on the 24-entry example
+    app, with byte-identical `OutMB`. Each entry is still sized as its own
+    independently tree-shaken isolate, so the ranking is unchanged.
+  - Report the hotspot `DepMB` and `Files` columns for the files that carry weight in
+    each entry's isolate. They previously counted every file the bundler parsed,
+    including files tree-shaking dropped entirely, which disagreed with the `--details`
+    package and input tables directly beneath them. Expect both columns to read lower
+    than before for the same code; `OutMB` and `LocMB` are unaffected.
+  - Fix `kitcn analyze` crashing with a bundler stack trace when a Convex entry fails
+    to build. It now lists the entry under `Failed entries:`, keeps reporting every
+    entry that did build, and still exits `1`. This needs esbuild `0.27.7`, which is
+    now the minimum.
+  - Warn which entries had their `./schema` imports externalized after a build error,
+    instead of leaving the default mode silent about approximate dependency sizes. The
+    approximation is applied per entry, so one unbuildable schema import no longer
+    shrinks the numbers for unrelated functions.
+  - Open the interactive analyzer's package and input panes without a second bundle, so
+    moving the selection no longer pauses to rebuild.
+  - Document the hotspot ranking columns, in `--help` and in the CLI reference, along
+    with the `--top-inputs` / `--top-packages` flags.
+
 ## 0.27.3
 
 ### Patch Changes
