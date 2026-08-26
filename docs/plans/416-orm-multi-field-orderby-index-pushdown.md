@@ -290,17 +290,17 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | bunx vitest run convex/orm/order-pushdown-reads.test.ts -> 8 passed; 5 of 8 RED pre-fix (git stash verified) |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | original RED/green proof retained; source-synced focused ORM suite -> 165 passed, 1 skipped; `bun check` -> exit 0 |
 | Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #426, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | valid; one constraint corrected (nullable guard is multi-spec only) |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level test repro reproduced it; browser/visual N/A (no rendered output) |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | expected 60 to be 5 on a 60-row table with limit 5 |
-| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | bunx vitest run convex/orm/ -> 480 passed; bun test index-utils/where-clause-compiler/indexes -> 62 passed |
+| Targeted behavior verification | yes | Run focused test/proof for changed behavior or record N/A | original convex/orm and Bun unit proof retained; source-synced focused ORM suite -> 165 passed, 1 skipped |
 | TypeScript or typed config changed | yes | Run relevant typecheck | bun typecheck -> 5 tasks successful |
 | Package exports or file layout changed | no | Run the relevant package build before final verification and keep generated updates | N/A: no export or layout change; bun --cwd packages/kitcn build still run for the dist-dependent convex tests |
 | Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant package checks | N/A: no manifest or lockfile change |
 | Agent rules or skills changed | yes | Run `bun install` and verify generated skill sync | packages/kitcn/skills/kitcn/references/features/orm.md updated; bun tooling/sync-kitcn-skill.ts regenerated .agents/skills/kitcn; bunx intent validate skills + intent:stale clean |
-| Workspace authority proof | yes | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | all commands run from /Users/mikey/conductor/workspaces/kitcn/dakar (repo root), which owns both the package source and the convex integration tests |
+| Workspace authority proof | yes | Run verification in the owning repo/package/app/route/tool and record cwd; do not count the wrong workspace as proof | original task proof ran in `/Users/mikey/conductor/workspaces/kitcn/dakar`; autoclosure source-sync proof ran in `/Users/zbeyens/git/better-convex`; both are repo roots owning the package source and Convex integration tests |
 | Browser surface changed | no | Capture Browser Use proof or record explicit waiver/blocker | N/A: server-side query planner |
 | Browser final proof | no | Attach screenshot or exact browser verification caveat when browser proof applies | N/A: no browser surface |
 | UI walkthrough | no | If UI or rendered output changed, run `.agents/skills/walkthrough/SKILL.md` after final proof and show annotated images in the final handoff; otherwise record N/A | N/A: no UI or rendered output changed |
@@ -311,7 +311,7 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: only the generated kitcn skill mirror changed, via its sync script; no .agents/.claude/.codex workflow, hook, command, or prompt touched |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | 7 convex suites failed with Cannot find package kitcn/server; bun --cwd packages/kitcn build fixed all 7 (stale dist, not the diff) |
-| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | single commit at the tip of `issue-416-v1`, whole checkout staged |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | task implementation plus the source-sync merge are committed on `fix/orm-multi-field-orderby-index-pushdown`; whole checkout staged at each checkpoint |
 | PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0, pushed, PR #426 created with the task-style body |
 | Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | `gh pr view 426 --json body`: auto-release block preserved, no self-link, all required sections present |
 | PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | plan line present, plan committed at PR head, names PR #426 |
@@ -321,7 +321,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | autoreview --mode local --engine claude: 2 conditional P0s, both investigated and closed, then re-run clean ("no accepted/actionable findings", patch is correct 0.7) |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local autoreview closed 2 conditional findings; source-synced branch autoreview against `kitcn/main` is clean with no P0/P1 (0.87) |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -340,7 +340,7 @@ Phase / pass table:
 | Implementation | done | helper rewrite + 5 call sites + index scoring + docs + changeset | verification |
 | Verification | done | 8/8 new tests, 879 vitest, 1323 bun test, typecheck, lint, build | closeout |
 | Commit / PR / GitHub sync | done | `bun check` green, pushed, PR #426 opened with the task-style body | final response |
-| Closeout | done | autoreview clean on re-run | final response |
+| Closeout | done | source-synced branch autoreview clean; full `bun check` green | terminal GitHub receipt and merge |
 
 Findings:
 - Two independent blanket bails, exactly as the issue said: the helper's arity
@@ -389,10 +389,11 @@ Decisions and tradeoffs:
 - Left `_compareByOrderSpecs` alone. Aligning it with Convex's value order would
   fix the pre-existing single-field null divergence but is a breaking change and
   needs user sign-off (recorded under Open risks).
-- Left the multi-probe cursor stream ordering by `primaryOrder.direction`: that
-  stream never calls `.withIndex()`, so a direction resolved against another
-  index would be meaningless there. Its warning guard was reverted to
-  `hasSecondaryOrders` so it keeps firing.
+- Accepted multi-probe cursor plans use the probe-union streams introduced by
+  #425, where every probe owns its index range and direction. Rejected unions
+  and scan fallback remain budgeted fallback reads. This task does not claim a
+  compound multi-field pushdown for a union unless the union merge order and
+  `resolveIndexOrderPushdown` agree.
 
 Implementation notes:
 - `resolveIndexOrderPushdown` now walks the spec list: eq-pinned fields are
@@ -419,11 +420,15 @@ Review fixes:
   fields are ignored because the page is not read through an index that orders
   by them.
 - Re-ran autoreview after the fixes: clean, no accepted/actionable findings.
+- Autoclosure source sync merged the current `main`, retained #425's unified
+  stream planner, and threaded this task's resolved pushdown direction through
+  the residual-filter path. Branch autoreview against that `main` found no
+  P0/P1 at 0.87 confidence.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
 |------------------------|-------|---------------------|------------|
-| None yet | 0 | | |
+| Source-sync conflict in `packages/kitcn/src/orm/query.ts` | 1 | Resolve from the current owners: #425's unified stream planner plus #426's `OrderSpec` and resolved direction | typecheck, focused tests, package build, branch review, and full `bun check` passed |
 
 Verification evidence:
 - cwd for every command below: /Users/mikey/conductor/workspaces/kitcn/dakar
@@ -440,6 +445,14 @@ Verification evidence:
 - `bun --cwd packages/kitcn build` -> 71 files, build complete.
 - `bunx intent validate skills` -> 1 skill file passed; `intent:stale` -> up to date.
 - `autoreview --mode local --engine claude` -> clean, "patch is correct" (0.7).
+- Autoclosure source-sync proof cwd: `/Users/zbeyens/git/better-convex`.
+- Source-synced focused ORM suite -> 7 files passed, 165 tests passed, 1 skipped.
+- Source-synced `bun typecheck` -> 5 tasks successful.
+- Source-synced `bun --cwd packages/kitcn build` -> 72 files, 1622.76 kB.
+- Source-synced `bun run intent:validate && bun run intent:stale` -> valid and current.
+- Source-synced branch autoreview against `kitcn/main` -> no P0/P1 (0.87).
+- Source-synced `bun check` -> exit 0, including all fixture comparisons and
+  scenario/runtime lanes.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -455,7 +468,9 @@ Source-listed case matrix:
 | multi-probe bail (:6404) | separate bail | `in` union case | collect | bounded, order preserved | order asserted both pinned and unpinned primary | done |
 
 Final handoff contract:
-- Commit line: single commit, pushed to `fix/orm-multi-field-orderby-index-pushdown`
+- Commit line: implementation and source-sync proof commits pushed to
+  `fix/orm-multi-field-orderby-index-pushdown`; exact final head is recorded in
+  the terminal receipt
 - PR line: https://github.com/udecode/kitcn/pull/426
 - Issue line: #416 linked from the PR body via `Fixes #416`
 - Confidence line: 95-100%
@@ -507,7 +522,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: single commit, pushed to `fix/orm-multi-field-orderby-index-pushdown`
+- Commit: implementation and source-sync proof commits pushed to
+  `fix/orm-multi-field-orderby-index-pushdown`; exact final head is recorded in
+  the terminal receipt
 - PR: https://github.com/udecode/kitcn/pull/426
 - Issue: #416, linked from the PR body via `Fixes #416`
 - Browser proof: N/A: no browser surface
@@ -517,12 +534,17 @@ Final handoff / sync:
 
 Timeline:
 - 2026-08-21T22:05:54.295Z Task goal plan created.
+- 2026-08-26 Source-synced with current `main`; resolved the single query
+  planner conflict at the current owners.
+- 2026-08-26 Re-proved the combined branch: focused ORM suite, typecheck,
+  package build, intent validation, branch autoreview, and full `bun check`
+  green.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete |
-| Where am I going? | Final response |
+| Where am I? | Autoclosure GitHub closeout |
+| Where am I going? | Exact-head receipt and merge |
 | What is the goal? | Let a 2+ field `orderBy` walk a compound index that already produces it, with byte-identical results |
 | What have I learned? | See Findings |
 | What have I done? | See Timeline |
@@ -550,9 +572,9 @@ Open risks:
   neither widens nor narrows that; it only refuses to let a multi-field sort
   inherit it. Aligning the comparator with Convex's value order is the real fix
   and is a breaking change that needs user sign-off.
-- Pre-existing: two cursor branches (`query.ts` multi-probe + maxScan, and the
-  scan fallback without a caller index) build a stream with no index anchor, so
-  even the primary sort field is not carried and no warning says so.
+- Pre-existing: a rejected multi-probe plan and scan fallback without a caller
+  index use a budgeted unanchored stream. Accepted probe unions are index-backed
+  after #425; this task does not broaden their merge-order contract.
 - `indexOrderBonus` is a heuristic. It now prefers the index that serves more of
   the sort, but it still cannot outrank filter selectivity, so a query whose best
   filter index differs from its best order index will still post-fetch sort.
