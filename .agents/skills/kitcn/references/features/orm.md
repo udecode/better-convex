@@ -262,9 +262,22 @@ Rules:
 Relation `limit`/`orderBy` are pushed into the relation index when the index
 already walks in that order. After the FK, `index('by_user').on(t.userId)`
 orders by creation time, so `with: { posts: { limit: 5, orderBy: { createdAt:
-'desc' } } }` reads 5 posts per parent. Sorting by any other column reads the
-parent's whole child partition and sorts in memory — put the sort column in the
-relation index (`index('by_user_rank').on(t.userId, t.rank)`) to stay bounded.
+'desc' } } }` reads 5 posts per parent. Multi-field sorts are pushed down too
+when the index carries all of them: `index('by_user_rank').on(t.userId, t.rank)`
+serves `orderBy: { rank: 'asc', createdAt: 'asc' }`, since the FK pins `userId`,
+`rank` is the next key and `createdAt` is Convex's implicit trailing one.
+Non-null values use Convex value ordering on both index-backed and post-fetch
+paths, including UTF-8 strings, signed zero, and NaN.
+When the first requested field is equality-pinned but points opposite to the
+moving fields, include `createdAt` in the moving direction as the final sort
+field. Without that explicit tie-break, the ORM post-fetch sorts to preserve
+which tied rows survive `limit`.
+Every unpinned declared index key must be requested. An extra key after the
+requested fields would break ties before Convex's implicit creation-time key,
+so the ORM keeps the post-fetch sort to preserve which rows survive `limit`.
+Sorting by any other column — or by one that can be missing or `null` — reads
+the parent's whole child partition and sorts in memory; put the sort columns in
+the relation index, in sort order, to stay bounded.
 
 ### Nested `with` depth
 

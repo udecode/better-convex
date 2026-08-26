@@ -71,6 +71,7 @@ import {
   findSearchIndexByName,
   findVectorIndexByName,
   getIndexes,
+  type OrderSpec,
   resolveIndexOrderPushdown,
 } from './index-utils';
 import {
@@ -150,6 +151,30 @@ const RELATION_COUNT_ERROR = {
   FILTER_UNSUPPORTED: 'RELATION_COUNT_FILTER_UNSUPPORTED',
 } as const;
 const RELATION_DEPTH_ERROR = 'RELATION_DEPTH_EXCEEDED';
+/**
+ * Whether a compiled column validator admits an absent or null value.
+ *
+ * `v.optional(...)` is how a non-`.notNull()` column is emitted, and absent is
+ * a legal stored value for every document written before the column existed, so
+ * both halves matter. Unrecognized shapes answer true: the only caller uses
+ * this to decide whether it may skip a sort, and guessing "never null" there
+ * silently reorders rows.
+ */
+const validatorAcceptsMissingOrNull = (validator: any): boolean => {
+  if (!validator) {
+    return true;
+  }
+  if (validator.isOptional === 'optional') {
+    return true;
+  }
+  if (validator.kind === 'null' || validator.kind === 'any') {
+    return true;
+  }
+  if (validator.kind === 'union') {
+    return (validator.members ?? []).some(validatorAcceptsMissingOrNull);
+  }
+  return false;
+};
 /**
  * How many levels of `with` the relation loader will follow. A `with` config is
  * a finite object the caller wrote, so its own nesting is the real bound; this
@@ -561,7 +586,7 @@ type CompiledQueryPlan = {
   /** One index range per probe for `in`/`ne`/`notIn`/same-field `OR` plans. */
   probeFilters: FilterExpression<boolean>[][];
   postFilters: FilterExpression<boolean>[];
-  order?: { direction: 'asc' | 'desc'; field: string }[];
+  order?: OrderSpec[];
 };
 
 /**
@@ -933,7 +958,15 @@ export class GelRelationalQuery<
       | Record<string, 'asc' | 'desc' | undefined>
       | undefined,
     tableConfig: TableRelationalConfig = this.tableConfig
-  ): { field: string; direction: 'asc' | 'desc' }[] {
+  ): OrderSpec[] {
+    const withNullability = (spec: {
+      field: string;
+      direction: 'asc' | 'desc';
+    }): OrderSpec => ({
+      ...spec,
+      nullable: this._isNullableOrderField(spec.field, tableConfig),
+    });
+
     if (
       orderBy &&
       typeof orderBy === 'object' &&
@@ -954,18 +987,44 @@ export class GelRelationalQuery<
             direction: 'asc' | 'desc';
           } => entry.direction === 'asc' || entry.direction === 'desc'
         )
-        .map((entry) => ({
-          field: entry.field,
-          direction: entry.direction,
-        }));
+        .map((entry) =>
+          withNullability({ field: entry.field, direction: entry.direction })
+        );
     }
 
     return this._normalizeOrderBy(
       orderBy as ValueOrArray<OrderByValue> | undefined
-    ).map((clause) => ({
-      field: clause.column.columnName,
-      direction: clause.direction,
-    }));
+    ).map((clause) =>
+      withNullability({
+        field: clause.column.columnName,
+        direction: clause.direction,
+      })
+    );
+  }
+
+  /**
+   * Whether rows can be missing this sort column or hold null in it.
+   *
+   * Only the declared validator can answer: a column that is not `.notNull()`
+   * compiles to `v.optional(v.union(v.null(), T))`, so both absent and null are
+   * legal stored values — and `timestamp().notNull().defaultNow()` on
+   * `createdAt` is deliberately emitted as optional for migration safety, so
+   * reading `config.notNull` alone would answer wrong for it. Anything the
+   * lookup cannot resolve counts as nullable, which only costs a pushdown.
+   */
+  private _isNullableOrderField(
+    field: string,
+    tableConfig: TableRelationalConfig
+  ): boolean {
+    if (field === INTERNAL_ID_FIELD || field === INTERNAL_CREATION_TIME_FIELD) {
+      return false;
+    }
+    try {
+      const builder = this._getColumns(tableConfig)[field] as any;
+      return validatorAcceptsMissingOrNull(builder?.build?.());
+    } catch {
+      return true;
+    }
   }
 
   private _resolveNonPaginatedLimit(config: any): number | undefined {
@@ -1009,11 +1068,9 @@ export class GelRelationalQuery<
         return -1;
       }
 
-      if (aVal < bVal) {
-        return order.direction === 'asc' ? -1 : 1;
-      }
-      if (aVal > bVal) {
-        return order.direction === 'asc' ? 1 : -1;
+      const comparison = compareValues(aVal, bVal);
+      if (comparison !== 0) {
+        return order.direction === 'asc' ? comparison : -comparison;
       }
     }
     return 0;
@@ -2746,7 +2803,7 @@ export class GelRelationalQuery<
     order: 'asc' | 'desc';
     queryConfig: {
       index?: { name: string; filters: FilterExpression<boolean>[] };
-      order?: { direction: 'asc' | 'desc'; field: string }[];
+      order?: OrderSpec[];
     };
     wherePredicate: ((row: any) => boolean | Promise<boolean>) | undefined;
   }): Promise<QueryStream<any> | null> {
@@ -3036,6 +3093,12 @@ export class GelRelationalQuery<
     membershipFilter?: (row: any) => boolean | Promise<boolean>;
     orderIndexName: string | null;
     primaryOrder?: { direction: 'asc' | 'desc'; field: string };
+    /**
+     * Direction the mirrored index can be walked in to produce the whole sort,
+     * when the caller resolved one. It can differ from `primaryOrder.direction`
+     * once an eq-pinned field leads the sort, and it is the correct one then.
+     */
+    pushdownDirection?: 'asc' | 'desc' | null;
     /** Direction to use when the query has no orderBy at all. */
     fallbackOrder: 'asc' | 'desc';
   }): QueryStream<any> | null {
@@ -3050,6 +3113,7 @@ export class GelRelationalQuery<
       membershipFilter,
       orderIndexName,
       primaryOrder,
+      pushdownDirection,
       fallbackOrder,
     } = params;
 
@@ -3060,7 +3124,9 @@ export class GelRelationalQuery<
     let streamQuery: any = this._buildPlanStream({
       queryConfig,
       configuredIndex,
-      order: primaryOrder ? primaryOrder.direction : fallbackOrder,
+      order:
+        pushdownDirection ??
+        (primaryOrder ? primaryOrder.direction : fallbackOrder),
       primaryOrder,
       orderIndexName,
       schemaDefinition,
@@ -6336,6 +6402,45 @@ export class GelRelationalQuery<
     const primaryOrder = postFetchOrders[0];
     const hasSecondaryOrders = postFetchOrders.length > 1;
     let orderIndexName: string | null = null;
+    /**
+     * Direction the scanned index can be walked in to produce the *whole*
+     * requested sort, or null when some of it still has to run in JavaScript.
+     * This is the read bound: a non-null answer means `take(limit)` is the
+     * exact page.
+     */
+    let orderPushdownDirection: 'asc' | 'desc' | null = null;
+
+    /**
+     * Ask the one owner both questions an index has to answer.
+     *
+     * `whole` decides the read bound. `primary` is narrower and only feeds the
+     * cursor-pagination diagnostics, which are about the leading sort field
+     * having an index at all — an index that anchors the primary but not the
+     * tie-break is still the right index to scan, and must not start reporting
+     * itself as unindexed.
+     */
+    const resolveOrderForIndex = (
+      indexFields: readonly string[] | null | undefined,
+      pinnedEqCount: number
+    ) => {
+      const whole = resolveIndexOrderPushdown({
+        indexFields,
+        pinnedEqCount,
+        orderSpecs: postFetchOrders,
+      });
+      return {
+        whole,
+        primary:
+          whole ??
+          (primaryOrder
+            ? resolveIndexOrderPushdown({
+                indexFields,
+                pinnedEqCount,
+                orderSpecs: [primaryOrder],
+              })
+            : null),
+      };
+    };
 
     // Apply index if selected for WHERE filtering
     if (queryConfig.index) {
@@ -6349,15 +6454,15 @@ export class GelRelationalQuery<
         return indexQuery;
       });
 
-      // Check if orderBy field matches WHERE index
+      // Check if orderBy matches WHERE index
       if (primaryOrder) {
-        const pushdownDirection = resolveIndexOrderPushdown({
-          indexFields: indexConfig.fields,
-          pinnedEqCount: this._indexEqPrefixCount(queryConfig),
-          orderSpecs: [primaryOrder],
-        });
-        if (pushdownDirection) {
-          query = query.order(pushdownDirection);
+        const resolved = resolveOrderForIndex(
+          indexConfig.fields,
+          this._indexEqPrefixCount(queryConfig)
+        );
+        orderPushdownDirection = resolved.whole;
+        if (resolved.primary) {
+          query = query.order(resolved.primary);
         } else {
           // Different field - need post-fetch sort
           needsPostFetchSortForPrimary = true;
@@ -6378,16 +6483,13 @@ export class GelRelationalQuery<
       );
 
       if (primaryOrder) {
-        const pushdownDirection = resolveIndexOrderPushdown({
-          indexFields: configuredIndexFields,
-          pinnedEqCount: countConfiguredIndexEqPrefix(
-            configuredIndexFields,
-            rangeOperations
-          ),
-          orderSpecs: [primaryOrder],
-        });
-        if (pushdownDirection) {
-          query = query.order(pushdownDirection);
+        const resolved = resolveOrderForIndex(
+          configuredIndexFields,
+          countConfiguredIndexEqPrefix(configuredIndexFields, rangeOperations)
+        );
+        orderPushdownDirection = resolved.whole;
+        if (resolved.primary) {
+          query = query.order(resolved.primary);
         } else {
           needsPostFetchSortForPrimary = true;
         }
@@ -6397,25 +6499,57 @@ export class GelRelationalQuery<
       const orderField = primaryOrder.field;
 
       // Special case: _creationTime uses Convex's default index
-      if (orderField === '_creationTime') {
-        // Default index on _creationTime - no withIndex() needed
+      if (orderField === INTERNAL_CREATION_TIME_FIELD) {
+        // Default index on _creationTime - no withIndex() needed. An empty
+        // field list is exactly that index: its only key is the implicit
+        // `_creationTime` suffix, so nothing can follow it in the sort.
         query = query.order(primaryOrder.direction);
+        orderPushdownDirection = resolveIndexOrderPushdown({
+          indexFields: [],
+          pinnedEqCount: 0,
+          orderSpecs: postFetchOrders,
+        });
       } else {
         // Convex walks an index in full index-key order, so only an index
-        // whose *leading* field is the sort field yields the requested order.
-        // Matching on any position sorts by a different column entirely.
-        const orderIndex =
-          getIndexes(this.tableConfig.table).find(
-            (idx) => idx.fields[0] === orderField
-          ) ??
-          this.edgeMetadata.find((idx) => idx.indexFields[0] === orderField);
+        // whose *leading* keys are the requested sort keys, in order, yields
+        // the requested order. Matching on any other position sorts by a
+        // different column entirely.
+        const candidates: { fields: readonly string[]; name: string }[] = [
+          ...getIndexes(this.tableConfig.table).map((idx) => ({
+            fields: idx.fields,
+            name: idx.name,
+          })),
+          ...this.edgeMetadata.map((idx) => ({
+            fields: idx.indexFields,
+            name: idx.indexName,
+          })),
+        ];
 
-        if (orderIndex) {
-          orderIndexName =
-            'indexName' in orderIndex ? orderIndex.indexName : orderIndex.name;
+        let selected: { fields: readonly string[]; name: string } | undefined;
+        for (const candidate of candidates) {
+          const direction = resolveIndexOrderPushdown({
+            indexFields: candidate.fields,
+            pinnedEqCount: 0,
+            orderSpecs: postFetchOrders,
+          });
+          if (direction) {
+            selected = candidate;
+            orderPushdownDirection = direction;
+            break;
+          }
+        }
+        // Nothing serves the whole sort. Anchoring the scan on the primary
+        // field alone is still worth it: the tie-break then runs in JavaScript
+        // over rows that are already in the right primary order.
+        selected ??= candidates.find(
+          (candidate) => candidate.fields[0] === orderField
+        );
+
+        if (selected) {
+          orderIndexName = selected.name;
           // Use orderBy field's index
           query = query.withIndex(orderIndexName, (q: any) => q);
-          query = query.order(primaryOrder.direction);
+          query = query.order(orderPushdownDirection ?? primaryOrder.direction);
         } else {
           // No index for orderBy field - post-fetch sort
           needsPostFetchSortForPrimary = true;
@@ -6423,7 +6557,21 @@ export class GelRelationalQuery<
       }
     }
 
-    usePostFetchSort = needsPostFetchSortForPrimary || hasSecondaryOrders;
+    // The sort runs in JavaScript unless the index walk produced all of it.
+    // Testing arity here instead is what made every 2-field `orderBy` collect
+    // the table: an index that serves the whole tuple was scanned in the right
+    // order and then thrown away.
+    usePostFetchSort =
+      postFetchOrders.length > 0 && orderPushdownDirection === null;
+    // A Convex cursor is the serialized index key, so once the page is read
+    // through an index that carries every sort field, the page boundary carries
+    // them too. Warning about cross-page instability there would be false.
+    //
+    // Only for pages actually read through that index, though. Two cursor
+    // branches below build a stream that anchors to a different index or to
+    // none at all, so they answer this question for themselves.
+    const hasUnservedSecondaryOrders =
+      hasSecondaryOrders && orderPushdownDirection === null;
 
     if (wherePredicate) {
       const predicateIndex = configuredIndex;
@@ -6461,16 +6609,23 @@ export class GelRelationalQuery<
               'Falling back to _creationTime ordering.'
           );
         }
-        if (hasSecondaryOrders) {
+        if (hasUnservedSecondaryOrders) {
           console.warn(
             'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-              'Secondary orderBy fields are applied per page and may be unstable across pages.'
+              'Secondary orderBy fields are ignored because no index serves the whole sort.'
           );
         }
       }
 
       if (primaryOrder && !needsPostFetchSortForPrimary) {
-        streamQuery = streamQuery.order(primaryOrder.direction);
+        // This stream walks `predicateIndex` with the caller's own range, which
+        // is the index and pinned prefix the branch above resolved against.
+        // Prefer its answer: once an eq-pinned field leads the sort, the scan
+        // has to follow the first spec that actually moves, which can point the
+        // other way from `primaryOrder`.
+        streamQuery = streamQuery.order(
+          orderPushdownDirection ?? primaryOrder.direction
+        );
       } else if (isCursorPaginated) {
         streamQuery = streamQuery.order('desc');
       }
@@ -6607,20 +6762,17 @@ export class GelRelationalQuery<
           isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
       // when that order is the requested order, so the global top-k is
-      // guaranteed to live inside the union of the per-probe top-k.
-      const probeOrderDirection = primaryOrder
-        ? resolveIndexOrderPushdown({
-            indexFields: queryConfig.index.fields,
-            pinnedEqCount: this._indexEqPrefixCount(queryConfig),
-            orderSpecs: [primaryOrder],
-          })
-        : null;
+      // guaranteed to live inside the union of the per-probe top-k. Every probe
+      // walks the same index with the same pinned prefix the branch above
+      // already resolved, and `_indexEqPrefixCount` takes the minimum across
+      // probes — so the answer that holds for the least-pinned probe holds for
+      // all of them.
+      const probeOrderDirection = orderPushdownDirection;
       const probeBound =
         probeLimit !== undefined &&
         !probeHasResidualFilter &&
         !probeHasPostFetchMembership &&
-        (postFetchOrders.length === 0 ||
-          (probeOrderDirection !== null && !hasSecondaryOrders))
+        (postFetchOrders.length === 0 || probeOrderDirection !== null)
           ? probeOffset + probeLimit
           : undefined;
 
@@ -6813,10 +6965,13 @@ export class GelRelationalQuery<
                   'Falling back to _creationTime ordering.'
               );
             }
+            // This stream never anchors to an index, so it reads creation
+            // order whatever the sort asked for. An index that could have
+            // carried the whole tuple is irrelevant to this page.
             if (hasSecondaryOrders) {
               console.warn(
                 'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-                  'Secondary orderBy fields are applied per page and may be unstable across pages.'
+                  'Secondary orderBy fields are ignored because this page is not read through an index that orders by them.'
               );
             }
           }
@@ -6903,6 +7058,7 @@ export class GelRelationalQuery<
             membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
+            pushdownDirection: orderPushdownDirection,
             fallbackOrder: 'desc',
           })
         : null;
@@ -6924,10 +7080,10 @@ export class GelRelationalQuery<
                 'Falling back to _creationTime ordering.'
             );
           }
-          if (hasSecondaryOrders) {
+          if (hasUnservedSecondaryOrders) {
             console.warn(
               'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-                'Secondary orderBy fields are applied per page and may be unstable across pages.'
+                'Secondary orderBy fields are ignored because no index serves the whole sort.'
             );
           }
         }
@@ -6983,10 +7139,10 @@ export class GelRelationalQuery<
           // Ordering already applied via index - query is ready for pagination
           // No additional action needed
         }
-        if (hasSecondaryOrders) {
+        if (hasUnservedSecondaryOrders) {
           console.warn(
             'Pagination: Only the first orderBy field is used for cursor ordering. ' +
-              'Secondary orderBy fields are applied per page and may be unstable across pages.'
+              'Secondary orderBy fields are ignored because no index serves the whole sort.'
           );
         }
       } else {
@@ -7083,6 +7239,7 @@ export class GelRelationalQuery<
             membershipFilter: matchesPostFetchMembership,
             orderIndexName,
             primaryOrder,
+            pushdownDirection: orderPushdownDirection,
             fallbackOrder: 'asc',
           })
         : null;
@@ -7195,7 +7352,7 @@ export class GelRelationalQuery<
 
     // Resolved before index selection: which index is cheapest depends on
     // whether it can also supply the requested order.
-    let orderSpecs: { direction: 'asc' | 'desc'; field: string }[] = [];
+    let orderSpecs: OrderSpec[] = [];
     if (config.orderBy) {
       const orderByValue =
         typeof config.orderBy === 'function'
