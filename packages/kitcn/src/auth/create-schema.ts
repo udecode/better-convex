@@ -1,14 +1,41 @@
 import type { BetterAuthDBSchema, DBFieldAttribute } from 'better-auth/db';
 
 // Manually add fields to index on for schema generation,
-// all fields in the schema specialFields are automatically indexed
+// all fields in the schema specialFields are automatically indexed.
+//
+// Two rules govern the composite entries:
+//   1. Fields are emitted alphabetically sorted, because the adapter's
+//      `findIndex` localeCompare-sorts a query's eq fields before prefix
+//      matching an index. An unsorted entry never matches.
+//   2. A composite shadows the auto-emitted single-field index whose name
+//      equals the composite's first field, so any standalone that a query still
+//      needs has to be listed here explicitly. That matters for queries sorting
+//      by `createdAt`, which only match an index of exactly the eq fields.
 export const indexFields = {
   account: ['accountId', ['accountId', 'providerId'], ['providerId', 'userId']],
+  // Organization plugin. `email`/`organizationId` are relisted because the
+  // composites below shadow their auto-emitted single-field indexes.
+  invitation: [
+    'email',
+    ['email', 'organizationId', 'status'],
+    'organizationId',
+    ['organizationId', 'status'],
+  ],
+  // `organizationId_userId` backs every org permission check.
+  // `organizationId_role` backs `listMembers` with `sortBy=role`.
+  member: [
+    'organizationId',
+    ['organizationId', 'role'],
+    ['organizationId', 'userId'],
+  ],
   oauthConsent: [['clientId', 'userId']],
+  // Only present with the organization plugin's dynamic access control.
+  organizationRole: ['organizationId', ['organizationId', 'role']],
   passkey: ['credentialID'],
   ratelimit: ['key'],
   rateLimit: ['key'],
   session: ['expiresAt', ['expiresAt', 'userId']],
+  teamMember: ['teamId', ['teamId', 'userId']],
   user: [['email', 'name'], 'name'],
   verification: ['expiresAt', 'identifier'],
 };
@@ -161,17 +188,43 @@ const mergedIndexFields = (tables: BetterAuthDBSchema) =>
           }
           return indexes;
         }, []) || [];
+      const declaredIndexes = (table.indexes ?? []).reduce<
+        Array<string | string[]>
+      >((indexes, index) => {
+        const resolved = index.fields
+          .map((fieldKey) => resolveIndexField(fieldKey))
+          .filter((fieldName): fieldName is string => fieldName !== null);
+
+        if (resolved.length === index.fields.length) {
+          indexes.push(resolved.length === 1 ? resolved[0]! : resolved);
+        }
+
+        return indexes;
+      }, []);
+      const explicitIndexes = manualIndexes.concat(declaredIndexes);
       const specialFieldIndexes = Object.keys(
         specialFields(tables)[key as keyof ReturnType<typeof specialFields>] ||
           {}
       ).filter(
         (index) =>
-          !manualIndexes.some((m) =>
+          !explicitIndexes.some((m) =>
             Array.isArray(m) ? m[0] === index : m === index
           )
       );
+      const seen = new Set<string>();
+      const indexes = explicitIndexes
+        .concat(specialFieldIndexes)
+        .filter((index) => {
+          const key = (Array.isArray(index) ? index : [index]).join('\0');
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
 
-      return [key, manualIndexes.concat(specialFieldIndexes)];
+          return true;
+        });
+
+      return [key, indexes];
     })
   );
 
@@ -246,7 +299,7 @@ export const ${exportName} = {
       mergedIndexFields(tables)[
         tableKey as keyof typeof mergedIndexFields
       ]?.map((index) => {
-        const indexArray = Array.isArray(index) ? index.sort() : [index];
+        const indexArray = Array.isArray(index) ? index : [index];
         const indexName = indexArray.join('_');
 
         return `.index("${indexName}", ${JSON.stringify(indexArray)})`;

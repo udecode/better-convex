@@ -9,7 +9,7 @@ import { InfoIcon, AlertTriangle } from "lucide-react"
 
 Relations in the ORM use the same API as Drizzle for **defining** and **loading** relationships. The `with:` option is type-safe, with a few nested constraints noted below.
 
-Relation loading via `with:` works end-to-end. Nested `with` has a depth limit, and per-relation filters for `many()` relations are applied post-fetch.
+Relation loading via `with:` works end-to-end. Nested `with` loads up to 10 levels deep, and per-relation filters for `many()` relations are applied post-fetch.
 
 Relation loading requires indexes on relation fields (e.g. `posts.userId`). Missing indexes throw unless you opt in with `allowFullScan`. You can use `defineSchema(..., { strict: false })` to downgrade throws to warnings when `allowFullScan` is set.
 
@@ -674,7 +674,7 @@ memory; add that column to the relation index (`index('by_user_rank').on(t.userI
 to keep the read bounded.
 
 <Callout icon={<InfoIcon />}>
-**Note**: `limit`, `orderBy`, and `where` apply to `many()` relations. If `limit` is omitted, configure `defineSchema(..., { defaults: { defaultLimit } })` or use `allowFullScan` on the parent query. Relation loading also fail-fasts when unique lookup keys exceed `defineSchema(..., { defaults: { relationFanOutMaxKeys } })` (default `1000`) unless `allowFullScan` is set. Nested `with:` works with a depth limit to prevent infinite recursion.
+**Note**: `limit`, `orderBy`, and `where` apply to `many()` relations. If `limit` is omitted, configure `defineSchema(..., { defaults: { defaultLimit } })` or use `allowFullScan` on the parent query. Relation loading also fail-fasts when unique lookup keys exceed `defineSchema(..., { defaults: { relationFanOutMaxKeys } })` (default `1000`) unless `allowFullScan` is set. Nested `with:` loads every level it is given, up to 10. A tree with rows still to expand past that throws `RELATION_DEPTH_EXCEEDED` instead of coming back shorter than requested — which is how a `with` object that references itself surfaces.
 </Callout>
 
 ### Column Selection Semantics

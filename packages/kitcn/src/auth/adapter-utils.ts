@@ -70,6 +70,8 @@ type SchemaViews = {
   modelNameToKey: Map<string, string>;
   /** Better Auth model key -> its unique field names. */
   uniqueFields: Map<string, Set<string>>;
+  /** Better Auth model key -> its unique table-level index field names. */
+  uniqueIndexes: Map<string, string[][]>;
 };
 
 // The Better Auth schema is a per-isolate constant, so both derived views are
@@ -79,6 +81,7 @@ const schemaViewsCache = new WeakMap<object, SchemaViews>();
 const EMPTY_SCHEMA_VIEWS: SchemaViews = {
   modelNameToKey: new Map(),
   uniqueFields: new Map(),
+  uniqueIndexes: new Map(),
 };
 
 const getSchemaViews = (betterAuthSchema: BetterAuthDBSchema): SchemaViews => {
@@ -94,6 +97,7 @@ const getSchemaViews = (betterAuthSchema: BetterAuthDBSchema): SchemaViews => {
 
   const modelNameToKey = new Map<string, string>();
   const uniqueFields = new Map<string, Set<string>>();
+  const uniqueIndexes = new Map<string, string[][]>();
 
   for (const [key, model] of Object.entries<any>(betterAuthSchema)) {
     // First match wins, matching the previous Object.keys(...).find(...).
@@ -104,13 +108,30 @@ const getSchemaViews = (betterAuthSchema: BetterAuthDBSchema): SchemaViews => {
     const unique = new Set<string>();
     for (const [field, attrs] of Object.entries<any>(model?.fields ?? {})) {
       if (attrs?.unique) {
-        unique.add(field);
+        unique.add(attrs.fieldName ?? field);
       }
     }
     uniqueFields.set(key, unique);
+
+    uniqueIndexes.set(
+      key,
+      (model?.indexes ?? [])
+        .filter((index: { unique?: boolean }) => index.unique)
+        .map((index: { fields: string[] }) =>
+          index.fields.map((field) => {
+            const attributes = model?.fields?.[field];
+
+            return attributes?.fieldName ?? field;
+          })
+        )
+    );
   }
 
-  const views: SchemaViews = { modelNameToKey, uniqueFields };
+  const views: SchemaViews = {
+    modelNameToKey,
+    uniqueFields,
+    uniqueIndexes,
+  };
   schemaViewsCache.set(betterAuthSchema as object, views);
 
   return views;
@@ -128,6 +149,16 @@ const isUniqueField = (
   return uniqueFields.get(betterAuthModel)?.has(field) ?? false;
 };
 
+const getUniqueIndexes = (
+  betterAuthSchema: BetterAuthDBSchema,
+  model: string
+) => {
+  const { modelNameToKey, uniqueIndexes } = getSchemaViews(betterAuthSchema);
+  const betterAuthModel = modelNameToKey.get(model) ?? model;
+
+  return uniqueIndexes.get(betterAuthModel) ?? [];
+};
+
 export const hasUniqueFields = (
   betterAuthSchema: BetterAuthDBSchema,
   model: string,
@@ -139,7 +170,11 @@ export const hasUniqueFields = (
     }
   }
 
-  return false;
+  const inputFields = new Set(Object.keys(input));
+
+  return getUniqueIndexes(betterAuthSchema, model).some((fields) =>
+    fields.some((field) => inputFields.has(field))
+  );
 };
 
 const findIndex = (
@@ -353,6 +388,52 @@ export const checkUniqueFields = async <
 
     if (existingDoc && existingDoc._id !== doc?._id) {
       throw new Error(`${table} ${field} already exists`);
+    }
+  }
+
+  const nextDoc = { ...doc, ...input };
+  for (const uniqueIndex of getUniqueIndexes(betterAuthSchema, table)) {
+    if (
+      (uniqueIndex.length === 1 &&
+        isUniqueField(betterAuthSchema, table, uniqueIndex[0]!)) ||
+      (doc && !uniqueIndex.some((field) => field in input)) ||
+      !uniqueIndex.every((field) => field in nextDoc)
+    ) {
+      continue;
+    }
+
+    const fields = [...uniqueIndex];
+    const tableSchema = schema.tables[table as keyof typeof schema.tables];
+    let indexes: Array<{ fields: string[]; indexDescriptor: string }> = [];
+    if (tableSchema) {
+      indexes = tableSchema[' indexes']
+        ? tableSchema[' indexes']()
+        : (tableSchema as any).export().indexes;
+    }
+    const index = indexes.find(
+      ({ fields: indexFields }: { fields: string[] }) =>
+        fields.length === indexFields.length &&
+        fields.every((field, index) => field === indexFields[index])
+    );
+
+    if (!index) {
+      throw new Error(`No index found for ${table} ${fields.join(', ')}`);
+    }
+
+    const existingDoc = await ctx.db
+      .query(table as any)
+      .withIndex(index.indexDescriptor, (q: any) => {
+        let query = q;
+        for (const field of fields) {
+          query = query.eq(field, nextDoc[field]);
+        }
+
+        return query;
+      })
+      .unique();
+
+    if (existingDoc && existingDoc._id !== doc?._id) {
+      throw new Error(`${table} ${uniqueIndex.join(', ')} already exists`);
     }
   }
 };
@@ -807,13 +888,42 @@ export const listOne = async <
   schema: SchemaDefinition<any, any>,
   betterAuthSchema: BetterAuthDBSchema,
   args: Infer<typeof adapterArgsValidator>
-): Promise<Doc | null> =>
-  (
-    await paginate(ctx, schema, betterAuthSchema, {
-      ...args,
-      paginationOpts: {
-        cursor: null,
-        numItems: 1,
-      },
-    })
-  ).page[0] as Doc | null;
+): Promise<Doc | null> => {
+  let cursor: string | null = null;
+
+  // A page comes back empty either because the row does not exist or because
+  // the scan budget ran out before reaching it. Those are indistinguishable
+  // from `page[0]` alone, and treating the second as "not found" turns a slow
+  // lookup into a wrong one - on `member` it reads as a false "not a member".
+  // So keep consuming pages until a row matches or the query is exhausted.
+  for (;;) {
+    const result: PaginationResult<Doc> = await paginate(
+      ctx,
+      schema,
+      betterAuthSchema,
+      {
+        ...args,
+        paginationOpts: {
+          cursor,
+          numItems: 1,
+        },
+      }
+    );
+
+    if (result.page.length > 0) {
+      return result.page[0] as Doc;
+    }
+    if (result.isDone) {
+      return null;
+    }
+    // Guard against a page that neither matches nor advances, which would
+    // otherwise spin forever.
+    if (result.continueCursor === cursor) {
+      throw new Error(
+        `Pagination made no forward progress reading one ${args.model}`
+      );
+    }
+
+    cursor = result.continueCursor;
+  }
+};

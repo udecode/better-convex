@@ -277,8 +277,8 @@ describe('auth/create-api createApi()', () => {
       internalMutation: internalMutation as any,
     });
 
-    // create/deleteMany/deleteOne/updateMany/updateOne all use mutationBuilder
-    expect(calls.length).toBe(5);
+    // CRUD plus Better Auth's atomic consume/increment methods use mutationBuilder.
+    expect(calls.length).toBe(7);
   });
 
   test('context runs for CRUD mutations', async () => {

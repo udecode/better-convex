@@ -110,6 +110,7 @@ export const member = convexTable(
   },
   (t) => [
     index("userId").on(t.userId),
+    index("organizationId").on(t.organizationId),
     index("organizationId_userId").on(t.organizationId, t.userId),
     index("organizationId_role").on(t.organizationId, t.role),
     // Backs `member.count({ where: { organizationId } })` for seat limits.
@@ -131,6 +132,7 @@ export const invitation = convexTable(
   (t) => [
     index("email").on(t.email),
     index("status").on(t.status),
+    index("organizationId").on(t.organizationId),
     index("email_organizationId_status").on(
       t.email,
       t.organizationId,
@@ -178,7 +180,11 @@ export const teamMember = convexTable(
     userId: id("user").notNull(),
     createdAt: timestamp(),
   },
-  (t) => [index("teamId").on(t.teamId), index("userId").on(t.userId)]
+  (t) => [
+    index("teamId").on(t.teamId),
+    index("userId").on(t.userId),
+    index("teamId_userId").on(t.teamId, t.userId),
+  ]
 );
 ```
 

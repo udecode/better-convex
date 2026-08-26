@@ -261,6 +261,14 @@ orders by creation time, so `with: { posts: { limit: 5, orderBy: { createdAt:
 parent's whole child partition and sorts in memory — put the sort column in the
 relation index (`index('by_user_rank').on(t.userId, t.rank)`) to stay bounded.
 
+### Nested `with` depth
+
+Nested `with:` loads every level it is given, up to 10. A tree that still has
+rows to expand past that throws `RELATION_DEPTH_EXCEEDED` rather than coming back
+shorter than requested — which is how a `with` object that references itself
+surfaces. Fan-out per level is bounded by that level's `limit`, not by the depth
+ceiling.
+
 ## Schema Definition
 
 ```ts

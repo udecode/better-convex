@@ -7,154 +7,15 @@ import {
   privateMutation,
   publicQuery,
 } from '../lib/crpc';
+import {
+  buildRepliesWith,
+  CommentListItemSchema,
+  CommentRowWithRepliesSchema,
+  MAX_REPLY_DEPTH,
+  toReply,
+} from './_helpers/comment_tree';
 import type { QueryCtx } from './generated/server';
 import { todoCommentsTable } from './schema';
-
-// Schema for comment list items
-const CommentListItemSchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  createdAt: z.date(),
-  user: z
-    .object({
-      id: z.string(),
-      name: z.string().optional(),
-      image: z.string().nullish(),
-    })
-    .nullable(),
-  replies: z.array(z.any()),
-  replyCount: z.number(),
-});
-type Reply = z.infer<typeof CommentListItemSchema>;
-
-type CommentRowWithReplies = {
-  id: string;
-  content: string;
-  createdAt: Date;
-  user: CommentUser | null;
-  replies?: CommentRowWithReplies[];
-};
-
-const CommentUserSchema = z.object({
-  id: z.string(),
-  name: z.string().optional(),
-  image: z.string().nullish(),
-});
-type CommentUser = z.infer<typeof CommentUserSchema>;
-
-const CommentRowWithRepliesSchema: z.ZodType<CommentRowWithReplies> = z.lazy(
-  () =>
-    z.object({
-      id: z.string(),
-      createdAt: z.date(),
-      content: z.string(),
-      user: CommentUserSchema.nullable(),
-      replies: z.array(CommentRowWithRepliesSchema).optional(),
-    })
-);
-
-function buildRepliesWith(maxDepth: number):
-  | {
-      limit: number;
-      orderBy: { createdAt: 'asc' };
-      with: { user: true; replies?: ReturnType<typeof buildRepliesWith> };
-    }
-  | undefined {
-  if (maxDepth <= 0) return;
-
-  const childWith = buildRepliesWith(maxDepth - 1);
-  return {
-    limit: 10,
-    orderBy: { createdAt: 'asc' },
-    with: {
-      user: true,
-      ...(childWith ? { replies: childWith } : {}),
-    },
-  };
-}
-
-function collectCommentIds(rows: CommentRowWithReplies[]): string[] {
-  const ids: string[] = [];
-  const stack = [...rows];
-
-  while (stack.length) {
-    const row = stack.pop()!;
-    ids.push(row.id);
-    if (row.replies?.length) {
-      stack.push(...row.replies);
-    }
-  }
-
-  // Dedupe while preserving insertion order for predictable batching.
-  return Array.from(new Set(ids));
-}
-
-function chunk<T>(arr: T[], chunkSize: number): T[][] {
-  if (chunkSize <= 0) {
-    throw new CRPCError({
-      code: 'BAD_REQUEST',
-      message: 'chunkSize must be > 0',
-    });
-  }
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += chunkSize) {
-    chunks.push(arr.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
-
-async function getReplyCountsByParentId(
-  ctx: QueryCtx,
-  parentIds: string[]
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-
-  for (const ids of chunk(parentIds, 250)) {
-    const rows = await ctx.orm.query.todoComments.findMany({
-      where: { id: { in: ids } },
-      limit: ids.length,
-      columns: { id: true },
-      with: {
-        _count: {
-          replies: true,
-        },
-      },
-    });
-    for (const row of rows) {
-      counts.set(row.id, row._count?.replies ?? 0);
-    }
-    for (const id of ids) {
-      if (!counts.has(id)) {
-        counts.set(id, 0);
-      }
-    }
-  }
-
-  return counts;
-}
-
-function toReply(
-  row: CommentRowWithReplies,
-  replyCounts: Map<string, number>
-): Reply {
-  const user = row.user ?? null;
-  const replies = row.replies ?? [];
-
-  return {
-    id: row.id,
-    content: row.content,
-    createdAt: row.createdAt,
-    user: user
-      ? {
-          id: user.id,
-          name: user.name ?? undefined,
-          image: user.image ?? undefined,
-        }
-      : null,
-    replies: replies.map((r) => toReply(r, replyCounts)),
-    replyCount: replyCounts.get(row.id) ?? 0,
-  };
-}
 
 // ============================================
 // COMMENT QUERIES
@@ -166,7 +27,7 @@ export const getTodoComments = optionalAuthQuery
     z.object({
       todoId: z.string(),
       includeReplies: z.boolean().default(true),
-      maxReplyDepth: z.number().min(0).max(5).default(3),
+      maxReplyDepth: z.number().min(0).max(MAX_REPLY_DEPTH).default(3),
     })
   )
   .paginated({ limit: 20, item: CommentListItemSchema })
@@ -175,7 +36,6 @@ export const getTodoComments = optionalAuthQuery
       where: { id: input.todoId },
     });
 
-    const maxDepth = Math.min(input.maxReplyDepth, 3);
     const results = await ctx.orm.query.todoComments.findMany({
       where: { todoId: input.todoId, parentId: { isNull: true } },
       orderBy: { createdAt: 'desc' },
@@ -183,21 +43,18 @@ export const getTodoComments = optionalAuthQuery
       limit: input.limit,
       with: {
         user: true,
-        ...(input.includeReplies && maxDepth > 0
-          ? { replies: buildRepliesWith(maxDepth) }
+        _count: { replies: true },
+        ...(input.includeReplies && input.maxReplyDepth > 0
+          ? { replies: buildRepliesWith(input.maxReplyDepth) }
           : {}),
       },
     });
 
     const rows = z.array(CommentRowWithRepliesSchema).parse(results.page);
-    const replyCounts = await getReplyCountsByParentId(
-      ctx,
-      collectCommentIds(rows)
-    );
 
     return {
       ...results,
-      page: rows.map((comment) => toReply(comment, replyCounts)),
+      page: rows.map(toReply),
     };
   });
 
@@ -256,14 +113,19 @@ export const getCommentThread = publicQuery
       .nullable()
   )
   .query(async ({ ctx, input }) => {
-    const maxDepth = Math.min(input.maxDepth, 3);
     const comment = await ctx.orm.query.todoComments.findFirst({
       where: { id: input.commentId },
       with: {
         user: true,
         todo: true,
         parent: { with: { user: true } },
-        ...(maxDepth > 0 ? { replies: buildRepliesWith(maxDepth) } : {}),
+        ...(input.maxDepth > 0
+          ? {
+              replies: buildRepliesWith(
+                Math.min(input.maxDepth, MAX_REPLY_DEPTH)
+              ),
+            }
+          : {}),
       },
     });
     if (!comment) {
@@ -279,10 +141,6 @@ export const getCommentThread = publicQuery
     }
 
     const commentRow = CommentRowWithRepliesSchema.parse(comment);
-    const replyCounts = await getReplyCountsByParentId(
-      ctx,
-      collectCommentIds([commentRow])
-    );
     const replies = commentRow.replies ?? [];
 
     const user = comment.user ?? null;
@@ -339,7 +197,7 @@ export const getCommentThread = publicQuery
               user: parentUser?.name ? { name: parentUser.name } : null,
             }
           : null,
-        replies: replies.map((r) => toReply(r, replyCounts)),
+        replies: replies.map(toReply),
         ancestors,
       },
     };
@@ -501,8 +359,11 @@ export const addComment = authMutation
         });
       }
 
+      // `getCommentDepth` returns the parent's own level, so this admits a new
+      // reply at level MAX_REPLY_DEPTH and no deeper -- exactly what the read
+      // queries are willing to return.
       const depth = await getCommentDepth(ctx, input.parentId);
-      if (depth >= 5) {
+      if (depth >= MAX_REPLY_DEPTH) {
         throw new CRPCError({
           code: 'BAD_REQUEST',
           message: 'Maximum reply depth reached',

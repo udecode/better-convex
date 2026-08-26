@@ -1,5 +1,144 @@
 # kitcn
 
+## 0.27.5
+
+### Patch Changes
+
+- [#414](https://github.com/udecode/kitcn/pull/414) [`7b01244`](https://github.com/udecode/kitcn/commit/7b0124498000e6e6ef190b4b529d10026f0a1f16) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Stop `insert().returning({ ... })` reading each row back after writing it. A
+    projected `returning()` is now answered from the values that were just
+    inserted, so an 8-row insert spends 0 reads on post-images instead of 8.
+    Argument-less `returning()` still reads, because `createdAt` is only known
+    once the row is stored.
+  - Stop `insert().onConflictDoUpdate({ ... }).returning()` reading the row back
+    after patching it.
+  - Stop `returning({ _count })` re-fetching each affected row before counting its
+    relations, on `insert()`, `update()` and `delete()`. That is one fewer read
+    per row, and the counts, their `where` filters and `delete()`'s
+    before-cascade ordering are unchanged.
+  - Keep reading the row back on tables with triggers, `aggregateIndex` or
+    `rankIndex`, where a hook can rewrite what gets stored.
+
+## 0.27.4
+
+### Patch Changes
+
+- [#400](https://github.com/udecode/kitcn/pull/400) [`9963d33`](https://github.com/udecode/kitcn/commit/9963d33048ec532f0a2d9a06bb618486856178b1) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn analyze` by measuring every selected entry in one bundler pass
+    instead of one pass per entry: 4.3 s → 0.8 s of bundling on the 24-entry example
+    app, with byte-identical `OutMB`. Each entry is still sized as its own
+    independently tree-shaken isolate, so the ranking is unchanged.
+  - Report the hotspot `DepMB` and `Files` columns for the files that carry weight in
+    each entry's isolate. They previously counted every file the bundler parsed,
+    including files tree-shaking dropped entirely, which disagreed with the `--details`
+    package and input tables directly beneath them. Expect both columns to read lower
+    than before for the same code; `OutMB` and `LocMB` are unaffected.
+  - Fix `kitcn analyze` crashing with a bundler stack trace when a Convex entry fails
+    to build. It now lists the entry under `Failed entries:`, keeps reporting every
+    entry that did build, and still exits `1`. This needs esbuild `0.27.7`, which is
+    now the minimum.
+  - Warn which entries had their `./schema` imports externalized after a build error,
+    instead of leaving the default mode silent about approximate dependency sizes. The
+    approximation is applied per entry, so one unbuildable schema import no longer
+    shrinks the numbers for unrelated functions.
+  - Open the interactive analyzer's package and input panes without a second bundle, so
+    moving the selection no longer pauses to rebuild.
+  - Document the hotspot ranking columns, in `--help` and in the CLI reference, along
+    with the `--top-inputs` / `--top-packages` flags.
+
+## 0.27.3
+
+### Patch Changes
+
+- [#398](https://github.com/udecode/kitcn/pull/398) [`71158af`](https://github.com/udecode/kitcn/commit/71158af254e97942d382c9b87f736466fb2fbdbd) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `aggregateBackfill` cutting an in-progress clear short when the same run
+    also sees a changed metric definition. A `CLEARING` index now finishes draining
+    before it moves to `BUILDING`, which is what `resume` already documented, and
+    it applies to `aggregateIndex` and `rankIndex` alike. Previously a metric or
+    sum change landing while `kitcn aggregate rebuild` was still draining could
+    abandon the rebuild halfway and still report `READY`, leaving `count()`,
+    `aggregate()` and `rank()` answering from state no document backs.
+  - Refuse to advance an index out of `CLEARING` while any of its stored state
+    survives. The backfill now fails loudly instead of rebuilding on top of a
+    half-drained index and serving numbers that are quietly wrong.
+
+## 0.27.2
+
+### Patch Changes
+
+- [#397](https://github.com/udecode/kitcn/pull/397) [`c90f821`](https://github.com/udecode/kitcn/commit/c90f821e9d416303147b93cc3a1b14a5ccff1fed) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix organization permission checks returning a false "not a member" once an
+    organization grows past ~200 members. The generated auth schema now indexes
+    the composite lookups the organization plugin actually issues:
+    `member` by `organizationId` + `userId` and by `organizationId` + `role`,
+    `teamMember` by `teamId` + `userId`, `invitation` by
+    `organizationId` + `status` and by `email` + `organizationId` + `status`, and
+    `organizationRole` by `organizationId` + `role`. Every index that was emitted
+    before is still emitted, so this is additive — rerun
+    `npx kitcn add auth --schema --yes` to pick the new ones up.
+
+  - Fix `findOne` reporting "not found" when the scan budget ran out before
+    reaching a matching row. Single-document reads now page until they match a row
+    or exhaust the query, so an unindexed lookup is slow and warns rather than
+    silently wrong. Watch for `Querying without an index on table "..."` in your
+    logs and add the index it names.
+
+## 0.27.1
+
+### Patch Changes
+
+- [#396](https://github.com/udecode/kitcn/pull/396) [`8fca5cc`](https://github.com/udecode/kitcn/commit/8fca5cc53c37bd6f651cfbfbf50b87d5461d0ce5) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Match every args variant from `crpc.<path>.queryFilter()` when `args` is
+    omitted, `null`, or `{}`, in both the React and Solid bindings. The filter
+    built a key with an empty args slot, which TanStack's partial matching never
+    matched, so `invalidateQueries` silently refreshed nothing and stale data
+    stayed on screen. Pass args to narrow the filter; omit them to reach every
+    variant. `crpc.http.*.queryFilter()` follows the same rule.
+
+  ```ts
+  // Before
+  crpc.analytics.getReport.queryFilter(); // ['convexQuery', 'analytics:getReport', undefined] — matched nothing
+  queryClient.invalidateQueries(crpc.analytics.getReport.queryFilter()); // no-op
+
+  // After
+  crpc.analytics.getReport.queryFilter(); // ['convexQuery', 'analytics:getReport']
+  queryClient.invalidateQueries(crpc.analytics.getReport.queryFilter()); // every args variant
+  ```
+
+## 0.27.0
+
+### Minor Changes
+
+- [#395](https://github.com/udecode/kitcn/pull/395) [`2c9ffd2`](https://github.com/udecode/kitcn/commit/2c9ffd20987e4a94cb5790cbb72e6249f1fdfcf4) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Nested `with:` now loads every level it is given, up to 10, instead of quietly dropping everything past the third. A config that nests deeper throws `RELATION_DEPTH_EXCEEDED` rather than returning a shorter tree. Deep `with:` configs that used to come back truncated now come back complete — and read the rows that completeness costs.
+
+  ```ts
+  // Before: the fourth level was dropped, with no error
+  const rows = await ctx.orm.query.comments.findMany({
+    limit: 20,
+    with: {
+      replies: {
+        limit: 10,
+        with: { replies: { limit: 10, with: { author: true } } },
+      },
+    },
+  });
+  rows[0].replies[0].replies[0].author; // undefined
+
+  // After: loaded, because it was asked for
+  rows[0].replies[0].replies[0].author; // { id, name }
+  ```
+
+  ## Patches
+
+  - Resolve `with: { _count }` at every level of a nested `with:`, including the deepest one returned. A tree can now report how many children it withheld without a second pass that re-reads every node the caller already holds.
+
 ## 0.26.3
 
 ### Patch Changes

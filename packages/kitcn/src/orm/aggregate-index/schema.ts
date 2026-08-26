@@ -10,6 +10,16 @@ export const AGGREGATE_RANK_TREE_TABLE = 'aggregate_rank_tree';
 export const AGGREGATE_RANK_NODE_TABLE = 'aggregate_rank_node';
 export const AGGREGATE_STATE_TABLE = 'aggregate_state';
 
+/**
+ * Partition key a rank index's btree rows are stored under. Lives next to the
+ * table names because it is how `AGGREGATE_RANK_TREE_TABLE` is addressed, and
+ * both the rank runtime and the state machine have to agree on it.
+ */
+export const rankAggregateName = (
+  tableName: string,
+  indexName: string
+): string => `${tableName}.${indexName}`;
+
 export const countBucketTable = convexTable(
   AGGREGATE_BUCKET_TABLE,
   {

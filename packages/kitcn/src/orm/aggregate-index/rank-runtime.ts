@@ -12,7 +12,7 @@ import {
   COUNT_STATUS_READY,
   getCountState,
 } from './runtime';
-import { AGGREGATE_MEMBER_TABLE } from './schema';
+import { AGGREGATE_MEMBER_TABLE, rankAggregateName } from './schema';
 
 export type { RankIndexDefinition, RankOrderField } from './definitions';
 export { getRankIndexDefinitions } from './definitions';
@@ -54,9 +54,6 @@ export const RANK_ERROR = {
 
 const createRankError = (code: string, message: string): Error =>
   new Error(`${code}: ${message}`);
-
-const rankAggregateName = (tableName: string, indexName: string): string =>
-  `${tableName}.${indexName}`;
 
 const rankAggregate = (tableName: string, indexName: string) =>
   new DirectAggregate<any>({
