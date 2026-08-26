@@ -985,6 +985,18 @@ export class WhereClauseCompiler {
       orderOffset += 1;
     }
 
+    // For a multi-field sort, a candidate that covers the whole request but
+    // keeps another moving key would replace the old implicit creation-time
+    // tie order with that key. Do not reward it over the shorter baseline
+    // index; the query planner will keep the stable post-fetch sort.
+    if (
+      this.orderFields.length > 1 &&
+      orderOffset === this.orderFields.length &&
+      indexOffset < indexFields.length
+    ) {
+      return 0;
+    }
+
     return served;
   }
 

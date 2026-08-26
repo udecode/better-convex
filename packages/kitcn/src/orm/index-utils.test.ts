@@ -339,7 +339,7 @@ describe('resolveIndexOrderPushdown', () => {
       nullable: false,
     });
 
-    test('serves a sort that is a prefix of the index, in index order', () => {
+    test('serves a sort only when no unrequested key breaks its ties', () => {
       expect(
         resolveIndexOrderPushdown({
           indexFields: ['type', 'numLikes'],
@@ -354,7 +354,7 @@ describe('resolveIndexOrderPushdown', () => {
           pinnedEqCount: 0,
           orderSpecs: [spec('type', 'desc'), spec('numLikes', 'desc')],
         })
-      ).toBe('desc');
+      ).toBeNull();
     });
 
     test('declines a sort that skips or reorders an index key', () => {

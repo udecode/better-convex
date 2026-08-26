@@ -45,7 +45,8 @@ Completion threshold:
 - `resolveIndexOrderPushdown` answers multi-spec sorts correctly (eq-pinned
   fields absorbed without consuming an index key; remaining specs contiguous from
   `indexFields[eqCount]`; `_creationTime` legal only as the final spec after
-  every declared field is consumed; all unpinned specs share one direction;
+  every declared field is consumed; no unrequested moving index key may break
+  requested-field ties; all unpinned specs share one direction;
   opposite-direction pinned-leading sorts preserve their implicit tie order
   unless `_creationTime` makes it explicit),
   every planner call site passes the full spec list, and the read bound is
@@ -90,7 +91,8 @@ Constraints:
 Boundaries:
 - Source of truth: GitHub issue #416.
 - Allowed edit scope: `packages/kitcn/src/orm/{index-utils,query,where-clause-compiler}.ts`,
-  their unit tests, `convex/orm/order-pushdown-reads.test.ts`, `.changeset/`.
+  their unit tests, `convex/{schema,orm/order-pushdown-reads.test}.ts`,
+  current-state ORM docs/skill guidance, and `.changeset/`.
 - Browser surface: N/A: server-side query planner, no rendered output.
 - GitHub issue sync: `Fixes #416` in PR #426 owns the issue linkage; no separate
   issue comment is needed.
@@ -323,7 +325,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint -> no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | workflow output artifacted to /tmp/wf-facts.txt; no unbounded stream |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 3 real P1s in pinned-order scoring, non-null value ordering, and implicit tie direction, all repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | original local review closed 2 conditional findings; autoclosure exact-head reviews found 4 real P1s in pinned-order scoring, non-null value ordering, implicit tie direction, and trailing-key tie identity, all repaired with RED/green proof; immutable-head rerun is recorded in the terminal receipt |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md` | node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/416-orm-multi-field-orderby-index-pushdown.md |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | index-utils.ts importers audited: only orm/* and cli/utils/schema-tables.ts (which imports getAggregateIndexes/getRankIndexes only). OrderSpec is not publicly exported |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no new cross-module imports; OrderSpec is a type-only import within orm/ |
@@ -342,7 +344,7 @@ Phase / pass table:
 | Implementation | done | helper rewrite + 5 call sites + index scoring + docs + changeset | verification |
 | Verification | done | 8/8 new tests, 879 vitest, 1323 bun test, typecheck, lint, build | closeout |
 | Commit / PR / GitHub sync | done | `bun check` green, pushed, PR #426 opened with the task-style body | final response |
-| Closeout | done | all three exact-head P1s repaired; final full `bun check` green | immutable-head review, terminal GitHub receipt, and merge |
+| Closeout | done | four exact-head P1s repaired; focused proof and final full `bun check` green | immutable-head review, terminal GitHub receipt, and merge |
 
 Findings:
 - Two independent blanket bails, exactly as the issue said: the helper's arity
@@ -444,6 +446,11 @@ Review fixes:
   The resolver now declines that pushdown unless `_creationTime` is explicit.
   RED/green proof retains the older tied row without the explicit tie-break and
   keeps both non-cursor and cursor reads bounded when it is explicit.
+- The fourth exact-head review found that an unrequested trailing declared
+  index key can replace the previous creation-time tie order when index scoring
+  selects a fuller candidate. The resolver now declines whole-sort pushdown in
+  that shape, and scoring does not reward the unsafe longer candidate over the
+  prior shorter index. RED/green proof keeps the older tied row across `limit`.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -452,6 +459,8 @@ Error attempts:
 | Exact-head autoreview P1 in candidate-index scoring | 1 | Add the missing narrow-vs-compound regression before changing the scorer | RED selected `by_type`; repair selects `by_type_likes`, with pinned-only and probe cases green |
 | Exact-head autoreview P1 in value-order equivalence | 1 | Reproduce the UTF-8 mismatch, then use Convex's public comparator at the post-fetch owner | RED put emoji before U+E000; repair follows Convex UTF-8, signed-zero, and NaN order |
 | Exact-head autoreview P1 in implicit tie direction | 1 | Add two tied rows around a limit boundary before narrowing servability | RED returned the newer tied row; repair retains the older row unless creation direction is explicit |
+| Exact-head autoreview P1 in trailing-key tie identity | 1 | Reproduce with a shorter baseline index and a fuller index carrying one unrequested key | RED selected `publishedAt: 1`; repair retains the older `publishedAt: 2` row and the shorter baseline index |
+| Typecheck raced package build cleanup | 1 | Rerun after the package build finished instead of concurrently | 5/5 typecheck tasks passed |
 
 Verification evidence:
 - cwd for every command below: /Users/mikey/conductor/workspaces/kitcn/dakar
@@ -498,6 +507,14 @@ Verification evidence:
   with 1 integration test skipped.
 - Tie-direction final `bun check` -> exit 0, including unit, typecheck, lint,
   package build (72 files, 1623.20 kB), fixture parity, and all runtime lanes.
+- Trailing-key RED: the fuller `(type, numLikes, text, publishedAt)` index put
+  `publishedAt: 1` ahead of the older tied `publishedAt: 2` row at `limit: 1`.
+- Trailing-key repair: 12/12 focused read-bound tests, 52 owner/compiler tests,
+  and the 173-pass focused ORM suite are green; typecheck is 5/5 and the package
+  build produced 72 files (1623.42 kB).
+- Trailing-key final `bun check` -> exit 0, including lint, typecheck, complete
+  unit/integration suites, CLI and Concave smoke, fixture parity, package builds,
+  and all bare/Expo/Next/Start/Vite runtime lanes.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -509,6 +526,7 @@ Source-listed case matrix:
 | .order() reverses key tuple | mixed directions unservable | helper unit matrix | declined | declined | index-utils.test.ts | done |
 | _creationTime last spec only | only after all fields consumed | helper unit matrix | n/a | declined unless final | index-utils.test.ts | done |
 | eq-pinned any position/direction | preserve row identity and bound when safe | helper unit + eq-pinned read/tie tests | blanket post-fetch | bounded with explicit creation tie; otherwise post-fetch | 15->3 with explicit tie; older tied row retained without it | done |
+| unrequested trailing index key | preserve old tie identity across `limit` | helper/compiler unit + tied-row integration test | fuller index selected `publishedAt: 1` | shorter baseline scan retains older `publishedAt: 2` | RED/green at `limit: 1` | done |
 | index selection leading-field-only | needs whole-spec selection | selection branch | fields[0] match | whole-sort match, same fallback | full suite green | done |
 | multi-probe bail (:6404) | separate bail | `in` union case | collect | bounded, order preserved | order asserted both pinned and unpinned primary | done |
 
@@ -591,6 +609,8 @@ Timeline:
   ordering; UTF-8/Float64 edge proof and the full repository gate passed.
 - 2026-08-26 Reproduced and repaired the exact-head review P1 in implicit tie
   direction; tied top-k identity and explicit-tie bounded reads passed.
+- 2026-08-26 Reproduced and repaired the exact-head review P1 in unrequested
+  trailing-key tie order; resolver, scorer, and tied-row proof passed.
 
 Reboot status:
 | Question | Answer |
@@ -605,7 +625,8 @@ High-risk note:
 - Realistic failure mode: the helper claims an order the index cannot serve, the
   planner skips the JS sort, and rows come back silently mis-ordered — or, in the
   relation loader, each parent truncates the wrong top-k and rows are lost before
-  the global sort ever sees them. No error, no exception.
+  the global sort ever sees them. A fuller index can also inject an unrequested
+  tie key before creation time and change which row survives. No error, no exception.
 - Proof plan: a 24-case helper unit matrix pinning every accept and every
   decline, plus integration tests that assert both the read bound at two table
   sizes AND the exact row order, including the eq-pinned divergent-direction

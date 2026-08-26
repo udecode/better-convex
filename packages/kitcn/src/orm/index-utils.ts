@@ -209,6 +209,20 @@ export function resolveIndexOrderPushdown(params: {
     cursor += 1;
   }
 
+  // A trailing declared key breaks ties before Convex reaches its implicit
+  // creation-time suffix. The old stable post-fetch sort preserved the
+  // selected scan's creation order for rows tied on every requested field, so
+  // choosing a longer index and truncating before that sort can change row
+  // identity. Single-field pushdown already ships with this behavior; the new
+  // multi-field path must consume every moving declared key.
+  if (
+    orderSpecs.length > 1 &&
+    direction !== null &&
+    cursor < indexFields.length
+  ) {
+    return null;
+  }
+
   // Before whole-sort pushdown, the leading requested field chose the scan
   // direction and the stable post-fetch sort preserved that direction for
   // otherwise-equal rows. If that field is pinned while the first moving field

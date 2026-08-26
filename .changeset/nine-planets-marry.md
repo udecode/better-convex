@@ -13,7 +13,9 @@
   limit: 2 } }` now reads 2 children per parent instead of all of them.
 - Prefer an index that supplies more of the requested sort when several serve
   the filter equally well, so `(orgId, createdAt, title)` is chosen over
-  `(orgId, createdAt)` for a sort on both `createdAt` and `title`.
+  `(orgId, createdAt)` for a sort on both `createdAt` and `title`. An index with
+  another unrequested key after `title` is not treated as an exact sort because
+  that key would change which tied rows survive `limit`.
 - Stop warning that secondary `orderBy` fields are unstable across pages when
   the index carries the whole sort. A Convex cursor is the index key, so those
   pages are stable. The warning still fires — with corrected wording — when no

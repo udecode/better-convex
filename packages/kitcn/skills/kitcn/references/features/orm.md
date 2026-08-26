@@ -272,6 +272,9 @@ When the first requested field is equality-pinned but points opposite to the
 moving fields, include `createdAt` in the moving direction as the final sort
 field. Without that explicit tie-break, the ORM post-fetch sorts to preserve
 which tied rows survive `limit`.
+Every unpinned declared index key must be requested. An extra key after the
+requested fields would break ties before Convex's implicit creation-time key,
+so the ORM keeps the post-fetch sort to preserve which rows survive `limit`.
 Sorting by any other column — or by one that can be missing or `null` — reads
 the parent's whole child partition and sorts in memory; put the sort columns in
 the relation index, in sort order, to stay bounded.

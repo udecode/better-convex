@@ -140,6 +140,39 @@ test('a pinned opposite-direction sort preserves the old implicit tie order', as
   });
 });
 
+test('an unrequested trailing index field preserves the old implicit tie order', async () => {
+  const t = convexTest(schema);
+  await t.run(async (baseCtx) => {
+    await baseCtx.db.insert('posts', {
+      text: 'same',
+      numLikes: 1,
+      publishedAt: 2,
+      type: 'a',
+    });
+    await baseCtx.db.insert('posts', {
+      text: 'same',
+      numLikes: 1,
+      publishedAt: 1,
+      type: 'a',
+    });
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const rows = await ctx.orm.query.posts.findMany({
+      where: { type: 'a' },
+      orderBy: (posts: any, { asc }: any) => [
+        asc(posts.type),
+        asc(posts.numLikes),
+        asc(posts.text),
+      ],
+      limit: 1,
+    });
+
+    expect(rows.map((row: any) => row.publishedAt)).toEqual([2]);
+  });
+});
+
 test('two-field orderBy returns the same page a post-fetch sort would', async () => {
   const t = convexTest(schema);
   await t.run((baseCtx) => seedPosts(baseCtx, 60));

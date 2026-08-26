@@ -330,6 +330,10 @@ describe('WhereClauseCompiler advanced index planning', () => {
         indexName: 'by_type_likes',
         indexFields: ['type', 'numLikes'],
       },
+      {
+        indexName: 'by_type_likes_text_rank',
+        indexFields: ['type', 'numLikes', 'text', 'rank'],
+      },
     ]);
 
     const result = compiler.compile(eq(fieldRef<string>('type') as any, 'a'), {
@@ -349,6 +353,12 @@ describe('WhereClauseCompiler advanced index planning', () => {
       { orderFields: ['type'] }
     ) as any;
     expect(pinnedOnly.selectedIndex?.indexName).toBe('by_type');
+
+    const trailingKey = compiler.compile(
+      eq(fieldRef<string>('type') as any, 'a'),
+      { orderFields: ['type', 'numLikes', 'text'] }
+    ) as any;
+    expect(trailingKey.selectedIndex?.indexName).toBe('by_type_likes');
   });
 
   test('keeps the narrow index when no candidate supplies the order', () => {
