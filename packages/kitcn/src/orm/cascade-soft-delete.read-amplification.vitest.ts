@@ -110,6 +110,7 @@ const makeCampaign = (options: {
   payloadBytes?: number;
   maxBytesPerBatch?: number;
   movePendingRowBehindCursor?: boolean;
+  legacyQueuedJob?: boolean;
 }) => {
   const { parents, children } = makeTables(
     options.prefix,
@@ -187,11 +188,31 @@ const makeCampaign = (options: {
         scheduledMutationBatch,
       });
 
-      await ctx.orm
-        .delete(parents)
-        .soft()
-        .where(eq(parents.id, parentId))
-        .execute();
+      if (options.legacyQueuedJob) {
+        await ctx.db.patch(parentId, { deletionTime: Date.now() });
+        queue.push({
+          workType: 'cascade-delete',
+          mode: 'async',
+          operation: 'delete',
+          table: `${options.prefix}_children`,
+          foreignIndexName: 'by_parent_rank',
+          foreignSourceColumns: ['parentId'],
+          targetValues: [parentId],
+          foreignAction: 'cascade',
+          deleteMode: 'soft',
+          cascadeMode: 'soft',
+          cursor: 'legacy-prefix-cursor',
+          batchSize: BATCH_SIZE,
+          maxBytesPerBatch: options.maxBytesPerBatch,
+          delayMs: 0,
+        });
+      } else {
+        await ctx.orm
+          .delete(parents)
+          .soft()
+          .where(eq(parents.id, parentId))
+          .execute();
+      }
 
       while (queue.length > 0) {
         batches += 1;
@@ -300,5 +321,31 @@ describe('ORM soft cascade delete read amplification', () => {
 
     expect(result.pending).toBe(0);
     expect(result.scanned).toBeLessThanOrEqual(200);
+  }, 60_000);
+
+  test('a queued wider-index job reselects an exact index', async () => {
+    const run = makeCampaign({
+      prefix: 'csd_queued_exact',
+      childIndexFields: 'both',
+      legacyQueuedJob: true,
+      movePendingRowBehindCursor: true,
+    });
+
+    const result = await run(100);
+
+    expect(result.pending).toBe(0);
+    expect(result.scanned).toBeLessThanOrEqual(200);
+  }, 60_000);
+
+  test('a queued prefix-only job drains through legacy replay', async () => {
+    const run = makeCampaign({
+      prefix: 'csd_queued_prefix',
+      childIndexFields: 'wider',
+      legacyQueuedJob: true,
+    });
+
+    const result = await run(40);
+
+    expect(result.pending).toBe(0);
   }, 60_000);
 });

@@ -5,7 +5,7 @@ import type {
 } from 'convex/server';
 import { createDatabase } from './database';
 import type { EdgeMetadata } from './extractRelationsConfig';
-import { getIndexes } from './index-utils';
+import { findExactIndexForColumns, getIndexes } from './index-utils';
 import {
   applyIncomingForeignKeyActionsOnDelete,
   type CascadeMode,
@@ -42,6 +42,7 @@ export type ScheduledMutationBatchArgs = {
   update?: Record<string, unknown>;
   deleteMode?: DeleteMode;
   cascadeMode?: CascadeMode;
+  softCascadeCursorVersion?: 1;
   foreignIndexName?: string;
   foreignSourceColumns?: string[];
   targetValues?: unknown;
@@ -225,9 +226,36 @@ export function scheduledMutationBatchFactory<
       workType === 'cascade-delete' &&
       action === 'cascade' &&
       (args.cascadeMode ?? 'hard') === 'soft';
-    const queryWithIndex = () =>
-      (ctx.db.query(args.table) as any).withIndex(
-        args.foreignIndexName,
+    const indexes = getIndexes(table);
+    const exactIndexName = findExactIndexForColumns(indexes, sourceColumns);
+    if (
+      isSoftCascade &&
+      args.softCascadeCursorVersion === 1 &&
+      !exactIndexName
+    ) {
+      throw new Error(
+        `scheduledMutationBatch: async soft cascade on '${args.table}' requires an exact foreign-key index on (${sourceColumns.join(
+          ', '
+        )}).`
+      );
+    }
+    const effectiveIndexName =
+      isSoftCascade && exactIndexName ? exactIndexName : args.foreignIndexName;
+    const recoversQueuedJob =
+      isSoftCascade &&
+      exactIndexName !== null &&
+      (args.softCascadeCursorVersion !== 1 ||
+        args.foreignIndexName !== exactIndexName);
+    const pageStartCursor =
+      isSoftCascade && exactIndexName
+        ? recoversQueuedJob
+          ? null
+          : args.cursor
+        : null;
+    const replaysQueuedPrefixJob = isSoftCascade && !exactIndexName;
+    const queryWithIndex = () => {
+      const indexed = (ctx.db.query(args.table) as any).withIndex(
+        effectiveIndexName,
         (q: any) => {
           let builder = q.eq(sourceColumns[0], targetValues[0]);
           for (let i = 1; i < sourceColumns.length; i += 1) {
@@ -236,35 +264,22 @@ export function scheduledMutationBatchFactory<
           return builder;
         }
       );
-    const foreignIndexFields = getIndexes(table).find(
-      (candidate) => candidate.name === args.foreignIndexName
-    )?.fields;
-    const hasExactForeignIndex =
-      foreignIndexFields?.length === sourceColumns.length &&
-      foreignIndexFields.every(
-        (field, index) => field === sourceColumns[index]
+      if (!replaysQueuedPrefixJob) {
+        return indexed;
+      }
+      return indexed.filter((q: any) =>
+        q.or(
+          q.eq(q.field(DELETION_TIME_FIELD), undefined),
+          q.eq(q.field(DELETION_TIME_FIELD), null)
+        )
       );
-    // A cursor on an exact foreign-key index is stable because the campaign
-    // pins every declared key field. Reject a prefix index defensively: another
-    // mutation can move a pending row behind its cursor by changing a trailing
-    // field, while a table scan would amplify each cascade across unrelated
-    // rows. Normal scheduling selects the exact index before creating this job.
-    if (isSoftCascade && !hasExactForeignIndex) {
-      throw new Error(
-        `scheduledMutationBatch: async soft cascade on '${args.table}' requires an exact foreign-key index on (${sourceColumns.join(
-          ', '
-        )}).`
-      );
-    }
+    };
 
-    //
-    // Rows this campaign already stamped must not be filtered out of the query.
-    // Convex reads them either way — a `.filter()` only hides them from the page
-    // while still paying for the scan — and excluding the cursor's own row from
-    // the result strands the cursor. They are skipped in JS below instead.
-    //
+    // New jobs use an exact index cursor. Jobs queued by an older worker have
+    // no version marker: reselect an exact index from the current schema and
+    // restart it from null, or preserve the old filtered replay until it drains.
     const paged = await queryWithIndex().paginate({
-      cursor: isSoftCascade ? args.cursor : null,
+      cursor: pageStartCursor,
       numItems: args.batchSize,
     });
     const resolvedMaxBytesPerBatch = args.maxBytesPerBatch ?? maxBytesPerBatch;
@@ -377,7 +392,7 @@ export function scheduledMutationBatchFactory<
       }
     }
 
-    if (isSoftCascade) {
+    if (isSoftCascade && exactIndexName) {
       if (hitByteLimit) {
         // The byte budget stopped this batch short of the page Convex returned,
         // so `paged.continueCursor` covers rows it never processed. Convex
@@ -391,7 +406,9 @@ export function scheduledMutationBatchFactory<
         await ctx.scheduler.runAfter(args.delayMs, scheduledMutationBatch, {
           ...args,
           workType,
-          cursor: args.cursor,
+          foreignIndexName: exactIndexName,
+          softCascadeCursorVersion: 1,
+          cursor: pageStartCursor,
           batchSize: consumedRows.length,
           maxBytesPerBatch: resolvedMaxBytesPerBatch,
         });
@@ -401,6 +418,8 @@ export function scheduledMutationBatchFactory<
         await ctx.scheduler.runAfter(args.delayMs, scheduledMutationBatch, {
           ...args,
           workType,
+          foreignIndexName: exactIndexName,
+          softCascadeCursorVersion: 1,
           cursor: paged.continueCursor,
           maxBytesPerBatch: resolvedMaxBytesPerBatch,
         });

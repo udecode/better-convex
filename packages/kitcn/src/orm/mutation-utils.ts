@@ -1773,6 +1773,7 @@ export async function applyIncomingForeignKeyActionsOnDelete(
             foreignAction: action,
             deleteMode: options.deleteMode,
             cascadeMode: options.cascadeMode,
+            softCascadeCursorVersion: requiresExactIndex ? 1 : undefined,
             cursor: null,
             batchSize: asyncBatchSize,
             maxBytesPerBatch: options.maxBytesPerBatch,

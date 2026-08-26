@@ -498,6 +498,8 @@ Source-listed case matrix:
 | One paginated query per execution | not in the source; found in review | paginate-call counter per worker invocation in the same vitest file | 2 calls on a truncated batch | at most 1 | guard fails at 2, passes at 1 | pass |
 | Prefix-only FK index | P1 autoreview at synced head | same vitest file, only index on (parentId, rank) | unsafe cursor or whole-table amplification | reject before scheduling | clear exact-index error | pass |
 | Pending row moves behind cursor | P1 autoreview at synced head | same vitest file, wider index declared before exact index; rank 25 moves behind progress after batch 1 | 1 child stranded when wider cursor is used | select exact index | red at 1 pending, green at 0 pending and <=200 scanned | pass |
+| Queued wider-index job | P1 autoreview at final head | versionless job names (parentId, rank) while current schema also has exact index | stale cursor can strand descendants | reselect exact index and restart safely | 0 pending and <=200 scanned | pass |
+| Queued prefix-only job | P1 autoreview at final head | versionless job and no exact index yet | deployment failure strands active campaign | retain bounded legacy replay until drained | 40/40 children stamped | pass |
 | Hard cascade unaffected | issue states hard mode is fine | limits.stress.test.ts existing cases C/D | passing | still passing | 12/12 stress cases pass | pass |
 
 Final handoff contract:
@@ -515,7 +517,8 @@ Final handoff contract:
   is still soft-deleted.
 - Caveat: async soft cascade requires an exact foreign-key index. A prefix-only
   index is rejected because neither its mutable cursor nor a whole-table scan is
-  safe at scale.
+  safe at scale. This is a breaking schema requirement carried by a minor
+  release; already-queued jobs retain a recovery path.
 - Design:
   - Chosen boundary: the cascade worker's continuation strategy. Soft cascade
     selects and forwards an exact foreign-key index cursor, even when a wider
@@ -570,9 +573,12 @@ Timeline:
   cursor. A whole-table fallback fixed correctness but failed review for
   cross-parent amplification. The final repair requires and selects an exact
   foreign-key index before scheduling.
-- 2026-08-26 Closeout proof: focused regression 4/4, limit stress 12/12, root
+- 2026-08-26 Final review found release and queued-job gaps. The changeset is
+  now minor, new jobs carry a cursor-version marker, and versionless queued jobs
+  reselect an exact index or drain through the legacy replay path.
+- 2026-08-26 Closeout proof: focused regression 6/6, limit stress 12/12, root
   typecheck 5/5 tasks, lint clean, package build green, and `bun check` green
-  with 1361 Bun tests plus 927 Vitest tests.
+  with 1361 Bun tests plus 929 Vitest tests.
 - 2026-08-26 Agent-native review: PASS. The user action (configure async soft
   cascade), agent route (kitcn ORM reference), source owner (ORM mutation
   runtime), public docs, generated mirror, and focused proof are all present.
