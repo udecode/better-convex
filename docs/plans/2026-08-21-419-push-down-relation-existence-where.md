@@ -87,7 +87,8 @@ Boundaries:
 - Allowed edit scope: `packages/kitcn/src/orm/query.ts`, `convex/orm/*.test.ts`,
   `.changeset/`, this plan.
 - Browser surface: N/A.
-- GitHub issue sync: N/A — user preference forbids GitHub writes this run.
+- GitHub issue sync: PR #427 links `Fixes #419`; autoclosure owns the final
+  receipt and merge read-back.
 - Non-goals: rewriting the relation loader, changing `with` semantics, changing
   `one`-relation lowering, or touching the aggregate `_count` path.
 
@@ -105,10 +106,10 @@ Blocked condition:
 Task state:
 - task_type: bug (read-cost regression)
 - task_complexity: non-trivial
-- current_phase: closeout
-- current_phase_status: done
-- next_phase: final response
-- goal_status: complete
+- current_phase: autoclosure
+- current_phase_status: in_progress
+- next_phase: terminal GitHub receipt and exact-head merge
+- goal_status: active
 
 Current verdict:
 - verdict: fixed
@@ -279,7 +280,7 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | 12/12 in relation-filter-pushdown.test.ts; 740 integration; 1316 bun |
+| Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | source-synced focused suite 18/18; root typecheck 5/5; package build, lint, and full `bun check` green |
 | Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #427, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | recorded: valid diagnosis, partially valid fix, pivoted |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level repro sufficient; browser/visual N/A |
@@ -302,15 +303,15 @@ Completion Gates:
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no install-shaped failure |
 | Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `git add -A` then `0f91b428` |
 | PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `bun check` exit 0, pushed, PR #427 |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | PR #427 body uses the required task format and preserves the auto-release block |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | PR #427 body names this plan; the plan exists at the PR head and identifies PR #427 |
 | PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof in the body |
 | GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #419` links the PR to the issue |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled above |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix then bun lint clean |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | no unbounded output streamed; audit ran in a background workflow |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | `--mode local --engine claude`: 3 P0 findings, all fixed; rerun clean |
+| Autoreview for non-trivial implementation changes | yes | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | initial local review found 3 P0s, all fixed; source-synced exact-branch rerun clean at 0.9 confidence |
 | Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-08-21-419-push-down-relation-existence-where.md` | check-complete.mjs run at closeout |
 | Public API / package boundary proof | yes | Source-audit public API, exports, and package boundary impact | no public type or export changed; bound carried on a module-private Symbol |
 | Convex bundle/import proof | no | Audit affected function-entry static graphs or record N/A | N/A: no import added to query.ts |
@@ -452,6 +453,15 @@ Error attempts:
 | `bun test` reported 1 fail on one run, collecting 1314 of 1316 tests | 1 | Reran; clean at 1316 on three other runs | Load flake, not the diff |
 
 Verification evidence:
+- Source-sync closeout from `/Users/zbeyens/git/better-convex`:
+  - merged current `kitcn/main` into the PR branch without conflicts;
+  - `bunx vitest run convex/orm/relation-filter-pushdown.test.ts` -> 18/18;
+  - `bun typecheck` -> 5/5 tasks successful;
+  - `bun --cwd packages/kitcn build` -> 72 files, 1628.38 kB;
+  - `bun lint:fix` -> clean;
+  - exact committed branch autoreview against `kitcn/main` -> no actionable
+    P0/P1 finding, 0.9 confidence;
+  - `bun check` -> exit 0.
 - cwd for every command below: `/Users/mikey/conductor/workspaces/kitcn/sun-valley-v1`.
 - `npx vitest run convex/orm/relation-filter-pushdown.test.ts --project integration`
   -> 12 passed.
@@ -563,6 +573,9 @@ Final handoff / sync:
   `NOT` overload-resolution typing gap is untouched.
 
 Timeline:
+- 2026-08-26: merged current `kitcn/main`, reran the focused suite, root
+  typecheck, package build, lint, exact-branch autoreview, and full `bun check`;
+  every lane passed.
 - 2026-08-21T21:21:27.214Z Task goal plan created.
 - Reproduced #419 at 62 reads on pristine `3bbc6bb3`.
 - Ran a 10-agent constraint audit over the issue's 7 named constraints; it
