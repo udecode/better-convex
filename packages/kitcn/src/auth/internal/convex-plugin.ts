@@ -11,26 +11,10 @@ import type { BetterAuthOptions } from 'better-auth/minimal';
 import { bearer as bearerPlugin } from 'better-auth/plugins/bearer';
 import type { Jwk, JwtOptions } from 'better-auth/plugins/jwt';
 import { jwt as jwtPlugin } from 'better-auth/plugins/jwt';
-import { oidcProvider as oidcProviderPlugin } from 'better-auth/plugins/oidc-provider';
 import type { AuthConfig, AuthProvider } from 'convex/server';
 import { omit } from '../../internal/upstream';
 
 export const JWT_COOKIE_NAME = 'convex_jwt';
-
-type BetterAuthAfterHooks = NonNullable<
-  NonNullable<BetterAuthPlugin['hooks']>['after']
->;
-type BetterAuthAfterHook = BetterAuthAfterHooks[number];
-type BetterAuthHookContext = Parameters<BetterAuthAfterHook['matcher']>[0];
-
-const normalizeAfterHooks = <THook extends BetterAuthAfterHook>(
-  hooks: THook[]
-): BetterAuthAfterHooks => {
-  return hooks.map((hook) => ({
-    ...hook,
-    matcher: (ctx: BetterAuthHookContext) => Boolean(hook.matcher(ctx)),
-  }));
-};
 
 const getJwksAlg = (authProvider: AuthProvider) => {
   const isCustomJwt =
@@ -75,35 +59,47 @@ const parseAuthConfig = (authConfig: AuthConfig, opts: { jwks?: string }) => {
   return providerConfig;
 };
 
-// oidcProviderPlugin() builds a complete endpoint table and captures nothing
-// request-scoped: its whole input is the site URL and the base path. The
-// convex() factory re-runs on every evaluation of the user's auth definition,
-// so the instance is keyed on those two strings and reused for the isolate.
-const oidcProviderCache = new Map<
-  string,
-  ReturnType<typeof oidcProviderPlugin>
->();
-
-const getOidcProvider = (basePath: string) => {
+const createOpenIdConfig = (basePath: string, signingAlgorithm: string) => {
   const siteUrl = `${process.env.CONVEX_SITE_URL}`;
-  const key = `${siteUrl}|${basePath}`;
-  const cached = oidcProviderCache.get(key);
+  const baseUrl = `${siteUrl}${basePath}`;
 
-  if (cached) {
-    return cached;
-  }
-
-  const oidcProvider = oidcProviderPlugin({
-    loginPage: '/not-used',
-    metadata: {
-      issuer: siteUrl,
-      jwks_uri: `${siteUrl}${basePath}/convex/jwks`,
-    },
-    __skipDeprecationWarning: true,
-  });
-  oidcProviderCache.set(key, oidcProvider);
-
-  return oidcProvider;
+  return {
+    issuer: siteUrl,
+    authorization_endpoint: `${baseUrl}/oauth2/authorize`,
+    token_endpoint: `${baseUrl}/oauth2/token`,
+    userinfo_endpoint: `${baseUrl}/oauth2/userinfo`,
+    jwks_uri: `${baseUrl}/convex/jwks`,
+    registration_endpoint: `${baseUrl}/oauth2/register`,
+    end_session_endpoint: `${baseUrl}/oauth2/endsession`,
+    scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
+    response_types_supported: ['code'],
+    response_modes_supported: ['query'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    acr_values_supported: [
+      'urn:mace:incommon:iap:silver',
+      'urn:mace:incommon:iap:bronze',
+    ],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: [signingAlgorithm],
+    token_endpoint_auth_methods_supported: [
+      'client_secret_basic',
+      'client_secret_post',
+      'none',
+    ],
+    code_challenge_methods_supported: ['S256'],
+    claims_supported: [
+      'sub',
+      'iss',
+      'aud',
+      'exp',
+      'nbf',
+      'iat',
+      'jti',
+      'email',
+      'email_verified',
+      'name',
+    ],
+  };
 };
 
 export const convex = (opts: {
@@ -125,8 +121,12 @@ export const convex = (opts: {
 }) => {
   const jwtExpirationSeconds =
     opts.jwt?.expirationSeconds ?? opts.jwtExpirationSeconds ?? 60 * 15;
-  const oidcProvider = getOidcProvider(opts.options?.basePath ?? '/api/auth');
   const providerConfig = parseAuthConfig(opts.authConfig, opts);
+  const signingAlgorithm = getJwksAlg(providerConfig);
+  const openIdConfig = createOpenIdConfig(
+    opts.options?.basePath ?? '/api/auth',
+    signingAlgorithm
+  );
 
   const jwtOptions = {
     jwt: {
@@ -143,7 +143,7 @@ export const convex = (opts: {
     },
     jwks: {
       keyPairConfig: {
-        alg: getJwksAlg(providerConfig),
+        alg: signingAlgorithm,
       },
     },
   } satisfies JwtOptions;
@@ -221,17 +221,21 @@ export const convex = (opts: {
               ..._args: any[]
             ) => {};
             const knownSafePaths = ['/api-key/list', '/api-key/get'];
-            const noopWrite = (method: string) => {
+            const noopWrite = (method: string, result: unknown = 0) => {
               return async (..._args: any[]) => {
                 if (ctx.path && !knownSafePaths.includes(ctx.path)) {
                   console.warn(
                     `[convex-better-auth] Write operation "${method}" skipped in query context for ${ctx.path}`
                   );
                 }
-                return 0;
+                return result;
               };
             };
             ctx.context.adapter.create = noopWrite('create') as any;
+            ctx.context.adapter.incrementOne = noopWrite(
+              'incrementOne',
+              {}
+            ) as any;
             ctx.context.adapter.update = noopWrite('update') as any;
             ctx.context.adapter.updateMany = noopWrite('updateMany') as any;
             ctx.context.adapter.delete = noopWrite('delete') as any;
@@ -241,7 +245,6 @@ export const convex = (opts: {
         },
       ],
       after: [
-        ...normalizeAfterHooks(oidcProvider.hooks.after),
         {
           matcher: (ctx) => {
             return Boolean(
@@ -304,14 +307,7 @@ export const convex = (opts: {
             isAction: false,
           },
         },
-        async (ctx) => {
-          return await oidcProvider.endpoints.getOpenIdConfig({
-            ...ctx,
-            asResponse: false,
-            returnHeaders: false,
-            returnStatus: false,
-          });
-        }
+        async () => openIdConfig
       ),
       getJwks: createAuthEndpoint(
         '/convex/jwks',

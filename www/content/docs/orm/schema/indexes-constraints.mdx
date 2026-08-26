@@ -167,6 +167,8 @@ export const posts = convexTable(
 
 <Callout icon={<InfoIcon />}>
 **Tip:** For non-`id` foreign keys, add an index on the referenced columns (parent table) so inserts/updates can validate quickly. For `cascade` / `set null` / `set default`, add an index on the referencing columns (child table). Without an index, the ORM will throw if it detects referencing rows.
+
+Async soft cascade requires an exact child index whose declared fields are the referencing columns. For example, `index('by_author').on(t.authorId)` qualifies; `index('by_author_rank').on(t.authorId, t.rank)` does not. Mutable trailing fields cannot provide stable continuation across scheduled mutations.
 </Callout>
 
 ### Check Constraints

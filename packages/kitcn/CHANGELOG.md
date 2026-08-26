@@ -1,5 +1,395 @@
 # kitcn
 
+## 0.31.1
+
+### Patch Changes
+
+- [#424](https://github.com/udecode/kitcn/pull/424) [`0e3a221`](https://github.com/udecode/kitcn/commit/0e3a2214e8e1037b323e603f19c2df89b0d95602) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Stop `aggregateBackfill` rewriting the stored state it is about to delete.
+    Clearing a `rankIndex` walked the btree once per member — a root-to-leaf
+    descent plus a patch on every node along the way — and then dropped the whole
+    tree regardless, so all of that work was thrown away. Clearing an
+    `aggregateIndex` did the same thing with buckets, decrementing each one down to
+    zero before deleting it. Both now delete their member rows outright and let the
+    existing tree and bucket sweeps reclaim the rest. Clearing 120 rank members
+    across three partitions went from 201 btree node writes to 15, one per node.
+  - Fix a `rankIndex` clear crashing with `Unexpected field 'deletionStack'` once a
+    partition holds more than a few hundred rows. The rank storage tables now
+    reuse the same definitions the btree writes to, so a large tree can persist its
+    traversal state and resume across mutations. Run
+    `npx convex dev` (or your usual codegen) to pick the schema up.
+  - Report real work from a clear chunk instead of a fixed guess, so
+    `aggregateBackfill --batch-size` now bounds a clear by the documents it
+    actually touches. Multi-partition rank indexes no longer schedule far more
+    chunks than the remaining work needs.
+  - Allow an app to declare `aggregateStorageTables` from `kitcn/aggregate`
+    alongside a table that also declares a `rankIndex`. `defineSchema` used to
+    reject that combination as a duplicate table name.
+
+## 0.31.0
+
+### Minor Changes
+
+- [#423](https://github.com/udecode/kitcn/pull/423) [`8dbe02a`](https://github.com/udecode/kitcn/commit/8dbe02abeb2a0a5495a33a6a8206fbe53bfd1a16) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - The generated auth runtime exports a new internal `count` query. Rerun
+    `npx kitcn codegen` and redeploy before upgrading — Better Auth's `count()`
+    calls it on every request that reads a total, and a deployment that predates
+    it will fail those requests with a missing-function error.
+
+  ```ts
+  // convex/functions/generated/auth.ts — regenerated
+  export const {
+    authEnabled,
+    authClient,
+    getAuth,
+    auth,
+    count,
+    create,
+    // ...
+  } = authRuntime;
+  ```
+
+  ## Patches
+
+  - Fix Better Auth's `count()` reading every matching row 200 at a time. A count
+    with no filter is now answered by Convex directly and reads no documents at
+    all, so `/admin/list-users` and any other total over a whole auth table no
+    longer scales with the table. Previously this ran one paginated query per 200
+    rows, and inside a query or mutation every one of those rows landed in the
+    same transaction, so a large enough table failed on the per-transaction
+    document-read limit instead of returning a number.
+  - Support constant-cost counts on filtered auth tables. When a table declares an
+    `aggregateIndex` whose fields exactly match the fields being counted, counts
+    such as members-per-organization read a bucket instead of the members. Counts
+    that no index can serve, including anything using `contains`, `ne`, `in`, or
+    an OR clause, still page through rows and return the same number as before.
+
+## 0.30.0
+
+### Minor Changes
+
+- [#422](https://github.com/udecode/kitcn/pull/422) [`f677251`](https://github.com/udecode/kitcn/commit/f6772514d2525104ac6878c0eeb7334a84af981b) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix soft cascade delete re-reading every child it had already processed. New scheduled campaigns require and resume through an exact foreign-key index, keeping reads linear without allowing mutable trailing index fields to strand a child. Queued jobs reselect a newly available exact index or drain through the legacy replay path.
+
+## 0.29.0
+
+### Minor Changes
+
+- [#421](https://github.com/udecode/kitcn/pull/421) [`26dd9b5`](https://github.com/udecode/kitcn/commit/26dd9b55357e4d49b7ada84812fefd52648f304a) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Breaking changes
+
+  - Register `migrationStatus` and `aggregateBackfillStatus` as internal
+    **queries** instead of internal mutations. Polling migration or aggregate
+    status no longer opens a write transaction, so a status monitor stops
+    competing for OCC write slots on the very tables it is reporting on. Both can
+    now back a live subscription, and neither can be scheduled any more.
+
+  ```ts
+  // Before — status read had to run from a mutation context
+  export const getStatus = authMutation.mutation(async ({ ctx }) => {
+    const server = createServerCaller(ctx);
+    return await server.migrationStatus({});
+  });
+
+  // After — status reads from a query context
+  export const getStatus = authQuery.query(async ({ ctx }) => {
+    const server = createServerCaller(ctx);
+    return await server.migrationStatus({});
+  });
+  ```
+
+  - Accept an `internalQuery` builder in `createOrm(...)` alongside
+    `internalMutation`. Apps generated by `kitcn codegen` pass it automatically;
+    hand-written `createOrm` calls that use `orm.api()` should pass it too so the
+    status procedures are built with the app's own Convex builder.
+
+  ```ts
+  // Before
+  const orm = createOrm({ schema, ormFunctions, internalMutation });
+
+  // After
+  const orm = createOrm({
+    schema,
+    ormFunctions,
+    internalMutation,
+    internalQuery,
+  });
+  ```
+
+  ## Patches
+
+  - Fix `migrationStatus` reading the entire `migration_run` history to return the
+    most recent runs. The listing now walks a new `by_started_at` index in reverse
+    and stops at `limit`, so the cost of a status call no longer grows with the
+    number of migrations ever run. Runs that share a `startedAt` millisecond now
+    order newest-first.
+  - Bound the `limit` argument of `migrationStatus` at `MAX_STATUS_RUN_LIMIT`
+    (`100`, default `25`), exported from `kitcn/orm/migrations`, so a caller
+    cannot reintroduce an unbounded read through the args.
+  - Resolve `migrationStatus`'s `runId` and `activeRun` through their existing
+    indexes instead of scanning the run history. `activeRun` now agrees with the
+    run that `migrate cancel` targets.
+
+## 0.28.1
+
+### Patch Changes
+
+- [#420](https://github.com/udecode/kitcn/pull/420) [`73741ed`](https://github.com/udecode/kitcn/commit/73741ed08779d539c9f186db366e326b138dbd36) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Fix `insert()` re-reading the same parent row once per inserted row. Rows of one statement that share a foreign key now cost one existence check instead of one per row.
+  - Fix the aggregate write barrier re-scanning the `CLEARING` index-state range once per written row. A multi-row write now checks it once per transaction, and a backfill that starts clearing an index still blocks the writes that follow it.
+  - Fix a relation `where` re-reading the same related document once per scanned row. Filtering by a relation now reads each distinct related document once per query instead of once per candidate row.
+
+## 0.28.0
+
+### Minor Changes
+
+- [#430](https://github.com/udecode/kitcn/pull/430) [`d90c209`](https://github.com/udecode/kitcn/commit/d90c20987a5a94a29d3fcb57aee85e060146a2a8) Thanks [@zbeyens](https://github.com/zbeyens)! - ## Breaking changes
+
+  - Require Better Auth 1.7. Existing deployments need a maintenance window and
+    two schema deployments. Do not refresh the required Better Auth 1.7 schema
+    first: the old schema rejects new fields, while the required schema rejects
+    old rows.
+
+  ```ts
+  // Before
+  const account = { accountId, providerId, userId };
+
+  // After
+  const account = { accountId, issuer, providerId, userId };
+  ```
+
+  ### Deployment 1: optional fields and backfills
+
+  Stop authentication writes, background jobs, and admin APIs that write
+  `account`, `team`, or `teamMember`. Keep them stopped through deployment 2.
+
+  Keep the currently deployed Better Auth version. Temporarily add `issuer` and
+  the lookup index to the existing account schema owner. Apps using organization
+  teams must also add optional `memberCount` and `membershipKey` fields plus the
+  `membershipKey` index:
+
+  ```ts
+  // ORM account field/index
+  issuer: text(),
+  index("accountId_issuer").on(accountTable.accountId, accountTable.issuer),
+
+  // ORM team and teamMember fields/index
+  memberCount: integer(),
+  membershipKey: text(),
+  uniqueIndex("membershipKey").on(teamMemberTable.membershipKey),
+
+  // Raw Convex account field/index
+  issuer: v.optional(v.string()),
+  .index("accountId_issuer", ["accountId", "issuer"])
+
+  // Raw Convex team and teamMember fields/index
+  memberCount: v.optional(v.number()),
+  membershipKey: v.optional(v.string()),
+  .index("membershipKey", ["membershipKey"])
+  ```
+
+  `membershipKey` stays optional in the generated Better Auth 1.7 schema, and
+  the 1.7 adapter falls back to the existing `(teamId, userId)` pair when it is
+  absent. Existing rows do not need a membership-key backfill; new 1.7 writes
+  populate it.
+
+  Create a migration with `bunx kitcn migrate create backfill_account_issuer`.
+  Inventory every provider and resolve both parts of its 1.7 identity from
+  trusted provider data. Credential accounts use `local:credential` and their
+  linked user ID. OAuth providers without an issuer use
+  `local:oauth:${encodeURIComponent(providerId)}` and keep their stable provider
+  subject unless the 1.7 provider contract changed it.
+
+  Microsoft is a required exception: map every `microsoft` and
+  `microsoft-entra-id` row from its old `sub` to the verified directory `oid`
+  from a verified stored ID token or trusted Entra export. Apply the same rule to
+  custom OAuth/OIDC providers whose 1.7 `accountSubject` differs. Never derive an
+  identity from email or another mutable profile field. The
+  [Better Auth 1.7 upgrade guide](https://www.better-auth.com/docs/guides/1-7-upgrade-guide)
+  owns the provider-specific mapping rules.
+
+  ```ts
+  import { defineMigration } from "kitcn/orm";
+
+  const issuerByProviderId = {
+    credential: "local:credential",
+    github: "local:oauth:github",
+    google: "https://accounts.google.com",
+  } as const;
+
+  // Add every row whose trusted 1.7 provider subject differs from accountId.
+  const accountIdByRowId: Record<string, string> = {
+    "microsoft-account-row-id": "verified-directory-oid",
+  };
+
+  export const migration = defineMigration({
+    id: "20260826_000000_backfill_account_issuer",
+    up: {
+      table: "account",
+      migrateOne: async (ctx, account) => {
+        const issuer =
+          issuerByProviderId[
+            account.providerId as keyof typeof issuerByProviderId
+          ];
+
+        if (!issuer) {
+          throw new Error(`Map issuer for provider ${account.providerId}`);
+        }
+        const mappedAccountId = accountIdByRowId[account._id];
+        if (
+          (account.providerId === "microsoft" ||
+            account.providerId === "microsoft-entra-id") &&
+          !mappedAccountId
+        ) {
+          throw new Error(`Map verified Microsoft oid for ${account._id}`);
+        }
+        const accountId =
+          mappedAccountId ??
+          (account.providerId === "credential"
+            ? account.userId
+            : account.accountId);
+        if (!accountId) {
+          throw new Error(`Map account subject for ${account._id}`);
+        }
+
+        if (account.issuer !== undefined && account.issuer !== issuer) {
+          throw new Error(`Issuer mismatch for account ${account._id}`);
+        }
+        if (account.issuer === issuer && account.accountId === accountId) {
+          return;
+        }
+
+        const collision = await ctx.db
+          .query("account")
+          .withIndex("accountId_issuer", (query) =>
+            query.eq("accountId", accountId).eq("issuer", issuer)
+          )
+          .unique();
+
+        if (collision && collision._id !== account._id) {
+          throw new Error(`Duplicate account identity ${issuer}:${accountId}`);
+        }
+
+        return { accountId, issuer };
+      },
+    },
+  });
+  ```
+
+  Apps using organization teams must also create a migration that sets every
+  team's count from the indexed `teamMember` rows:
+
+  ```ts
+  export const teamMemberCountMigration = defineMigration({
+    id: "20260826_000001_backfill_team_member_count",
+    up: {
+      table: "team",
+      migrateOne: async (ctx, team) => {
+        const members = await ctx.db
+          .query("teamMember")
+          .withIndex("teamId", (query) => query.eq("teamId", team._id))
+          .collect();
+
+        return { memberCount: members.length };
+      },
+    },
+  });
+  ```
+
+  Deploy the optional schema and migration, then require a completed status:
+
+  ```bash
+  bunx kitcn codegen
+  bunx kitcn deploy --prod
+  bunx kitcn migrate status --prod
+  ```
+
+  Raw Convex apps use the same resolver and indexed collision check in a
+  paginated internal mutation after deploying the optional fields and indexes.
+  Team users must also count `teamMember` rows by the `teamId` index and patch
+  every team using the team's Convex `_id`. Finish every page, verify no account
+  lacks either identity field, verify no `(issuer, accountId)` collision exists,
+  and verify every team count before continuing.
+
+  ### Deployment 2: required Better Auth 1.7 schema
+
+  After the backfill is complete, upgrade KitCN and Better Auth, refresh the
+  auth-owned schema, and deploy the required field and compound identity index:
+
+  ```bash
+  # Default KitCN schema owner
+  bunx kitcn add auth --schema --yes
+
+  # Raw Convex schema owner; use this command instead of the default command
+  bunx kitcn add auth --preset convex --yes
+
+  bunx kitcn deploy --prod
+  ```
+
+  Verify returning credential, OAuth, and Microsoft sign-in plus team membership
+  changes against the migrated data. Resume writes only after these checks pass.
+
+  ## Features
+
+  - Support Better Auth 1.7 account identity constraints, declared table indexes,
+    atomic adapter mutations, stable join configuration, session hydration, and
+    organization metadata reads.
+
+  ## Patches
+
+  - Fix OpenID discovery to advertise the configured JWT signing algorithm.
+
+## 0.27.5
+
+### Patch Changes
+
+- [#414](https://github.com/udecode/kitcn/pull/414) [`7b01244`](https://github.com/udecode/kitcn/commit/7b0124498000e6e6ef190b4b529d10026f0a1f16) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Stop `insert().returning({ ... })` reading each row back after writing it. A
+    projected `returning()` is now answered from the values that were just
+    inserted, so an 8-row insert spends 0 reads on post-images instead of 8.
+    Argument-less `returning()` still reads, because `createdAt` is only known
+    once the row is stored.
+  - Stop `insert().onConflictDoUpdate({ ... }).returning()` reading the row back
+    after patching it.
+  - Stop `returning({ _count })` re-fetching each affected row before counting its
+    relations, on `insert()`, `update()` and `delete()`. That is one fewer read
+    per row, and the counts, their `where` filters and `delete()`'s
+    before-cascade ordering are unchanged.
+  - Keep reading the row back on tables with triggers, `aggregateIndex` or
+    `rankIndex`, where a hook can rewrite what gets stored.
+
+## 0.27.4
+
+### Patch Changes
+
+- [#400](https://github.com/udecode/kitcn/pull/400) [`9963d33`](https://github.com/udecode/kitcn/commit/9963d33048ec532f0a2d9a06bb618486856178b1) Thanks [@MikeyZhang75](https://github.com/MikeyZhang75)! - ## Patches
+
+  - Speed up `kitcn analyze` by measuring every selected entry in one bundler pass
+    instead of one pass per entry: 4.3 s → 0.8 s of bundling on the 24-entry example
+    app, with byte-identical `OutMB`. Each entry is still sized as its own
+    independently tree-shaken isolate, so the ranking is unchanged.
+  - Report the hotspot `DepMB` and `Files` columns for the files that carry weight in
+    each entry's isolate. They previously counted every file the bundler parsed,
+    including files tree-shaking dropped entirely, which disagreed with the `--details`
+    package and input tables directly beneath them. Expect both columns to read lower
+    than before for the same code; `OutMB` and `LocMB` are unaffected.
+  - Fix `kitcn analyze` crashing with a bundler stack trace when a Convex entry fails
+    to build. It now lists the entry under `Failed entries:`, keeps reporting every
+    entry that did build, and still exits `1`. This needs esbuild `0.27.7`, which is
+    now the minimum.
+  - Warn which entries had their `./schema` imports externalized after a build error,
+    instead of leaving the default mode silent about approximate dependency sizes. The
+    approximation is applied per entry, so one unbuildable schema import no longer
+    shrinks the numbers for unrelated functions.
+  - Open the interactive analyzer's package and input panes without a second bundle, so
+    moving the selection no longer pauses to rebuild.
+  - Document the hotspot ranking columns, in `--help` and in the CLI reference, along
+    with the `--top-inputs` / `--top-packages` flags.
+
 ## 0.27.3
 
 ### Patch Changes

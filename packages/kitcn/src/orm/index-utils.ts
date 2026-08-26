@@ -91,6 +91,18 @@ export function findIndexForColumns(
   return null;
 }
 
+export function findExactIndexForColumns(
+  indexes: TableIndex[],
+  columns: string[]
+): string | null {
+  const index = indexes.find(
+    (candidate) =>
+      candidate.fields.length === columns.length &&
+      candidate.fields.every((field, position) => field === columns[position])
+  );
+  return index?.name ?? null;
+}
+
 const hasColumnPrefix = (index: TableIndex, columns: readonly string[]) => {
   if (index.fields.length < columns.length) {
     return false;

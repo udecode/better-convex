@@ -128,7 +128,7 @@ export declare const api: {
   };
   migrationDemo: {
     cancel: FunctionReference<"mutation", "public", {}, any>;
-    getStatus: FunctionReference<"mutation", "public", {}, any>;
+    getStatus: FunctionReference<"query", "public", {}, any>;
     runDown: FunctionReference<
       "mutation",
       "public",
@@ -918,14 +918,41 @@ export declare const internal: {
         any,
         any
       >;
-      aggregateBackfillStatus: FunctionReference<
-        "mutation",
-        "internal",
-        any,
-        any
-      >;
+      aggregateBackfillStatus: FunctionReference<"query", "internal", any, any>;
     };
     auth: {
+      count: FunctionReference<
+        "query",
+        "internal",
+        {
+          model: string;
+          where?: Array<{
+            connector?: "AND" | "OR";
+            field: string;
+            mode?: "sensitive" | "insensitive";
+            operator?:
+              | "lt"
+              | "lte"
+              | "gt"
+              | "gte"
+              | "eq"
+              | "in"
+              | "not_in"
+              | "ne"
+              | "contains"
+              | "starts_with"
+              | "ends_with";
+            value:
+              | string
+              | number
+              | boolean
+              | Array<string>
+              | Array<number>
+              | null;
+          }>;
+        },
+        any
+      >;
       create: FunctionReference<
         "mutation",
         "internal",
@@ -1061,7 +1088,7 @@ export declare const internal: {
       migrationCancel: FunctionReference<"mutation", "internal", any, any>;
       migrationRun: FunctionReference<"mutation", "internal", any, any>;
       migrationRunChunk: FunctionReference<"mutation", "internal", any, any>;
-      migrationStatus: FunctionReference<"mutation", "internal", any, any>;
+      migrationStatus: FunctionReference<"query", "internal", any, any>;
       reset: FunctionReference<"action", "internal", any, any>;
       resetChunk: FunctionReference<
         "mutation",
