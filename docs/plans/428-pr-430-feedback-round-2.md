@@ -37,7 +37,8 @@ Timed checkpoint:
 - initial confidence score: 0.78
 - improvement loop: source triage, TDD red/green per P2, combined proof,
   commit/push, quoted replies/resolutions, source-task handoff, fresh read-back
-- final score / loop closure: pending final evidence
+- final score / loop closure: 1.00; all owned fixes passed full proof, all five
+  live threads were resolved, and fresh full read-back returned zero unresolved
 
 Completion threshold:
 - Every new actionable feedback item in the selected mode has a source-backed
@@ -123,16 +124,16 @@ Work Checklist:
       context.
 - [x] Findings, decisions/tradeoffs, error attempts, and timeline reflect the
       actual work performed.
-- [ ] Every new actionable item has a feedback-ledger row with id/URL, source
+- [x] Every new actionable item has a feedback-ledger row with id/URL, source
       type, path when known, reviewer claim, priority/rationale when the caller
       requires severity, verdict, owner, proof command, reply status, and
       resolution status.
-- [ ] Outdated threads were relocated by source/path/line before verdict; they
+- [x] Outdated threads were relocated by source/path/line before verdict; they
       were not dismissed merely because the hunk moved.
-- [ ] Focused proof reran after the last accepted code change.
-- [ ] Review-thread replies quote the specific reviewer sentence; top-level
+- [x] Focused proof reran after the last accepted code change.
+- [x] Review-thread replies quote the specific reviewer sentence; top-level
       comments/review bodies receive an identifying quoted reply when needed.
-- [ ] Resolvable threads were resolved after proof and reply; a fresh feedback
+- [x] Resolvable threads were resolved after proof and reply; a fresh feedback
       fetch records the remaining unresolved count.
 
 Completion Gates:
@@ -148,18 +149,18 @@ Completion Gates:
 | Scaffold or fixture output changed | no | Run `bun run fixtures:sync` and `bun run fixtures:check`, or record N/A | N/A: no scaffold source/output edit; `bun check` fixture lanes passed anyway |
 | Package behavior or public API changed | yes | Add a changeset or record why no changeset applies | Existing `.changeset/calm-auth-issuers.md` owns Better Auth 1.7 declared-index and atomic-mutation behavior |
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | Risk: tuple collisions, reordered lookup prefixes, or transformed consume data; direct handler/generator boundaries plus red/green regressions cover each |
-| Feedback inventory | yes | Fetch supported review threads, PR comments, and review bodies for the selected target | pending |
-| Feedback ledger complete | yes | Record verdict, owner, proof, reply, and resolution state for every new actionable item | pending |
-| Focused proof after fixes | pending | Run the smallest combined proof after the last material change | pending |
-| Replies and resolutions | pending | Post source-backed replies and resolve review threads when authorized | pending |
-| Fresh feedback read-back | yes | Re-fetch and record remaining unresolved/pending/needs-human counts | pending |
+| Feedback inventory | yes | Fetch supported review threads, PR comments, and review bodies for the selected target | Five actionable inline threads; status/review wrappers non-actionable |
+| Feedback ledger complete | yes | Record verdict, owner, proof, reply, and resolution state for every new actionable item | All five rows carry verdict, owner, proof, reply, and resolution state |
+| Focused proof after fixes | yes | Run the smallest combined proof after the last material change | 50 pass, 0 fail, 176 assertions after final source edit |
+| Replies and resolutions | yes | Post source-backed replies and resolve review threads when authorized | Three quoted P2 replies posted and threads resolved; source owner closed both P1s |
+| Fresh feedback read-back | yes | Re-fetch and record remaining unresolved/pending/needs-human counts | `get-pr-comments 430`: 0 unresolved, 0 issue comments, 0 review bodies |
 | PR create or update | yes | Run `check` before PR work | `bun check` passed before push/reply work |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix`: 949 files checked, no final fixes |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Owner reads stayed bounded; required `bun check` exceeded the cap, was recorded, and completion came from the live exit code |
 | Timed checkpoint | no | If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | N/A: no duration requested |
 | Agent-native reviewer | no | Run for agent workflow changes or record N/A | N/A: no agent workflow changes |
 | Autoreview for non-trivial implementation changes | no | Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/planning-only/trivial/no local patch | N/A: `resolve-pr-feedback` limits this run to focused self-check unless optional autoreview is explicitly accepted; upstream exact-head autoreview covered `c515b931` only |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/428-pr-430-feedback-round-2.md` | pending |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/428-pr-430-feedback-round-2.md` | `[autogoal] complete` on terminal rerun |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -167,17 +168,17 @@ Phase / pass table:
 | Target and feedback inventory | completed | five unresolved threads inventoried at `c515b931`; three P2s owned here | triage |
 | Source-backed triage | completed | all three P2 claims reproduced against direct owners | fix/reply |
 | Fix and focused verification | completed | red: 5 failures; green: 50/50 focused, typecheck, package build, lint, `bun check` | push/reply/resolve |
-| Reply and resolution | pending | | read-back |
-| Fresh feedback read-back | pending | | closeout |
+| Reply and resolution | completed | three quoted P2 replies posted at `b5376883`; all three thread mutations read back resolved | read-back |
+| Fresh feedback read-back | completed | full inventory: 0 unresolved, 0 issue comments, 0 review bodies | closeout |
 
 Feedback ledger:
 | ID / URL | Source type | Path | Reviewer claim | Priority / rationale | Verdict | Owner | Proof | Reply status | Resolution status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `PRRT_kwDOPTlS686cREWh` / [r3857918105](https://github.com/udecode/kitcn/pull/430#discussion_r3857918105) | inline thread | `packages/kitcn/src/auth/adapter-utils.ts` | Valid multi-row updates touching one compound unique-index field are blanket rejected | P2: valid membership moves fail | valid-fixed: remove blanket rejection and validate/patch unique-bearing rows sequentially so tuple collisions remain visible | `adapter-utils.ts` / `create-api.ts` | focused valid-move and collision tests green | pending | pending |
-| `PRRT_kwDOPTlS686cREWl` / [r3857918112](https://github.com/udecode/kitcn/pull/430#discussion_r3857918112) | inline thread | `packages/kitcn/src/auth/create-schema.ts` | Declared compound-index order is sorted and reversed sequences dedupe together | P2: generated lookup prefixes are wrong | valid-fixed: ordered sequences drive dedupe, names, fields, ORM uniqueness, and tuple validation | both schema renderers / `adapter-utils.ts` | focused Convex/ORM ordered-index tests green | pending | pending |
-| `PRRT_kwDOPTlS686cREWn` / [r3857918115](https://github.com/udecode/kitcn/pull/430#discussion_r3857918115) | inline thread | `packages/kitcn/src/auth/create-api.ts` | consumeOne returns delete.before-transformed hook data instead of stored consumed row | P2: verification can evaluate data never stored | valid-fixed: shared delete execution returns stored and hook views; deleteOne keeps hook contract, consumeOne selects stored view | `create-api.ts` | focused consumeOne/delete-hook test green | pending | pending |
-| `PRRT_kwDOPTlS686cR3bC` / [r3858242637](https://github.com/udecode/kitcn/pull/430#discussion_r3858242637) | inline thread | `.changeset/calm-auth-issuers.md` | Reuse existing unreleased changeset | P1: release-note owner fragmentation | already-handled at `c515b931`; source task owns closeout | autoclosure source task | source-task exact-head proof green | pending external | pending external |
-| `PRRT_kwDOPTlS686cR3bK` / [r3858242645](https://github.com/udecode/kitcn/pull/430#discussion_r3858242645) | inline thread | `.changeset/calm-auth-issuers.md` | Add required before/after migration example | P1: breaking migration instructions incomplete | already-handled at `c515b931`; source task owns closeout | autoclosure source task | source-task exact-head proof green | pending external | pending external |
+| `PRRT_kwDOPTlS686cREWh` / [r3857918105](https://github.com/udecode/kitcn/pull/430#discussion_r3857918105) | inline thread | `packages/kitcn/src/auth/adapter-utils.ts` | Valid multi-row updates touching one compound unique-index field are blanket rejected | P2: valid membership moves fail | valid-fixed: remove blanket rejection and validate/patch unique-bearing rows sequentially so tuple collisions remain visible | `adapter-utils.ts` / `create-api.ts` | focused valid-move and collision tests green | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858557464) | resolved |
+| `PRRT_kwDOPTlS686cREWl` / [r3857918112](https://github.com/udecode/kitcn/pull/430#discussion_r3857918112) | inline thread | `packages/kitcn/src/auth/create-schema.ts` | Declared compound-index order is sorted and reversed sequences dedupe together | P2: generated lookup prefixes are wrong | valid-fixed: ordered sequences drive dedupe, names, fields, ORM uniqueness, and tuple validation | both schema renderers / `adapter-utils.ts` | focused Convex/ORM ordered-index tests green | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858557585) | resolved |
+| `PRRT_kwDOPTlS686cREWn` / [r3857918115](https://github.com/udecode/kitcn/pull/430#discussion_r3857918115) | inline thread | `packages/kitcn/src/auth/create-api.ts` | consumeOne returns delete.before-transformed hook data instead of stored consumed row | P2: verification can evaluate data never stored | valid-fixed: shared delete execution returns stored and hook views; deleteOne keeps hook contract, consumeOne selects stored view | `create-api.ts` | focused consumeOne/delete-hook test green | [replied](https://github.com/udecode/kitcn/pull/430#discussion_r3858557750) | resolved |
+| `PRRT_kwDOPTlS686cR3bC` / [r3858242637](https://github.com/udecode/kitcn/pull/430#discussion_r3858242637) | inline thread | `.changeset/calm-auth-issuers.md` | Reuse existing unreleased changeset | P1: release-note owner fragmentation | already-handled at `c515b931`; source task owns closeout | autoclosure source task | source-task exact-head proof green | replied externally | resolved externally |
+| `PRRT_kwDOPTlS686cR3bK` / [r3858242645](https://github.com/udecode/kitcn/pull/430#discussion_r3858242645) | inline thread | `.changeset/calm-auth-issuers.md` | Add required before/after migration example | P1: breaking migration instructions incomplete | already-handled at `c515b931`; source task owns closeout | autoclosure source task | source-task exact-head proof green | replied externally | resolved externally |
 
 Findings:
 - Goal handle predicted three remaining threads from the prior round; live full
@@ -208,6 +209,7 @@ Error attempts:
 | Generated plan path included the date despite the ticket-prefixed goal path | 1 | Move the generated shell intact to the objective path while filling it | Plan preserved at `docs/plans/428-pr-430-feedback-round-2.md` |
 | Combined source read exceeded the output cap and was truncated at 11,886 tokens | 1 | Continue with exact owner line ranges only | Broad read abandoned; no conclusion depended on truncated output |
 | Required `bun check` streamed more fixture/runtime output than the cap | 1 | Follow the live session to its terminal exit code and record only gate result | Exit 0 after all check, fixture, verify, and runtime lanes |
+| First completion audit found the Goal plan complete evidence cell pending | 1 | Record the audit result in its own evidence cell and rerun | Only self-referential row remained; terminal rerun passed |
 
 External/browser findings:
 - None.
@@ -219,6 +221,8 @@ Timeline:
 - 2026-08-26 Fresh full inventory, direct-owner read, and first checkpoint recorded before implementation edits.
 - 2026-08-26 TDD red observed 5 failures; implementation green reached 50/50 focused tests.
 - 2026-08-26 `bun typecheck`, package build, final lint, and `bun check` exited 0.
+- 2026-08-26 P2 commit `b5376883` pushed; three quoted replies posted and all three P2 threads resolved.
+- 2026-08-26 Fresh full feedback read-back returned zero unresolved items.
 
 Verification evidence:
 - `bun test packages/kitcn/src/auth/adapter-utils.test.ts packages/kitcn/src/auth/create-api.test.ts packages/kitcn/src/auth/create-schema.test.ts packages/kitcn/src/auth/create-schema-orm.test.ts`: 50 pass, 0 fail, 176 assertions.
@@ -226,23 +230,20 @@ Verification evidence:
 - `bun --cwd packages/kitcn build`: 4 build groups complete.
 - `bun lint:fix`: 949 files checked, no final fixes.
 - `bun check`: exit 0 across CI, verify, fixture, and runtime lanes.
+- GitHub replies: `r3858557464`, `r3858557585`, and `r3858557750`; each parent thread resolved.
+- Fresh `get-pr-comments 430`: unresolved 0, issue comments 0, review bodies 0.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Verified P2 checkpoint before commit/push |
-| Where am I going? | Push, quoted replies/resolutions, source-task handoff, fresh read-back |
+| Where am I? | Final durable-plan closure after empty feedback read-back |
+| Where am I going? | Receipt-only push, source-task handoff, checkout release |
 | What is the goal? | Close the three reopened P2s and reach an empty full feedback inventory with the source owner |
 | What have I learned? | Three direct defects are independently testable; two P1s are already fixed externally |
-| What have I done? | Reproduced and fixed all three P2s; focused, typecheck, build, lint, and full repo gates are green |
+| What have I done? | Fixed/proved/pushed all three P2s, replied/resolved them, and confirmed the full PR inventory is empty |
 
 Open risks:
-- Compound tuple validation must catch both collisions among updated rows and
-  collisions with untouched stored rows without blanket rejecting valid pages.
-- Ordered dedupe must preserve deterministic output without changing declared
-  index prefix semantics.
-- consumeOne must retain delete.before/after/change hooks while returning the
-  original stored row.
+- None remaining inside the authorized feedback scope.
 
 Primary template:
 docs/plans/templates/resolve-pr-feedback.md
