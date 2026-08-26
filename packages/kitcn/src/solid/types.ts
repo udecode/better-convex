@@ -68,6 +68,15 @@ export type SolidAuthProviderClient = {
 type AuthClientWithPlugins<Plugins extends BetterAuthClientPlugin[]> =
   ReturnType<typeof createAuthClient<{ plugins: Plugins }>>;
 
+type HydratableAuthClient<Plugins extends BetterAuthClientPlugin[]> = Omit<
+  AuthClientWithPlugins<Plugins>,
+  'hydrateSession'
+> & {
+  hydrateSession(
+    session: Parameters<AuthClientWithPlugins<Plugins>['hydrateSession']>[0]
+  ): void;
+};
+
 export type SolidAuthClient =
-  | AuthClientWithPlugins<PluginsWithCrossDomain>
-  | AuthClientWithPlugins<PluginsWithoutCrossDomain>;
+  | HydratableAuthClient<PluginsWithCrossDomain>
+  | HydratableAuthClient<PluginsWithoutCrossDomain>;

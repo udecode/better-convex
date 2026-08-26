@@ -2326,7 +2326,7 @@ describe('cli/cli', () => {
       expectDependencyInstallCallWithPackages(
         execaStub.mock.calls as unknown as unknown[],
         [
-          '@better-auth/expo@1.6.18',
+          '@better-auth/expo@1.7.1',
           'expo-secure-store@~55.0.8',
           'expo-network@~55.0.8',
         ]

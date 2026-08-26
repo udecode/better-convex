@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { relative, resolve } from 'node:path';
 import {
+  BETTER_AUTH_EXPO_INSTALL_SPEC,
   BETTER_AUTH_INSTALL_SPEC,
   OPENTELEMETRY_API_INSTALL_SPEC,
 } from '../../../supported-dependencies.js';
@@ -100,7 +101,6 @@ const AUTH_ENV_FIELDS = [
     schema: 'z.string().optional()',
   },
 ] as const;
-const BETTER_AUTH_EXPO_INSTALL_SPEC = '@better-auth/expo@1.6.18';
 const EXPO_SECURE_STORE_INSTALL_SPEC = 'expo-secure-store@~55.0.8';
 const EXPO_NETWORK_INSTALL_SPEC = 'expo-network@~55.0.8';
 
