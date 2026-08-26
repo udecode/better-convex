@@ -89,6 +89,11 @@ import { foreignKey } from "kitcn/orm";
 (t) => [foreignKey({ columns: [t.userSlug], foreignColumns: [users.slug] })];
 ```
 
+Delta from parity: async soft cascade requires an exact child index on the
+referencing columns. `index("by_author").on(t.authorId)` qualifies;
+`index("by_author_rank").on(t.authorId, t.rank)` does not, because a mutable
+trailing field cannot provide stable continuation across scheduled mutations.
+
 ### Check Constraints
 
 ```ts

@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/performance/useTopLevelRegex: inline regex assertions are intentional in tests. */
 import {
+  findExactIndexForColumns,
   findIndexForColumns,
   findRelationIndex,
   findRelationIndexOrThrow,
@@ -127,6 +128,16 @@ describe('index-utils', () => {
       'by_type_likes'
     );
     expect(findIndexForColumns(indexes, ['numLikes'])).toBeNull();
+  });
+
+  test('findExactIndexForColumns ignores trailing fields', () => {
+    const indexes = [
+      { name: 'by_parent_rank', fields: ['parentId', 'rank'] },
+      { name: 'by_parent', fields: ['parentId'] },
+    ];
+
+    expect(findExactIndexForColumns(indexes, ['parentId'])).toBe('by_parent');
+    expect(findExactIndexForColumns(indexes, ['rank'])).toBeNull();
   });
 
   test('findRelationIndex throws without index unless allowFullScan', () => {
