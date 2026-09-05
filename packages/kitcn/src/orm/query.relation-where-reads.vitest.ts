@@ -6,18 +6,25 @@ import {
   defineRelations,
   defineSchema,
   id,
+  index,
   text,
 } from '.';
 
-const teams = convexTable('rw_teams', {
-  name: text().notNull(),
-});
+const teams = convexTable(
+  'rw_teams',
+  {
+    name: text().notNull(),
+    slug: text().notNull(),
+  },
+  (t) => [index('rw_teams_by_slug').on(t.slug)]
+);
 
 const members = convexTable('rw_members', {
   name: text().notNull(),
   teamId: id('rw_teams')
     .references(() => teams.id)
     .notNull(),
+  teamSlug: text().notNull(),
 });
 
 const tables = { rw_teams: teams, rw_members: members };
@@ -36,12 +43,25 @@ const relations = defineRelations(schema, (r) => ({
       from: r.rw_members.teamId,
       to: r.rw_teams.id,
     }),
+    // Same target table, joined on an indexed non-primary column. This is the
+    // branch `_getById` never sees.
+    teamBySlug: r.one.rw_teams({
+      from: r.rw_members.teamSlug,
+      to: r.rw_teams.slug,
+    }),
   },
 }));
 
 const orm = createOrm({ schema: relations });
 
-type Counts = { get: number; query: number };
+type Counts = {
+  get: number;
+  query: number;
+  /** `query` calls split by table, so a target read is separable from the scan. */
+  queryByTable: Record<string, number>;
+};
+
+const newCounts = (): Counts => ({ get: 0, query: 0, queryByTable: {} });
 
 /**
  * Counts reads issued through the reader the ORM was handed. `Object.create`
@@ -60,6 +80,10 @@ const countingDb = (db: any, counts: Counts) =>
       }
       return (...args: unknown[]) => {
         counts[prop] += 1;
+        if (prop === 'query' && typeof args[0] === 'string') {
+          counts.queryByTable[args[0]] =
+            (counts.queryByTable[args[0]] ?? 0) + 1;
+        }
         return value.apply(target, args);
       };
     },
@@ -69,16 +93,24 @@ const MEMBERS_PER_TEAM = 25;
 const TEAM_A_MEMBER_RE = /^a-/;
 
 const seed = async (ctx: any) => {
-  const first = (await ctx.db.insert('rw_teams', { name: 'Alpha' })) as string;
-  const second = (await ctx.db.insert('rw_teams', { name: 'Beta' })) as string;
-  for (let index = 0; index < MEMBERS_PER_TEAM; index++) {
+  const first = (await ctx.db.insert('rw_teams', {
+    name: 'Alpha',
+    slug: 'alpha',
+  })) as string;
+  const second = (await ctx.db.insert('rw_teams', {
+    name: 'Beta',
+    slug: 'beta',
+  })) as string;
+  for (let i = 0; i < MEMBERS_PER_TEAM; i++) {
     await ctx.db.insert('rw_members', {
-      name: `a-${index}`,
+      name: `a-${i}`,
       teamId: first,
+      teamSlug: 'alpha',
     });
     await ctx.db.insert('rw_members', {
-      name: `b-${index}`,
+      name: `b-${i}`,
       teamId: second,
+      teamSlug: 'beta',
     });
   }
   return { first, second };
@@ -97,7 +129,7 @@ describe('relation `where` target read amplification', () => {
     await t.run(async (ctx) => {
       await seed(ctx);
 
-      const counts: Counts = { get: 0, query: 0 };
+      const counts = newCounts();
       const db = orm.db(countingDb(ctx.db, counts)) as any;
 
       const rows = await db.query.rw_members.findMany({
@@ -117,7 +149,7 @@ describe('relation `where` target read amplification', () => {
     await t.run(async (ctx) => {
       await seed(ctx);
 
-      const counts: Counts = { get: 0, query: 0 };
+      const counts = newCounts();
       const db = orm.db(countingDb(ctx.db, counts)) as any;
 
       const rows = await db.query.rw_members.findMany({
@@ -130,6 +162,111 @@ describe('relation `where` target read amplification', () => {
         expect(row.name).toMatch(TEAM_A_MEMBER_RE);
       }
       expect(counts.get).toBeLessThanOrEqual(2);
+    });
+  });
+
+  /**
+   * `_getById` never sees this join, so its memo cannot cover it. The read is a
+   * `db.query('rw_teams')` per drain instead, which is why the assertion counts
+   * queries against the target table rather than `get`.
+   */
+  test('a non-matching relation `where` on a non-`_id` join reads each target once', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      await seed(ctx);
+
+      const counts = newCounts();
+      const db = orm.db(countingDb(ctx.db, counts)) as any;
+
+      const rows = await db.query.rw_members.findMany({
+        where: { teamBySlug: { name: 'Nope' } },
+        limit: 10,
+      });
+
+      expect(rows).toHaveLength(0);
+      expect(counts.get).toBe(0);
+      // Two slugs exist, so two target lookups can be issued.
+      expect(counts.queryByTable.rw_teams ?? 0).toBeLessThanOrEqual(2);
+    });
+  });
+
+  test('a matching relation `where` on a non-`_id` join still returns the right rows', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      await seed(ctx);
+
+      const counts = newCounts();
+      const db = orm.db(countingDb(ctx.db, counts)) as any;
+
+      const rows = await db.query.rw_members.findMany({
+        where: { teamBySlug: { name: 'Alpha' } },
+        limit: 10,
+      });
+
+      expect(rows).toHaveLength(10);
+      for (const row of rows) {
+        expect(row.name).toMatch(TEAM_A_MEMBER_RE);
+      }
+      expect(counts.queryByTable.rw_teams ?? 0).toBeLessThanOrEqual(2);
+    });
+  });
+
+  /**
+   * The memo lives on the query instance, and `_forExecution` gives every run
+   * its own, so a write between two awaits is still observed.
+   */
+  test('a non-`_id` target updated between two reads is not remembered', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      const { first } = await seed(ctx);
+      const db = orm.db(ctx.db as any) as any;
+
+      const before = await db.query.rw_members.findMany({
+        where: { teamBySlug: { name: 'Alpha' } },
+        limit: 5,
+      });
+      expect(before).toHaveLength(5);
+
+      await ctx.db.patch('rw_teams', first as any, { name: 'Renamed' });
+
+      const after = await db.query.rw_members.findMany({
+        where: { teamBySlug: { name: 'Alpha' } },
+        limit: 5,
+      });
+      expect(after).toHaveLength(0);
+
+      const renamed = await db.query.rw_members.findMany({
+        where: { teamBySlug: { name: 'Renamed' } },
+        limit: 5,
+      });
+      expect(renamed).toHaveLength(5);
+    });
+  });
+
+  /**
+   * The memo keys on the join values, not on the target document, so a second
+   * relation reading a *different* slug must not be answered by the first one's
+   * entry.
+   */
+  test('two non-`_id` targets are told apart', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      await seed(ctx);
+      const db = orm.db(ctx.db as any) as any;
+
+      const rows = await db.query.rw_members.findMany({
+        with: { teamBySlug: true },
+        limit: 50,
+      });
+
+      expect(rows).toHaveLength(50);
+      for (const row of rows) {
+        expect(row.teamBySlug?.slug).toBe(row.teamSlug);
+      }
     });
   });
 

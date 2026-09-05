@@ -671,6 +671,23 @@ export class GelRelationalQuery<
     string,
     Promise<any | null>
   >();
+  /**
+   * Single target documents resolved by an eq-pinned key during one execution,
+   * keyed on the read itself: table, index, join columns and their values.
+   *
+   * `_documentByNormalizedId` only covers a join on the primary id. A relation
+   * joined on any other column resolves its target with `.first()` instead, and
+   * the same one-row-at-a-time membership predicate re-issues that read once per
+   * drain. The index is fixed for the whole relation and the key is pinned by
+   * `eq`, so the first row is a pure function of this key within an execution.
+   *
+   * Same scope and staleness argument as `_documentByNormalizedId`: not handed
+   * to the next run by `_forExecution`, so an intervening write is still seen.
+   */
+  private readonly _firstDocumentByFieldKey = new Map<
+    string,
+    Promise<any | null>
+  >();
 
   constructor(
     private schema: TSchema,
@@ -7747,6 +7764,47 @@ export class GelRelationalQuery<
     return await pending;
   }
 
+  /**
+   * `_getById` for a relation joined on something other than the primary id:
+   * resolve one target document by an eq-pinned key, memoized per execution.
+   */
+  private async _firstByFields(
+    tableName: string,
+    fields: string[],
+    values: unknown[],
+    indexName: string | null
+  ): Promise<any | null> {
+    const read = () =>
+      this._queryByFields(
+        this.db.query(tableName as any),
+        fields,
+        values,
+        indexName
+      ).first();
+
+    // `JSON.stringify` writes `undefined` as `null`, which would let a missing
+    // value answer a read for a stored null. Callers filter nullish join values
+    // before they get here, so this only guards a future one.
+    if (values.some((value) => value === undefined)) {
+      return await read();
+    }
+    // The index decides which row is first, so it belongs in the key alongside
+    // the columns and their values.
+    const key = JSON.stringify([tableName, indexName, fields, values]);
+    const existing = this._firstDocumentByFieldKey.get(key);
+    if (existing) {
+      return await existing;
+    }
+    // Stored before it settles so concurrent relation loaders share one
+    // in-flight read; evicted on rejection so a failure is never cached.
+    const pending = Promise.resolve(read()).catch((error) => {
+      this._firstDocumentByFieldKey.delete(key);
+      throw error;
+    });
+    this._firstDocumentByFieldKey.set(key, pending);
+    return await pending;
+  }
+
   private _getRelationConcurrency(): number {
     const value = this.relationLoading?.concurrency;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -8171,13 +8229,12 @@ export class GelRelationalQuery<
         if (useGetById) {
           target = await this._getById(edge.targetTable, values[0]);
         } else {
-          const query = this._queryByFields(
-            this.db.query(edge.targetTable),
+          target = await this._firstByFields(
+            edge.targetTable,
             targetFields,
             values,
             targetIndexName
           );
-          target = await query.first();
         }
         if (!target) {
           return false;
@@ -8426,13 +8483,12 @@ export class GelRelationalQuery<
         if (useGetById) {
           target = await this._getById(edge.targetTable, values[0]);
         } else {
-          const query = this._queryByFields(
-            this.db.query(edge.targetTable),
+          target = await this._firstByFields(
+            edge.targetTable,
             targetFields,
             values,
             indexName
           );
-          target = await query.first();
         }
         return { key, target };
       }
@@ -9066,12 +9122,12 @@ export class GelRelationalQuery<
             if (useGetById) {
               target = await this._getById(edge.targetTable, values[0]);
             } else {
-              target = await this._queryByFields(
-                this.db.query(edge.targetTable),
+              target = await this._firstByFields(
+                edge.targetTable,
                 targetFields,
                 values,
                 indexName
-              ).first();
+              );
             }
             return { key, target };
           }
