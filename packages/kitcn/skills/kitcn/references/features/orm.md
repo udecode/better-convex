@@ -598,7 +598,9 @@ Per source:
 
 - `index: { name, range }` anchors that source on its own range. It overrides
   the chain-level `.withIndex(...)`; sources that omit it use the chain index.
-- `where` filters that source's rows after the read.
+- `where` is compiled against the table's indexes like a `findMany` where. An
+  object `where` on an indexed field bounds the read; whatever no index covers
+  is filtered after the read.
 
 `interleaveBy` fields must be the trailing fields each source is already ordered
 by, so every field before them has to be pinned with `eq` in that source's
@@ -607,8 +609,11 @@ fields — e.g. `by_author_likes` (authorId, numLikes) with `eq("authorId", ...)
 merges with `numLikesAndType` (type, numLikes) with `eq("type", ...)` under
 `interleaveBy(["numLikes"])`.
 
-Anchor every source. A shared `.withIndex(...)` plus per-source `where` makes
-each source walk the same range and discard the misses after reading them.
+A source `where` is only lowered onto an index when the result can still supply
+`interleaveBy`, and never over an index the source or the chain pinned with a
+range — that range is the source's scope, not a hint. Anchor a source with
+`index: { name, range }` whenever you need a specific range read; a `where` on
+an unindexed field still walks the chain index and discards the misses.
 
 ### Pre-pagination transforms
 
@@ -629,6 +634,14 @@ const page = await ctx.orm.query.users
   .flatMap("posts", { includeParent: true })
   .paginate({ cursor: null, limit: 20 });
 ```
+
+Children are read through an index that leads with the relation's foreign key.
+A stage `where` rides that index when one extends it — `where: { numLikes: { gt: 10 } }`
+on `posts` reads the `by_author_likes` (authorId, numLikes) range instead of
+every post by the author. Children then arrive in that index's order, so a
+lowered range field orders them ahead of creation time. Declare an index whose
+fields are `(...foreign key, ...filtered fields)` for the stage filters you
+page on.
 
 See [Select Composition Limitations](#select-composition-limitations) in API Reference.
 

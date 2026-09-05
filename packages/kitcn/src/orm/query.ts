@@ -98,6 +98,7 @@ import {
   mergedStream,
   QueryStream,
   stream,
+  streamCanOrderBy,
 } from './stream';
 import {
   Columns,
@@ -589,6 +590,15 @@ const countConfiguredIndexEqPrefix = (
  * the builder's signature could not even name it, so `if (queryConfig.index)`
  * walked the index with no range at all.
  */
+/**
+ * A pipeline stage `where`, once it is known whether it can be compiled.
+ * `predicate(...)` carries no expression on purpose: there is nothing to plan.
+ */
+type PipelineWhereShape =
+  | { kind: 'none' }
+  | { kind: 'predicate' }
+  | { kind: 'expression'; expression: FilterExpression<boolean> };
+
 type CompiledQueryPlan = {
   table: string;
   strategy: IndexStrategy;
@@ -2753,19 +2763,22 @@ export class GelRelationalQuery<
     };
   }
 
-  private _assertWhereIndexRequirement(options: {
-    where: unknown;
-    tableConfig: TableRelationalConfig;
-    hasConfiguredIndex: boolean;
-    context: string;
-  }): void {
-    const { where, tableConfig, hasConfiguredIndex, context } = options;
+  /**
+   * What a pipeline stage `where` is, resolved once.
+   *
+   * Object clauses and callbacks that return an expression can be compiled and
+   * therefore index-lowered. `predicate(...)` is opaque JavaScript and never
+   * can be. Both the anchoring check and the index lowering need to tell those
+   * apart, and a callback `where` should be run once per read rather than once
+   * per caller that asks.
+   */
+  private _resolvePipelineWhere(
+    where: unknown,
+    tableConfig: TableRelationalConfig
+  ): PipelineWhereShape {
     if (!where) {
-      return;
+      return { kind: 'none' };
     }
-
-    let whereExpression: FilterExpression<boolean> | undefined;
-
     if (typeof where === 'function') {
       const result = this._resolveWhereCallbackExpression(
         where as (...args: any[]) => unknown,
@@ -2773,29 +2786,47 @@ export class GelRelationalQuery<
         { context: 'pipeline' }
       );
       if (!result) {
-        return;
+        return { kind: 'none' };
       }
-      if (this._isPredicateWhereClause(result)) {
-        if (!hasConfiguredIndex) {
-          throw new Error(
-            `${context} where uses predicate(...) and requires .withIndex(...).`
-          );
-        }
-        return;
-      }
-      whereExpression = result;
-    } else {
-      whereExpression = this._buildFilterExpression(
-        where as RelationsFilter<any, any>,
-        tableConfig
-      );
+      return this._isPredicateWhereClause(result)
+        ? { kind: 'predicate' }
+        : { kind: 'expression', expression: result };
     }
+    const expression = this._buildFilterExpression(
+      where as RelationsFilter<any, any>,
+      tableConfig
+    );
+    return expression ? { kind: 'expression', expression } : { kind: 'none' };
+  }
 
-    if (!whereExpression) {
+  /**
+   * Reject a `predicate(...)` stage `where` on a read nothing bounds.
+   *
+   * A predicate can only run after the row is read, so it costs one read per
+   * candidate row. That is fine over an index range and unbounded over a table
+   * scan, which is the same line `findMany` draws for a chain-level
+   * `predicate(...)`. An object `where` is not held to it: the compiler
+   * lowers what it can and post-filters the rest, exactly as the chain-level
+   * read does.
+   *
+   * `remedy` is per call site because the anchor a caller can add differs: a
+   * union source takes an index, a `flatMap` stage has no index option at all
+   * and is anchored by the relation's own declared index.
+   */
+  private _assertPipelineWhereIsAnchored(options: {
+    where: PipelineWhereShape;
+    /** Whether the read this `where` runs over is bounded by an index range. */
+    isAnchored: boolean;
+    context: string;
+    remedy: string;
+  }): void {
+    const { where, isAnchored, context, remedy } = options;
+    if (isAnchored || where.kind !== 'predicate') {
       return;
     }
-
-    return;
+    throw new Error(
+      `${context} where uses predicate(...), which is evaluated after each row is read, so it needs an index-bounded read. ${remedy}`
+    );
   }
 
   private _isFilterExpressionNode(
@@ -3092,6 +3123,13 @@ export class GelRelationalQuery<
     primaryOrder?: { direction: 'asc' | 'desc'; field: string };
     /** Index to walk for the requested order when the plan pins none. */
     orderIndexName?: string | null;
+    /**
+     * Field a compiled index union has to stay ordered by, when it is not the
+     * chain's `orderBy`. A `pipeline.union` source is ordered by `interleaveBy`
+     * instead, and merging it on the wrong field is silently wrong rather than
+     * an error.
+     */
+    probeOrderField?: string;
     schemaDefinition: unknown;
   }): { stream: QueryStream<any>; probeUnion: boolean } {
     const { queryConfig, configuredIndex, order, primaryOrder } = params;
@@ -3107,7 +3145,8 @@ export class GelRelationalQuery<
         order,
         // Without an `orderBy` the read inherits the order of whatever index it
         // walks, which for this plan is the union's own index.
-        orderField: primaryOrder?.field ?? probeIndex.fields[0],
+        orderField:
+          params.probeOrderField ?? primaryOrder?.field ?? probeIndex.fields[0],
       });
       if (probeUnion) {
         return { stream: probeUnion, probeUnion: true };
@@ -3254,34 +3293,77 @@ export class GelRelationalQuery<
     return streamQuery as QueryStream<any>;
   }
 
+  /**
+   * One `pipeline.union` source, as a stream.
+   *
+   * The source's own `where` is compiled into an index plan first, so an
+   * object `where` bounds the read instead of being discarded row by row after
+   * it. Two rules keep that from changing what the union produces:
+   *
+   * - `_compileQueryPlan` discards a plan that would displace an index the
+   *   caller pinned, so a source's own range (a tenant scope, say) still wins.
+   * - A merged union is ordered by `interleaveBy`, which only some index
+   *   shapes can supply. The lowered read is checked against that before it is
+   *   committed to, and the unlowered scan is used when it cannot serve the
+   *   merge — an index that saves reads is not worth an ordering that throws.
+   *
+   * The `where` stays applied in JS either way. The index range is a bound on
+   * what is read, not a replacement for the predicate.
+   */
   private _buildUnionSourceStream(
     source: FindManyUnionSource<TTableConfig>,
-    fallbackOrder: 'asc' | 'desc'
+    fallbackOrder: 'asc' | 'desc',
+    /** Normalized `interleaveBy` fields, when the union merges >1 source. */
+    interleaveFields?: string[]
   ): QueryStream<any> {
     // A source that pins its own index owns its range; the chain-level
     // `.withIndex(...)` is only the default for sources that do not.
     const sourceIndex = source.index ?? this.configuredIndex;
-    this._assertWhereIndexRequirement({
-      where: source.where,
-      tableConfig: this.tableConfig,
-      hasConfiguredIndex: Boolean(sourceIndex?.name),
+    const sourceWhere = this._resolvePipelineWhere(
+      source.where,
+      this.tableConfig
+    );
+    this._assertPipelineWhereIsAnchored({
+      where: sourceWhere,
+      isAnchored: Boolean(sourceIndex?.name),
       context: 'pipeline.union source',
+      remedy:
+        'Give the source an index: { name, range }, or pin .withIndex(name, range?) on the chain.',
     });
 
     const schemaDefinition = this._getSchemaDefinitionOrThrow();
-    let sourceStream: any = stream(
-      this.db as GenericDatabaseReader<any>,
-      schemaDefinition
-    ).query(this.tableConfig.name as any);
 
-    if (sourceIndex?.name) {
-      sourceStream = sourceStream.withIndex(
-        sourceIndex.name as any,
-        sourceIndex.range ? (sourceIndex.range as any) : (q: any) => q
-      );
-    }
+    const buildRead = (whereExpression?: FilterExpression<boolean>) =>
+      this._buildPlanStream({
+        queryConfig: this._compileQueryPlan({
+          whereExpression,
+          configuredIndex: sourceIndex,
+          // The merge's ordering contract is checked below against the stream
+          // that actually gets built, rather than fed to the compiler as a
+          // scoring hint — `interleaveBy` names normalized key fields, which
+          // are not the declared index fields the scorer ranks.
+          orderSpecs: [],
+        }),
+        configuredIndex: sourceIndex,
+        order: fallbackOrder,
+        // A union source is ordered by `interleaveBy`, never by the chain's
+        // `orderBy` — the merge is what consumes its order.
+        orderIndexName: null,
+        probeOrderField: interleaveFields?.[0],
+        schemaDefinition,
+      }).stream;
 
-    sourceStream = sourceStream.order(fallbackOrder);
+    const planned =
+      sourceWhere.kind === 'expression'
+        ? buildRead(sourceWhere.expression)
+        : null;
+    // Building a stream registers no query, so a rejected plan costs nothing
+    // beyond the compile.
+    const usePlanned =
+      planned !== null &&
+      (!interleaveFields || streamCanOrderBy(planned, interleaveFields));
+
+    let sourceStream: any = usePlanned ? planned : buildRead();
 
     const sourcePredicate = this._buildTableFilterPredicate(
       source.where,
@@ -3292,6 +3374,63 @@ export class GelRelationalQuery<
     }
 
     return sourceStream;
+  }
+
+  /**
+   * The index a `flatMap` stage `where` can ride on top of the join keys.
+   *
+   * The join is only correct while `targetFields` stay pinned by equality, and
+   * a Convex range builder pins fields in index-key order with no gaps, so the
+   * candidates are exactly the declared indexes that lead with `targetFields`
+   * and carry at least one more field. Those trailing fields are what the
+   * stage `where` is compiled against — the compiler never sees the join keys,
+   * because their values are per parent and the index choice has to be made
+   * once for all of them.
+   *
+   * Returns null when nothing is gained, and the caller keeps the relation's
+   * own index plus the post-filter. A multi-probe plan is refused: each probe
+   * is its own range, and a union of ranges per parent is a different stream
+   * shape than the one `flatMap` was handed as `mappedIndexFields`.
+   */
+  private _resolveFlatMapStageIndex(params: {
+    where: PipelineWhereShape;
+    targetTableConfig: TableRelationalConfig;
+    targetFields: string[];
+  }): { name: string; filters: FilterExpression<boolean>[] } | null {
+    const { where, targetTableConfig, targetFields } = params;
+    if (where.kind !== 'expression') {
+      return null;
+    }
+
+    const candidates = getIndexes(targetTableConfig.table)
+      .filter(
+        (index) =>
+          index.fields.length > targetFields.length &&
+          targetFields.every((field, i) => index.fields[i] === field)
+      )
+      .map((index) => ({
+        indexName: index.name,
+        indexFields: index.fields.slice(targetFields.length),
+      }));
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const compiled = new WhereClauseCompiler(
+      targetTableConfig.table.tableName,
+      candidates
+    ).compile(where.expression);
+    if (
+      !compiled.selectedIndex ||
+      compiled.probeFilters.length > 0 ||
+      compiled.indexFilters.length === 0
+    ) {
+      return null;
+    }
+    return {
+      name: compiled.selectedIndex.indexName,
+      filters: compiled.indexFilters,
+    };
   }
 
   private async _applyFlatMapStage(
@@ -3342,7 +3481,7 @@ export class GelRelationalQuery<
 
     const strict = this.tableConfig.strict !== false;
     const useGetById = targetFields.length === 1 && targetFields[0] === '_id';
-    const indexName = useGetById
+    const relationIndexName = useGetById
       ? ('by_id' as string)
       : (findRelationIndex(
           targetTableConfig.table as any,
@@ -3352,6 +3491,22 @@ export class GelRelationalQuery<
           strict,
           this.allowFullScan
         ) as string | null);
+    const stageWhere = this._resolvePipelineWhere(
+      stage.where,
+      targetTableConfig
+    );
+    // A wider index that still leads with the join keys turns the stage
+    // `where` into part of the range instead of a per-child read. Resolved once
+    // here, never per parent: `flatMap` asserts every inner stream reports the
+    // same index fields as `mappedIndexFields`.
+    const stageIndex = useGetById
+      ? null
+      : this._resolveFlatMapStageIndex({
+          where: stageWhere,
+          targetTableConfig,
+          targetFields,
+        });
+    const indexName = stageIndex?.name ?? relationIndexName;
     const outerOrder = sourceStream.getOrder();
     const schemaDefinition = this._getSchemaDefinitionOrThrow();
     const innerIndexFields = getIndexFields(
@@ -3373,11 +3528,13 @@ export class GelRelationalQuery<
       stage.where,
       targetTableConfig
     );
-    this._assertWhereIndexRequirement({
-      where: stage.where,
-      tableConfig: targetTableConfig,
-      hasConfiguredIndex: Boolean(indexName),
+    this._assertPipelineWhereIsAnchored({
+      where: stageWhere,
+      // The join keys are eq-pinned on this index, so the per-parent read is
+      // already a range whenever the relation resolved one.
+      isAnchored: Boolean(indexName),
       context: `pipeline.flatMap(${relationName})`,
+      remedy: `flatMap takes no index of its own — add an index on ${edge.targetTable}(${targetFields.join(', ')}) so the join is anchored, or use an object where().`,
     });
 
     return sourceStream.flatMap(async (parent: any) => {
@@ -3392,12 +3549,21 @@ export class GelRelationalQuery<
       ).query(edge.targetTable as any);
 
       if (indexName) {
-        inner = inner.withIndex(indexName as any, (q: any) =>
-          this._applyEqBounds(q, targetFields, values)
-        );
+        inner = inner.withIndex(indexName as any, (q: any) => {
+          // The join keys first, in index-key order, then whatever the stage
+          // `where` contributed past them — a Convex range builder only pins
+          // fields in that order.
+          let range = this._applyEqBounds(q, targetFields, values);
+          for (const filter of stageIndex?.filters ?? []) {
+            range = this._applyFilterToQuery(range, filter, targetTableConfig);
+          }
+          return range;
+        });
       }
       inner = inner.order(outerOrder);
 
+      // Still applied in full even when part of it became a range: the bound
+      // decides what is read, the predicate decides what matches.
       if (stageWherePredicate) {
         inner = inner.filterWith(stageWherePredicate);
       }
@@ -6136,24 +6302,26 @@ export class GelRelationalQuery<
 
       const unionSources = pipeline?.union ?? [];
       if (unionSources.length > 0) {
-        const streams = unionSources.map((source) =>
-          this._buildUnionSourceStream(source, fallbackOrder)
-        );
-        if (streams.length === 1) {
-          streamQuery = streams[0]!;
-        } else {
-          if (!pipeline?.interleaveBy || pipeline.interleaveBy.length === 0) {
+        // Only a merge constrains a source's ordering, so a single source is
+        // free to walk whichever index bounds it best.
+        let interleaveFields: string[] | undefined;
+        if (unionSources.length > 1) {
+          const declared = pipeline?.interleaveBy;
+          if (!declared || declared.length === 0) {
             throw new Error(
               'pipeline.interleaveBy is required when pipeline.union has multiple sources.'
             );
           }
-          streamQuery = mergedStream(
-            streams,
-            pipeline.interleaveBy.map((field) =>
-              this._normalizePublicFieldName(field)
-            )
+          interleaveFields = declared.map((field) =>
+            this._normalizePublicFieldName(field)
           );
         }
+        const streams = unionSources.map((source) =>
+          this._buildUnionSourceStream(source, fallbackOrder, interleaveFields)
+        );
+        streamQuery = interleaveFields
+          ? mergedStream(streams, interleaveFields)
+          : streams[0]!;
       } else {
         const orderedIdList =
           isCursorPaginated && maxScan !== undefined && idLookup?.kind === 'in'
@@ -7449,17 +7617,6 @@ export class GelRelationalQuery<
   ): CompiledQueryPlan {
     const config = this.config as any;
 
-    // Initialize compiler for this table using declared indexes
-    const tableIndexes = getIndexes(this.tableConfig.table).map((index) => ({
-      indexName: index.name,
-      indexFields: index.fields,
-    }));
-
-    const compiler = new WhereClauseCompiler(
-      this.tableConfig.table.tableName,
-      tableIndexes
-    );
-
     // Resolved before index selection: which index is cheapest depends on
     // whether it can also supply the requested order.
     let orderSpecs: OrderSpec[] = [];
@@ -7485,6 +7642,46 @@ export class GelRelationalQuery<
         this.tableConfig
       );
     }
+
+    return this._compileQueryPlan({
+      whereExpression,
+      configuredIndex,
+      orderSpecs,
+    });
+  }
+
+  /**
+   * The read plan for one `where` on this table.
+   *
+   * Split out of `_toConvexQuery` because the chain-level `where` is not the
+   * only one that has to be index-lowered: a `pipeline.union` source carries
+   * its own `where` and its own pinned index, and compiles against the same
+   * table with a different ordering contract (`interleaveBy`, not `orderBy`).
+   * Both go through here so a plain-object `where` is planned the same way
+   * wherever it is written.
+   */
+  private _compileQueryPlan(params: {
+    whereExpression?: FilterExpression<boolean>;
+    /**
+     * The `.withIndex(name, range?)` the caller pinned, if any. Only one index
+     * can be scanned, so a compiled plan that would replace it is discarded.
+     */
+    configuredIndex?: PredicateWhereIndexConfig<TTableConfig>;
+    /** Order the read has to produce, most significant first. */
+    orderSpecs: OrderSpec[];
+  }): CompiledQueryPlan {
+    const { whereExpression, configuredIndex, orderSpecs } = params;
+
+    // Initialize compiler for this table using declared indexes
+    const tableIndexes = getIndexes(this.tableConfig.table).map((index) => ({
+      indexName: index.name,
+      indexFields: index.fields,
+    }));
+
+    const compiler = new WhereClauseCompiler(
+      this.tableConfig.table.tableName,
+      tableIndexes
+    );
 
     // Use compiler to split filters and select index
     const planned = compiler.compile(whereExpression, {
@@ -7664,7 +7861,9 @@ export class GelRelationalQuery<
    */
   private _applyFilterToQuery(
     query: any,
-    filter: FilterExpression<boolean>
+    filter: FilterExpression<boolean>,
+    /** Table the filter's fields belong to, when it is not this chain's. */
+    tableConfig: TableRelationalConfig = this.tableConfig
   ): any {
     if (filter.type === 'binary') {
       const [field, value] = filter.operands;
@@ -7673,7 +7872,8 @@ export class GelRelationalQuery<
       }
       const normalizedValue = this._normalizeComparableValue(
         field.fieldName,
-        value
+        value,
+        tableConfig
       );
       switch (filter.operator) {
         case 'eq':
