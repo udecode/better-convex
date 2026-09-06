@@ -287,7 +287,7 @@ describe('WhereClauseCompiler advanced index planning', () => {
     expect(result.probeFilters).toHaveLength(0);
   });
 
-  test('declines to promote a very wide AND-nested inArray', () => {
+  test('promotes an AND-nested inArray however wide the list is', () => {
     const compiler = new WhereClauseCompiler('users', [
       { indexName: 'by_status', indexFields: ['status'] },
     ]);
@@ -300,8 +300,11 @@ describe('WhereClauseCompiler advanced index planning', () => {
       )!
     ) as any;
 
-    expect(result.strategy).toBe('none');
-    expect(result.selectedIndex).toBeNull();
+    // How to read 200 index ranges is the executor's problem. Refusing to
+    // compile them would leave only a table scan, which is not the cheaper one.
+    expect(result.strategy).toBe('multiProbe');
+    expect(result.selectedIndex?.indexName).toBe('by_status');
+    expect(result.probeFilters).toHaveLength(200);
   });
 
   test('prefers a compound index that also supplies the order', () => {

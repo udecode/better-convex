@@ -113,12 +113,12 @@ const page = await db.query.users
   });
 ```
 
-The ranges are read as one merged stream, so `orderBy` still sorts across the whole result, not per value.
+Up to 64 ranges are read as one merged stream, so `orderBy` still sorts across the whole result, not per value. A wider union is read one range after another instead, which keeps it index-bounded at any list length but can only produce the index's own order.
 
 Two shapes fall back to a bounded scan and need `maxScan`:
 
 - An `orderBy` the probed index cannot supply. The index has to lead with the probed field, so only that field, the next index field after it, or `createdAt` on a single-field index is servable.
-- A union wider than 64 ranges. Past that, one scan costs less than the fan-out.
+- An `orderBy` that sorts across values, such as `createdAt`, on a union wider than 64 ranges. Interleaving values needs all their ranges open at once, which is the fan-out that cap refuses.
 
 Without an `orderBy`, an index-union page is in the order of the index it walks — grouped by the probed value — not in creation order. Pass `orderBy: { createdAt: 'desc' }` when you want newest-first across values.
 
