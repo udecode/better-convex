@@ -78,9 +78,9 @@ Constraints:
   `🧭 Task plan: docs/plans/<plan>.md`; the plan must exist at the PR head and
   identify the exact PR before autoclosure.
 - Do not add broad ceremony when the task is trivial or docs-only.
-- User preference in force for this run: "Do not create PR under any
-  circumstances, unless user prompts to." This is an explicit decline of the PR
-  path.
+- The user's standing preference declined the PR path for the initial run. The
+  user then explicitly requested a PR, which reverses that decline. PR #448 is
+  this plan's one and only PR.
 
 Boundaries:
 - Source of truth: GitHub issue #446.
@@ -88,8 +88,8 @@ Boundaries:
   `packages/kitcn/src/orm/query.relation-where-reads.vitest.ts`, `.changeset/`,
   `docs/plans/`.
 - Browser surface: N/A — no UI or rendered output.
-- GitHub issue sync: N/A — no PR exists to reference (user declined the PR
-  path); no outward-facing comment was authorized.
+- GitHub issue sync: PR #448 body carries `🐛 Fixes #446`, which closes and
+  cross-links the issue on merge. No separate issue comment was authorized.
 - Non-goals: batching the residual membership predicate, changing the fan-out
   cap, touching the `_id` memo from #420, syncing the unrelated Expo fixture
   drift.
@@ -117,7 +117,7 @@ Task state:
 Current verdict:
 - verdict: valid
 - confidence: 95-100%
-- next owner: user (push + PR on request)
+- next owner: reviewers of PR #448
 - reason: reproduced at the exact reported boundary, fixed at the owning
   boundary, proven by a test that fails pre-fix and passes post-fix, with the
   full repo gate green apart from one pre-existing upstream-drift lane.
@@ -179,7 +179,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` loaded; `autogoal` loaded for measurable work; `changeset` rule read; `autoreview` loaded for closeout. `testing`/`tdd` not loaded — the issue named the exact existing test file to extend, so the test slice was already scoped |
 | Active goal checked or created | yes | This plan, created by `create-goal-scratchpad.mjs --template task` |
 | Source of truth read before edits | yes | `gh issue view 446` read in full before any file was opened; issue has 0 comments |
-| Exact per-PR task ownership | no | N/A: no PR exists — user explicitly declined the PR path |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #448 — https://github.com/udecode/kitcn/pull/448 |
 | GitHub comments and attachments read | yes | `gh issue view 446 --json comments` returned `[]` |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | Recorded above; verdict `valid` |
@@ -191,10 +191,10 @@ Start Gates:
 | Branch decision for code-changing task | yes | Already on `issue-446-task`, a dedicated non-`main` branch |
 | Release artifact decision | yes | No unreleased changeset existed; created `.changeset/rotten-donkeys-shave.md` as `patch` |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | yes | Commit: done. Push/PR: N/A — explicit user decline ("Do not create PR under any circumstances, unless user prompts to") |
-| Task-style PR body decision | no | N/A: no PR created, per explicit user decline |
-| Task-plan PR body evidence | no | N/A: no PR created, per explicit user decline |
-| GitHub issue sync expectation decision | yes | N/A: no PR to reference and no outward-facing comment authorized; offered to the user instead |
+| Commit / PR expectation decision | yes | Commit, push, and PR all done. Initial run honored the standing "no PR" preference; the user then explicitly requested the PR |
+| Task-style PR body decision | yes | PR #448 uses the PR #270 emoji task-style body, verified with `gh pr view --json body` |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/446-relation-where-non-id-target-read-amplification.md`; the plan exists at the PR head and names PR #448 |
+| GitHub issue sync expectation decision | yes | `🐛 Fixes #446` in the PR body is the sync-back; no separate issue comment was authorized |
 | Output budget strategy recorded | yes | Recorded above |
 
 Work Checklist:
@@ -206,8 +206,8 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. N/A: no PR is in scope —
-      the user explicitly declined the PR path.
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly
+      one PR, #448; no batch plan was used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML. N/A: no video in the source.
 - [x] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -228,9 +228,11 @@ Work Checklist:
 - [x] Release artifact requirement recorded: new changeset
       `.changeset/rotten-donkeys-shave.md` (`patch`).
 - [x] Final handoff shape decided: bug shape, no PR body, no issue sync.
-- [x] Commit/PR handling recorded: commit created; push/PR declined by the user.
-- [x] PR body shape recorded. N/A: no PR created, per explicit user decline.
-- [x] PR task evidence recorded. N/A: no PR created, per explicit user decline.
+- [x] Commit/PR handling recorded: committed, pushed to
+      `fix/orm-non-id-relation-target-memo`, and opened as PR #448.
+- [x] PR body shape recorded: PR #270 emoji task-style body used on #448.
+- [x] PR task evidence recorded: body plan line present, plan at PR head,
+      exact PR named.
 - [x] Branch handling recorded: dedicated branch `issue-446-task`.
 - [x] Local-env-rot retry policy recorded: `bun typecheck` first failed with
       `TS2307: Cannot find module 'kitcn/auth/generated'` in `test-convex`.
@@ -270,7 +272,7 @@ Phase / pass table:
 | Reproduction | complete | New tests red at 50 and 19 target-table queries | implementation |
 | Implementation | complete | `_firstDocumentByFieldKey` + `_firstByFields`; 3 call sites rerouted | verification |
 | Verification | complete | See Verification evidence | closeout |
-| Commit / PR / GitHub sync | complete | Commit created; push/PR/issue-comment declined by the user | closeout |
+| Commit / PR / GitHub sync | complete | Committed; branch renamed to `fix/orm-non-id-relation-target-memo` and pushed; PR #448 opened with the task-style body | closeout |
 | Closeout | complete | Adversarial workflow (29 agents, 0 surviving findings) + autoreview clean | final response |
 
 Findings:
@@ -372,11 +374,10 @@ Source-listed case matrix:
 | `_count` through target, non-`_id` | same shape, not named in the issue | `returning-count.read-amplification.vitest.ts` (pre-existing) | N/A | unchanged | `bunx vitest run packages/kitcn/src/orm` | passed |
 
 Final handoff contract:
-- Commit line: `fix(orm): memoize non-_id relation target reads per execution` on branch `issue-446-task` (HEAD)
-- PR line: N/A — user preference in force: "Do not create PR under any
-  circumstances, unless user prompts to." Branch `issue-446-task` is committed
-  and ready to push.
-- Issue line: N/A — no PR to reference; no outward-facing comment authorized.
+- Commit line: `fix(orm): memoize non-_id relation target reads per execution` on branch `fix/orm-non-id-relation-target-memo`
+- PR line: https://github.com/udecode/kitcn/pull/448
+- Issue line: closed by `🐛 Fixes #446` in the PR #448 body; no separate
+  issue comment was authorized.
 - Confidence line: 🟢 95-100% confidence
 - Flow table:
   - Reproduced: tests 🔴 (50 and 19 target reads), browser ➖ N/A
@@ -397,22 +398,24 @@ Final handoff contract:
     predicate would rewrite the streaming contract; #420 already settled the
     memo as this defect class's owner.
 - Verified: see Verification evidence.
-- PR body verified: N/A — no PR created.
+- PR body verified: `gh pr view 448 --json body` — auto-release block
+  preserved, `🐛 Fixes #446`, task plan line, `🟢 95-100% confidence`,
+  `| Phase | 🧪 Tests | 🌐 Browser |` with Reproduced/Verified rows, and bold
+  emoji Outcome/Caveat/Design/Verified sections. No self-link to #448.
 
 Task-style PR body contract:
-- N/A for this run: no PR was created, per the explicit user preference. If the
-  user later asks for a PR, the body must follow the PR #270 emoji format —
-  `🐛 Fixes #446`, `🧭 Task plan:
+- Satisfied on PR #448. The body preserves the `<!-- auto-release:start -->`
+  block (a changeset is in the diff), then `🐛 Fixes #446`, `🧭 Task plan:
   docs/plans/446-relation-where-non-id-target-read-amplification.md`,
   `🟢 95-100% confidence`, the `| Phase | 🧪 Tests | 🌐 Browser |` table with
   `Reproduced` / `Verified` rows, and bold emoji `**✅ Outcome**`,
-  `**⚠️ Caveat**`, `**🏗️ Design**`, `**🧪 Verified**` sections — and this plan
-  must then be updated to name the exact PR.
+  `**⚠️ Caveat**`, `**🏗️ Design**`, `**🧪 Verified**` sections. It contains no
+  self-link to #448.
 
 Final handoff / sync:
-- Commit: HEAD of `issue-446-task` — `fix(orm): memoize non-_id relation target reads per execution`
-- PR: N/A — explicit user decline
-- Issue: N/A — no PR to reference; no comment authorized
+- Commit: HEAD of `fix/orm-non-id-relation-target-memo` — `fix(orm): memoize non-_id relation target reads per execution`
+- PR: #448 — https://github.com/udecode/kitcn/pull/448
+- Issue: #446 closed on merge via `🐛 Fixes #446`
 - Browser proof: N/A
 - Caveats: pre-existing `fixtures:check` Expo drift, unrelated to this diff
 
@@ -424,6 +427,9 @@ Timeline:
 - 2026-09-05T06:33Z Adversarial review workflow: 0 findings survived.
 - 2026-09-05T06:38Z autoreview clean.
 - 2026-09-05T06:55Z `bun check` lanes recorded; Expo drift proven pre-existing.
+- 2026-09-05T09:36Z User requested a PR, reversing the standing decline.
+  Branch renamed `issue-446-task` -> `fix/orm-non-id-relation-target-memo`,
+  pushed, and opened as PR #448.
 
 Reboot status:
 | Question | Answer |
@@ -439,7 +445,6 @@ Open risks:
   Expo fixture drift, which belongs to a separate `fixtures:sync` task.
 
 Hard closeout guard:
-- Satisfied: the user's standing preference "Do not create PR under any
-  circumstances, unless user prompts to" is an explicit decline of the PR path.
-  The verified change is committed locally on `issue-446-task` and is ready to
-  push and open as a PR the moment the user asks.
+- Satisfied: this is not a local-only handoff. The verified change is committed
+  on `fix/orm-non-id-relation-target-memo`, pushed to `origin`, and opened as
+  PR #448 with the task-style body and this plan at the PR head.
