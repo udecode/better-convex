@@ -173,7 +173,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal (task template + package-api pack) + changeset + autoreview; testing/tdd folded into task |
 | Active goal checked or created | yes | docs/plans/444-orm-double-pre-image-read.md |
 | Source of truth read before edits | yes | `gh issue view 444 --json ...` before any file read |
-| Exact per-PR task ownership | no | N/A: no PR in scope, user forbids PR creation |
+| Exact per-PR task ownership | yes | this plan owns exactly PR #450 |
 | GitHub comments and attachments read | yes | issue has 0 comments, 0 labels; verified in the same gh call |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | see Pre-solution issue challenge; verdict valid |
@@ -186,9 +186,9 @@ Start Gates:
 | Release artifact decision | yes | .changeset/olive-donkeys-invite.md, patch |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | no | N/A: user preference "Do not create PR under any circumstances, unless user prompts to"; CLAUDE.md forbids committing unless asked |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference; posting to a public issue was not requested |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used for PR #450 |
+| Task-plan PR body evidence | yes | body has `🧭 Task plan: docs/plans/444-orm-double-pre-image-read.md`; plan exists at PR head and names PR #450 |
+| GitHub issue sync expectation decision | yes | PR body carries `🐛 Fixes #444`, which closes the issue on merge |
 | Output budget strategy recorded | yes | see Output budget strategy |
 | Package/API pack selected | yes | package-api pack applied |
 | Public surface or package boundary identified | yes | no public surface change; writeBarrier is lifecycle-local |
@@ -301,12 +301,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see High-risk note |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: no agent/tooling surface touched |
 | Local install corruption suspected | no | Run `bun install` once, rerun the exact failing command, or record N/A | N/A: no corruption-shaped failure; the one red lane is a proven upstream dep bump |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: CLAUDE.md forbids committing unless explicitly asked; user preference forbids the PR path |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: explicit user decline |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR, no images |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: no PR to reference; publishing to a public issue was not requested. Offered in the final response. |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | 87d37a4f, whole checkout staged |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff | PR #450; `check` red only on the pre-existing upstream expo fixture drift, disclosed in the PR caveat |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body` | verified: auto-release block preserved, no self-link, PR #270 emoji format |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | verified after the follow-up push |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no browser proof, no images |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | PR body `🐛 Fixes #444` links and closes the issue on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | see Final handoff contract |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | bun lint:fix, 962 files checked |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | greps capped with head/grep -c; workflow returned structured findings; large tool output persisted to files |
@@ -332,7 +332,7 @@ Phase / pass table:
 | Implementation | complete | `lifecycle.ts` +49/-37, two new vitest files | verification |
 | Verification | complete | 1400 bun + 988 vitest pass; typecheck 5/5; build ok; new tests proven red on stock file | closeout |
 | Autoreview | complete | `--mode local --engine claude`, exit 0, no accepted findings, "patch is correct" | closeout |
-| Commit / PR / GitHub sync | N/A | user preference: "Do not create PR under any circumstances, unless user prompts to" | final response |
+| Commit / PR / GitHub sync | complete | commit 87d37a4f, branch `fix/orm-double-pre-image-read`, PR #450 | final response |
 | Closeout | complete | | final response |
 
 High-risk note:
@@ -475,11 +475,11 @@ Source-listed case matrix:
 | delete of an already-deleted row while CLEARING | NOT in issue; found during the fix | CLEARING barrier + delete of a gone id | `Delete on non-existent doc` | `AGGREGATE_INDEX_BUILDING` | same file | fixed |
 
 Final handoff contract:
-- Commit line: N/A — user preference forbids PR creation and CLAUDE.md forbids
-  committing unless explicitly asked. Work left in the working tree.
-- PR line: N/A — explicit user decline.
-- Issue line: N/A — not posted. No PR exists to reference, and publishing to a
-  public issue was not requested. Offered in the final response.
+- Commit line: 87d37a4f `fix(orm): give the aggregate write barrier its own
+  lifecycle slot` on branch `fix/orm-double-pre-image-read`.
+- PR line: https://github.com/udecode/kitcn/pull/450 (base `main`).
+- Issue line: #444 is closed by the PR's `Fixes #444` line; no separate comment
+  posted.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests 🟢 (AGG=10 vs CHANGE=5 vs PLAIN=0), browser ➖ N/A
@@ -530,6 +530,8 @@ Final handoff / sync:
 
 Timeline:
 - 2026-09-05T06:08:34.309Z Task goal plan created.
+- Branch renamed task-issue-444 -> fix/orm-double-pre-image-read before push.
+- Commit 87d37a4f pushed; PR #450 opened against main.
 - Repro confirmed the reported 2x pre-image read exactly.
 - 21-agent design/attack workflow ran; option D rejected on 5 blockers.
 - Option C implemented; two extra fail-open bugs found and fixed.
@@ -539,7 +541,7 @@ Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Closeout complete; reporting to the user |
-| Where am I going? | Final response only. No commit/PR: explicit user decline. |
+| Where am I going? | Final response only. PR #450 open against main. |
 | What is the goal? | Make an N-row patch on an aggregateIndex/rankIndex table cost N pre-image reads instead of 2N, pinned by a read-bound vitest |
 | What have I learned? | See Findings and Decisions and tradeoffs |
 | What have I done? | See Timeline and Verification evidence |
