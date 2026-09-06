@@ -452,6 +452,25 @@ Review fixes:
     the `!probeHasRelationMembership` term is removed.
   - Changeset and PR body updated: the relation leg is now listed as deliberately
     unaffected, not as fixed. Thread resolved.
+- PR #455 review, `@chatgpt-codex-connector` P1 "Replace internal planner notes
+  with a release outcome" (`.changeset/lucky-plums-cough.md:18-20`, thread
+  `PRRT_kwDOPTlS686fpHPK`). VERDICT: valid. ACCEPTED and FIXED in `6648607`,
+  applied to all four bullets because the same `.agents/rules/changeset.mdc` §4
+  rules were broken throughout, not only on the flagged lines.
+  - Action-verb starts: `Keep`/`Size`/`The bound also holds` -> `Fix`/`Improve`/`Support`.
+  - Private planner detail removed: `64-probe merge cap` -> "an `in` list of any
+    length"; the per-probe assembly and "rows the scan touched" clauses dropped.
+    Kept the observable query shape and the document counts, which match the
+    shipped 0.32.1 tone ("2 document reads instead of 62").
+  - One outcome per bullet: the flagged bullet was split from its mechanism clause.
+  - Caught a factual error while rewriting: the old second bullet implied the
+    previous behavior returned an empty page. Measured — 80 rows hidden by RLS in
+    front of the matches, `limit: 3`: main returns 3 rows scanning 200, this PR
+    returns 3 rows scanning 86. The bullet now states that correctly.
+  - Deliberate deviation recorded: the closing "unchanged" bullet keeps no action
+    verb, mirroring the shipped 0.32.1 entry's own closing caveat bullet, per rule
+    §0 "always mirror `packages/kitcn/CHANGELOG.md` tone and structure". Offered to
+    reword in the reply. Thread resolved.
 - autoreview (`--mode local`, engine `claude`, model `claude-fable-5`) run twice.
   First run: `autoreview clean: no accepted/actionable findings`, overall
   `patch is correct (0.72)`. The default Codex engine failed to start in this
