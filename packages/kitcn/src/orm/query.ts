@@ -8,7 +8,7 @@
  */
 
 import type { GenericDatabaseReader } from 'convex/server';
-import { compareValues } from 'convex/values';
+import { compareValues, convexToJson, type Value } from 'convex/values';
 import { mapWithConcurrency } from '../internal/concurrency';
 import {
   AGGREGATE_ERROR,
@@ -7765,6 +7765,39 @@ export class GelRelationalQuery<
   }
 
   /**
+   * Identity of one `_firstByFields` read, or null when the join values cannot
+   * be encoded losslessly.
+   *
+   * `JSON.stringify` alone is not safe here. It renders every `ArrayBuffer` as
+   * `{}` and `NaN`/`Infinity`/`-Infinity` as `null`, so two distinct join values
+   * would share one entry, and it throws outright on `int64`. The relation
+   * loader's own per-batch key map cannot catch that, because the residual
+   * relation `where` hands it one row at a time — a map of one never compares
+   * two values. This key is the only thing that tells them apart.
+   *
+   * `convexToJson` is the same wire encoding the client uses for query keys, so
+   * every Convex value round-trips distinctly. Anything it rejects is not a
+   * Convex value and simply goes unmemoized.
+   */
+  private _firstByFieldsMemoKey(
+    tableName: string,
+    fields: string[],
+    values: unknown[],
+    indexName: string | null
+  ): string | null {
+    try {
+      return JSON.stringify([
+        tableName,
+        indexName,
+        fields,
+        values.map((value) => convexToJson(value as Value)),
+      ]);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * `_getById` for a relation joined on something other than the primary id:
    * resolve one target document by an eq-pinned key, memoized per execution.
    */
@@ -7782,15 +7815,19 @@ export class GelRelationalQuery<
         indexName
       ).first();
 
-    // `JSON.stringify` writes `undefined` as `null`, which would let a missing
-    // value answer a read for a stored null. Callers filter nullish join values
-    // before they get here, so this only guards a future one.
-    if (values.some((value) => value === undefined)) {
-      return await read();
-    }
     // The index decides which row is first, so it belongs in the key alongside
     // the columns and their values.
-    const key = JSON.stringify([tableName, indexName, fields, values]);
+    const key = this._firstByFieldsMemoKey(
+      tableName,
+      fields,
+      values,
+      indexName
+    );
+    // No encodable key means no memo, not a shared entry: the read still runs,
+    // it just runs uncached.
+    if (key === null) {
+      return await read();
+    }
     const existing = this._firstDocumentByFieldKey.get(key);
     if (existing) {
       return await existing;

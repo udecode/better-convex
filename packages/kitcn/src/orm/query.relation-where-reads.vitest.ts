@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import { convexTest } from '../../../../convex/setup.testing';
 import {
+  bytes,
   convexTable,
   createOrm,
   defineRelations,
   defineSchema,
   id,
   index,
+  integer,
   text,
 } from '.';
 
@@ -15,8 +17,16 @@ const teams = convexTable(
   {
     name: text().notNull(),
     slug: text().notNull(),
+    /** `JSON.stringify` renders every ArrayBuffer as `{}`. */
+    token: bytes().notNull(),
+    /** `JSON.stringify` renders NaN and +/-Infinity as `null`. */
+    score: integer().notNull(),
   },
-  (t) => [index('rw_teams_by_slug').on(t.slug)]
+  (t) => [
+    index('rw_teams_by_slug').on(t.slug),
+    index('rw_teams_by_token').on(t.token),
+    index('rw_teams_by_score').on(t.score),
+  ]
 );
 
 const members = convexTable('rw_members', {
@@ -25,6 +35,8 @@ const members = convexTable('rw_members', {
     .references(() => teams.id)
     .notNull(),
   teamSlug: text().notNull(),
+  teamToken: bytes().notNull(),
+  teamScore: integer().notNull(),
 });
 
 const tables = { rw_teams: teams, rw_members: members };
@@ -48,6 +60,14 @@ const relations = defineRelations(schema, (r) => ({
     teamBySlug: r.one.rw_teams({
       from: r.rw_members.teamSlug,
       to: r.rw_teams.slug,
+    }),
+    teamByToken: r.one.rw_teams({
+      from: r.rw_members.teamToken,
+      to: r.rw_teams.token,
+    }),
+    teamByScore: r.one.rw_teams({
+      from: r.rw_members.teamScore,
+      to: r.rw_teams.score,
     }),
   },
 }));
@@ -92,25 +112,42 @@ const countingDb = (db: any, counts: Counts) =>
 const MEMBERS_PER_TEAM = 25;
 const TEAM_A_MEMBER_RE = /^a-/;
 
+const buffer = (...bytesIn: number[]) => new Uint8Array(bytesIn).buffer;
+
+/** Distinct ArrayBuffers; `JSON.stringify` renders both as `{}`. */
+const ALPHA_TOKEN = buffer(1, 2, 3);
+const BETA_TOKEN = buffer(4, 5, 6);
+/** Distinct float64s; `JSON.stringify` renders both as `null`. */
+const ALPHA_SCORE = Number.NaN;
+const BETA_SCORE = Number.POSITIVE_INFINITY;
+
 const seed = async (ctx: any) => {
   const first = (await ctx.db.insert('rw_teams', {
     name: 'Alpha',
     slug: 'alpha',
+    token: ALPHA_TOKEN,
+    score: ALPHA_SCORE,
   })) as string;
   const second = (await ctx.db.insert('rw_teams', {
     name: 'Beta',
     slug: 'beta',
+    token: BETA_TOKEN,
+    score: BETA_SCORE,
   })) as string;
   for (let i = 0; i < MEMBERS_PER_TEAM; i++) {
     await ctx.db.insert('rw_members', {
       name: `a-${i}`,
       teamId: first,
       teamSlug: 'alpha',
+      teamToken: ALPHA_TOKEN,
+      teamScore: ALPHA_SCORE,
     });
     await ctx.db.insert('rw_members', {
       name: `b-${i}`,
       teamId: second,
       teamSlug: 'beta',
+      teamToken: BETA_TOKEN,
+      teamScore: BETA_SCORE,
     });
   }
   return { first, second };
@@ -210,6 +247,52 @@ describe('relation `where` target read amplification', () => {
         expect(row.name).toMatch(TEAM_A_MEMBER_RE);
       }
       expect(counts.queryByTable.rw_teams ?? 0).toBeLessThanOrEqual(2);
+    });
+  });
+
+  /**
+   * The memo spans the whole execution, but the residual `where` hands the
+   * relation loader one row at a time, so its own per-batch key map is a map of
+   * one and cannot catch a collision. That makes the memo key the only thing
+   * telling two join values apart, and `JSON.stringify` cannot: it renders every
+   * ArrayBuffer as `{}` and NaN/Infinity as `null`. A lossy key would serve
+   * Alpha's team to Beta's members.
+   */
+  test('a bytes join value is not confused with a different bytes join value', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      await seed(ctx);
+      const db = orm.db(ctx.db as any) as any;
+
+      const rows = await db.query.rw_members.findMany({
+        where: { teamByToken: { name: 'Alpha' } },
+        limit: 50,
+      });
+
+      expect(rows).toHaveLength(MEMBERS_PER_TEAM);
+      for (const row of rows) {
+        expect(row.name).toMatch(TEAM_A_MEMBER_RE);
+      }
+    });
+  });
+
+  test('NaN and Infinity join values are not confused with each other', async () => {
+    const t = convexTest(schema);
+
+    await t.run(async (ctx) => {
+      await seed(ctx);
+      const db = orm.db(ctx.db as any) as any;
+
+      const rows = await db.query.rw_members.findMany({
+        where: { teamByScore: { name: 'Alpha' } },
+        limit: 50,
+      });
+
+      expect(rows).toHaveLength(MEMBERS_PER_TEAM);
+      for (const row of rows) {
+        expect(row.name).toMatch(TEAM_A_MEMBER_RE);
+      }
     });
   });
 
