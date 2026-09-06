@@ -80,8 +80,8 @@ Boundaries:
   deployment (only `.env.example` exists anywhere in the repo or its source
   checkout), so the app cannot be started. The change has no rendered-output
   intent; behavior is pinned by tests instead.
-- GitHub issue sync: not posted. Posting is outward-facing and the user's only
-  standing instruction was "no PR"; offered in the handoff instead.
+- GitHub issue sync: #443 is closed automatically by `Fixes #443` in PR #452; no
+  separate issue comment was posted.
 - Non-goals: the ORM union-source id-IN lowering, the `.filter()` raw-row type
   lie, and the async-cascade trigger drop. All recorded as follow-ups.
 
@@ -97,10 +97,12 @@ Blocked condition:
 Task state:
 - task_type: bug
 - task_complexity: non-trivial
-- current_phase: closeout
+- current_phase: shipped
 - current_phase_status: done
 - next_phase: final response
 - goal_status: complete
+- pr: https://github.com/udecode/kitcn/pull/452
+- branch: fix/project-list-read-bounds
 
 Current verdict:
 - verdict: partially valid, fixed
@@ -186,7 +188,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal + autoreview loaded; no others earned their keep |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | gh issue view 443 + projects.ts + schema.ts read first |
-| Exact per-PR task ownership | no | N/A: user declined PRs |
+| Exact per-PR task ownership | yes | https://github.com/udecode/kitcn/pull/452 |
 | GitHub comments and attachments read | yes | issue has zero comments (gh --json comments returned []) |
 | Video transcript evidence required | no | N/A: no video in source |
 | Pre-solution issue challenge required | yes | recorded above; verdict partially valid |
@@ -198,9 +200,9 @@ Start Gates:
 | Branch decision for code-changing task | yes | already on dedicated branch issue-443-task |
 | Release artifact decision | no | N/A: example + test-infra only; .changeset/config.json ignores example, nothing under packages/ changed |
 | Browser tool decision for browser surface | yes | waived: no Convex deployment exists, so the app cannot start |
-| Commit / PR expectation decision | no | N/A: explicit user decline — "Do not create PR under any circumstances, unless user prompts to" |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
+| Commit / PR expectation decision | yes | user prompted for a PR; committed, pushed, opened #452 |
+| Task-style PR body decision | yes | PR #270 emoji format used |
+| Task-plan PR body evidence | yes | body carries `🧭 Task plan:`; plan present at PR head; names #452 |
 | GitHub issue sync expectation decision | no | not posted; outward-facing, offered to the user instead |
 | Output budget strategy recorded | yes | recorded above |
 
@@ -274,7 +276,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Ran | `bunx vitest run convex/orm/example-project-access-reads.test.ts` — 13 pass; cost 4 reads at 10 and at 400 noise rows |
-| Exact per-PR task ownership | no | N/A | user declined PRs |
+| Exact per-PR task ownership | yes | Recorded | https://github.com/udecode/kitcn/pull/452 |
 | Pre-solution issue challenge verdict | yes | Recorded | partially valid; claim (b) invalid, no code written for it |
 | Repro escalation ladder | yes | Recorded | source-level repro captured; browser N/A (no deployment) |
 | Bug reproduced before fix | yes | Captured | scanned 40 / page 0, and member-only project invisible at page 0 of 31 |
@@ -294,12 +296,12 @@ Completion Gates:
 | High-risk mini gate | yes | Recorded | see High-risk note below |
 | Agent-native review for agent/tooling changes | no | N/A | no agent-native surface touched |
 | Local install corruption suspected | no | N/A | no corruption-shaped failure appeared |
-| Commit created | no | N/A | explicit user decline of PRs; work left in the worktree for review |
-| PR create or update | no | N/A | explicit user decline |
-| Task-style PR body verified | no | N/A | no PR |
-| PR task evidence verified | no | N/A | no PR |
-| PR proof image hosting | no | N/A | no PR |
-| GitHub issue sync-back | no | Not posted | outward-facing publish; user's standing instruction covered PRs only, so offered in the handoff instead |
+| Commit created | yes | Created | 9f0275f1 on fix/project-list-read-bounds |
+| PR create or update | yes | Created | https://github.com/udecode/kitcn/pull/452 (base main) |
+| Task-style PR body verified | yes | Verified | `gh pr view 452 --json body` — 4 bold emoji sections, correct table header, no self-link |
+| PR task evidence verified | yes | Verified | plan line in body, plan at PR head, names #452 |
+| PR proof image hosting | no | N/A | no images in body |
+| GitHub issue sync-back | no | Not posted | #443 is auto-linked by `Fixes #443` in PR #452; a separate comment is outward-facing and was not requested |
 | Final handoff contract | yes | Filled | see Final handoff contract |
 | Final lint | yes | Ran | `bun lint:fix` clean; `biome check` reports no fixes needed |
 | Output budget discipline | yes | Recorded | workflow reports read from journal, command output filtered |
@@ -313,7 +315,7 @@ Phase / pass table:
 | Intake and source read | done | issue + code read, repro captured | implementation |
 | Implementation | done | schema table + helper + call sites + harness fix | verification |
 | Verification | done | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | N/A | user explicitly declined PRs ("Do not create PR under any circumstances, unless user prompts to"); work left uncommitted in the worktree | final response |
+| Commit / PR / GitHub sync | done | commit 9f0275f1, pushed, PR #452 opened onto main | final response |
 | Closeout | done | autoreview clean, all gates run | final response |
 
 Findings:
@@ -461,9 +463,9 @@ Source-listed case matrix:
 | Unauth branch post-filter | NOT in the issue | `index('isPublic_archived')` | `archived` post-filtered | exact index match | schema change | fixed |
 
 Final handoff contract:
-- Commit line: none — user explicitly declined PRs; changes left in the worktree
-- PR line: N/A
-- Issue line: not posted; offered to the user
+- Commit line: 9f0275f1 on `fix/project-list-read-bounds`
+- PR line: https://github.com/udecode/kitcn/pull/452
+- Issue line: #443 auto-linked via `Fixes #443`; no separate comment posted
 - Confidence line: 95-100% on the read bound and the correctness fix
 - Flow table:
   - Reproduced: tests yes (scanned 40 / page 0; member-only invisible), browser N/A
@@ -485,7 +487,7 @@ Final handoff contract:
     into an example-only bug
 - Verified: `bun typecheck` 5/5, `bun run test` 1400 bun + 992 vitest / 0 fail,
   `bun lint:fix` clean, autoreview clean
-- PR body verified: N/A — no PR
+- PR body verified: `gh pr view 452 --json body` — task-style format confirmed
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -509,9 +511,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: none (explicit user decline)
-- PR: N/A
-- Issue: not posted; offered
+- Commit: 9f0275f1
+- PR: https://github.com/udecode/kitcn/pull/452
+- Issue: linked from the PR
 - Browser proof: waived, no deployment
 - Caveats: see Open risks
 
@@ -521,7 +523,7 @@ Timeline:
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete; awaiting the user on commit/PR/issue sync |
+| Where am I? | Shipped as PR #452 |
 | Where am I going? | Final response only |
 | What is the goal? | Make `projects.list` reads independent of table size and narrow its read set |
 | What have I learned? | See Findings — three defects, only one of which the issue reported |
