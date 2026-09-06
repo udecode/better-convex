@@ -4,20 +4,18 @@
 
 ## Patches
 
-- Keep the read bound on a non-paginated index-union `findMany` when the table
-  has RLS enabled, or when the `where` carries a filter Convex cannot evaluate
-  such as `contains`. Both used to cancel the bound entirely and read every row
-  in each probed range, so
-  `findMany({ where: { ownerId: { in: [a, b] } }, limit: 3 })` read 500 rows on a
-  500-row table and 200 on a 200-row table. It now reads 6 at either size.
-  Turning on RLS no longer costs a read bound.
-- Size the bound by rows the page actually keeps rather than rows the scan
-  touched, so a page still fills past hidden or non-matching rows: with 80 rows
-  the policy hides in front of every probe, `limit: 3` returns three rows instead
-  of none.
-- The bound also holds for unions wider than the 64-probe merge cap, and for
-  sorts assembled across probes such as `[asc(ownerId), desc(score)]`, which read
-  each probe in the requested order and combine them before slicing.
-- Rows and their order are unchanged. Two shapes are deliberately unaffected: a
-  `where` that filters through a relation, and `ne`/`notIn`/`isNotNull` combined
-  with an `orderBy` no index can serve. Both still read their whole probed range.
+- Fix `findMany` losing its read bound when a `limit` is combined with `in`, `ne`,
+  `notIn` or a same-field `OR` on a table that has RLS enabled, or alongside a
+  filter Convex cannot evaluate such as `contains`. Either one used to make the
+  query read every row it matched against, so
+  `findMany({ where: { ownerId: { in: [a, b] } }, limit: 3 })` read 500 documents
+  on a 500-row table and 200 on a 200-row table. It now reads 6 at either size,
+  and the count no longer grows with the table.
+- Improve how that `limit` is counted, so it bounds rows the caller can actually
+  see: with 80 rows an RLS policy hides sitting in front of the matches,
+  `limit: 3` still returns three rows and reads 86 documents instead of 200.
+- Support that bound for an `in` list of any length, and for an `orderBy` led by
+  the matched field such as `[asc(ownerId), desc(score)]`.
+- Rows and their order are unchanged. A `where` that filters through a relation
+  keeps its previous read cost, as does `ne`, `notIn` or `isNotNull` ordered by a
+  field no index can serve.
