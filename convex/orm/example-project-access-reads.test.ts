@@ -2,12 +2,15 @@ import { eq } from 'kitcn/orm';
 import { expect, test } from 'vitest';
 import {
   backfillProjectAccess,
+  clearProjectAccess,
   grantProjectAccess,
   hasAnyProject,
   listAccessibleProjects,
+  listProjectsForDropdown,
   revokeProjectAccess,
   syncProjectArchived,
 } from '../../example/convex/functions/_helpers/project_access';
+import { migration as backfillMigration } from '../../example/convex/functions/migrations/20260906_022807_backfill_project_access';
 import schema, {
   projectAccessTable,
   projectMembersTable,
@@ -569,20 +572,87 @@ test('backfill reconstructs the same access rows the write path maintains', asyn
     expect(maintained).toHaveLength(3);
 
     // Wipe the derived table, as a pre-`projectAccess` deployment would have
-    // it. A raw delete, not `revokeProjectAccess`, which would re-derive the
-    // rows straight back.
-    for (const row of await ctx.orm.query.projectAccess.findMany({
-      limit: 100,
-    })) {
-      await ctx.orm
-        .delete(projectAccessTable)
-        .where(eq(projectAccessTable.id, row.id));
+    // it. `clearProjectAccess`, not `revokeProjectAccess`, which would re-derive
+    // the rows straight back.
+    for (const projectId of [project.id, archivedProject.id]) {
+      await clearProjectAccess(ctx, { projectId });
     }
     expect(await snapshot()).toEqual([]);
 
     await backfillProjectAccess(ctx);
 
     expect(await snapshot()).toEqual(maintained);
-    void archivedProject;
+  });
+});
+
+/**
+ * The deploy case the read switch depends on: a deployment that already holds
+ * projects and memberships has no access rows at all, so `list`, `hasAny` and
+ * `listForDropdown` return nothing until the backfill migration runs.
+ *
+ * Drives the migration's own `migrateOne` over raw `ctx.db` documents, which is
+ * exactly what the runner pages in.
+ */
+test('backfill migration populates access for pre-existing data', async () => {
+  await withCountedOrmCtx(async (ctx) => {
+    const owner = await makeUser(ctx, 'owner');
+    const member = await makeUser(ctx, 'member');
+
+    const shared = await makeProject(ctx, { name: 'shared', ownerId: owner });
+    await addMember(ctx, { project: shared, userId: member });
+    const solo = await makeProject(ctx, { name: 'solo', ownerId: owner });
+
+    // Roll the deployment back to its pre-`projectAccess` state.
+    for (const projectId of [shared.id, solo.id]) {
+      await clearProjectAccess(ctx, { projectId });
+    }
+
+    const listFor = (userId: string) =>
+      listAccessibleProjects(ctx, {
+        userId,
+        archived: false,
+        cursor: null,
+        limit: 20,
+      });
+
+    // This is the regression the reviewer flagged: reads go dark.
+    expect((await listFor(owner)).page).toEqual([]);
+    expect((await listFor(member)).page).toEqual([]);
+    await expect(hasAnyProject(ctx, owner)).resolves.toBe(false);
+
+    const rawProjects = await ctx.db.query('projects').collect();
+    expect(rawProjects).toHaveLength(2);
+    for (const doc of rawProjects) {
+      await backfillMigration.up.migrateOne(ctx as never, doc as never);
+    }
+
+    expect((await listFor(owner)).page.map((p) => p.name).sort()).toEqual([
+      'shared',
+      'solo',
+    ]);
+    expect((await listFor(member)).page.map((p) => p.name)).toEqual(['shared']);
+    await expect(hasAnyProject(ctx, owner)).resolves.toBe(true);
+    await expect(hasAnyProject(ctx, member)).resolves.toBe(true);
+    expect(
+      (await listProjectsForDropdown(ctx, { userId: member, limit: 100 })).map(
+        (row) => [row.name, row.isOwner]
+      )
+    ).toEqual([['shared', false]]);
+
+    // Re-running must not duplicate rows.
+    for (const doc of rawProjects) {
+      await backfillMigration.up.migrateOne(ctx as never, doc as never);
+    }
+    expect(
+      await ctx.orm.query.projectAccess.findMany({ limit: 100 })
+    ).toHaveLength(3);
+
+    // `down` takes it back to empty.
+    for (const doc of rawProjects) {
+      await backfillMigration.down?.migrateOne(ctx as never, doc as never);
+    }
+    expect(await ctx.orm.query.projectAccess.findMany({ limit: 100 })).toEqual(
+      []
+    );
   });
 });

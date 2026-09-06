@@ -5,7 +5,15 @@ import type schema from '../schema';
 import { projectAccessTable } from '../schema';
 
 type ProjectAccessCtx = Pick<AuthCtx, 'orm'>;
-type ProjectAccessWriteCtx = { orm: OrmWriter<typeof schema> };
+/**
+ * Any context that can write through the ORM.
+ *
+ * Exported because the backfill migration has to bridge to it: the migration
+ * runner types its `ctx.orm` off the resolved relations config rather than the
+ * schema chain, so the two describe the same runtime object under different
+ * type arguments.
+ */
+export type ProjectAccessWriteCtx = { orm: OrmWriter<typeof schema> };
 type ProjectRow = Select<'projects'>;
 
 /**
@@ -205,39 +213,67 @@ export const listProjectsForDropdown = async (
     .sort((a, b) => a.name.localeCompare(b.name));
 };
 
+/** Drop every access row for a project, without re-deriving. */
+export const clearProjectAccess = async (
+  ctx: ProjectAccessWriteCtx,
+  input: { projectId: string }
+): Promise<void> => {
+  await ctx.orm
+    .delete(projectAccessTable)
+    .where(eq(projectAccessTable.projectId, input.projectId));
+};
+
 /**
- * Rebuild every access row from `projects` and `projectMembers`.
+ * Rebuild one project's access rows from `projects.ownerId` and its members.
  *
- * Deliberately a full scan of both tables: it exists to backfill a deployment
- * seeded before `projectAccess` existed, and to let a test assert that the
- * derived rows match their sources. Never call it from a request path.
+ * The single owner of "what should this project's access rows look like".
+ * Both the backfill migration and `backfillProjectAccess` go through it, so a
+ * deployment repaired by the migration and one rebuilt in a test cannot drift
+ * apart. Bounded by the project's member count.
+ */
+export const syncProjectAccessForProject = async (
+  ctx: ProjectAccessWriteCtx,
+  project: Pick<ProjectRow, 'id' | 'createdAt' | 'archived' | 'ownerId'>,
+  options?: { limit?: number }
+): Promise<number> => {
+  await grantProjectAccess(ctx, { project, userId: project.ownerId });
+  let written = 1;
+
+  const members = await ctx.orm.query.projectMembers.findMany({
+    where: { projectId: project.id },
+    limit: options?.limit ?? 1000,
+    columns: { userId: true },
+  });
+
+  for (const member of members) {
+    if (member.userId === project.ownerId) {
+      continue;
+    }
+    await grantProjectAccess(ctx, { project, userId: member.userId });
+    written += 1;
+  }
+
+  return written;
+};
+
+/**
+ * Rebuild every access row in the deployment.
+ *
+ * Deliberately a full scan of `projects`: it exists so a test can assert the
+ * derived rows match their sources. The deploy path is the backfill migration,
+ * which walks the same table in bounded batches and calls the same per-project
+ * sync. Never call this from a request path.
  */
 export const backfillProjectAccess = async (
   ctx: ProjectAccessWriteCtx,
   options?: { limit?: number }
 ): Promise<number> => {
   const limit = options?.limit ?? 1000;
-
   const projects = await ctx.orm.query.projects.findMany({ limit });
-  const byId = new Map(projects.map((project) => [project.id, project]));
 
   let written = 0;
-
   for (const project of projects) {
-    await grantProjectAccess(ctx, { project, userId: project.ownerId });
-    written += 1;
-  }
-
-  const memberships = await ctx.orm.query.projectMembers.findMany({ limit });
-
-  for (const membership of memberships) {
-    const project = byId.get(membership.projectId);
-    if (!project || project.ownerId === membership.userId) {
-      continue;
-    }
-
-    await grantProjectAccess(ctx, { project, userId: membership.userId });
-    written += 1;
+    written += await syncProjectAccessForProject(ctx, project, { limit });
   }
 
   return written;

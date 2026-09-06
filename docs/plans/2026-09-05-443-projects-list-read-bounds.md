@@ -421,7 +421,18 @@ Implementation notes:
 - None yet.
 
 Review fixes:
-- None yet.
+- PR #452 thread PRRT_kwDOPTlS686foid6 (@chatgpt-codex-connector, P1): triaged
+  valid. `projectAccess` started empty on any deployment holding existing
+  projects, so `list`, `listForDropdown` and `hasAny` all returned nothing.
+  Added migration `20260906_022807_backfill_project_access` over `projects`,
+  registered in the manifest, plus `syncProjectAccessForProject` as the single
+  owner shared by the migration and `backfillProjectAccess`, and
+  `clearProjectAccess` for `down`. Test drives the migration's own `migrateOne`
+  over raw `ctx.db` docs; verified armed by neutering the migration and watching
+  it fail. Correction: my earlier note that this needed a Convex deployment was
+  wrong — `runMigrationCreate` is pure filesystem and scaffolded offline.
+  The migration doc is the RAW Convex document (`_id`, no `id`, no hydrated
+  `createdAt`), same trap as `.filter()`, so it is re-read through the ORM.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -535,10 +546,12 @@ Open risks:
   worktree. `kitcn codegen` did run and updated
   `example/convex/functions/generated/procedure-names.gen.ts`. Anyone with a
   deployment should run `bun --cwd example run codegen` before deploying.
-- `backfillProjectAccess` is tested but not wired to a callable migration. The
-  migrations manifest is CLI-generated ("Do not edit manually") and
-  `kitcn migrate create` needs a deployment. An existing deployment shows empty
-  project lists until it is run; the example app is normally re-seeded.
+- RESOLVED (PR #452 review, @chatgpt-codex-connector P1): the backfill is now a
+  real migration, `20260906_022807_backfill_project_access`, registered in
+  `migrations/manifest.ts`. My earlier claim that `kitcn migrate create` needs a
+  deployment was wrong — `runMigrationCreate` is pure filesystem work and the
+  CLI scaffolded it offline. Pinned by a test that drives the migration's own
+  `migrateOne` over raw `ctx.db` docs and asserts reads go from empty to correct.
 - Pagination cursors change shape (they now page `projectAccess`, not
   `projects`). A cursor issued before the deploy is not valid after it.
 - Sort key is millisecond-resolution, so two projects created in the same
