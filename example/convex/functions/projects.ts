@@ -600,7 +600,8 @@ export const listForDropdown = authQuery
     )
   )
   .query(({ ctx }) => {
-    return listProjectsForDropdown(ctx, { userId: ctx.userId, limit: 1000 });
+    // 1000 owned + 1000 member, the capacity the two-query read had.
+    return listProjectsForDropdown(ctx, { userId: ctx.userId, limit: 2000 });
   });
 
 export const hasAny = authQuery.output(z.boolean()).query(({ ctx }) => {

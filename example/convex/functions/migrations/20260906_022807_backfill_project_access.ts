@@ -27,6 +27,18 @@ const writeCtx = (ctx: { orm: unknown }): ProjectAccessWriteCtx =>
  *
  * `grantProjectAccess` updates an existing row rather than inserting a second
  * one, so re-running is safe.
+ *
+ * ROLLOUT: `kitcn deploy` pushes the backend first and only then runs migrations
+ * (`packages/kitcn/src/cli/commands/deploy.ts` deploys, checks the exit code,
+ * and calls `runMigrationFlow` afterwards). So on a deployment that already
+ * holds projects there is a window where the new reads are live and this table
+ * is still empty or half-filled, and `/projects` looks empty to users who do
+ * have projects. It closes as soon as both backfills finish.
+ *
+ * That window is acceptable here because the example app is re-seedable and its
+ * data set is small. An app where it is not should do a proper expand/backfill/
+ * contract rollout instead: ship the writes, run the backfill to completion,
+ * and only then switch the reads over.
  */
 export const migration = defineMigration({
   id: '20260906_022807_backfill_project_access',

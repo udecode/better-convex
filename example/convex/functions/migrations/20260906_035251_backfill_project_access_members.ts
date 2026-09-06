@@ -42,6 +42,17 @@ export const migration = defineMigration({
         return;
       }
 
+      // An owner can also hold a membership row -- `aggregateDemo` seeds exactly
+      // that. The owner migration owns that user's access row, so rolling only
+      // this migration back (`migrate down --steps 1`) must leave it alone
+      // instead of deleting a row the still-applied owner migration created.
+      const project = await ctx.orm.query.projects.findFirst({
+        where: { id: projectId },
+      });
+      if (project?.ownerId === userId) {
+        return;
+      }
+
       await deleteProjectAccessRow(writeCtx(ctx), { projectId, userId });
     },
   },

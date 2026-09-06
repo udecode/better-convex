@@ -131,7 +131,12 @@ export const revokeProjectAccess = async (
 /**
  * Mirror `projects.archived` onto every access row for the project.
  *
- * Bounded by the project's member count, which `addMember` already gates.
+ * One update per project, so its cost is the project's member count. Nothing
+ * caps that: `projects.addMember` rejects only the owner, a duplicate, and a
+ * non-owner caller. The real ceiling is the ORM's own `mutationMaxRows`
+ * (10,000 by default), above which this update throws rather than silently
+ * mirroring a prefix -- so archiving a project with more than that many members
+ * fails loudly and needs either a member cap or a batched sync.
  */
 export const syncProjectArchived = async (
   ctx: ProjectAccessWriteCtx,
@@ -190,7 +195,14 @@ export const listAccessibleProjects = async (
   };
 };
 
-/** Non-archived projects the user can see, for the todo-form dropdown. */
+/**
+ * Non-archived projects the user can see, for the todo-form dropdown.
+ *
+ * `limit` bounds the union, where the read this replaced bounded each side
+ * separately -- up to 1,000 owned plus up to 1,000 member projects. Callers pass
+ * the combined figure so a user who is under both old bounds but over their sum
+ * does not lose projects from an unpaginated dropdown.
+ */
 export const listProjectsForDropdown = async (
   ctx: ProjectAccessCtx,
   input: { userId: string; limit: number }

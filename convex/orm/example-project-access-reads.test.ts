@@ -741,3 +741,78 @@ test('backfillProjectAccess throws rather than truncating at its bound', async (
     );
   });
 });
+
+/**
+ * An owner can also hold a membership row -- `aggregateDemo` seeds exactly that.
+ * Rolling back only the member migration must not delete the access row the
+ * still-applied owner migration created, or the owner loses their own project.
+ */
+test('rolling back the member migration keeps owner-derived access', async () => {
+  await withCountedOrmCtx(async (ctx) => {
+    const owner = await makeUser(ctx, 'owner');
+    const project = await makeProject(ctx, { name: 'owned', ownerId: owner });
+
+    // The owner is also a member, as the aggregate demo seeds it.
+    await ctx.orm
+      .insert(projectMembersTable)
+      .values({ projectId: project.id, userId: owner });
+
+    const rawMembers = await ctx.db.query('projectMembers').collect();
+    expect(rawMembers).toHaveLength(1);
+
+    for (const doc of rawMembers) {
+      await backfillMembersMigration.down?.migrateOne(
+        ctx as never,
+        doc as never
+      );
+    }
+
+    const results = await listAccessibleProjects(ctx, {
+      userId: owner,
+      archived: false,
+      cursor: null,
+      limit: 20,
+    });
+    expect(results.page.map((p) => p.name)).toEqual(['owned']);
+  });
+});
+
+/**
+ * The dropdown bounds the union of owned and member projects with one limit,
+ * where the read it replaced bounded each side separately. `projects.listForDropdown`
+ * passes the combined figure so a user under both old bounds but over their sum
+ * keeps every project.
+ */
+test('dropdown returns owned and member projects under one shared budget', async () => {
+  await withCountedOrmCtx(async (ctx) => {
+    const viewer = await makeUser(ctx, 'viewer');
+    const other = await makeUser(ctx, 'other');
+
+    for (let index = 0; index < 2; index += 1) {
+      await makeProject(ctx, { name: `own-${index}`, ownerId: viewer });
+      const shared = await makeProject(ctx, {
+        name: `shared-${index}`,
+        ownerId: other,
+      });
+      await addMember(ctx, { project: shared, userId: viewer });
+    }
+
+    const all = await listProjectsForDropdown(ctx, {
+      userId: viewer,
+      limit: 4,
+    });
+    expect(all.map((row) => row.name)).toEqual([
+      'own-0',
+      'own-1',
+      'shared-0',
+      'shared-1',
+    ]);
+    expect(all.filter((row) => row.isOwner)).toHaveLength(2);
+
+    // The budget is shared across both kinds, which is why the caller has to
+    // pass the combined capacity rather than the per-side one.
+    expect(
+      await listProjectsForDropdown(ctx, { userId: viewer, limit: 2 })
+    ).toHaveLength(2);
+  });
+});

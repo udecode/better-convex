@@ -421,6 +421,30 @@ Implementation notes:
 - None yet.
 
 Review fixes:
+- PR #452 round 3 (@chatgpt-codex-connector), four findings, all triaged valid:
+  - P1 deploy ordering (`projects.list:166`): `kitcn deploy` pushes the backend
+    and only then runs migrations (`cli/commands/deploy.ts`), so a deployment
+    holding existing projects has a window where the new reads are live and
+    `projectAccess` is empty or half-filled. NOT code-fixed: a true
+    expand/backfill/contract rollout is real separate work, and the only
+    available fallback read is the O(table) scan this PR removes. Documented in
+    the owner migration's docblock and surfaced to the user for a decision.
+  - P2 `syncProjectArchived` (`project_access.ts:140-143`): the update collects
+    every access row for the project and the ORM throws above `mutationMaxRows`
+    (10,000 default, `mutation-utils.ts:746,952-963`). My comment claimed it was
+    "bounded by the project's member count, which addMember already gates" --
+    false, `addMember` caps nothing. Comment corrected to state the real ceiling
+    and the failure mode; a member cap or batched sync is a product decision
+    left to the maintainer.
+  - P2 member-migration rollback: an owner can also hold a membership row
+    (`aggregateDemo` seeds exactly that), so `migrate down --steps 1` deleted the
+    access row the still-applied owner migration created. Fixed: the member
+    `down` leaves the row alone when the user is the project's current owner.
+    Test verified armed.
+  - P2 dropdown capacity (`projects.ts:603`): the union now shares one limit
+    where the old read bounded each side separately, so a user with 750 owned and
+    750 member projects lost 500. Fixed by passing the combined capacity (2000)
+    and documenting that the caller owns that figure. Test pins the shared budget.
 - PR #452 thread PRRT_kwDOPTlS686fonWD (@chatgpt-codex-connector, P1): triaged
   valid. The backfill read each project's memberships in one `limit: 1000` call,
   and nothing caps a project's member count -- `addMember` only rejects the
