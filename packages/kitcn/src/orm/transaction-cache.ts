@@ -16,6 +16,33 @@
  */
 
 const ORMLIFECYCLE_INNER_DB = Symbol.for('kitcn:OrmLifecycleInnerDB');
+const ORM_TRANSACTION_ANCHOR = Symbol.for('kitcn:OrmTransactionAnchor');
+
+/**
+ * Pins `anchor`'s transaction onto `target`, for a db built from a writer that
+ * cannot be resolved back to it.
+ *
+ * `withoutTriggers` re-roots the ORM on the raw `ctx.db`, which is the one
+ * object in the chain that carries no inner-db symbol — so a db derived from it
+ * would otherwise stand for a transaction of its own and miss every memo and
+ * queued write filed under the real one.
+ */
+export const markOrmTransactionAnchor = <TTarget extends object>(
+  target: TTarget,
+  db: unknown
+): TTarget => {
+  const anchor = resolveOrmTransactionAnchor(db);
+  if (!anchor || Object.hasOwn(target, ORM_TRANSACTION_ANCHOR)) {
+    return target;
+  }
+  Object.defineProperty(target, ORM_TRANSACTION_ANCHOR, {
+    configurable: false,
+    enumerable: false,
+    value: anchor,
+    writable: false,
+  });
+  return target;
+};
 
 /**
  * The object whose identity stands in for "this transaction".
@@ -24,20 +51,48 @@ const ORMLIFECYCLE_INNER_DB = Symbol.for('kitcn:OrmLifecycleInnerDB');
  * shared by two transactions. `getOrmLifecycleInnerDb` cannot be used on its
  * own: the lifecycle refuses to wrap readers and returns a no-op wrapper for
  * schemas with no triggers and no aggregate indexes, so the inner-db symbol is
- * absent for every query and for most mutations. Resolving through it when it
- * is there, and falling back to the db itself when it is not, converges on the
- * same raw writer from the main scope, `skipRules`, `withoutTriggers` and the
- * scheduled workers.
+ * absent for every query and for most mutations.
  *
- * A nested `ctx.runMutation` shares the transaction but gets its own `ctx.db`,
- * so it starts a fresh memo. That direction only costs extra reads.
+ * Following the symbol to a fixed point, rather than one hop, is what makes the
+ * answer canonical: `orm.with(hookCtx)` wraps a writer that is already a hook
+ * wrapper, so one hop lands on the intermediate wrapper instead of the raw
+ * writer the outer scope filed its work under. A pinned anchor wins outright,
+ * because it is the only way a db rooted on the raw writer can name the
+ * transaction at all.
+ *
+ * A nested `ctx.runMutation` shares the transaction but gets its own `ctx.db`
+ * and its own JS context, so it starts a fresh memo and a fresh write queue.
+ * For a memo that only costs extra reads. For queued writes it means the nested
+ * side neither sees nor drains the outer side's pending work — which is why
+ * kitcn composes modules through `create<Module>Handler(ctx)` (SKILL.md items 7
+ * and 21) instead of a raw `ctx.runMutation`.
  */
-const resolveTransactionAnchor = (db: unknown): object | undefined => {
+export const resolveOrmTransactionAnchor = (
+  db: unknown
+): object | undefined => {
   if (typeof db !== 'object' || db === null) {
     return undefined;
   }
-  const inner = (db as Record<PropertyKey, unknown>)[ORMLIFECYCLE_INNER_DB];
-  return typeof inner === 'object' && inner !== null ? inner : db;
+  let current = db as Record<PropertyKey, unknown>;
+  // Every wrapper stores a strictly older db, so the chain cannot cycle; the
+  // seen set is there so a hand-rolled db that lies about it cannot hang a
+  // mutation.
+  const seen = new Set<object>([current]);
+  for (;;) {
+    // Checked at every node, not just the entry: a pin is the only truth a db
+    // rooted on the raw writer has, so a wrapper built over one would otherwise
+    // walk past it and stop on a db that stands for nothing.
+    const pinned = current[ORM_TRANSACTION_ANCHOR];
+    if (typeof pinned === 'object' && pinned !== null) {
+      return pinned;
+    }
+    const inner = current[ORMLIFECYCLE_INNER_DB];
+    if (typeof inner !== 'object' || inner === null || seen.has(inner)) {
+      return current;
+    }
+    seen.add(inner);
+    current = inner as Record<PropertyKey, unknown>;
+  }
 };
 
 export type OrmTransactionMemo<TValue> = {
@@ -64,11 +119,11 @@ export const createOrmTransactionMemo = <
 
   return {
     get(db, key) {
-      const anchor = resolveTransactionAnchor(db);
+      const anchor = resolveOrmTransactionAnchor(db);
       return anchor ? byTransaction.get(anchor)?.get(key) : undefined;
     },
     set(db, key, value) {
-      const anchor = resolveTransactionAnchor(db);
+      const anchor = resolveOrmTransactionAnchor(db);
       if (!anchor) {
         return;
       }
