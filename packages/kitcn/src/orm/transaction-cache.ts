@@ -30,7 +30,13 @@ const ORMLIFECYCLE_INNER_DB = Symbol.for('kitcn:OrmLifecycleInnerDB');
  * scheduled workers.
  *
  * A nested `ctx.runMutation` shares the transaction but gets its own `ctx.db`,
- * so it starts a fresh memo. That direction only costs extra reads.
+ * so it starts a fresh memo. That direction only costs extra reads. The reverse
+ * direction does not: the nested invocation also gets its own JS context, so
+ * writes it makes are committed into the shared transaction without retiring
+ * anything the caller memoized. Memoizing an emptiness or a guard answer
+ * survives that; memoizing a row a caller will later write back on top of does
+ * not, unless the row's only writers are reachable from the caller's own
+ * context.
  */
 const resolveTransactionAnchor = (db: unknown): object | undefined => {
   if (typeof db !== 'object' || db === null) {
