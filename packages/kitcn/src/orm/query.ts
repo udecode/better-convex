@@ -7739,6 +7739,20 @@ export class GelRelationalQuery<
     return this._allEdges.filter((edge) => edge.sourceTable === tableName);
   }
 
+  /**
+   * A memo entry is a snapshot, so every caller has to get its own document.
+   *
+   * Relation loaders write nested `with` results and `extras` straight onto the
+   * target they were handed, and `hydrateDateFieldsForRead` copies every own key
+   * it finds. Two loads that share one entry would therefore publish each
+   * other's fields — a relation asked for as `true` coming back carrying a
+   * nested relation only the `where` requested. Those writes are all top-level,
+   * so a shallow copy is exactly as much isolation as they need.
+   */
+  private _ownedCopy(doc: any | null | undefined): any | null {
+    return doc === null || doc === undefined ? null : { ...doc };
+  }
+
   private async _getById(tableName: string, id: unknown): Promise<any | null> {
     if (id === null || id === undefined) {
       return null;
@@ -7750,7 +7764,7 @@ export class GelRelationalQuery<
     // A normalized id encodes its table, so it identifies the read on its own.
     const existing = this._documentByNormalizedId.get(normalizedId);
     if (existing) {
-      return await existing;
+      return this._ownedCopy(await existing);
     }
     // Stored before it settles so concurrent relation loaders share one
     // in-flight read; evicted on rejection so a failure is never cached.
@@ -7761,7 +7775,7 @@ export class GelRelationalQuery<
       }
     );
     this._documentByNormalizedId.set(normalizedId, pending);
-    return await pending;
+    return this._ownedCopy(await pending);
   }
 
   /**
@@ -7830,7 +7844,7 @@ export class GelRelationalQuery<
     }
     const existing = this._firstDocumentByFieldKey.get(key);
     if (existing) {
-      return await existing;
+      return this._ownedCopy(await existing);
     }
     // Stored before it settles so concurrent relation loaders share one
     // in-flight read; evicted on rejection so a failure is never cached.
@@ -7839,7 +7853,7 @@ export class GelRelationalQuery<
       throw error;
     });
     this._firstDocumentByFieldKey.set(key, pending);
-    return await pending;
+    return this._ownedCopy(await pending);
   }
 
   private _getRelationConcurrency(): number {
