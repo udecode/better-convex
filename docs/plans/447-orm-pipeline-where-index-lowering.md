@@ -44,7 +44,7 @@ Completion threshold:
 - Union repro: `users.select().union([{ where: { status: 'active' } }]).limit(10)` over 1 match + 20 noise rows reads `scanned === 1` (was 21).
 - flatMap repro: `users.select().flatMap('posts', { where: { numLikes: { gt: 17 } } }).limit(10)` over 1 parent + 20 children reads `scanned === 3` (was 21).
 - `convex/orm/pipeline.test.ts` fully green with no per-source `.withIndex(...)` workaround added to `:175` or `:796`.
-- `bun run check:ci` green (lint, typecheck, test, test:cli, test:concave, fixtures:check).
+- `bun check` green, except `fixtures:check`, which is red on clean `origin/main` too: the committed fixture pins a range and sync regenerates against today's npm, so an upstream patch reddens the lane. Attributable only when the diff touches `fixtures/`, `tooling/`, or `packages/kitcn/src/cli/`, and it touches none of them.
 - Task closure is legal only when the source-of-truth acceptance criteria are
   satisfied or explicitly narrowed, required verification evidence is recorded,
   code-review and release-artifact gates are closed when applicable, verified
@@ -81,7 +81,7 @@ Boundaries:
 - Source of truth: GitHub issue #447 + `packages/kitcn/src/orm/query.ts`.
 - Allowed edit scope: `packages/kitcn/src/orm/**`, `convex/orm/*.test.ts`, `convex/schema.ts` (test schema indexes), `packages/kitcn/skills/kitcn/references/features/orm.md`, `www/content/docs/orm/**`, `.changeset/*`, this plan.
 - Browser surface: N/A: server-side ORM read planning has no rendered output.
-- GitHub issue sync: allowed (comment on #447). No PR — user explicitly declined.
+- GitHub issue sync: allowed (comment on #447). PR: https://github.com/udecode/kitcn/pull/449.
 - Non-goals: the separate chain-level-`where`-dropped-under-`union` bug (see Findings), honoring `stage.orderBy`, relation-loader (`with:`) where lowering.
 
 Output budget strategy:
@@ -146,7 +146,7 @@ Start Gates:
 | Skill analysis before edits | yes | Loaded `task`, `autogoal`, `changeset`, `workflow-authoring`. Rejected `tdd` (repro-first was enough and behavior is read-count, not red/green API), `testing` (not a test-suite task), `major-task` (single package, no public API redesign), `find-skills` (no missing capability). |
 | Active goal checked or created | yes | Goal tools (`get_goal`/`create_goal`) are not exposed in this runtime; degraded control state recorded here per autogoal's fallback rule. This plan is the durable state. |
 | Source of truth read before edits | yes | `gh issue view 447` read in full before any edit. |
-| Exact per-PR task ownership | no | N/A: user preference explicitly forbids creating a PR. |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/449. |
 | GitHub comments and attachments read | yes | `gh issue view 447 --json comments` returned `[]`. |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source. |
 | Pre-solution issue challenge required | yes | See `Pre-solution issue challenge` above: verdict `partially valid`. |
@@ -155,13 +155,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | Step 1 accepted, step 2 rejected with source evidence (`query.ts` chain-level path allows an unlowerable object `where` to scan), step 3 re-scoped to the unsatisfiable error message. |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: `docs/solutions` does not exist in this repo. |
 | TDD decision before behavior change or bug fix | yes | Repro-first, not full TDD: the change is a read-count property, proven by a failing read-count assertion before the fix and mutation-tested after. |
-| Branch decision for code-changing task | yes | Already on dedicated non-`main` branch `issue-447-task`; no new branch needed. |
+| Branch decision for code-changing task | yes | Renamed `issue-447-task` -> `fix/orm-pipeline-where-index-lowering` before the first push, per the user's `<type>/<short-kebab-summary>` convention. Safe: no remote branch and no PR existed at rename time. |
 | Release artifact decision | yes | `.changeset/wild-pears-repeat.md` (`kitcn: minor`). |
 | Browser tool decision for browser surface | no | N/A: no browser surface. |
-| Commit / PR expectation decision | yes | Commit: yes. PR: N/A — the user's standing preference is "Do not create PR under any circumstances, unless user prompts to." That is an explicit decline, not a missing request. |
-| Task-style PR body decision | no | N/A: no PR created (explicit user decline). |
-| Task-plan PR body evidence | no | N/A: no PR created (explicit user decline). |
-| GitHub issue sync expectation decision | yes | Deferred to the user: no PR exists to reference, and posting a public comment is outward-facing. Offered in the final handoff. |
+| Commit / PR expectation decision | yes | Commit: yes. PR: initially declined by standing user preference ("Do not create PR under any circumstances, unless user prompts to"); the user then explicitly prompted for one, so PR #449 was created. |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used, with the repo's `auto-release` block preserved. |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/447-orm-pipeline-where-index-lowering.md`; this plan exists at the PR head and names PR #449. |
+| GitHub issue sync expectation decision | yes | The PR body carries `🐛 Fixes #447`, so GitHub already links the two. A separate public issue comment is outward-facing and was not requested; offered in the final handoff. |
 | Output budget strategy recorded | yes | See `Output budget strategy` above. |
 | Package/API pack selected | yes | `--with package-api`: `packages/kitcn` runtime read behavior changes. |
 | Public surface or package boundary identified | yes | New export `streamCanOrderBy` from `packages/kitcn/src/orm/stream.ts` (internal module, not re-exported from `kitcn/orm`); behavior change on `select().union([{where}])` and `select().flatMap(rel, {where})`. |
@@ -181,8 +181,8 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. N/A: no PR in scope —
-      the user explicitly declined PR creation.
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly
+      one PR: #449. No batch plan was used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
       `<video-transcripts>` XML, or marked N/A with reason. N/A: no video.
 - [x] For public GitHub bug reports, behavior claims, technical diagnoses, or
@@ -201,11 +201,14 @@ Work Checklist:
 - [x] Release artifact requirement recorded: new changeset
       `.changeset/wild-pears-repeat.md`.
 - [x] Final handoff shape decided: bug handoff + issue-sync offer, no PR.
-- [x] Commit/PR handling recorded for code-changing work: commit completed;
-      PR explicitly declined by standing user preference.
-- [x] PR body shape recorded. N/A: no PR created.
-- [x] PR task evidence recorded. N/A: no PR created.
-- [x] Branch handling recorded: dedicated branch `belmopan`, not `main`.
+- [x] Commit/PR handling recorded for code-changing work: commit `3131bb5c`
+      pushed; PR #449 created after the user explicitly prompted for one.
+- [x] PR body shape recorded: PR #270 emoji task-style body, verified with
+      `gh pr view 449 --json body`.
+- [x] PR task evidence recorded: body names this plan, the plan is at the PR
+      head, and it identifies PR #449.
+- [x] Branch handling recorded: dedicated branch
+      `fix/orm-pipeline-where-index-lowering`, not `main`.
 - [x] Local-env-rot retry policy recorded: 8 vitest files failed on
       `Cannot find package 'kitcn/server'` / missing `../dist`; resolved by
       `bun --cwd packages/kitcn build` (stale dist, not install rot).
@@ -236,7 +239,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named commands | Both read-count thresholds met; see `Verification evidence`. |
-| Exact per-PR task ownership | no | N/A | No PR: explicit standing user decline. |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan | PR #449, this plan. |
 | Pre-solution issue challenge verdict | yes | Record claim, repro, validity, boundary, pivot | Recorded above; verdict `partially valid`. |
 | Repro escalation ladder | yes | Record each rung | Test/source-level reproduced; browser/native N/A for a server-side read planner. |
 | Bug reproduced before fix | yes | Record failing repro | Scratch `convex/orm/tmp447.test.ts`: union `scanned: 21` (expected 1), flatMap `scanned: 21` (expected 3), control chain-level `where` `scanned: 1`. |
@@ -256,12 +259,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record failure mode, proof plan, boundary rationale | See `Open risks` and `Decisions and tradeoffs`. |
 | Agent-native review for agent/tooling changes | no | N/A | No hand-edited `.agents/**`, `.claude/**`, `.codex/**`, hook, command, or prompt source. |
 | Local install corruption suspected | yes | Rerun after fixing | 8 vitest files failed on missing `kitcn/server` / `../dist`; root cause was stale `dist`, cleared by the package build, not by reinstalling. |
-| Commit created | yes | Stage the checkout and commit | See `Final handoff / sync`. |
-| PR create or update | no | N/A | Explicit standing user preference: "Do not create PR under any circumstances, unless user prompts to." |
-| Task-style PR body verified | no | N/A | No PR created. |
-| PR task evidence verified | no | N/A | No PR created. |
-| PR proof image hosting | no | N/A | No PR and no images. |
-| GitHub issue sync-back | no | N/A | Deferred to the user: no PR to reference and a public comment is an outward-facing action; offered in the final handoff. |
+| Commit created | yes | Stage the checkout and commit | `3131bb5c fix(orm): index-lower pipeline union and flatMap stage wheres`; tree clean after commit. |
+| PR create or update | yes | Run check, push, create PR, sync body | `bun check` lanes run (only pre-existing expo `fixtures:check` drift red, proven upstream); pushed to `origin/fix/orm-pipeline-where-index-lowering`; PR https://github.com/udecode/kitcn/pull/449 created with the task-style body. |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | Verified: `auto-release` block preserved, `🐛 Fixes #447`, `🧭 Task plan: ...`, `🟢 95-100% confidence`, `| Phase | 🧪 Tests | 🌐 Browser |` with Reproduced/Verified rows, and bold emoji Outcome/Caveat/Design/Verified sections. No self-link to PR #449. |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, exact PR ownership | All three verified after the plan-sync push. |
+| PR proof image hosting | no | N/A | No images in the PR body. |
+| GitHub issue sync-back | no | N/A | The PR body's `🐛 Fixes #447` already links the issue. A separate public comment is outward-facing and was not requested; offered in the final handoff. |
 | Final handoff contract | yes | Fill the handoff fields | See `Final handoff contract`. |
 | Final lint | yes | Run `bun lint:fix` | `biome check --write` → 960 files checked, no fixes applied. |
 | Output budget discipline | yes | Verify no unbounded output | No unbounded `rg`; test output filtered through `tail`/`grep`; workflow findings pulled from the journal by key. |
@@ -341,7 +344,12 @@ Verification evidence:
 - `bun --cwd packages/kitcn build` -> 72 files, build complete.
 - `npx vitest run` (cwd: repo root) -> 92 files passed, 986 tests passed, 14 skipped, 0 failed.
 - `bun test` (cwd: repo root) -> 1400 pass, 0 fail across 150 files.
-- `bun run check:ci` (cwd: repo root) -> lint, typecheck, test, test:cli, test:concave all passed; `fixtures:check` failed on pre-existing upstream expo drift (`~55.0.30` -> `~55.0.31`), proven independent of this diff by `git diff --name-only` (no `fixtures/`, `tooling/`, or `packages/kitcn/src/cli/` path).
+- `bun run check:ci` (cwd: repo root) -> lint, typecheck, test, test:cli, test:concave all passed; `fixtures:check` failed on pre-existing upstream expo drift (`~55.0.30` -> `~55.0.31`). Proven not attributable: `git diff --name-only` shows no `fixtures/`, `tooling/`, or `packages/kitcn/src/cli/` path, and `npm view expo time` dates `55.0.31` at 2026-08-31, after `origin/main`'s tip commit at 2026-08-26 — so clean `main` is red on this lane too.
+- `bun run test:verify` (cwd: repo root) -> exit 0.
+- `bun run test:runtime` (cwd: repo root) -> exit 0.
+- `git push -u origin HEAD` -> new branch `fix/orm-pipeline-where-index-lowering`.
+- `gh pr create --base main` -> https://github.com/udecode/kitcn/pull/449.
+- `gh pr view 449 --json body` -> PR #270 emoji task-style body intact.
 - `bun tooling/sync-kitcn-skill.ts` -> "Synced packages/kitcn/skills/kitcn to .agents/skills/kitcn".
 - `.agents/skills/autoreview` (`--mode local`, `--engine claude`) -> run against the frozen dirty tree; result in `Review fixes`.
 - `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/447-orm-pipeline-where-index-lowering.md` -> pass.
@@ -359,8 +367,8 @@ Source-listed case matrix:
 
 Final handoff contract:
 - Commit line: see `Final handoff / sync`.
-- PR line: N/A — standing user preference forbids PR creation.
-- Issue line: not posted; offered to the user (outward-facing action, and there is no PR to reference).
+- PR line: https://github.com/udecode/kitcn/pull/449
+- Issue line: linked by `🐛 Fixes #447` in the PR body; no separate comment posted (offered to the user).
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests 🔴 (scratch read-count repro failed pre-fix at both sites), browser ➖ N/A
@@ -373,15 +381,15 @@ Final handoff contract:
   - Why not quick patch: completing the assertion to throw would make `select()` stricter than `findMany()` for the same `where`, and would force the two named tests into per-source `.withIndex(...)` workarounds — encoding the workaround as contract.
   - Why not broader change: `_toConvexQuery` was not table-parameterized, because union sources are on the same table; `flatMap` got a narrow resolver instead of the full ladder because the FK eq is a mandatory leading prefix and `mappedIndexFields` must be one arity for every parent.
 - Verified: 37/37 `convex/orm/pipeline.test.ts`, 986 vitest, 1400 bun tests, package build, typecheck, lint; all 5 new tests mutation-verified.
-- PR body verified: N/A — no PR.
+- PR body verified: `gh pr view 449 --json body` — PR #270 emoji format intact, `auto-release` block preserved, no self-link.
 
 Task-style PR body contract:
-- N/A: no PR was created. The user's standing preference is "Do not create PR under any circumstances, unless user prompts to."
+- Satisfied on PR #449: `auto-release` block preserved, `🐛 Fixes #447`, `🧭 Task plan: docs/plans/447-orm-pipeline-where-index-lowering.md`, `🟢 95-100% confidence`, the exact `| Phase | 🧪 Tests | 🌐 Browser |` header with `Reproduced` (🔴) and `Verified` (🟢) rows and `➖ N/A` browser cells, and `**✅ Outcome**` / `**⚠️ Caveat**` / `**🏗️ Design**` / `**🧪 Verified**` sections. No line links PR #449 to itself.
 
 Final handoff / sync:
-- Commit: created on branch `issue-447-task` (see final response for the hash).
-- PR: not created — explicit standing user decline.
-- Issue: not commented — offered to the user.
+- Commit: `3131bb5c` on `fix/orm-pipeline-where-index-lowering`, plus a plan-sync commit naming PR #449.
+- PR: https://github.com/udecode/kitcn/pull/449
+- Issue: linked via `🐛 Fixes #447`; no separate comment posted.
 - Browser proof: N/A.
 - Caveats: see `Final handoff contract`.
 
@@ -391,11 +399,12 @@ Timeline:
 - 2026-09-05 Scratch repro reproduced both sites at 21 scanned; control chain-level `where` at 1.
 - 2026-09-05 Implemented union + flatMap index lowering; 5 regression tests added and mutation-verified.
 - 2026-09-05 Docs, skill mirror, and changeset updated; repo checks run; autoreview run; committed.
+- 2026-09-05 User prompted for a PR. Branch renamed to `fix/orm-pipeline-where-index-lowering`, `test:verify` and `test:runtime` run green, pushed, PR #449 opened.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete |
+| Where am I? | Delivered as PR #449 |
 | Where am I going? | Final response |
 | What is the goal? | Index-lower plain-object pipeline union/flatMap wheres and resolve the dead assertion branch |
 | What have I learned? | See Findings |
@@ -408,4 +417,4 @@ Open risks:
 - Two adjacent defects are knowingly left open: chain-level `.where(...)` is silently dropped under `pipeline.union`, and the relation loader (`with: { rel: { where } }`) does not lower its `where`. Both are reported in the final handoff, neither is fixed here.
 
 Hard closeout guard:
-- A local-only final response is valid here: the user's standing preference explicitly declines PR creation, and the work is committed on a dedicated branch.
+- Satisfied: the work is committed, pushed, and delivered as PR #449, which names this plan.
