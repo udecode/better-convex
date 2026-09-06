@@ -90,7 +90,7 @@ Boundaries:
 - Source of truth: GitHub issue #440, stage (b) only.
 - Allowed edit scope: `packages/kitcn/src/orm/**`, `.changeset/**`, this plan.
 - Browser surface: N/A.
-- GitHub issue sync: N/A while no PR exists (user declined PR creation).
+- GitHub issue sync: comment on #440 once PR #454 exists.
 - Non-goals: stage (a)'s read memo; keyed/partial draining; rank-index writes;
   changing the lifecycle trigger contract.
 
@@ -172,7 +172,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` loaded; `autogoal` plan created; `changeset` rule read before writing `.changeset/tidy-pugs-shave.md` |
 | Active goal checked or created | yes | This plan |
 | Source of truth read before edits | yes | `gh issue view 440` read in full before any edit |
-| Exact per-PR task ownership | N/A | No PR exists; user preference declines PR creation |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/454 |
 | GitHub comments and attachments read | yes | `gh issue view 440 --json comments` returned `[]` |
 | Video transcript evidence required | N/A | No video or screen recording in the source |
 | Pre-solution issue challenge required | yes | Recorded above; verdict `valid` |
@@ -181,13 +181,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | Stage (a) memo rejected as the owner; statement queue chosen |
 | `docs/solutions` checked for non-trivial existing-code work | N/A | No `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | Red first: 40/40 and 80/80 counters observed failing, then fixed |
-| Branch decision for code-changing task | yes | Worktree branch `fix-issue-440b`, already off `main` |
+| Branch decision for code-changing task | yes | Renamed to `fix/orm-statement-scoped-bucket-writes` before the first push, per the user's branch-naming preference |
 | Release artifact decision | yes | `.changeset/tidy-pugs-shave.md`, patch |
 | Browser tool decision for browser surface | N/A | No browser surface |
-| Commit / PR expectation decision | partial | Commit created. PR declined by standing user preference: "Do not create PR under any circumstances, unless user prompts to." |
-| Task-style PR body decision | N/A | No PR created |
-| Task-plan PR body evidence | N/A | No PR created |
-| GitHub issue sync expectation decision | N/A | No PR to reference; nothing shippable to report to the issue yet |
+| Commit / PR expectation decision | yes | Commit created; PR #454 opened after the user explicitly requested one |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used for PR #454 |
+| Task-plan PR body evidence | yes | Body carries the `🧭 Task plan:` line; plan present at PR head and names PR #454 |
+| GitHub issue sync expectation decision | yes | Sync #440 after PR #454 exists |
 | Output budget strategy recorded | yes | Recorded above |
 | Package/API pack selected | yes | package-api pack applied |
 | Public surface or package boundary identified | yes | No public export change; `write-batch.ts` is internal to `orm/` |
@@ -280,7 +280,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes |Run the command, proof, source audit, or artifact check named in this plan | Counting test asserts 1 bucket read + 1 bucket write for a 40-row same-key statement and 2 + 2 for a key migration; was 40/40 and 80/80 |
-| Exact per-PR task ownership | N/A |Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | No PR created - user declined |
+| Exact per-PR task ownership | yes |Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #454, owned by this plan |
 | Pre-solution issue challenge verdict | yes |Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | Recorded above: valid, statement boundary chosen over the suggested memo |
 | Repro escalation ladder | yes |For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | Source-level counting test reproduced it exactly; no browser surface |
 | Bug reproduced before fix | yes |Record failing test/repro or N/A with reason | RED run: `expected 40 to be 1`, `expected 80 to be 2` |
@@ -300,18 +300,18 @@ Completion Gates:
 | High-risk mini gate | yes |For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | Recorded under Open risks |
 | Agent-native review for agent/tooling changes | N/A |For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | No agent-native surface touched |
 | Local install corruption suspected | yes |Run `bun install` once, rerun the exact failing command, or record N/A | Seen once: `Cannot find package kitcn/server` in 7 convex suites; resolved by `bun --cwd packages/kitcn build` (stale dist), not a code error |
-| Commit created | yes |For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | See Final handoff |
-| PR create or update | N/A |For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | Standing user preference: "Do not create PR under any circumstances, unless user prompts to." |
-| Task-style PR body verified | N/A |Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | No PR created |
-| PR task evidence verified | N/A |Verify body plan line, plan at PR head, and exact PR ownership | No PR created |
-| PR proof image hosting | N/A |If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | No PR and no images |
-| GitHub issue sync-back | N/A |Post concise issue sync after PR exists, or record N/A/blocker | No PR to point the issue at; nothing shipped yet |
+| Commit created | yes |For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | `8a8103c5`, pushed |
+| PR create or update | yes |For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | PR #454; `check` green except unrelated `expo` fixture drift, recorded in the PR body |
+| Task-style PR body verified | yes |Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format | Verified with `gh pr view 454 --json body` |
+| PR task evidence verified | yes |Verify body plan line, plan at PR head, and exact PR ownership | Plan line present; plan at PR head; names PR #454 |
+| PR proof image hosting | N/A |If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | No images in the body |
+| GitHub issue sync-back | yes |Post concise issue sync after PR exists, or record N/A/blocker | Comment posted on #440 naming PR #454 |
 | Final handoff contract | yes |Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | Filled below |
 | Final lint | yes |Run `bun lint:fix` or scoped equivalent | `bun lint:fix` - 963 files checked, 1 fixed |
 | Output budget discipline | yes |Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | Test output filtered; the audit workflow report read from its artifact file |
 | Timed checkpoint | N/A |If duration was requested, keep improving until elapsed, then finish the current loop cleanly; otherwise N/A | No duration requested |
 | Autoreview for non-trivial implementation changes | yes |Load `.agents/skills/autoreview/SKILL.md`; use dirty local `--mode local`, branch/PR `--mode branch --base <base>`, or committed slice `--mode commit --commit <ref>` until no accepted/actionable findings, or record N/A for docs-only/trivial/no local patch | See Review fixes |
-| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-09-06-440b-statement-scoped-aggregate-bucket-writes.md` | Passes; commit `e99c6a09` |
+| Goal plan complete | yes | Run `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/2026-09-06-440b-statement-scoped-aggregate-bucket-writes.md` | Passes; PR #454 |
 | Public API / package boundary proof | yes |Source-audit public API, exports, and package boundary impact | No export added to any package entry; `write-batch.ts` is imported only inside `orm/` |
 | Convex bundle/import proof | yes |Audit affected function-entry static graphs or record N/A | `import-graph.test.ts` green - `orm/index.ts` still does not reach the aggregate runtime |
 | CLI/scaffold/generated proof | N/A |Prove command contract and regenerate owned output or record N/A | No CLI, scaffold, or generated output touched |
@@ -330,8 +330,8 @@ Phase / pass table:
 | Design audit | done | 8-agent workflow (4 map + 4 adversarial lenses); 6 findings acted on | implementation |
 | Implementation | done | write queue + anchor canonicalization + read barriers | verification |
 | Verification | done | full vitest + bun test + typecheck + lint + build green; every new invariant mutation-tested | closeout |
-| Commit / PR / GitHub sync | done | committed; PR and issue sync N/A by user preference | final response |
-| Closeout | done | autoreview clean on 2 passes; committed `e99c6a09`; PR and issue sync N/A by user preference | final response |
+| Commit / PR / GitHub sync | done | branch renamed, pushed, PR #454 opened, #440 synced | final response |
+| Closeout | done | autoreview clean on 2 passes; commit `8a8103c5` pushed as PR #454; #440 synced | final response |
 
 Findings:
 - The reported amplification reproduces exactly, and is twice as large as
@@ -487,9 +487,9 @@ Source-listed case matrix:
 | Concurrent raw writer | lost update the deferral could introduce | write-batch.test.ts + e2e | n/a | serialized | 11 unit tests, 4 mutation-tested | done |
 
 Final handoff contract:
-- Commit line: `e99c6a09` on branch `fix-issue-440b`, not pushed.
-- PR line: N/A - standing user preference declines PR creation.
-- Issue line: N/A - nothing shipped to point #440 at yet.
+- Commit line: `8a8103c5` on branch `fix/orm-statement-scoped-bucket-writes`, pushed.
+- PR line: https://github.com/udecode/kitcn/pull/454
+- Issue line: #440 synced with a QA-facing comment naming PR #454.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests RED on the pre-fix tree, browser N/A
@@ -514,7 +514,7 @@ Final handoff contract:
     `orm/index`'s import graph still does not reach the aggregate runtime.
 - Verified: `bunx vitest run`, `bun test`, `bun typecheck`, `bun lint:fix`,
   `bun --cwd packages/kitcn build`, plus per-invariant mutation testing.
-- PR body verified: N/A - no PR created.
+- PR body verified: `gh pr view 454 --json body` - PR #270 emoji format, auto-release block preserved, no self-link.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -538,9 +538,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: `e99c6a09` on `fix-issue-440b`; not pushed.
-- PR: N/A - standing user preference.
-- Issue: N/A - no PR to reference.
+- Commit: `8a8103c5` on `fix/orm-statement-scoped-bucket-writes`; pushed.
+- PR: #454
+- Issue: #440 synced.
 - Browser proof: N/A.
 - Caveats: see Final handoff contract.
 
