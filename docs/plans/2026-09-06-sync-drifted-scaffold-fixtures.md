@@ -150,14 +150,15 @@ Pre-solution issue challenge:
   source and swaps two runtime dependencies for one new one. A run that
   followed the prompt's stated expectation ("boring dep bump, commit it") would
   have silently shipped a shadcn architecture migration.
-- hard-stop decision: **hard stop taken.** Not committed, no PR.
+- hard-stop decision: approval was obtained before committing; PR #453 owns
+  the accepted generated fixture update.
 
 Completion rule:
 - Do not call `update_goal(status: complete)` while any required checklist item
   remains unchecked.
-- This goal is `blocked`, not `complete`. `check-complete.mjs` is deliberately
-  not forced to pass, because forcing it would misrepresent a halted task as a
-  finished one.
+- The implementation task reached its PR-delivery threshold. Merge closeout
+  is tracked in `docs/plans/2026-09-06-pr-453-autoclosure.md`; no merge is
+  claimed by this implementation receipt.
 
 Start Gates:
 | Gate | Applies | Evidence |
@@ -230,8 +231,9 @@ Work Checklist:
       owns `fixtures/**` and the `tooling/fixtures.ts` gate.
 - [x] Output budget discipline recorded and followed.
 - [x] High-risk note recorded. See High-risk note.
-- [x] Review/autoreview target selected. N/A: nothing is being shipped; the
-      diff is 100% machine-generated and the decision is escalated to the user.
+- [x] Review/autoreview target selected. Branch review against the PR base;
+      the generated fixture diff remains part of the review target. Current
+      closeout proof is tracked in the autoclosure plan.
 - [x] Agent-native review decision recorded. N/A: diff touches no
       `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, or commands.
 
@@ -269,7 +271,7 @@ Completion Gates:
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint` ran as the first stage of `bun check` and passed (overall exit 0) |
 | Output budget discipline | yes | Verify no unbounded output streamed | Sync/check redirected to `.context/*.log`; diff classified via `uniq -c` collapse rather than reading 20 files |
 | Timed checkpoint | no | Keep improving until elapsed | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | no | Run autoreview until no accepted findings | N/A: the shipped diff contains zero hand-written lines — 22 machine-generated fixture snapshot files plus this plan. The correctness oracle is `fixtures:check` ("snapshot == freshly generated"), which passed, and a prose review of generated JSON cannot strengthen it. The one judgment the diff *did* require — dep bump vs. template change — was made by exhaustive per-hunk classification and escalated to the user |
+| Autoreview for non-trivial implementation changes | yes | Run autoreview until no accepted findings | Closeout branch review against origin/main at 70b266ad passed with no P0/P1 findings. Further generated changes require a fresh review; tracked in the autoclosure plan |
 | Goal plan complete | yes | Run `check-complete.mjs` | Passed |
 
 Phase / pass table:
@@ -377,7 +379,10 @@ Implementation notes:
   edited by hand at any point.
 
 Review fixes:
-- None. Nothing shipped, so no review pass was run.
+- P1 `discussion_r3942719855`: the plan identifies PR #453 and the approved
+  commit. The closeout pass also corrected the remaining contradictory
+  completion-rule and review-state claims. Proof: inspect current state rows
+  and run `check-complete.mjs`; reply and resolution belong to closeout.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -487,7 +492,7 @@ Reboot status:
 | Question | Answer |
 |----------|--------|
 | Where am I? | Complete — PR #453 open and awaiting review |
-| Where am I going? | Nothing further; reviewer owns PR #453 |
+| Where am I going? | Autoclosure owns fresh checks, live feedback and merge receipts in docs/plans/2026-09-06-pr-453-autoclosure.md |
 | What is the goal? | Regenerate drifted `fixtures/**`; commit only after confirming the diff is acceptable |
 | What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the real drift was a 2-day-old shadcn `cn` migration plus new `.npmrc` files, not the expo bump the prompt described |
 | What have I done? | Reproduced drift, isolated the pins step, regenerated all 8 templates, exhaustively classified every hunk, verified `cn` provenance, escalated under criterion 5, and after user acceptance ran `bun check` (exit 0), committed `8219887a`, and opened PR #453 |
