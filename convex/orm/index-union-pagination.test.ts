@@ -652,3 +652,56 @@ test('an index union with a residual filter sizes the read by matches', async ()
     }
   });
 });
+
+test('a bounded residual union still returns a true global top-k', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    // Statuses alternate, so any plan that truncates one probe before looking
+    // at the other returns the wrong three rows.
+    for (let index = 0; index < 40; index += 1) {
+      await baseCtx.db.insert('users', {
+        name: `Keep ${String(index).padStart(2, '0')}`,
+        email: `topk-${index}@example.com`,
+        status: index % 2 === 0 ? 'active' : 'pending',
+      });
+    }
+
+    for (const width of [2, 64, 65]) {
+      // An order the probed index serves: the union emits it directly, so the
+      // read may stop at three matches.
+      const served = await ctx.orm.query.users.withIndex('by_status').findMany({
+        where: {
+          status: { in: wideStatusList(width) },
+          name: { contains: 'Keep' },
+        },
+        orderBy: { createdAt: 'desc' },
+        limit: 3,
+      });
+      expect(served.map((row: any) => row.name)).toEqual([
+        'Keep 39',
+        'Keep 38',
+        'Keep 37',
+      ]);
+
+      // An order it cannot serve: the top-k is only known after every match is
+      // read, so this one keeps collecting and sorting.
+      const unserved = await ctx.orm.query.users
+        .withIndex('by_status')
+        .findMany({
+          where: {
+            status: { in: wideStatusList(width) },
+            name: { contains: 'Keep' },
+          },
+          orderBy: { name: 'asc' },
+          limit: 3,
+        });
+      expect(unserved.map((row: any) => row.name)).toEqual([
+        'Keep 00',
+        'Keep 01',
+        'Keep 02',
+      ]);
+    }
+  });
+});
