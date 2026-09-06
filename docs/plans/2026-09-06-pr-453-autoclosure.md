@@ -70,12 +70,21 @@ Feedback ledger (URLs relative to https://github.com/udecode/kitcn/pull/453):
 | #issuecomment-5556373771 | P2 | merge-order request addressed by selecting #453 first; migration accepted in task evidence | No code fix requested; verify checks |
 | #pullrequestreview-5123841712 | N/A | review wrapper points to ledgered inline finding | No additional actionable content |
 | #pullrequestreview-5124060770 | N/A | empty review body | No actionable content |
+| #discussion_r3944961144 | N/A | verified repair reply for the original P1 | Reply posted at 419d5411, original thread resolved |
+| #issuecomment-5561459515 | N/A | hosted review activity summary | Completed at 419d5411; actual finding ledgered separately |
+| #pullrequestreview-5126311206 | N/A | empty review body | No actionable content |
+| #pullrequestreview-5126317224 | N/A | review wrapper | Points to the cn-plan finding below |
+| #discussion_r3944967483 | P1 | accepted: dedicated plan says cn 0.2.5 while six manifests say 0.2.6 | Update classification/provenance/verification/risks; compare all six manifests and reject old version; task checker |
 
 Inventory counts:
 - Helper: 1 unresolved/outdated thread, 1 top-level comment, 1 review body.
 - Raw: 3 top-level comments, 2 reviews, 1 thread with 2 comments; no further
   GraphQL pages. Helper excluded 2 comments and 1 empty review, all ledgered.
 - Actionable root finding: 1 P1. No deferred defect currently identified.
+- Post-push inventory: 4 top-level comments, 4 reviews and 2 threads with
+  4 total comments. First P1 resolved; second P1 accepted for dedicated-plan
+  version consistency. This is repair cycle two, still within task-evidence
+  scope; no runtime/package contract or behavior change is needed.
 
 Start Gates:
 | Gate | Applies | Evidence |

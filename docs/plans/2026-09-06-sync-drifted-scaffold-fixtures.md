@@ -305,11 +305,11 @@ Findings:
   produced zero diff, because it derives values from
   `packages/kitcn/src/cli/supported-dependencies.ts` constants, not from npm.
   This makes the "no changeset" premise **verified rather than assumed**.
-- **The drift is three distinct upstream changes, not one dep bump.** See the
+- **The drift is four distinct upstream changes, not one dep bump.** See the
   classification table below. Only the expo one matches the prompt's framing.
 - **Zero changes are kitcn-owned.** `legacy-peer-deps` appears nowhere under
   `packages/kitcn/` (including `dist`); `clsx`/`tailwind-merge`/`cn` appear
-  nowhere in `packages/kitcn/src`; no `.npmrc` is tracked anywhere in the repo.
+  nowhere in `packages/kitcn/src`; the two generated `.npmrc` files are owned by upstream scaffold output.
 - **`components/ui` is written by sync but stripped by check.** In default
   `owned` scope, `stripFixtureComparisonArtifacts` (`tooling/fixtures.ts:129`)
   deletes `components/ui` / `src/components/ui` from both sides before diffing
@@ -322,16 +322,16 @@ Change classification (complete, exhaustively enumerated):
 |---|--------|----------|-------|------|
 | 1 | `expo ~55.0.30 → ~55.0.31` | expo, expo-auth | upstream npm (published 2026-08-31) | dependency bump — matches the prompt |
 | 2 | `@base-ui/react ^1.7.0 → ^1.8.0`, `lucide-react ^1.34.0 → ^1.41.0` | 6 shadcn templates | upstream shadcn registry (`shadcn: latest`, deliberately floating) | dependency bump |
-| 3 | `clsx ^2.1.1` + `tailwind-merge ^3.6.0` **removed**, `cn ^0.2.5` **added**; `lib/utils.ts` rewritten from a local `twMerge(clsx(...))` implementation to `export { cn } from "cn"`; `button.tsx` import changed from `@/lib/utils` to `cn` | 6 shadcn templates | upstream shadcn registry | **source/template change — NOT a dependency bump** |
+| 3 | `clsx ^2.1.1` + `tailwind-merge ^3.6.0` **removed**, `cn ^0.2.6` **added**; `lib/utils.ts` rewritten from a local `twMerge(clsx(...))` implementation to `export { cn } from "cn"`; `button.tsx` import changed from `@/lib/utils` to `cn` | 6 shadcn templates | upstream shadcn registry | **source/template change — NOT a dependency bump** |
 | 4 | new `.npmrc` containing `legacy-peer-deps=true` | start, start-auth | upstream TanStack Start scaffolder | **new generated file — NOT a dependency bump** |
 
 Provenance of the new `cn` package (verified via `npm view`):
-- name `cn`, version `0.2.5`, MIT, maintainer `shadcn <m@shadcn.com>`
+- name `cn`, version `0.2.6`, MIT, maintainer `shadcn <m@shadcn.com>`
 - repository `github.com/shadcn-ui/cn`
 - description: "Fast, small, compiled class-name merging for Tailwind CSS.
   Drop-in replacement for clsx + tailwind-merge."
-- publish timeline: `0.2.1` 2026-09-01 → `0.2.5` 2026-09-04. The migration is
-  **two days old**, which is why it landed in this sync and not the last one.
+- publish timeline: `0.2.1` 2026-09-01 → `0.2.6` 2026-09-06. Version `0.2.6` was
+  published at 12:13:35 UTC on 2026-09-06; the final refresh adopts that patch.
 - Assessment: legitimate and first-party to shadcn, not a typosquat. But
   adopting it is still a real change to every app kitcn scaffolds.
 
@@ -379,6 +379,10 @@ Implementation notes:
   edited by hand at any point.
 
 Review fixes:
+- P1 `discussion_r3944967483`: synchronized this dedicated plan's current
+  classification, provenance, verification and risk statements to cn 0.2.6.
+  Proof compares all six manifest versions with this plan and asserts that no
+  stale version remains; task checker also passes. Closeout owns reply/resolve.
 - P1 `discussion_r3942719855`: the plan identifies PR #453 and the approved
   commit. The closeout pass also corrected the remaining contradictory
   completion-rule and review-state claims. Proof: inspect current state rows
@@ -391,6 +395,17 @@ Error attempts:
 | `fixtures:check` FixtureDriftError on `expo` (pre-sync) | 1 | Run `fixtures:sync` to regenerate | Resolved — this was the intended reproduction, not an unexpected failure |
 
 Verification evidence:
+- Current cn contract: all six shadcn fixture manifests declare `cn ^0.2.6`.
+  `npm view cn@0.2.6 version license repository maintainers dist.integrity
+  --json` confirms MIT, shadcn-ui/cn and maintainer shadcn. `npm view cn time
+  --json` confirms publication at 2026-09-06T12:13:35.681Z.
+- Current refresh: `NO_PROXY=localhost,127.0.0.1 bun run fixtures:sync` exited
+  0; eight templates regenerated/validated. The incremental output changed
+  only six cn manifest versions; no further source or template change.
+- Current full gate: `NO_PROXY=localhost,127.0.0.1 bun check` exited 0 on the
+  refreshed manifests: Bun 1400 pass, Vitest 981 pass / 14 skipped, CLI 124
+  pass, Concave smoke, 8/8 fixture comparisons, CLI verify and runtime pass.
+  Log: /tmp/kitcn-pr453-check.log. These results supersede initial-run counts.
 - `bun tooling/dependency-pins.ts sync --skip-validate` (cwd: repo root) ->
   exit 0, `git status --porcelain` empty. Proves the pins step writes nothing
   under `packages/`; the "no changeset" premise holds.
@@ -413,7 +428,7 @@ Verification evidence:
 - `grep -rln "legacy-peer-deps" packages/kitcn/` -> no matches.
   `git ls-files | grep -i npmrc` -> no matches. Proves `.npmrc` is upstream.
 - `npm view cn` -> `shadcn-ui/cn`, MIT, maintainer `shadcn <m@shadcn.com>`;
-  `0.2.5` published 2026-09-04. Proves provenance and recency.
+  `0.2.6` published 2026-09-06. Proves provenance and recency.
 - `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (post-sync) -> exit 0,
   all 8 "matches fresh ... output". **Named threshold met.**
 
@@ -477,7 +492,7 @@ Timeline:
 - Ran `bun run fixtures:sync`: 8 templates regenerated; all 8 fixtures changed.
 - Enumerated every diff hunk. Found 4 distinct change classes; 2 of them are
   not dependency bumps.
-- Verified `cn` provenance on npm (first-party shadcn, published 2026-09-04).
+- Verified `cn` provenance on npm (first-party shadcn, published 2026-09-06).
 - Ran `fixtures:check`: exit 0, 8/8. Named threshold met.
 - Halted before commit per user criterion 5; reported for a decision.
 - User reviewed the classification and accepted the upstream migration.
@@ -494,11 +509,11 @@ Reboot status:
 | Where am I? | Complete — PR #453 open and awaiting review |
 | Where am I going? | Autoclosure owns fresh checks, live feedback and merge receipts in docs/plans/2026-09-06-pr-453-autoclosure.md |
 | What is the goal? | Regenerate drifted `fixtures/**`; commit only after confirming the diff is acceptable |
-| What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the real drift was a 2-day-old shadcn `cn` migration plus new `.npmrc` files, not the expo bump the prompt described |
+| What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the final snapshot includes shadcn `cn@^0.2.6` plus new `.npmrc` files, not the expo bump the prompt described |
 | What have I done? | Reproduced drift, isolated the pins step, regenerated all 8 templates, exhaustively classified every hunk, verified `cn` provenance, escalated under criterion 5, and after user acceptance ran `bun check` (exit 0), committed `8219887a`, and opened PR #453 |
 
 Open risks:
-- Merging adds `cn@^0.2.5` as a runtime dependency to every app
+- Merging adds `cn@^0.2.6` as a runtime dependency to every app
   kitcn scaffolds, and adds `legacy-peer-deps=true` to start apps. The latter
   suppresses peer-dependency conflict errors, which can mask genuine version
   incompatibilities in generated projects.
