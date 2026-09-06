@@ -6892,11 +6892,10 @@ export class GelRelationalQuery<
       // reaching Convex as `.filter()` is what `probeHasResidualFilter` above
       // guarantees. Testing `Boolean(whereFilter)` instead would trip on every
       // `in`/`ne`/`notIn` query, since those only exist inside a `where`.
+      const probeHasRelationMembership =
+        this._hasSearchDisallowedRelationFilter(whereFilter, this.tableConfig);
       const probeHasPostFetchMembership =
-        this._hasSearchDisallowedRelationFilter(
-          whereFilter,
-          this.tableConfig
-        ) ||
+        probeHasRelationMembership ||
         (this.rls?.mode !== 'skip' &&
           isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
@@ -6931,9 +6930,19 @@ export class GelRelationalQuery<
       const probeSchemaDefinition = (this.schema as any)[OrmSchemaDefinition];
       // Without `defineSchema()` there is no stream to read, and correctness
       // wins over the bound: fall back to collecting the probe range.
+      //
+      // A relation `where` is deliberately excluded. Both guards that bound a
+      // relation load are scoped to the batch they are handed:
+      // `_enforceRelationFanOutKeyCap` counts the distinct keys in one call, and
+      // a batch of one can never exceed the cap, so streaming it would silently
+      // retire a check that fails fast today; `_loadOneRelation` likewise
+      // de-duplicates source keys per batch. Restoring either for a per-row
+      // caller needs an execution-scoped key ledger, which belongs to the
+      // relation loader rather than to this branch.
       const probeStreamed =
         probeBound !== undefined &&
         !probeBoundedTake &&
+        !probeHasRelationMembership &&
         !!probeSchemaDefinition;
 
       const probeRows = await Promise.all(

@@ -91,6 +91,40 @@ const relations = defineRelations(tables, (r) => ({
   },
 }));
 
+/**
+ * A second schema with a low `relationFanOutMaxKeys`, so the relation fan-out
+ * guard is reachable in a small fixture.
+ */
+const cappedOwners = convexTable('capped_owners', {
+  name: text().notNull(),
+  tier: text().notNull(),
+});
+const cappedDocs = convexTable(
+  'capped_docs',
+  {
+    label: text().notNull(),
+    bucket: text().notNull(),
+    ownerId: id('capped_owners').notNull(),
+  },
+  (t) => [index('by_bucket').on(t.bucket)]
+);
+const cappedTables = {
+  capped_owners: cappedOwners,
+  capped_docs: cappedDocs,
+};
+const cappedSchema = defineSchema(cappedTables, {
+  defaults: { relationFanOutMaxKeys: 5 },
+});
+const cappedRelations = defineRelations(cappedTables, (r) => ({
+  capped_owners: {},
+  capped_docs: {
+    owner: r.one.capped_owners({
+      from: r.capped_docs.ownerId,
+      to: r.capped_owners.id,
+    }),
+  },
+}));
+
 /** Table sizes a correct bound must be identical across. */
 const SIZES = [200, 500] as const;
 
@@ -411,41 +445,42 @@ test('an index union wider than the probe cap stays bounded under RLS', async ()
   });
 });
 
-test('an index union filtered by a relation keeps its limit bound', async () => {
-  const scans: number[] = [];
+test('an index union filtered by a relation keeps the batch relation pass', async () => {
+  const t = convexTest(cappedSchema);
 
-  for (const size of SIZES) {
-    const t = convexTest(schema);
-    await t.run(async (baseCtx) => {
-      const reads = countDocumentReads(baseCtx);
-      const ctx = withOrm(baseCtx, relations);
-      const [ownerA, ownerB] = await seed(baseCtx.db, size);
+  await t.run(async (baseCtx) => {
+    const ctx = withOrm(baseCtx, cappedRelations);
 
-      const before = reads.scanned;
-      const rows = await ctx.orm.query.bound_open_docs
-        .withIndex('by_owner')
-        .findMany({
-          // The relation key is the third thing that used to cancel the bound,
-          // alongside RLS and a residual filter. It is resolved per row while
-          // the probe is pulled, so `take` still counts survivors.
-          where: { ownerId: { in: [ownerA, ownerB] }, owner: { tier: 'paid' } },
-          orderBy: { createdAt: 'asc' },
-          limit: 3,
-        });
+    // Forty distinct owners, none of them matching, against a cap of five. The
+    // cap counts the distinct keys in one `_loadOneRelation` call, so it only
+    // fires while the relation `where` is still evaluated as a batch. Read the
+    // probes as streams instead and every call carries a single key, the cap can
+    // never trip, and the relation is looked up once per scanned row.
+    //
+    // The bound is not worth retiring a guard that fails fast, so a relation
+    // `where` deliberately stays on the collect-then-filter path. Restoring the
+    // cap for a per-row caller needs an execution-scoped key ledger inside the
+    // relation loader; until that exists, this assertion is what stops the
+    // stream from being extended to this leg.
+    for (let i = 0; i < 40; i += 1) {
+      const ownerId = await baseCtx.db.insert('capped_owners', {
+        name: `owner-${i}`,
+        tier: 'free',
+      });
+      await baseCtx.db.insert('capped_docs', {
+        label: labelFor(i),
+        bucket: i % 2 === 0 ? 'a' : 'b',
+        ownerId,
+      });
+    }
 
-      expect(rows.map((row: any) => row.label)).toEqual([
-        labelFor(0),
-        labelFor(1),
-        labelFor(2),
-      ]);
-      scans.push(reads.scanned - before);
-    });
-  }
-
-  // Six probed rows plus the owner each one resolves. The point is that it does
-  // not move with the table: before the fix both probes collected their range.
-  expect(scans[0]).toEqual(scans[1]);
-  expect(scans[0]).toBeLessThanOrEqual(20);
+    await expect(
+      ctx.orm.query.capped_docs.withIndex('by_bucket').findMany({
+        where: { bucket: { in: ['a', 'b'] }, owner: { tier: 'paid' } },
+        limit: 3,
+      })
+    ).rejects.toThrow(/relationFanOutMaxKeys/);
+  });
 });
 
 test('an index union with no post-fetch pass keeps its plain take bound', async () => {
