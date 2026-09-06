@@ -80,9 +80,8 @@ Boundaries:
   `.changeset/**`, this plan, and `www/**` + `packages/kitcn/skills/kitcn/**`
   only if public guidance changes.
 - Browser surface: N/A — no rendered output.
-- GitHub issue sync: N/A — the user set a standing "do not create a PR under
-  any circumstances unless prompted" preference, so no PR and no issue comment
-  is produced by this run.
+- GitHub issue sync: PR #456 (https://github.com/udecode/kitcn/pull/456)
+  closes #445 via `Fixes #445`, so the issue syncs on merge.
 - Non-goals: reworking pipeline `orderBy` semantics (documented as
   "stream-backed index order"); adding a non-cursor `maxScan` public API;
   changing `MAX_INDEX_UNION_PROBES` itself.
@@ -178,7 +177,7 @@ Start Gates:
 | Skill analysis before edits | yes | task + autogoal (task template, package-api pack) + changeset + autoreview; testing/tdd folded into task since the repro was a focused vitest |
 | Active goal checked or created | yes | this plan |
 | Source of truth read before edits | yes | `gh issue view 445` read in full before any file was touched |
-| Exact per-PR task ownership | no | N/A: user declined PR creation, so no PR exists |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #456 |
 | GitHub comments and attachments read | yes | issue has zero comments and no attachments |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | recorded above; verdict `partially valid` |
@@ -190,10 +189,10 @@ Start Gates:
 | Branch decision for code-changing task | yes | already on `task-issue-445`, a dedicated non-main branch |
 | Release artifact decision | yes | `.changeset/wide-index-union-stays-indexed.md`, minor |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user set a standing "do not create PR under any circumstances, unless user prompts to" preference, and repo policy forbids commit/push without an explicit ask |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference, and the user declined outward GitHub action |
+| Commit / PR expectation decision | yes | User later requested a PR explicitly; committed `c6dd8d24`, pushed, opened #456 |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used for #456 |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/445-index-union-bounded-on-pipeline-path.md`; this file is at the PR head and names PR #456 |
+| GitHub issue sync expectation decision | yes | `Fixes #445` in the PR body closes the issue on merge; no separate comment needed |
 | Output budget strategy recorded | yes | recorded above and followed |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | `concatStreams` added to the internal `orm/stream` module; no new public export. User-visible surface is index-union read behavior and ordering |
@@ -213,7 +212,7 @@ Work Checklist:
       acceptance criteria, caveats, likely files/routes/packages, browser
       surface, and root-cause layer.
 - [x] Every GitHub PR in scope has its own task plan. This plan owns one exact
-      N/A: no PR is in scope; the user declined PR creation.
+      Recorded: this plan owns exactly one PR, #456.
       PR, owns a not-yet-created PR slice, or records N/A because no PR is in
       scope; a batch plan is not used as a substitute.
 - [x] Required video or screen-recording evidence is cached/read as normalized
@@ -249,14 +248,14 @@ Work Checklist:
 - [x] Final handoff shape decided: bug/feature/testing/batch/review/GitHub
       requirements, PR body sync, and issue sync when applicable.
 - [x] Commit/PR handling recorded for code-changing work: commit and PR
-      Recorded: user explicitly declined PR creation as a standing preference; repo policy also forbids commit without an explicit ask.
+      Recorded: commit `c6dd8d24`, pushed, PR #456 opened.
       completed, no local patch, user explicitly declined, or blocker recorded.
       "User did not separately ask for a PR" is not a valid blocker.
 - [x] PR body shape recorded: PR #270 emoji task-style body used, N/A reason
-      N/A: no PR.
+      Recorded against PR #456.
       recorded, or blocker recorded.
 - [x] PR task evidence recorded: body includes `🧭 Task plan: ...`, the plan
-      N/A: no PR.
+      Recorded against PR #456.
       exists at the PR head, and it identifies the exact PR before autoclosure.
 - [x] Branch handling recorded for code-changing work: dedicated branch used,
       Recorded: dedicated branch `task-issue-445`, already checked out.
@@ -300,7 +299,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | `bunx vitest run convex/orm/index-union-pagination.test.ts` 20 passed; wide-union reads `scanned` <= 8 where the table is 120 rows |
-| Exact per-PR task ownership | no | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | N/A: no PR |
+| Exact per-PR task ownership | yes | Record the exact PR and dedicated plan, or the not-yet-created single-PR slice | PR #456, this plan |
 | Pre-solution issue challenge verdict | yes | Record reporter claim, suggested fix, repro verdict, validity verdict, durable boundary, and hard-stop/pivot decision before implementation | `partially valid`; recorded above with the discarded suggested fix |
 | Repro escalation ladder | yes | For bug/behavior claims, record test/source-level, automated browser/integration, Browser, and screenshot/visual-proof outcomes or N/A/blocker reasons before `not reproduced` | source-level vitest reproduced it; other rungs N/A |
 | Bug reproduced before fix | yes | Record failing test/repro or N/A with reason | `scanned` 120 pipeline vs 1 findMany, before any source edit |
@@ -320,12 +319,12 @@ Completion Gates:
 | High-risk mini gate | yes | For public API/runtime/package-boundary/browser/agent-action/command-contract changes, record realistic failure mode, proof plan, and why the chosen boundary is right; otherwise N/A | see the high-risk note below |
 | Agent-native review for agent/tooling changes | no | For `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, commands, prompts, or user-action tooling, load `.agents/skills/agent-native-reviewer/SKILL.md` and close accepted/actionable findings, or record N/A | N/A: the only `.agents`-adjacent file is this plan; no skill, hook, command, or prompt behavior changed |
 | Local install corruption suspected | yes | Run `bun install` once, rerun the exact failing command, or record N/A | `kitcn/server` module-resolution failures were a missing `packages/kitcn/dist`; `bun --cwd packages/kitcn build` fixed them, no reinstall needed |
-| Commit created | no | For verified code-changing work, stage the entire current checkout per repo policy and create a commit; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user explicitly declined outward git action; repo policy also forbids commit without an explicit ask |
-| PR create or update | no | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff; N/A only for no local patch, explicit user decline, analytical/blocked/inconclusive work, or recorded external blocker | N/A: user explicitly declined PR creation |
-| Task-style PR body verified | no | Verify the PR body with `gh pr view --json body`; it must preserve auto-release blocks when applicable, must not include a current-PR self-link, and must use the PR #270 emoji format: `🐛 Fixes ...`, `🟢 95-100% confidence`, `Phase / 🧪 Tests / 🌐 Browser` table, and bold emoji Outcome/Caveat/Design/Verified sections | N/A: no PR |
-| PR task evidence verified | no | Verify body plan line, plan at PR head, and exact PR ownership | N/A: no PR |
-| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no PR |
-| GitHub issue sync-back | no | Post concise issue sync after PR exists, or record N/A/blocker | N/A: user declined outward GitHub action |
+| Commit created | yes | For verified code-changing work, stage the entire current checkout per repo policy and create a commit | `c6dd8d24`, whole checkout staged |
+| PR create or update | yes | For verified code-changing work, run `check`, push, create or update the PR, and sync PR body to the task-style final handoff | #456 opened on `fix/wide-index-union-stays-indexed`; `check` green except unrelated `fixtures:check` upstream drift, recorded as a caveat in the PR body |
+| Task-style PR body verified | yes | Verify the PR body with `gh pr view --json body` | Verified on #456: auto-release block preserved, no self-link, emoji format intact |
+| PR task evidence verified | yes | Verify body plan line, plan at PR head, and exact PR ownership | All three verified for #456 |
+| PR proof image hosting | no | If PR body needs browser proof, replace local image paths with hosted GitHub URLs or record N/A | N/A: no images in the body |
+| GitHub issue sync-back | yes | Post concise issue sync after PR exists, or record N/A/blocker | `Fixes #445` in the PR body closes the issue on merge |
 | Final handoff contract | yes | Fill the final handoff fields below with exact PR/issue/confidence/tests/browser/outcome/caveats/design/verification content or N/A reason | filled below |
 | Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint:fix` clean, no fixes applied |
 | Output budget discipline | yes | Verify no unbounded high-volume command output was streamed, or record the accidental output and recovery | all command output piped through `tail`/`grep`; the adversarial review returned a structured verdict list rather than transcripts |
@@ -348,7 +347,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #445 fetched and challenged; repro measured | implementation |
 | Implementation | complete | concat executor + compiler cap removal | verification |
 | Verification | complete | full suite, typecheck, lint, build, autoreview | closeout |
-| Commit / PR / GitHub sync | N/A | user explicitly declined PR; repo policy forbids commit without an explicit ask | final response |
+| Commit / PR / GitHub sync | complete | commit `c6dd8d24`, branch `fix/wide-index-union-stays-indexed`, PR #456 | final response |
 | Closeout | complete | this plan | final response |
 
 Findings:
@@ -457,9 +456,9 @@ Source-listed case matrix:
 | 8 | not in the issue: a wide `in` beside another AND term scanned on every path | 'a wide `in` beside a residual filter still compiles to its probes' | `scanned` 120 at width 65, 1 at 64 | flat across widths | `scanned` <= 8 | fixed |
 
 Final handoff contract:
-- Commit line: none — user explicitly declined outward git action.
-- PR line: none — standing user preference forbids PR creation.
-- Issue line: #445, fixed locally, not synced back (user declined GitHub action).
+- Commit line: `c6dd8d24` on `fix/wide-index-union-stays-indexed`.
+- PR line: #456 — https://github.com/udecode/kitcn/pull/456
+- Issue line: #445, closed by the PR's `Fixes #445`.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests 🟢 (`scanned` 120 vs 1), browser ➖ N/A
@@ -480,7 +479,7 @@ Final handoff contract:
   - Why not broader change: `MAX_INDEX_UNION_PROBES` stays at 64 and
     `mergedStream` still serves every union under it, because the fan-out cost
     the cap refuses is real and measured.
-- PR body verified: N/A — no PR.
+- PR body verified: `gh pr view 456 --json body`, PR #270 emoji task-style shape.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -504,9 +503,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A — user explicitly declined.
-- PR: N/A — user explicitly declined.
-- Issue: #445 fixed locally; no sync-back, per the same decline.
+- Commit: `c6dd8d24`.
+- PR: #456 — https://github.com/udecode/kitcn/pull/456
+- Issue: #445, closed by the PR.
 - Browser proof: N/A.
 - Caveats: see the Caveat line above; `bun check`'s `fixtures:check` lane reports
   upstream `expo` dependency drift unrelated to this diff.
