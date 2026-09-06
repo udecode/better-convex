@@ -422,7 +422,36 @@ Review fixes:
     branch: auto-merge with no conflict in `_loadOneRelation`, combined
     measurement 61/121, and all 24 index-union tests still pass. Duplicating the
     memo would mean two copies of one policy and a guaranteed conflict.
-  - Recorded in the PR body as a merge-order dependency: land #448 first.
+  - SUPERSEDED by the P1 fix below: the relation leg no longer streams at all, so
+    the batch is restored and the #448 merge-order dependency is gone. Re-measured
+    61/121 on both targets. Thread resolved.
+- PR #455 review, `@chatgpt-codex-connector` P1 "Preserve the relation fan-out cap
+  while streaming" (`query.ts:6963`, thread `PRRT_kwDOPTlS686fpCTE`).
+  VERDICT: real, and a removed safety check rather than a cost regression.
+  ACCEPTED and FIXED in `b32ee75`.
+  - Triage: `_enforceRelationFanOutKeyCap` (`query.ts:7837-7861`) returns early on
+    `keyCount <= cap`, and a per-row `_applyRelationsFilterToRows` always passes
+    `keyCount` 1, so the guard can never fire. Correctly noted as NOT covered by
+    #448's memo: the keys are all distinct.
+  - Measured, `relationFanOutMaxKeys: 5`, 40 distinct non-matching owners,
+    `limit: 3`, two probes:
+    | | outcome | scanned |
+    | --- | --- | --- |
+    | main | throws `... source lookup keys (40) exceed relationFanOutMaxKeys (5)` | 40 |
+    | this PR before the fix | no throw, 0 rows | 80 |
+  - Fix chosen: exclude a relation `where` from `probeStreamed` via
+    `!probeHasRelationMembership`, rather than rebuilding the cap in this branch.
+    Rationale: the cap and `_loadOneRelation`'s key dedupe are properties of the
+    relation loader, and the identical per-row shape already exists on the
+    single-index residual lane (`query.ts:7344-7355`), so an execution-scoped key
+    ledger belongs there where it fixes both callers. Rebuilding it here would be
+    a second copy of the policy. It also returns the PR to exactly the two legs
+    #442 reports.
+  - Pinned: `an index union filtered by a relation keeps the batch relation pass`
+    asserts the 40-keys-against-cap-5 case still throws. Verified it goes red when
+    the `!probeHasRelationMembership` term is removed.
+  - Changeset and PR body updated: the relation leg is now listed as deliberately
+    unaffected, not as fixed. Thread resolved.
 - autoreview (`--mode local`, engine `claude`, model `claude-fable-5`) run twice.
   First run: `autoreview clean: no accepted/actionable findings`, overall
   `patch is correct (0.72)`. The default Codex engine failed to start in this
@@ -448,14 +477,15 @@ Error attempts:
 Verification evidence:
 - cwd for every command below: `/Users/mikey/conductor/workspaces/kitcn/minnetonka`
   (repo root). The `convex/` workspace owns ORM behavior tests.
-- `npx vitest run convex/orm/index-union-read-bound.test.ts` -> 11 passed.
+- `npx vitest run convex/orm/index-union-read-bound.test.ts` -> 11 passed (after
+  the review fix; the relation case is now an exclusion pin, not a bound claim).
 - RED PROOF: with `packages/kitcn/src/orm/query.ts` stashed back to `main`, the
   same file reports 4 failed / 6 passed — the RLS leg, the residual leg, the
   match-counted bound, and the >64-probe bound. The order, dedupe, offset,
   no-schema and control tests pass on both sides, which is what makes them
   behavior-preservation guards rather than new behavior.
 - `npx vitest run convex/orm` -> 39 files, 554 passed, 14 skipped, 0 failed.
-- `npx vitest run` (full) -> 93 files, 991 passed, 14 skipped, 0 failed.
+- `npx vitest run` (full) -> 93 files, 992 passed, 14 skipped, 0 failed.
 - `bun test packages/kitcn/src/orm` -> 274 pass / 0 fail. Run explicitly because
   `convex-filter-depth.test.ts` runs under `bun test`, not vitest, and drives this
   branch through a stub db with no `stream()` support.
@@ -488,7 +518,7 @@ Source-listed case matrix:
 | overlapping `or(lt,gt)` probes | not in issue | "overlapping range probes under RLS return distinct rows" | 8 distinct | unchanged | 8 distinct | preserved |
 | offset under RLS | not in issue | "offset over an index union skips visible matches" | counts visible matches | unchanged | unchanged | preserved |
 | no `defineSchema()` | not in issue | "an index union without a schema definition still returns the right page" | collect fallback | unchanged | unchanged | preserved |
-| relation `where` + `in` + `limit`, 200 and 500 rows | not in issue; third leg of the same predicate | "an index union filtered by a relation keeps its limit bound" | collect both probes | constant bound | equal at both sizes, <=20 | fixed |
+| relation `where` + `in` + `limit` | not in issue | "an index union filtered by a relation keeps the batch relation pass" | collect + batch pass, fan-out cap fires | unchanged | 40 keys vs cap 5 still throws; non-`_id` target 61/121 same as main | deliberately unchanged |
 
 High-risk note (runtime / published package):
 - Realistic failure mode: a probe truncated in an order it does not actually read
@@ -573,6 +603,12 @@ Reboot status:
 | What have I done? | See Timeline |
 
 Open risks:
+- A `where` that filters through a relation is NOT covered, deliberately: both
+  guards that bound a relation load (`_enforceRelationFanOutKeyCap` and
+  `_loadOneRelation`'s source-key dedupe) are batch-scoped, and a per-row caller
+  neutralizes them. Restoring them needs an execution-scoped key ledger inside the
+  relation loader, which would also repair the single-index residual lane. Filed
+  as a follow-up, not bundled.
 - `ne` / `notIn` / `isNotNull` combined with an `orderBy` no index can serve are
   NOT covered: `buildComplementProbeFilters` emits only `lt`/`gt` ranges, so the
   eq-prefix is 0, `orderPushdownDirection` is null, and the order guard correctly
