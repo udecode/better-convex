@@ -325,6 +325,7 @@ Implementation notes:
 Review fixes:
 - Self-review before autoreview: replaced a sentinel-object comparison and an `as string[]` cast in the union dispatch, and collapsed three separate resolutions of a callback `where` into one `_resolvePipelineWhere` call -> accepted -> refactored, retypechecked, retested.
 - See `Verification evidence` for the autoreview result.
+- PR #449 review, @chatgpt-codex-connector P2 "Reuse the resolved pipeline where expression" (`query.ts:3368-3369`, thread `PRRT_kwDOPTlS686foZ0b`) -> **accepted** -> real, and self-inflicted: `_resolvePipelineWhere` resolved the `where` for index selection, then `_buildTableFilterPredicate` resolved it a *second* time for the row filter. Harmless on `main`, where the first resolution changed nothing, but once the first resolution bounds the read a divergent second one filters rows the read never fetched. Fixed by carrying the resolved shape: `PipelineWhereShape`'s `predicate` variant now holds its clause, the new `_buildResolvedWherePredicate` builds the filter from that shape, and `_buildTableFilterPredicate` is deleted (its only two callers were these sites). Also removes a per-row `_buildFilterExpression` rebuild for object wheres. Two regression tests added and mutation-verified: restoring the double resolution reds exactly those two with `expected 2 to be 1`.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -350,6 +351,8 @@ Verification evidence:
 - `git push -u origin HEAD` -> new branch `fix/orm-pipeline-where-index-lowering`.
 - `gh pr create --base main` -> https://github.com/udecode/kitcn/pull/449.
 - `gh pr view 449 --json body` -> PR #270 emoji task-style body intact.
+- After the PR #449 review fix: `npx vitest run convex/orm/pipeline.test.ts` -> 39/39; `npx vitest run` -> 988 passed, 0 failed; `bun test` -> 1400 pass, 0 fail; `npx tsc -p packages/kitcn/tsconfig.json --noEmit` clean; `bun lint:fix` fixed 1 file; `bun --cwd packages/kitcn build` -> 72 files.
+- Mutation test C: restoring the double `_resolvePipelineWhere` call at both sites reds only the two single-resolution tests, with `expected 2 to be 1`.
 - `bun tooling/sync-kitcn-skill.ts` -> "Synced packages/kitcn/skills/kitcn to .agents/skills/kitcn".
 - `.agents/skills/autoreview` (`--mode local`, `--engine claude`) -> run against the frozen dirty tree; result in `Review fixes`.
 - `node .agents/skills/autogoal/scripts/check-complete.mjs docs/plans/447-orm-pipeline-where-index-lowering.md` -> pass.

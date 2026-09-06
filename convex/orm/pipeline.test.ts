@@ -1394,3 +1394,71 @@ test('a flatMap stage where keeps the relation index when nothing extends it', a
     expect(rows.map((row) => row.text)).toEqual(['p0', 'p2', 'p4']);
   });
 });
+
+test('a union source where callback is resolved once for the read and the filter', async () => {
+  const t = convexTest(schema);
+
+  await t.run(seedStatusUsers);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    let calls = 0;
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .union([
+        {
+          // Deliberately unstable: a second resolution would bound the read on
+          // 'active' and then filter it with 'pending', emitting nothing.
+          where: (u: any, { eq }: any) => {
+            calls += 1;
+            return eq(u.status, calls === 1 ? 'active' : 'pending');
+          },
+        },
+      ])
+      .limit(10);
+
+    expect(calls).toBe(1);
+    expect(rows.map((row) => row.name)).toEqual(['Active']);
+  });
+});
+
+test('a flatMap stage where callback is resolved once for the read and the filter', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const author = await baseCtx.db.insert('users', {
+      name: 'Author',
+      email: 'flatmap-single-resolve@example.com',
+    });
+    for (let i = 0; i < 20; i += 1) {
+      await baseCtx.db.insert('posts', {
+        text: `p${i}`,
+        numLikes: i,
+        type: 'note',
+        authorId: author,
+      });
+    }
+  });
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    let calls = 0;
+
+    const rows = await ctx.orm.query.users
+      .select()
+      .flatMap('posts', {
+        includeParent: false,
+        // A second resolution would pick the by_author_likes range from the
+        // first bound and then filter it with the second.
+        where: (p: any, { gt }: any) => {
+          calls += 1;
+          return gt(p.numLikes, calls === 1 ? 17 : 100);
+        },
+      })
+      .limit(10);
+
+    expect(calls).toBe(1);
+    expect(rows.map((row) => row.text)).toEqual(['p18', 'p19']);
+  });
+});

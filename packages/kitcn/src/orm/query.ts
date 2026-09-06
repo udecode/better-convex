@@ -596,7 +596,7 @@ const countConfiguredIndexEqPrefix = (
  */
 type PipelineWhereShape =
   | { kind: 'none' }
-  | { kind: 'predicate' }
+  | { kind: 'predicate'; clause: PredicateWhereClause<any> }
   | { kind: 'expression'; expression: FilterExpression<boolean> };
 
 type CompiledQueryPlan = {
@@ -2729,38 +2729,27 @@ export class GelRelationalQuery<
     return builder;
   }
 
-  private _buildTableFilterPredicate(
-    where: unknown,
-    tableConfig: TableRelationalConfig
+  /**
+   * The row filter for an already-resolved pipeline stage `where`.
+   *
+   * Takes the resolved shape rather than the clause so the rows that are read
+   * and the rows that are kept come from the same resolution. Resolving twice
+   * would let a `where` callback that closes over changing state — a clock, a
+   * counter — bound the read with one expression and filter it with another,
+   * dropping rows that the second expression matched but the first never read.
+   */
+  private _buildResolvedWherePredicate(
+    where: PipelineWhereShape
   ): ((row: any) => Promise<boolean>) | null {
-    if (!where) {
+    if (where.kind === 'none') {
       return null;
     }
-    if (typeof where === 'function') {
-      const whereResult = this._resolveWhereCallbackExpression(
-        where as (...args: any[]) => unknown,
-        tableConfig,
-        { context: 'pipeline' }
-      );
-      if (!whereResult) {
-        return null;
-      }
-      if (this._isPredicateWhereClause(whereResult)) {
-        return async (row: any) => await whereResult.predicate(row);
-      }
-      return async (row: any) =>
-        this._evaluatePostFetchFilter(row, whereResult);
+    if (where.kind === 'predicate') {
+      const { clause } = where;
+      return async (row: any) => await clause.predicate(row);
     }
-    return async (row: any) => {
-      const expression = this._buildFilterExpression(
-        where as RelationsFilter<any, any>,
-        tableConfig
-      );
-      if (!expression) {
-        return true;
-      }
-      return this._evaluatePostFetchFilter(row, expression);
-    };
+    const { expression } = where;
+    return async (row: any) => this._evaluatePostFetchFilter(row, expression);
   }
 
   /**
@@ -2789,7 +2778,7 @@ export class GelRelationalQuery<
         return { kind: 'none' };
       }
       return this._isPredicateWhereClause(result)
-        ? { kind: 'predicate' }
+        ? { kind: 'predicate', clause: result }
         : { kind: 'expression', expression: result };
     }
     const expression = this._buildFilterExpression(
@@ -3365,10 +3354,7 @@ export class GelRelationalQuery<
 
     let sourceStream: any = usePlanned ? planned : buildRead();
 
-    const sourcePredicate = this._buildTableFilterPredicate(
-      source.where,
-      this.tableConfig
-    );
+    const sourcePredicate = this._buildResolvedWherePredicate(sourceWhere);
     if (sourcePredicate) {
       sourceStream = sourceStream.filterWith(sourcePredicate);
     }
@@ -3524,10 +3510,7 @@ export class GelRelationalQuery<
       stage.limit === undefined
         ? innerIndexFields
         : [...innerIndexFields, PIPELINE_LIMIT_ORDINAL_FIELD];
-    const stageWherePredicate = this._buildTableFilterPredicate(
-      stage.where,
-      targetTableConfig
-    );
+    const stageWherePredicate = this._buildResolvedWherePredicate(stageWhere);
     this._assertPipelineWhereIsAnchored({
       where: stageWhere,
       // The join keys are eq-pinned on this index, so the per-parent read is

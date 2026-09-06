@@ -21,3 +21,4 @@ await ctx.orm.query.users
 
 - Compile a `select().union([{ where }])` source `where` against the table's indexes instead of filtering every scanned row, so an object `where` on an indexed field bounds the read. A source keeps its unanchored read when the lowered one could not supply `interleaveBy`, and a `where` never displaces an index the source or the chain pinned with a range.
 - Report what a caller can actually do when a `predicate(...)` `where` runs over an unbounded pipeline read: a union source names its own `index` option, and a `flatMap` stage names the relation index it needs.
+- Resolve a `select()` union source or `flatMap` stage `where` once per read. A callback `where` runs a single time instead of twice, and an object `where` compiles once instead of once per row.
