@@ -167,7 +167,7 @@ Start Gates:
 | Skill analysis before edits | yes | Loaded `task` (user-invoked) + `autogoal` (measurable gate per CLAUDE.md). Declined `changeset` (no `packages/**` change), `tdd`/`testing` (no behavior change), `design`/`walkthrough` (no UI) |
 | Active goal checked or created | yes | Goal tools (`get_goal`/`create_goal`) are not exposed in this runtime; recorded degraded control state and used this plan as durable state per the autogoal fallback rule |
 | Source of truth read before edits | yes | Read user prompt, `tooling/fixtures.ts`, `tooling/dependency-pins.ts`, `tooling/template.config.ts`, `tooling/scaffold-utils.ts`, root `package.json` before any mutation |
-| Exact per-PR task ownership | yes | N/A before a new PR exists — no PR created, by instruction |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #453 |
 | GitHub comments and attachments read | no | N/A: no GitHub issue or PR backs this task |
 | Video transcript evidence required | no | N/A: no video or screen recording in source |
 | Pre-solution issue challenge required | yes | Drift reproduced on the pre-sync tree before regenerating; verdict `partially valid` |
@@ -180,8 +180,8 @@ Start Gates:
 | Release artifact decision | yes | No changeset — diff touches zero files under `packages/`; verified by `git status` after isolating the pins step |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
 | Commit / PR expectation decision | yes | User asked for a PR **but** pre-authorized a stop for exactly this condition. Stop takes precedence; recorded as a blocker, not a silent omission |
-| Task-style PR body decision | yes | N/A: no PR created |
-| Task-plan PR body evidence | yes | N/A: no PR created |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used for PR #453 and verified with `gh pr view 453 --json body` |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/2026-09-06-sync-drifted-scaffold-fixtures.md`; plan is committed at the PR head and names PR #453 |
 | GitHub issue sync expectation decision | no | N/A: no GitHub issue backs this task |
 | Output budget strategy recorded | yes | See Output budget strategy |
 
@@ -206,7 +206,8 @@ Work Checklist:
       files that own sync/check/normalization.
 - [x] Source-listed case matrix is complete and every contradiction has an
       owner, harness, and verdict.
-- [x] Readiness classified with evidence. Verdict: `ready`, halted by instruction.
+- [x] Readiness classified with evidence. Verdict: `ready`; paused at the commit
+      boundary by criterion 5, released on user acceptance, then shipped.
 - [x] Implementation fixes the right ownership boundary. Regenerated generated
       output via the owning tool; no hand edits.
 - [x] Release artifact requirement recorded. N/A: no `packages/**` change,
