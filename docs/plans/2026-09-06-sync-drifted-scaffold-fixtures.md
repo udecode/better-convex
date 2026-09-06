@@ -45,12 +45,12 @@ Completion threshold:
   drift (bump) or escalated to the user as a suspected behavior/template change.
 - `git status` shows no unexplained changes outside `fixtures/**`.
 
-Threshold outcome: **partially met, then deliberately halted.**
-Criteria 1-4 and 6 are met and proven. Criterion 5 **fired**: the sync diff
-contains a real upstream template/source change, not only dependency bumps.
-The user's instruction for that case is explicit — "stop and tell me instead of
-committing it" — so criteria 7 (PR) and the commit step are intentionally not
-executed. This is instruction-following, not an unfinished task.
+Threshold outcome: **met.**
+Criteria 1-4 and 6 were met and proven by the sync/check run. Criterion 5
+**fired** — the sync diff contains a real upstream template/source change, not
+only dependency bumps — so work halted before commit and the finding was
+escalated. The user reviewed the classification and accepted the diff, which
+resolved the escalation and released criterion 7. Commit `8219887a`, PR #453.
 
 Verification surface:
 - `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (cwd: repo root) — the
@@ -69,8 +69,9 @@ Constraints:
   batch plan must link a separate task plan for every PR an agent processes.
 - Verified code changes must be committed and PR'd because the task skill
   requires that path unless the user explicitly says not to, the work has no
-  local patch, or a real blocker is recorded. **Here the user explicitly
-  pre-authorized a stop for this exact condition, which is a recorded blocker.**
+  local patch, or a real blocker is recorded. Here criterion 5 paused that path
+  until the user reviewed the classification; on acceptance the work was
+  committed and PR'd as normal.
 - A PR created by this task must use the PR #270 emoji task-style PR body
   contract, not a generic summary/body from a git helper skill.
 - Do not add broad ceremony when the task is trivial or docs-only.
@@ -104,17 +105,18 @@ Blocked condition:
 Task state:
 - task_type: chore (generated-output regeneration)
 - task_complexity: non-trivial (long-running regen + diff classification)
-- current_phase: blocked on user decision
-- current_phase_status: complete (analysis done, decision pending)
-- next_phase: user decides whether to accept the upstream shadcn migration
-- goal_status: blocked
+- current_phase: closeout
+- current_phase_status: complete
+- next_phase: final response
+- goal_status: complete
 
 Current verdict:
-- verdict: drift confirmed and fully classified; regeneration produces a green
-  lane; **halted before commit** because the diff exceeds "dependency bump"
-- confidence: 95-100% on the classification and the green-lane result
-- next owner: user (accept / reject the upstream shadcn `cn` migration)
-- reason: user's criterion 5 explicitly pre-authorized this stop
+- verdict: drift confirmed, fully classified, escalated, accepted by the user,
+  and shipped. `bun check` exit 0; PR #453 open onto `main`.
+- confidence: 95-100%
+- next owner: reviewer of PR #453
+- reason: named threshold met and the criterion-5 escalation was resolved by an
+  explicit user decision to accept the upstream migration
 
 Implementation readiness:
 - verdict: ready (executed); halted at the commit boundary by instruction
@@ -191,8 +193,8 @@ Work Checklist:
 - [x] Task source classified with source type, id/link, title, task type,
       acceptance criteria, caveats, likely files/packages, browser surface, and
       root-cause layer.
-- [x] Every GitHub PR in scope has its own task plan. N/A: no PR created, by
-      instruction; if the user accepts the diff, this plan owns the resulting PR.
+- [x] Every GitHub PR in scope has its own task plan. This plan owns exactly
+      PR #453; no batch plan was used as a substitute.
 - [x] Required video evidence cached/read. N/A: no video.
 - [x] Reporter claims challenged before implementation with a recorded verdict.
       Verdict: `partially valid`.
@@ -210,13 +212,16 @@ Work Checklist:
 - [x] Release artifact requirement recorded. N/A: no `packages/**` change,
       proven by isolating the pins step.
 - [x] Final handoff shape decided.
-- [x] Commit/PR handling recorded: **blocker recorded** — the user's explicit
-      stop condition fired. This is a user-authorized decline, not the invalid
-      "user did not separately ask for a PR" reason.
-- [x] PR body shape recorded. N/A: no PR created.
-- [x] PR task evidence recorded. N/A: no PR created.
-- [x] Branch handling recorded: `sync-expo-fixture-drift`, non-`main`, retained
-      with the regenerated tree uncommitted so the user can inspect it.
+- [x] Commit/PR handling recorded: escalation raised under criterion 5, user
+      accepted, then committed (`8219887a`) and PR'd (#453) after `bun check`
+      passed.
+- [x] PR body shape recorded: PR #270 emoji task-style body used and verified.
+- [x] PR task evidence recorded: body carries the plan line, the plan is
+      committed at the PR head, and it names PR #453.
+- [x] Branch handling recorded: renamed `sync-expo-fixture-drift` ->
+      `chore/sync-drifted-scaffold-fixtures` before first push, per the user's
+      branch-naming preference (`<type>/<short-kebab-summary>`). Rename was safe
+      — the branch had no upstream and no PR existed at rename time.
 - [x] Local-env-rot retry policy recorded: the first `fixtures:check` failure
       was a genuine missing build artifact (`packages/resend/dist`), fixed by
       `bun build:pkg`, matching what CI does. Recorded in Error attempts.
@@ -232,8 +237,8 @@ Work Checklist:
 Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
-| Named verification threshold | yes | Run the command named in this plan | `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` exited 0; all 8 templates reported "matches fresh ... output" |
-| Exact per-PR task ownership | yes | Record the exact PR or the not-yet-created slice | Not-yet-created slice; no PR opened by instruction |
+| Named verification threshold | yes | Run the command named in this plan | `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` exited 0; all 8 templates reported "matches fresh ... output". Full `bun check` also exited 0 |
+| Exact per-PR task ownership | yes | Record the exact PR or the not-yet-created slice | PR #453, owned solely by this plan |
 | Pre-solution issue challenge verdict | yes | Record claim, repro verdict, validity verdict, boundary, hard-stop decision | See Pre-solution issue challenge; verdict `partially valid`, hard stop taken |
 | Repro escalation ladder | yes | Record rung outcomes | Rung 1 (source-level) reproduced; rungs 2-4 N/A (no browser surface) |
 | Bug reproduced before fix | yes | Record failing repro | Pre-sync `fixtures:check` threw `FixtureDriftError` on `expo` |
@@ -253,18 +258,18 @@ Completion Gates:
 | High-risk mini gate | yes | Record failure mode, proof plan, boundary rationale | See High-risk note |
 | Agent-native review for agent/tooling changes | no | Load agent-native-reviewer or record N/A | N/A: diff touches none of those paths |
 | Local install corruption suspected | yes | Run `bun install` once and rerun, or record N/A | Not corruption — a genuinely missing build artifact. Resolved with `bun build:pkg`, which is exactly what CI runs before this lane |
-| Commit created | no | Commit verified code-changing work | **N/A: blocker recorded.** The user's criterion 5 explicitly instructs "stop and tell me instead of committing it" when the diff is more than a dependency bump. That condition fired |
-| PR create or update | no | Run check, push, open/update PR | **N/A: blocker recorded.** Same explicit user stop condition. Also consistent with the standing user preference against unprompted PRs |
-| Task-style PR body verified | no | Verify with `gh pr view --json body` | N/A: no PR created |
-| PR task evidence verified | no | Verify plan line, plan at head, PR ownership | N/A: no PR created |
-| PR proof image hosting | no | Replace local image paths | N/A: no PR created |
+| Commit created | yes | Commit verified code-changing work | `8219887a` on `chore/sync-drifted-scaffold-fixtures`; entire checkout staged per repo push-scope policy (23 files) |
+| PR create or update | yes | Run check, push, open/update PR | `bun check` exit 0 before push; PR #453 onto `main` |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | `gh pr view 453 --json body` — all 10 required markers present (`🐛 Fixes`, plan line, `🟢 95-100% confidence`, `\| Phase \| 🧪 Tests \| 🌐 Browser \|`, Reproduced/Verified rows, all four bold emoji sections); no self-link; no auto-release block needed (no changeset) |
+| PR task evidence verified | yes | Verify plan line, plan at head, PR ownership | Body carries `🧭 Task plan: docs/plans/2026-09-06-sync-drifted-scaffold-fixtures.md`; plan is committed at the PR head; plan names PR #453 |
+| PR proof image hosting | no | Replace local image paths | N/A: no images in the PR body |
 | GitHub issue sync-back | no | Post issue sync | N/A: no GitHub issue backs this task |
 | Final handoff contract | yes | Fill final handoff fields | See Final handoff contract |
-| Final lint | no | Run `bun lint:fix` or scoped equivalent | N/A: no hand-written source changed; the only modified files are generated fixtures (excluded from repo lint) and this plan |
+| Final lint | yes | Run `bun lint:fix` or scoped equivalent | `bun lint` ran as the first stage of `bun check` and passed (overall exit 0) |
 | Output budget discipline | yes | Verify no unbounded output streamed | Sync/check redirected to `.context/*.log`; diff classified via `uniq -c` collapse rather than reading 20 files |
 | Timed checkpoint | no | Keep improving until elapsed | N/A: no duration requested |
-| Autoreview for non-trivial implementation changes | no | Run autoreview until no accepted findings | N/A: nothing is being shipped; the diff is machine-generated and the decision is escalated |
-| Goal plan complete | no | Run `check-complete.mjs` | **N/A: goal is `blocked`, not `complete`.** Forcing this gate would misrepresent a deliberately halted task as finished |
+| Autoreview for non-trivial implementation changes | no | Run autoreview until no accepted findings | N/A: the shipped diff contains zero hand-written lines — 22 machine-generated fixture snapshot files plus this plan. The correctness oracle is `fixtures:check` ("snapshot == freshly generated"), which passed, and a prose review of generated JSON cannot strengthen it. The one judgment the diff *did* require — dep bump vs. template change — was made by exhaustive per-hunk classification and escalated to the user |
+| Goal plan complete | yes | Run `check-complete.mjs` | Passed |
 
 Phase / pass table:
 | Phase | Status | Evidence | Next |
@@ -272,8 +277,9 @@ Phase / pass table:
 | Intake and source read | complete | Read prompt + 4 tooling files; created plan | implementation |
 | Implementation | complete | Pins step isolated (no-op); `fixtures.ts sync` regenerated all 8 templates | verification |
 | Verification | complete | `fixtures:check` exit 0 (8/8); full diff exhaustively enumerated and classified | escalation |
-| Commit / PR / GitHub sync | halted | User stop condition fired; no commit, no PR | user decision |
-| Closeout | complete | Findings and evidence recorded; awaiting user decision | final response |
+| Escalation | complete | Criterion 5 fired; classification reported; user accepted the upstream migration | commit / PR |
+| Commit / PR / GitHub sync | complete | `bun check` exit 0; commit `8219887a`; PR #453; issue sync N/A | closeout |
+| Closeout | complete | Plan gates closed; PR body verified; `check-complete.mjs` passed | final response |
 
 Findings:
 - **`fixtures:check` masks drift past the first template.** `checkTemplates`
@@ -365,9 +371,9 @@ Implementation notes:
   (typecheck/lint/build), normalizes, then replaces `fixtures/<key>`.
 - `normalizeTemplatePackageJson` rewrites `kitcn` to `workspace:*` and pins
   `shadcn` to the literal `latest`, so those two never appear as drift.
-- The regenerated tree is left uncommitted on branch `sync-expo-fixture-drift`.
-  Accepting it requires only commit + push + PR; rejecting it requires
-  `git checkout -- fixtures/ && rm fixtures/start/.npmrc fixtures/start-auth/.npmrc`.
+- The regenerated tree was held uncommitted while the criterion-5 escalation was
+  open, then committed unchanged once the user accepted. No fixture file was
+  edited by hand at any point.
 
 Review fixes:
 - None. Nothing shipped, so no review pass was run.
@@ -412,25 +418,25 @@ Source-listed case matrix:
 | 2. Check passes | `fixtures:check` lane fails on main | `bun run fixtures:check` | FixtureDriftError on `expo` | exit 0 | exit 0, 8/8 success messages | complete |
 | 3. NO_PROXY prefix | local proxy breaks probes | shell prefix | n/a | all runs prefixed | Every sync/check/build invoked with `NO_PROXY=localhost,127.0.0.1` | complete |
 | 4. Report all drift, not just expo | check exits at FIRST drifted fixture | `git status` + hunk enumeration | unknown beyond expo | full changed set | All 8 fixtures changed; 4 distinct change classes enumerated | complete |
-| 5. Stop if not a dep bump | scope is fixture regen only | exhaustive per-hunk classification | n/a | classify each hunk | **FIRED** — shadcn `cn` source migration + new `.npmrc` are template changes. Halted, not committed | complete (stop taken) |
+| 5. Stop if not a dep bump | scope is fixture regen only | exhaustive per-hunk classification | n/a | classify each hunk | **FIRED** — shadcn `cn` source migration + new `.npmrc` are template changes. Halted and reported before committing; user then accepted | complete (stop taken, then released) |
 | 6. No changeset | touches no code under `packages/` | pins-step isolation + `git status` | premise unverified | 0 files under `packages/` | Verified: 0 `packages/**` files; pins step proven no-op | complete |
-| 7. Open a PR onto main | explicit user instruction | `gh pr create --base main` | no PR | PR open | **Not executed** — superseded by case 5's stop condition | halted by instruction |
+| 7. Open a PR onto main | explicit user instruction | `gh pr create --base main` | no PR | PR open | PR #453 onto `main`, opened after `bun check` exit 0 | complete |
 
 Final handoff contract:
-- Commit line: none — halted by the user's explicit stop condition
-- PR line: none — halted by the user's explicit stop condition
+- Commit line: `8219887a` on `chore/sync-drifted-scaffold-fixtures`
+- PR line: #453 onto `main`
 - Issue line: N/A: no GitHub issue backs this task
-- Confidence line: 🟢 95-100% confidence in the classification and green-lane result
+- Confidence line: 🟢 95-100% confidence
 - Flow table:
   - Reproduced: tests 🔴 `fixtures:check` FixtureDriftError on `expo`, browser ➖ N/A
-  - Verified: tests 🟢 `fixtures:check` exit 0 (8/8), browser ➖ N/A
+  - Verified: tests 🟢 `fixtures:check` exit 0 (8/8) and `bun check` exit 0, browser ➖ N/A
 - Browser check: N/A: no browser surface
-- Outcome: all 8 fixtures regenerated and the lane is green, but the diff
-  contains an upstream shadcn source migration and two new `.npmrc` files, so
-  it was not committed
-- Caveat: `bun check` not run end-to-end; the owning `fixtures:check` lane
-  passed. Fixture content tracks live npm, so the snapshot re-drifts on any
-  further upstream publish
+- Outcome: all 8 fixtures regenerated; lane green; the two non-bump changes
+  (shadcn `cn` source migration, new `.npmrc`) were escalated under criterion 5
+  and shipped only after explicit user acceptance
+- Caveat: fixture content tracks live npm, so the snapshot re-drifts on any
+  further upstream publish. `legacy-peer-deps=true` suppresses peer-conflict
+  errors in generated start apps
 - Design:
   - Chosen boundary: regenerate via the owning tool, then escalate the
     accept/reject decision
@@ -438,17 +444,18 @@ Final handoff contract:
     desync the snapshot from real scaffolder output
   - Why not broader change: the drift is upstream; no repo code is wrong, so
     pinning or template edits would be scope creep and a separate decision
-- Verified: `fixtures:check` exit 0; exhaustive per-hunk classification;
-  pins-step isolation; npm provenance check on `cn`
-- PR body verified: N/A: no PR created
+- Verified: `bun check` exit 0; `fixtures:check` exit 0 (8/8); exhaustive
+  per-hunk classification; pins-step isolation; npm provenance check on `cn`
+- PR body verified: `gh pr view 453 --json body` — all 10 contract markers
+  present, no self-link
 
 Final handoff / sync:
-- Commit: none (halted by instruction)
-- PR: none (halted by instruction)
+- Commit: `8219887a`
+- PR: #453 (https://github.com/udecode/kitcn/pull/453)
 - Issue: N/A: no GitHub issue backs this task
 - Browser proof: N/A: no browser surface
-- Caveats: regenerated tree left uncommitted on `sync-expo-fixture-drift` for
-  user inspection
+- Caveats: `shadcn: latest` floats, so registry content churn recurs through
+  this lane; `fixtures:check` cannot distinguish it from a version bump
 
 Timeline:
 - 2026-09-06T01:42:11.365Z Task goal plan created.
@@ -467,20 +474,25 @@ Timeline:
 - Verified `cn` provenance on npm (first-party shadcn, published 2026-09-04).
 - Ran `fixtures:check`: exit 0, 8/8. Named threshold met.
 - Halted before commit per user criterion 5; reported for a decision.
+- User reviewed the classification and accepted the upstream migration.
+- Renamed branch to `chore/sync-drifted-scaffold-fixtures` (no upstream, no PR
+  yet, so the rename guard allowed it), staged the whole checkout, committed
+  `8219887a`.
+- Ran `bun check` end-to-end: exit 0 (lint, typecheck, test, test:cli,
+  test:concave, fixtures:check 8/8, test:verify, test:runtime).
+- Pushed and opened PR #453; verified the task-style body with `gh pr view`.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Analysis and verification complete; halted at the commit boundary awaiting a user decision |
-| Where am I going? | User accepts (commit + PR) or rejects (revert `fixtures/**`) the upstream shadcn migration |
-| What is the goal? | Regenerate drifted `fixtures/**`; commit only if the diff is pure dependency drift |
-| What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the real drift is a 2-day-old shadcn `cn` migration plus new `.npmrc` files, not the expo bump the prompt described |
-| What have I done? | Reproduced drift, isolated the pins step, regenerated all 8 templates, exhaustively classified every hunk, verified provenance, proved the lane goes green, and stopped before committing |
+| Where am I? | Complete — PR #453 open and awaiting review |
+| Where am I going? | Nothing further; reviewer owns PR #453 |
+| What is the goal? | Regenerate drifted `fixtures/**`; commit only after confirming the diff is acceptable |
+| What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the real drift was a 2-day-old shadcn `cn` migration plus new `.npmrc` files, not the expo bump the prompt described |
+| What have I done? | Reproduced drift, isolated the pins step, regenerated all 8 templates, exhaustively classified every hunk, verified `cn` provenance, escalated under criterion 5, and after user acceptance ran `bun check` (exit 0), committed `8219887a`, and opened PR #453 |
 
 Open risks:
-- The regenerated tree is uncommitted. If it is neither committed nor reverted,
-  the workspace stays dirty and `bun check` stays red on `main`.
-- Accepting the diff adds `cn@^0.2.5` as a runtime dependency to every app
+- Merging adds `cn@^0.2.5` as a runtime dependency to every app
   kitcn scaffolds, and adds `legacy-peer-deps=true` to start apps. The latter
   suppresses peer-dependency conflict errors, which can mask genuine version
   incompatibilities in generated projects.
@@ -492,5 +504,5 @@ Hard closeout guard:
 - A local-only final response for verified code-changing work is invalid unless
   this plan records an explicit user decline, no local patch, analytical/
   blocked/inconclusive outcome, or a real commit/PR blocker.
-  **Satisfied:** the user's criterion 5 is an explicit, pre-authorized
-  instruction to stop and report instead of committing for exactly this case.
+  **Satisfied:** the work is not local-only. Commit `8219887a` is pushed and
+  PR #453 is open onto `main`.
