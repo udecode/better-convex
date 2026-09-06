@@ -399,6 +399,30 @@ Implementation notes:
   `one` relations whose target is not `_id`.
 
 Review fixes:
+- PR #455 review, `@chatgpt-codex-connector` P2 "Batch relation membership checks
+  before streaming" (`query.ts:6963`, thread `PRRT_kwDOPTlS686fo_Vz`).
+  VERDICT: real, narrower than reported, already owned by open PR #448 — replied,
+  not patched here.
+  - Triage: per-row `matchesPostFetchMembership` defeats `_loadOneRelation`'s
+    `sourceKeyMap` dedupe only on the `_queryByFields(...).first()` path
+    (`query.ts:8490-8497`). A `one` relation targeting `_id` takes `_getById` ->
+    `_documentByNormalizedId` (`query.ts:670`, `7788-7811`), an execution-scoped
+    memo whose docstring says it exists for exactly this per-row membership case.
+  - Measured, one shared group failing the relation filter, `limit: 3`, two probes,
+    `reads.scanned`:
+    | relation target | rows | main | this PR | this PR + #448 |
+    | --- | --- | --- | --- | --- |
+    | non-`_id` | 60 | 61 | 120 | 61 |
+    | non-`_id` | 120 | 121 | 240 | 121 |
+    | `_id` | 60 | 61 | 61 | 61 |
+    | `_id` | 120 | 121 | 121 | 121 |
+  - Not fixed here: PR #448 "memoize non-`_id` relation target reads per
+    execution" already fixes it at the owner boundary. Verified by merging
+    `origin/fix/orm-non-id-relation-target-memo` onto this branch in a scratch
+    branch: auto-merge with no conflict in `_loadOneRelation`, combined
+    measurement 61/121, and all 24 index-union tests still pass. Duplicating the
+    memo would mean two copies of one policy and a guaranteed conflict.
+  - Recorded in the PR body as a merge-order dependency: land #448 first.
 - autoreview (`--mode local`, engine `claude`, model `claude-fable-5`) run twice.
   First run: `autoreview clean: no accepted/actionable findings`, overall
   `patch is correct (0.72)`. The default Codex engine failed to start in this
