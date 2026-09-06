@@ -421,6 +421,23 @@ Implementation notes:
 - None yet.
 
 Review fixes:
+- PR #452 thread PRRT_kwDOPTlS686fonWD (@chatgpt-codex-connector, P1): triaged
+  valid. The backfill read each project's memberships in one `limit: 1000` call,
+  and nothing caps a project's member count -- `addMember` only rejects the
+  owner, a duplicate, and a non-owner caller. Verified `findMany` truncates
+  silently (probe: 5 rows, `limit: 3`, returned 3, no error), so members past the
+  bound would be permanently invisible.
+  Fixed by splitting the backfill into two migrations, one per source table --
+  `..._backfill_project_access` (owners, over `projects`) and
+  `..._backfill_project_access_members` (memberships, over `projectMembers`) --
+  so the runner pages each table itself and neither is capped. This also keeps a
+  second `.paginate()` out of a `migrateOne` that already runs inside the
+  runner's paginated read; real Convex rejects that with
+  `MultiplePaginatedDatabaseQueries` and convex-test does not model it, so a
+  cursor loop would have passed tests and failed in production.
+  `backfillProjectAccess` is now test-only and reads `limit + 1` to throw on
+  truncation rather than backfilling a prefix. Tests verified armed by neutering
+  each migration.
 - PR #452 thread PRRT_kwDOPTlS686foid6 (@chatgpt-codex-connector, P1): triaged
   valid. `projectAccess` started empty on any deployment holding existing
   projects, so `list`, `listForDropdown` and `hasAny` all returned nothing.

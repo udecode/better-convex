@@ -1,7 +1,7 @@
 import {
-  clearProjectAccess,
+  deleteProjectAccessRow,
+  grantOwnerProjectAccess,
   type ProjectAccessWriteCtx,
-  syncProjectAccessForProject,
 } from '../_helpers/project_access';
 import { defineMigration } from '../generated/migrations.gen';
 
@@ -14,15 +14,19 @@ const writeCtx = (ctx: { orm: unknown }): ProjectAccessWriteCtx =>
   ctx as ProjectAccessWriteCtx;
 
 /**
- * Populate `projectAccess` for data that predates it.
+ * Populate the owner half of `projectAccess` for data that predates it.
  *
  * `projects.list`, `listForDropdown` and `hasAny` all read the derived table, so
  * on a deployment that already holds projects it starts empty and every one of
- * them returns nothing until this runs.
+ * them returns nothing until this and its `_members` companion have run.
  *
- * Walks `projects` in batches and re-derives each project's rows from
- * `ownerId` plus its memberships. `grantProjectAccess` updates an existing row
- * rather than inserting a second one, so re-running is safe.
+ * Owners here, memberships in the companion migration. Splitting them lets the
+ * runner page each source table itself, so neither is bounded by a fixed limit,
+ * and it keeps a second `.paginate()` out of a `migrateOne` that already runs
+ * inside the runner's own paginated read.
+ *
+ * `grantProjectAccess` updates an existing row rather than inserting a second
+ * one, so re-running is safe.
  */
 export const migration = defineMigration({
   id: '20260906_022807_backfill_project_access',
@@ -46,18 +50,19 @@ export const migration = defineMigration({
         return;
       }
 
-      await syncProjectAccessForProject(writeCtx(ctx), project);
+      await grantOwnerProjectAccess(writeCtx(ctx), project);
     },
   },
   down: {
     table: 'projects',
     migrateOne: async (ctx, doc) => {
       const projectId = (doc as { _id?: string })._id;
-      if (!projectId) {
+      const ownerId = (doc as { ownerId?: string }).ownerId;
+      if (!(projectId && ownerId)) {
         return;
       }
 
-      await clearProjectAccess(writeCtx(ctx), { projectId });
+      await deleteProjectAccessRow(writeCtx(ctx), { projectId, userId: ownerId });
     },
   },
 });

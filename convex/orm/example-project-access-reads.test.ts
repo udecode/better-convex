@@ -10,7 +10,8 @@ import {
   revokeProjectAccess,
   syncProjectArchived,
 } from '../../example/convex/functions/_helpers/project_access';
-import { migration as backfillMigration } from '../../example/convex/functions/migrations/20260906_022807_backfill_project_access';
+import { migration as backfillOwnersMigration } from '../../example/convex/functions/migrations/20260906_022807_backfill_project_access';
+import { migration as backfillMembersMigration } from '../../example/convex/functions/migrations/20260906_035251_backfill_project_access_members';
 import schema, {
   projectAccessTable,
   projectMembersTable,
@@ -620,11 +621,23 @@ test('backfill migration populates access for pre-existing data', async () => {
     expect((await listFor(member)).page).toEqual([]);
     await expect(hasAnyProject(ctx, owner)).resolves.toBe(false);
 
+    // Each migration walks its own source table, exactly as the runner pages it.
     const rawProjects = await ctx.db.query('projects').collect();
+    const rawMembers = await ctx.db.query('projectMembers').collect();
     expect(rawProjects).toHaveLength(2);
-    for (const doc of rawProjects) {
-      await backfillMigration.up.migrateOne(ctx as never, doc as never);
-    }
+    expect(rawMembers).toHaveLength(1);
+    const runBackfill = async () => {
+      for (const doc of rawProjects) {
+        await backfillOwnersMigration.up.migrateOne(ctx as never, doc as never);
+      }
+      for (const doc of rawMembers) {
+        await backfillMembersMigration.up.migrateOne(
+          ctx as never,
+          doc as never
+        );
+      }
+    };
+    await runBackfill();
 
     expect((await listFor(owner)).page.map((p) => p.name).sort()).toEqual([
       'shared',
@@ -640,19 +653,91 @@ test('backfill migration populates access for pre-existing data', async () => {
     ).toEqual([['shared', false]]);
 
     // Re-running must not duplicate rows.
-    for (const doc of rawProjects) {
-      await backfillMigration.up.migrateOne(ctx as never, doc as never);
-    }
+    await runBackfill();
     expect(
       await ctx.orm.query.projectAccess.findMany({ limit: 100 })
     ).toHaveLength(3);
 
-    // `down` takes it back to empty.
+    // `down` takes it back to empty, reverse order.
+    for (const doc of rawMembers) {
+      await backfillMembersMigration.down?.migrateOne(
+        ctx as never,
+        doc as never
+      );
+    }
     for (const doc of rawProjects) {
-      await backfillMigration.down?.migrateOne(ctx as never, doc as never);
+      await backfillOwnersMigration.down?.migrateOne(
+        ctx as never,
+        doc as never
+      );
     }
     expect(await ctx.orm.query.projectAccess.findMany({ limit: 100 })).toEqual(
       []
+    );
+  });
+});
+
+/**
+ * Nothing caps a project's member count -- `projects.addMember` only rejects the
+ * owner, a duplicate, and a non-owner caller. A backfill that read a project's
+ * memberships in one bounded call would silently omit everyone past the bound
+ * and leave them permanently unable to see the project.
+ *
+ * The membership migration walks `projectMembers` itself, one row per
+ * `migrateOne`, so its coverage is the runner's paging rather than any limit
+ * this code chooses.
+ */
+test('membership backfill covers every member row, not a capped page', async () => {
+  await withCountedOrmCtx(async (ctx) => {
+    const owner = await makeUser(ctx, 'owner');
+    const project = await makeProject(ctx, { name: 'crowded', ownerId: owner });
+
+    const members: string[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      const member = await makeUser(ctx, `m${index}`);
+      await addMember(ctx, { project, userId: member });
+      members.push(member);
+    }
+
+    await clearProjectAccess(ctx, { projectId: project.id });
+
+    const rawMembers = await ctx.db.query('projectMembers').collect();
+    expect(rawMembers).toHaveLength(members.length);
+    for (const doc of rawMembers) {
+      await backfillMembersMigration.up.migrateOne(ctx as never, doc as never);
+    }
+
+    // Every member, including the last one written, can see the project again.
+    for (const member of members) {
+      const results = await listAccessibleProjects(ctx, {
+        userId: member,
+        archived: false,
+        cursor: null,
+        limit: 20,
+      });
+      expect(results.page.map((p) => p.name)).toEqual(['crowded']);
+    }
+  });
+});
+
+/**
+ * The test-only whole-deployment rebuild reads each table in one bounded call,
+ * so it has to fail loudly instead of quietly backfilling a prefix.
+ */
+test('backfillProjectAccess throws rather than truncating at its bound', async () => {
+  await withCountedOrmCtx(async (ctx) => {
+    const owner = await makeUser(ctx, 'owner');
+    for (let index = 0; index < 4; index += 1) {
+      await makeProject(ctx, { name: `p-${index}`, ownerId: owner });
+    }
+
+    // Exactly at the bound is not truncation, so it must not throw.
+    await expect(
+      backfillProjectAccess(ctx, { limit: 4 })
+    ).resolves.toBeGreaterThan(0);
+    // One past it is.
+    await expect(backfillProjectAccess(ctx, { limit: 3 })).rejects.toThrow(
+      /more than 3 projects/
     );
   });
 });

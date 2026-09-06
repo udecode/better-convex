@@ -223,57 +223,99 @@ export const clearProjectAccess = async (
     .where(eq(projectAccessTable.projectId, input.projectId));
 };
 
-/**
- * Rebuild one project's access rows from `projects.ownerId` and its members.
- *
- * The single owner of "what should this project's access rows look like".
- * Both the backfill migration and `backfillProjectAccess` go through it, so a
- * deployment repaired by the migration and one rebuilt in a test cannot drift
- * apart. Bounded by the project's member count.
- */
-export const syncProjectAccessForProject = async (
+/** Drop one user's access row for a project, without re-deriving. */
+export const deleteProjectAccessRow = async (
   ctx: ProjectAccessWriteCtx,
-  project: Pick<ProjectRow, 'id' | 'createdAt' | 'archived' | 'ownerId'>,
-  options?: { limit?: number }
-): Promise<number> => {
-  await grantProjectAccess(ctx, { project, userId: project.ownerId });
-  let written = 1;
-
-  const members = await ctx.orm.query.projectMembers.findMany({
-    where: { projectId: project.id },
-    limit: options?.limit ?? 1000,
-    columns: { userId: true },
-  });
-
-  for (const member of members) {
-    if (member.userId === project.ownerId) {
-      continue;
-    }
-    await grantProjectAccess(ctx, { project, userId: member.userId });
-    written += 1;
-  }
-
-  return written;
+  input: { projectId: string; userId: string }
+): Promise<void> => {
+  await ctx.orm
+    .delete(projectAccessTable)
+    .where(
+      and(
+        eq(projectAccessTable.projectId, input.projectId),
+        eq(projectAccessTable.userId, input.userId)
+      )!
+    );
 };
 
 /**
- * Rebuild every access row in the deployment.
+ * Derive the owner's access row for one project.
  *
- * Deliberately a full scan of `projects`: it exists so a test can assert the
- * derived rows match their sources. The deploy path is the backfill migration,
- * which walks the same table in bounded batches and calls the same per-project
- * sync. Never call this from a request path.
+ * Half of the backfill. The other half is per membership, deliberately kept
+ * separate: a project has no member-count cap, so a backfill that read a
+ * project's memberships in one bounded call would silently omit everyone past
+ * the bound. Walking `projects` and `projectMembers` as two independent
+ * migrations lets the runner page each table itself, so neither is capped, and
+ * it keeps a second `.paginate()` out of a `migrateOne` that already runs inside
+ * the runner's own paginated read -- real Convex rejects that with
+ * `MultiplePaginatedDatabaseQueries`, and convex-test does not model it.
+ */
+export const grantOwnerProjectAccess = async (
+  ctx: ProjectAccessWriteCtx,
+  project: Pick<ProjectRow, 'id' | 'createdAt' | 'archived' | 'ownerId'>
+): Promise<void> => {
+  await grantProjectAccess(ctx, { project, userId: project.ownerId });
+};
+
+/** Derive one membership's access row. False when the project is gone. */
+export const grantMembershipProjectAccess = async (
+  ctx: ProjectAccessWriteCtx,
+  membership: { projectId: string; userId: string }
+): Promise<boolean> => {
+  const project = await ctx.orm.query.projects.findFirst({
+    where: { id: membership.projectId },
+  });
+  if (!project) {
+    return false;
+  }
+
+  await grantProjectAccess(ctx, { project, userId: membership.userId });
+  return true;
+};
+
+/**
+ * Rebuild every access row in the deployment, for tests.
+ *
+ * The deploy path is the pair of backfill migrations, which page both tables in
+ * the runner's own batches. This walks them in one bounded call each and throws
+ * rather than truncating, so a test can never quietly under-backfill and then
+ * assert against the short result.
  */
 export const backfillProjectAccess = async (
   ctx: ProjectAccessWriteCtx,
   options?: { limit?: number }
 ): Promise<number> => {
   const limit = options?.limit ?? 1000;
-  const projects = await ctx.orm.query.projects.findMany({ limit });
+
+  // Read one past the bound so a deployment that holds exactly `limit` rows is
+  // not mistaken for a truncated read.
+  const projects = await ctx.orm.query.projects.findMany({ limit: limit + 1 });
+  if (projects.length > limit) {
+    throw new Error(
+      `backfillProjectAccess: more than ${limit} projects. Raise limit, or use the backfill migrations.`
+    );
+  }
 
   let written = 0;
   for (const project of projects) {
-    written += await syncProjectAccessForProject(ctx, project, { limit });
+    await grantOwnerProjectAccess(ctx, project);
+    written += 1;
+  }
+
+  const memberships = await ctx.orm.query.projectMembers.findMany({
+    limit: limit + 1,
+    columns: { projectId: true, userId: true },
+  });
+  if (memberships.length > limit) {
+    throw new Error(
+      `backfillProjectAccess: more than ${limit} memberships. Raise limit, or use the backfill migrations.`
+    );
+  }
+
+  for (const membership of memberships) {
+    if (await grantMembershipProjectAccess(ctx, membership)) {
+      written += 1;
+    }
   }
 
   return written;
