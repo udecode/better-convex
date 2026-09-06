@@ -158,7 +158,7 @@ Start Gates:
 | Skill analysis before edits | yes | Loaded `task` + `autogoal`. `testing`/`tdd` not loaded: the harness is one focused read-bound test file, not a suite-design problem. `major-task` not loaded: one branch in one package, no public API change. |
 | Active goal checked or created | yes | This plan |
 | Source of truth read before edits | yes | `gh issue view 442` before any edit; no comments on the issue |
-| Exact per-PR task ownership | no | N/A: user explicitly declined PR creation, so no PR exists to own |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: https://github.com/udecode/kitcn/pull/455 |
 | GitHub comments and attachments read | yes | `comments: []` — none |
 | Video transcript evidence required | no | N/A: issue is text only |
 | Pre-solution issue challenge required | yes | See Pre-solution issue challenge; the suggested fix was tested and rejected |
@@ -167,13 +167,13 @@ Start Gates:
 | Suggested fix reviewed against durable boundary | yes | Rejected with measured counterexamples; see Decisions and tradeoffs |
 | `docs/solutions` checked for non-trivial existing-code work | no | N/A: no `docs/solutions` directory in this repo |
 | TDD decision before behavior change or bug fix | yes | Red repro first, then the named regression file, then the fix; red proof re-run by stashing `query.ts` |
-| Branch decision for code-changing task | yes | Already on dedicated worktree branch `fix-issue-442` (not `main`); no commit made per user decline |
+| Branch decision for code-changing task | yes | Renamed to `fix/orm-index-union-limit-read-bound` per user branch-naming preference while unpushed and PR-free, then pushed |
 | Release artifact decision | yes | `.changeset/lucky-plums-cough.md`, patch |
 | Browser tool decision for browser surface | no | N/A: ORM read path, no rendered output |
 | Commit / PR expectation decision | no | N/A: explicit user decline — session user preference reads "Do not create PR under any circumstances, unless user prompts to." Verified patch left in the working tree. |
-| Task-style PR body decision | no | N/A: no PR created (user decline) |
-| Task-plan PR body evidence | no | N/A: no PR created (user decline) |
-| GitHub issue sync expectation decision | no | N/A: no PR to reference and user declined outward GitHub writes |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body line `🧭 Task plan: docs/plans/442-index-union-findmany-take-bound.md`; the plan is committed at the PR head in `d9f7b96`; it names PR #455 |
+| GitHub issue sync expectation decision | yes | Sync back to issue #442 after the PR exists |
 | Output budget strategy recorded | yes | See Output budget strategy |
 | Package/API pack selected | yes | package-api |
 | Public surface or package boundary identified | yes | `findMany` read path in `kitcn/orm`; no exported symbol, signature, or type changed |
@@ -266,7 +266,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the command, proof, source audit, or artifact check named in this plan | All commands in Verification evidence run and recorded |
-| Exact per-PR task ownership | no | N/A | User declined PR creation |
+| Exact per-PR task ownership | yes | Recorded | One plan, one PR: #455 |
 | Pre-solution issue challenge verdict | yes | Recorded | valid / reproduced; suggested fix rejected with measured counterexamples |
 | Repro escalation ladder | yes | Recorded | Source-level repro reproduced it; browser/visual rungs N/A |
 | Bug reproduced before fix | yes | Failing repro recorded | 200/200 and 500/500 scanned before any edit; 4 named tests red against unpatched `query.ts` |
@@ -279,19 +279,19 @@ Completion Gates:
 | Browser surface changed | no | N/A | ORM read path, no browser surface |
 | Browser final proof | no | N/A | No browser surface |
 | UI walkthrough | no | N/A | No UI or rendered output changed |
-| Scaffold or fixture output changed | no | N/A | No `init -t` template or scaffold source touched. `fixtures:check` was run as part of `check:ci` and failed on unrelated upstream expo drift |
+| Scaffold or fixture output changed | no | N/A | No `init -t` template or scaffold source touched. `fixtures:check` red on upstream expo drift already owned by `origin/chore/sync-drifted-scaffold-fixtures` (same `~55.0.30 -> ~55.0.31` hunk), so it is not this PR's to sync |
 | Package behavior or public API changed | yes | Changeset added | `.changeset/lucky-plums-cough.md` |
 | Docs and kitcn skill sync changed | no | N/A | No `www/**` doc changed; the fix restores a documented read bound rather than changing guidance |
 | Docs or content changed | no | N/A | Only this plan and a changeset |
 | High-risk mini gate | yes | Recorded below in High-risk note | Runtime read-path change in a published package |
 | Agent-native review for agent/tooling changes | no | N/A | No agent-native surface touched |
 | Local install corruption suspected | no | N/A | No missing-module or resolution failures; the only red gate is a real upstream fixture drift |
-| Commit created | no | N/A: explicit user decline | Session user preference: "Do not create PR under any circumstances, unless user prompts to." Patch left in the working tree |
-| PR create or update | no | N/A: explicit user decline | Same preference; `check:ci` was still run and recorded |
-| Task-style PR body verified | no | N/A | No PR created |
-| PR task evidence verified | no | N/A | No PR created |
-| PR proof image hosting | no | N/A | No PR, no images |
-| GitHub issue sync-back | no | N/A | No PR exists and the user declined outward GitHub writes |
+| Commit created | yes | Staged whole checkout and committed | `d9f7b96` fix(orm): bound each index-union probe by matches, not scanned rows |
+| PR create or update | yes | `bun check` run, pushed, PR opened | PR #455. `check` red only on the pre-existing expo fixture drift already owned by `origin/chore/sync-drifted-scaffold-fixtures`; `test:verify` and `test:runtime` run separately and green |
+| Task-style PR body verified | yes | `gh pr view 455 --json body` | Emoji issue line, task-plan line, confidence line, `Phase / 🧪 Tests / 🌐 Browser` table, bold emoji Outcome/Design/Caveat/Verified, no self-link |
+| PR task evidence verified | yes | Verified | Plan line present, plan committed at PR head, plan names PR #455 |
+| PR proof image hosting | no | N/A | No browser proof, no images |
+| GitHub issue sync-back | yes | Comment posted on #442 | QA-facing fixed-in-PR note with verification steps |
 | Final handoff contract | yes | Filled | See Final handoff contract |
 | Final lint | yes | Ran | `bun lint:fix` then `bun lint` clean |
 | Output budget discipline | yes | Held | All reads line-ranged or head-capped; the one 50KB workflow dump was persisted to a file and read once |
@@ -314,7 +314,7 @@ Phase / pass table:
 | Intake and source read | complete | issue #442 fetched, repro measured 200/200 and 500/500 | implementation |
 | Implementation | complete | query.ts +102/-41; new `convex/orm/index-union-read-bound.test.ts` | verification |
 | Verification | complete | see Verification evidence | closeout |
-| Commit / PR / GitHub sync | N/A | User preference in this session: "Do not create PR under any circumstances, unless user prompts to." Explicit decline; no commit, no push, no PR, no issue sync. | final response |
+| Commit / PR / GitHub sync | complete | User later prompted for a PR. Branch renamed `fix-issue-442` -> `fix/orm-index-union-limit-read-bound` before first push; commit `d9f7b96`; PR https://github.com/udecode/kitcn/pull/455 | final response |
 | Closeout | complete | autoreview clean x3 (engine `claude`); plan gates closed | final response |
 
 Findings:
@@ -435,12 +435,16 @@ Verification evidence:
 - `bun test packages/kitcn/src/orm` -> 274 pass / 0 fail. Run explicitly because
   `convex-filter-depth.test.ts` runs under `bun test`, not vitest, and drives this
   branch through a stub db with no `stream()` support.
-- `bun run check:ci` -> `bun lint` clean, `bun typecheck` 5/5, `bun test` 1400
-  pass / 0 fail, `vitest` 991 pass, `test:cli` 124 pass / 0 fail, `test:concave`
-  pass. `fixtures:check` FAILED on upstream drift only: the expo fixture pins
+- `bun check` -> `bun lint` clean, `bun typecheck` 5/5, `bun test` 1400 pass / 0
+  fail, `vitest` 991 pass, `test:cli` 124 pass / 0 fail, `test:concave` pass.
+  `fixtures:check` FAILED on upstream drift only: the expo fixture pins
   `expo ~55.0.30` and the resolver produced `~55.0.31`. Not reachable from this
   diff, which touches `packages/kitcn/src/orm/query.ts`, one `convex/orm` test,
-  a changeset and this plan — none of which feed an Expo dependency pin.
+  a changeset and this plan — none of which feed an Expo dependency pin. Proven
+  pre-existing and already owned: `git diff origin/main...origin/chore/sync-drifted-scaffold-fixtures`
+  contains the identical `-"expo": "~55.0.30" / +"expo": "~55.0.31"` hunk.
+- `bun run test:verify` -> exit 0 (scaffolds `create-convex-bare`, `kitcn verify`).
+- `bun run test:runtime` -> exit 0 (`create-convex-react-vite-shadcn` scenario).
 - `bun --cwd packages/kitcn build` -> 74 files, build complete.
 - `bun typecheck` -> 5/5 successful.
 - `bun lint:fix` then `bun lint` -> clean.
@@ -476,9 +480,9 @@ High-risk note (runtime / published package):
   invariant explicit, and it strictly widens the set of shapes that hold a bound.
 
 Final handoff contract:
-- Commit line: N/A — user explicitly declined commits/PRs this session.
-- PR line: N/A — same decline.
-- Issue line: N/A — no PR to reference; no outward GitHub write.
+- Commit line: `d9f7b96` on `fix/orm-index-union-limit-read-bound`.
+- PR line: https://github.com/udecode/kitcn/pull/455
+- Issue line: synced back to #442 with a QA-facing fixed-in-PR note.
 - Confidence line: 95-100%
 - Flow table:
   - Reproduced: tests 🔴 (4 read-bound assertions red against unpatched query.ts), browser ➖ N/A
@@ -502,7 +506,7 @@ Final handoff contract:
     different lane; bundling them would turn a bounded change into an untested
     rewrite of the plan-stream family.
 - Verified: see Verification evidence.
-- PR body verified: N/A — no PR created.
+- PR body verified: `gh pr view 455 --json body` — PR #270 emoji task-style shape confirmed.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -526,9 +530,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: N/A (explicit user decline)
-- PR: N/A (explicit user decline)
-- Issue: N/A (no PR; no outward GitHub write)
+- Commit: `d9f7b96`
+- PR: https://github.com/udecode/kitcn/pull/455
+- Issue: #442 synced
 - Browser proof: N/A (no browser surface)
 - Caveats: complement shapes uncovered; `fixtures:check` red on upstream expo drift
 
