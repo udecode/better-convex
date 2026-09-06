@@ -1064,6 +1064,24 @@ export function mergedStream<T extends GenericStreamItem>(
 }
 
 /**
+ * Read streams over disjoint index ranges one after another, as one stream.
+ *
+ * Produces the same sequence a `mergedStream` over the whole index key would,
+ * for sources that cannot interleave — but a source is only opened once the one
+ * before it runs dry, so the fan-out a merge pays up front, one live query per
+ * source, never happens. That is what makes a very wide union affordable.
+ *
+ * The caller owes disjointness and index order. Both are checked as rows come
+ * out: a key that goes backwards throws rather than silently returning an
+ * unordered stream.
+ */
+export function concatStreams<T extends GenericStreamItem>(
+  streams: QueryStream<T>[]
+): QueryStream<T> {
+  return new ConcatStreams(...streams);
+}
+
+/**
  * Marks sources that are already `OrderByStream`s, so `narrow` reuses them
  * instead of adding a redundant delegation layer per call.
  *

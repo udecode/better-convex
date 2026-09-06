@@ -33,7 +33,7 @@ import {
 } from './convex-filter-compiler';
 import { OrmNotFoundError } from './errors';
 import type { EdgeMetadata } from './extractRelationsConfig';
-import type { FilterExpression } from './filter-expression';
+import type { BinaryExpression, FilterExpression } from './filter-expression';
 import {
   and,
   arrayContained,
@@ -91,6 +91,7 @@ import {
 } from './rls/evaluator';
 import type { RlsContext } from './rls/types';
 import {
+  concatStreams,
   EmptyStream,
   getIndexFields,
   type IndexBounds,
@@ -3001,12 +3002,19 @@ export class GelRelationalQuery<
   /**
    * The compiled index union, as one ordered stream.
    *
-   * Each probe is its own index range, so the union is only usable where the
-   * merged order is the order the read has to produce. `mergedStream` orders by
-   * a *suffix* of the index key, and a suffix may only drop key components the
+   * Each probe is its own index range, so the union is only usable where its
+   * order is the order the read has to produce. `mergedStream` orders by a
+   * suffix of the index key, and a suffix may only drop key components the
    * probes all pin to a single value — so the requested field has to sit inside
    * the pinned run or immediately after it. Returns null when it does not, and
    * the caller falls back to the plan's plain index range or a bounded scan.
+   *
+   * Two executors, because a union that is too wide to merge is not too wide to
+   * read. A merge registers every probe up front and holds them open for the
+   * life of the read, which is what `MAX_INDEX_UNION_PROBES` refuses; past that
+   * width the probes are concatenated instead, one open query at a time. What
+   * the cap picks is therefore fan-out versus sequential — never index versus
+   * table scan, which is a trade no read wins.
    */
   private _buildProbeUnionStream(params: {
     schemaDefinition: unknown;
@@ -3014,20 +3022,14 @@ export class GelRelationalQuery<
     probeFilters: FilterExpression<boolean>[][];
     order: 'asc' | 'desc';
     /**
-     * Field the merged stream must be ordered by. Callers pass the requested
-     * `orderBy` field, or the index's own leading field when the read has no
-     * `orderBy` and therefore inherits the scanned index's order.
+     * Field the union must be ordered by. Callers pass the requested `orderBy`
+     * field, or the index's own leading field when the read has no `orderBy`
+     * and therefore inherits the scanned index's order.
      */
     orderField: string;
   }): QueryStream<any> | null {
     const { probeFilters } = params;
-    // A merged stream registers every probe query up front and holds them open
-    // for the life of the read, so a wide fan-out is worse here than the single
-    // scan it would replace.
-    if (
-      probeFilters.length === 0 ||
-      probeFilters.length > MAX_INDEX_UNION_PROBES
-    ) {
+    if (probeFilters.length === 0) {
       return null;
     }
 
@@ -3048,7 +3050,7 @@ export class GelRelationalQuery<
       return null;
     }
 
-    const probeStreams = probeFilters.map((filters) =>
+    const probeStream = (filters: FilterExpression<boolean>[]) =>
       stream(
         this.db as GenericDatabaseReader<any>,
         params.schemaDefinition as any
@@ -3061,13 +3063,188 @@ export class GelRelationalQuery<
           }
           return indexQuery;
         })
-        .order(params.order)
-    );
+        .order(params.order) as unknown as QueryStream<any>;
+
+    if (probeFilters.length > MAX_INDEX_UNION_PROBES) {
+      // A concatenation only reproduces a merge when the merge is over the
+      // whole index key. At `mergeOffset > 0` the merge is interleaving probes
+      // by a key they do not each hold constant, and reading them one after
+      // another would emit that key out of order.
+      if (mergeOffset !== 0) {
+        return null;
+      }
+      const orderedProbes = this._orderDisjointProbes({
+        probeFilters,
+        indexField: streamIndexFields[0]!,
+        order: params.order,
+      });
+      if (!orderedProbes) {
+        return null;
+      }
+      return concatStreams(orderedProbes.map(probeStream));
+    }
 
     return mergedStream(
-      probeStreams as QueryStream<any>[],
+      probeFilters.map(probeStream),
       streamIndexFields.slice(mergeOffset)
     );
+  }
+
+  /**
+   * The first `limit` rows of a compiled union that also carries a residual
+   * filter, or null when the union cannot be streamed in the order asked for.
+   *
+   * The residual runs inside `filterWith`, so `take` sizes the read by matching
+   * rows rather than by how many rows carry a probed value. That is the whole
+   * difference between reading a page and reading every row with a common
+   * status; the caller falls back to collecting each probe when this returns
+   * null.
+   */
+  private async _takeResidualProbeUnion(params: {
+    limit: number;
+    order: 'asc' | 'desc';
+    orderField: string;
+    queryConfig: CompiledQueryPlan;
+  }): Promise<any[] | null> {
+    const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+    if (!schemaDefinition || !params.queryConfig.index) {
+      return null;
+    }
+
+    const union = this._buildProbeUnionStream({
+      schemaDefinition,
+      indexName: params.queryConfig.index.name,
+      probeFilters: params.queryConfig.probeFilters,
+      order: params.order,
+      orderField: params.orderField,
+    });
+    if (!union) {
+      return null;
+    }
+
+    return await union
+      .filterWith(async (row: any) =>
+        params.queryConfig.postFilters.every((filter) =>
+          this._evaluatePostFetchFilter(row, filter)
+        )
+      )
+      .take(params.limit);
+  }
+
+  /**
+   * `probeFilters` in the order a scan of `indexField` reaches them, or null
+   * when they cannot be proven to be pairwise-disjoint ranges on that field.
+   *
+   * Concatenation stands in for a merge only under those two properties, and
+   * both have to come from the filters themselves rather than from trust in the
+   * compiler that emitted them: overlapping probes would emit a row twice, and
+   * probes handed over out of order would emit index keys backwards.
+   */
+  private _orderDisjointProbes(params: {
+    probeFilters: FilterExpression<boolean>[][];
+    indexField: string;
+    order: 'asc' | 'desc';
+  }): FilterExpression<boolean>[][] | null {
+    type Bound = { inclusive: boolean; value: any } | null;
+    type ProbeRange = {
+      filters: FilterExpression<boolean>[];
+      lower: Bound;
+      upper: Bound;
+    };
+
+    const ranges: ProbeRange[] = [];
+    for (const filters of params.probeFilters) {
+      let lower: Bound = null;
+      let upper: Bound = null;
+      let usable = filters.length > 0;
+
+      for (const filter of filters) {
+        if (filter.type !== 'binary') {
+          usable = false;
+          break;
+        }
+        const [field, rawValue] = (filter as BinaryExpression).operands;
+        // A probe that constrains anything but the leading field bounds a
+        // deeper key, and two such probes can share leading values.
+        if (
+          !isFieldReference(field) ||
+          field.fieldName !== params.indexField ||
+          rawValue === undefined ||
+          isFieldReference(rawValue)
+        ) {
+          usable = false;
+          break;
+        }
+        // Sort on what the index actually holds, the way `_applyFilterToQuery`
+        // does when it turns the same bound into a range. Operands arrive
+        // normalized today — `_buildColumnFilterExpression` does it at build
+        // time — so this is alignment rather than a repair, but the ordering
+        // proof should not depend on a caller three layers up: `compareValues`
+        // reports any two `Date`s as equal, so a raw temporal bound would make
+        // every probe look like it overlapped its neighbour.
+        const value = this._normalizeComparableValue(field.fieldName, rawValue);
+        switch (filter.operator) {
+          case 'eq':
+            usable = lower === null && upper === null;
+            lower = { inclusive: true, value };
+            upper = { inclusive: true, value };
+            break;
+          case 'gt':
+          case 'gte':
+            usable = lower === null;
+            lower = { inclusive: filter.operator === 'gte', value };
+            break;
+          case 'lt':
+          case 'lte':
+            usable = upper === null;
+            upper = { inclusive: filter.operator === 'lte', value };
+            break;
+          default:
+            usable = false;
+        }
+        if (!usable) {
+          break;
+        }
+      }
+
+      if (!usable) {
+        return null;
+      }
+      ranges.push({ filters, lower, upper });
+    }
+
+    // An absent lower bound is -infinity, so it sorts before every value; an
+    // exclusive one starts after the inclusive one at the same value.
+    ranges.sort((a, b) => {
+      if (!(a.lower && b.lower)) {
+        return a.lower ? 1 : b.lower ? -1 : 0;
+      }
+      return (
+        compareValues(a.lower.value, b.lower.value) ||
+        Number(!a.lower.inclusive) - Number(!b.lower.inclusive)
+      );
+    });
+
+    for (let i = 1; i < ranges.length; i += 1) {
+      const previous = ranges[i - 1]!;
+      const current = ranges[i]!;
+      // Sorting put every open-ended lower bound first, so a second one shares
+      // -infinity with the range before it. An open-ended upper bound runs to
+      // +infinity and therefore covers whatever starts after it.
+      if (!(previous.upper && current.lower)) {
+        return null;
+      }
+      const gap = compareValues(previous.upper.value, current.lower.value);
+      if (gap > 0) {
+        return null;
+      }
+      if (gap === 0 && previous.upper.inclusive && current.lower.inclusive) {
+        return null;
+      }
+    }
+
+    const ordered = ranges.map((range) => range.filters);
+    return params.order === 'asc' ? ordered : ordered.reverse();
   }
 
   /**
@@ -6886,38 +7063,63 @@ export class GelRelationalQuery<
           ? probeOffset + probeLimit
           : undefined;
 
-      const probeRows = await Promise.all(
-        queryConfig.probeFilters.map(async (probeFilters) => {
-          let probeQuery: any = this.db
-            .query(queryConfig.table)
-            .withIndex(queryConfig.index!.name, (q: any) => {
-              let indexQuery = q;
-              for (const filter of probeFilters) {
-                indexQuery = this._applyFilterToQuery(indexQuery, filter);
+      // A residual filter is the one reason to lose the bound that the union
+      // itself can still answer: read it as one ordered stream and the residual
+      // runs while rows are pulled, so `take` counts matches instead of the
+      // whole probed population. Collecting every probe first would read every
+      // row carrying a probed value — for a common value that is most of the
+      // table, however small the `limit`.
+      //
+      // The other two reasons stay unbounded here. Post-fetch membership drops
+      // rows after the union is assembled, and a sort the index cannot serve
+      // needs every row before the top-k is known.
+      const residualProbeRows =
+        probeBound === undefined &&
+        probeLimit !== undefined &&
+        !probeHasPostFetchMembership &&
+        (postFetchOrders.length === 0 || probeOrderDirection !== null)
+          ? await this._takeResidualProbeUnion({
+              limit: probeOffset + probeLimit,
+              order: probeOrderDirection ?? primaryOrder?.direction ?? 'asc',
+              orderField: primaryOrder?.field ?? queryConfig.index.fields[0]!,
+              queryConfig,
+            })
+          : null;
+
+      const probeRows = residualProbeRows
+        ? [residualProbeRows]
+        : await Promise.all(
+            queryConfig.probeFilters.map(async (probeFilters) => {
+              let probeQuery: any = this.db
+                .query(queryConfig.table)
+                .withIndex(queryConfig.index!.name, (q: any) => {
+                  let indexQuery = q;
+                  for (const filter of probeFilters) {
+                    indexQuery = this._applyFilterToQuery(indexQuery, filter);
+                  }
+                  return indexQuery;
+                });
+
+              if (probeBound !== undefined && probeOrderDirection) {
+                probeQuery = probeQuery.order(probeOrderDirection);
               }
-              return indexQuery;
-            });
 
-          if (probeBound !== undefined && probeOrderDirection) {
-            probeQuery = probeQuery.order(probeOrderDirection);
-          }
+              if (convexProbeFilters.length > 0) {
+                probeQuery = probeQuery.filter((q: any) =>
+                  convexAnd(
+                    q,
+                    convexProbeFilters.map((filter) =>
+                      this._toConvexExpression(filter)(q)
+                    )
+                  )
+                );
+              }
 
-          if (convexProbeFilters.length > 0) {
-            probeQuery = probeQuery.filter((q: any) =>
-              convexAnd(
-                q,
-                convexProbeFilters.map((filter) =>
-                  this._toConvexExpression(filter)(q)
-                )
-              )
-            );
-          }
-
-          return probeBound === undefined
-            ? await probeQuery.collect()
-            : await probeQuery.take(probeBound);
-        })
-      );
+              return probeBound === undefined
+                ? await probeQuery.collect()
+                : await probeQuery.take(probeBound);
+            })
+          );
 
       let rows = Array.from(
         new Map(

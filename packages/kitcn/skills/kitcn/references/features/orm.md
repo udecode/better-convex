@@ -675,7 +675,7 @@ const page = await ctx.orm.query.users.withIndex("by_status").findMany({
 });
 ```
 
-Falls back to a bounded scan (needs `maxScan`) when the probed index cannot supply the requested `orderBy`, or when the union is wider than 64 ranges.
+Falls back to a bounded scan (needs `maxScan`) when the probed index cannot supply the requested `orderBy`, or when a union wider than 64 ranges is asked for an `orderBy` that sorts across values, such as `createdAt`. Up to 64 ranges are read as one merged stream; a wider union is read one range after another, which keeps it index-bounded at any list length but can only produce the index's own order.
 
 Without an `orderBy`, an index-union page is in the order of the index it walks — grouped by the probed value — not in creation order.
 
