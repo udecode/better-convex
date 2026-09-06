@@ -1462,3 +1462,45 @@ test('a flatMap stage where callback is resolved once for the read and the filte
     expect(rows.map((row) => row.text)).toEqual(['p18', 'p19']);
   });
 });
+
+test('a union source where refines a pinned index it can narrow', async () => {
+  const t = convexTest(schema);
+
+  await t.run(seedStatusUsers);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+    const reads = countDocumentReads(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .withIndex('by_status')
+      .select()
+      .union([{ where: { status: 'active' } }])
+      .limit(10);
+
+    expect(rows.map((row) => row.name)).toEqual(['Active']);
+    // The chain pinned by_status but left the range open, so the where may
+    // narrow that same index.
+    expect(reads.scanned).toBe(1);
+  });
+});
+
+test('a union source where never displaces a pinned range', async () => {
+  const t = convexTest(schema);
+
+  await t.run(seedStatusUsers);
+
+  await t.run(async (baseCtx) => {
+    const ctx = await runCtx(baseCtx);
+
+    const rows = await ctx.orm.query.users
+      .withIndex('by_status', (q) => q.eq('status', 'archived'))
+      .select()
+      .union([{ where: { status: 'active' } }])
+      .limit(10);
+
+    // The pinned range is the source's scope, not a hint. Lowering the where
+    // onto by_status would silently widen the read past 'archived'.
+    expect(rows).toEqual([]);
+  });
+});

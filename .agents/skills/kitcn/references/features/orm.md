@@ -598,9 +598,9 @@ Per source:
 
 - `index: { name, range }` anchors that source on its own range. It overrides
   the chain-level `.withIndex(...)`; sources that omit it use the chain index.
-- `where` is compiled against the table's indexes like a `findMany` where. An
-  object `where` on an indexed field bounds the read; whatever no index covers
-  is filtered after the read.
+- `where` is compiled against the table's indexes like a `findMany` where. It
+  bounds the read when it can be lowered onto the index that source walks;
+  whatever no index covers is filtered after the read.
 
 `interleaveBy` fields must be the trailing fields each source is already ordered
 by, so every field before them has to be pinned with `eq` in that source's
@@ -609,11 +609,18 @@ fields — e.g. `by_author_likes` (authorId, numLikes) with `eq("authorId", ...)
 merges with `numLikesAndType` (type, numLikes) with `eq("type", ...)` under
 `interleaveBy(["numLikes"])`.
 
-A source `where` is only lowered onto an index when the result can still supply
-`interleaveBy`, and never over an index the source or the chain pinned with a
-range — that range is the source's scope, not a hint. Anchor a source with
-`index: { name, range }` whenever you need a specific range read; a `where` on
-an unindexed field still walks the chain index and discards the misses.
+Whether a source `where` bounds the read depends on the index that source ends
+up walking. With no index pinned it picks one, so `{ where: { status: "active" } }`
+reads the `by_status` range. With a pinned index it may only narrow that same
+index: `.withIndex("by_status")` plus `{ where: { status: "active" } }` narrows,
+while `.withIndex("by_name")` plus the same `where` walks `by_name` and discards
+the misses.
+
+A pinned `range` is the source's scope, never a hint: a `where` alongside one
+always filters after the read rather than widening it. Lowering also has to
+preserve the merge, so a `where` is only lowered when the resulting order can
+still supply `interleaveBy`. Anchor a source with `index: { name, range }`
+whenever you need a specific range read.
 
 ### Pre-pagination transforms
 
