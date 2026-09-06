@@ -48,6 +48,7 @@ import type {
   UpdateSet,
 } from './types';
 import { isUnsetToken } from './unset-token';
+import { runInOrmWriteBatch } from './write-batch';
 import { hasLifecycleHooks } from './write-fanout';
 
 export type InsertOnConflictDoNothingConfig<_TTable extends ConvexTable<any>> =
@@ -181,6 +182,12 @@ export class ConvexInsertBuilder<
   }
 
   async execute(): Promise<MutationResult<TTable, TReturning>> {
+    // One statement, one fold of the aggregate storage its rows share. See
+    // `write-batch`.
+    return await runInOrmWriteBatch(this.db, () => this._runStatement());
+  }
+
+  private async _runStatement(): Promise<MutationResult<TTable, TReturning>> {
     if (this.valuesList.length === 0) {
       throw new Error('values() must be called before execute()');
     }
