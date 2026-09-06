@@ -86,7 +86,7 @@ Boundaries:
 - Allowed edit scope: `packages/kitcn/src/orm/aggregate-index/runtime.ts`, a new
   sibling `*.read-amplification.vitest.ts`, `.changeset/`, this plan.
 - Browser surface: none (Convex ORM runtime).
-- GitHub issue sync: N/A while no PR exists (user preference bars PR creation).
+- GitHub issue sync: this plan owns exactly one PR — https://github.com/udecode/kitcn/pull/451.
 - Non-goals: stage (b) patch collapsing; `lifecycle.ts`; the trigger contract;
   `clearCountIndexChunk`'s raw deletes (#424).
 
@@ -174,7 +174,7 @@ Start Gates:
 | Skill analysis before edits | yes | `task` + `autogoal` (task template, no packs) + `autoreview`; no niche skill owned this gate |
 | Active goal checked or created | yes | This plan created from `create-goal-scratchpad.mjs --template task`, renamed to the issue-number convention |
 | Source of truth read before edits | yes | `gh issue view 440` read in full before any file was opened |
-| Exact per-PR task ownership | no | N/A: no PR exists; user preference bars PR creation |
+| Exact per-PR task ownership | yes | This plan owns exactly one PR: #451 |
 | GitHub comments and attachments read | yes | `comments: []` — issue has none |
 | Video transcript evidence required | no | N/A: no video or screen recording in the source |
 | Pre-solution issue challenge required | yes | Recorded above; verdict `valid` for the read half, `deferred` for the patch half |
@@ -186,10 +186,10 @@ Start Gates:
 | Branch decision for code-changing task | yes | Already on `440-task`, a dedicated non-main branch for this issue |
 | Release artifact decision | yes | New changeset required (published package code changed) |
 | Browser tool decision for browser surface | no | N/A: no browser surface |
-| Commit / PR expectation decision | no | N/A: user preference states "Do not create PR under any circumstances, unless user prompts to" — an explicit standing decline of the PR path |
-| Task-style PR body decision | no | N/A: no PR |
-| Task-plan PR body evidence | no | N/A: no PR |
-| GitHub issue sync expectation decision | no | N/A: sync-back is gated on a PR existing; none does |
+| Commit / PR expectation decision | yes | User explicitly requested the PR, lifting the standing decline; commit + push + PR completed |
+| Task-style PR body decision | yes | PR #270 emoji task-style body used |
+| Task-plan PR body evidence | yes | Body carries `🧭 Task plan: docs/plans/440-memoize-aggregate-bucket-and-member-reads.md`; the plan is committed at the PR head and names PR #451 |
+| GitHub issue sync expectation decision | yes | Sync #440 with a QA-facing comment after the PR exists |
 | Output budget strategy recorded | yes | Recorded above and followed |
 
 Work Checklist:
@@ -275,7 +275,7 @@ Completion Gates:
 | Gate | Applies | Required action | Evidence |
 |------|---------|-----------------|----------|
 | Named verification threshold | yes | Run the named suites | `npx vitest run packages/kitcn/src/orm/aggregate-index/reconcile.read-amplification.vitest.ts` -> 6 passed; bucket probes 1 / 2 / 1 / 1 against a RED baseline of 12 / 24 / 12 / 24 |
-| Exact per-PR task ownership | no | — | N/A: no PR; user preference declines PR creation |
+| Exact per-PR task ownership | yes | Record the exact PR | PR #451, this plan, one-to-one |
 | Pre-solution issue challenge verdict | yes | Record claim, repro, validity, boundary | Recorded above: reproduced, `valid` for the read half, `deferred` for the patch half, boundary = the two point lookups |
 | Repro escalation ladder | yes | Record each rung | Source-level vitest repro reproduced it at rung 1; browser/visual rungs N/A (no browser surface) |
 | Bug reproduced before fix | yes | Record the failing repro | RED run with the runtime change reverted: 4 failed / 2 passed, bucket probes 12 / 24 / 12 / 24 |
@@ -295,12 +295,12 @@ Completion Gates:
 | High-risk mini gate | yes | Record failure mode, proof, boundary | High-risk note recorded below |
 | Agent-native review for agent/tooling changes | no | — | N/A: diff touches no agent-native path |
 | Local install corruption suspected | yes | Reinstall/rerun or record N/A | Not install rot: 8 vitest files failed on stale `dist`, cleared by the required `bun --cwd packages/kitcn build`. No `bun install` needed |
-| Commit created | no | — | N/A: user explicitly declined the PR path for this session; the patch is left uncommitted in the worktree and offered at handoff |
-| PR create or update | no | — | N/A: same explicit user decline |
-| Task-style PR body verified | no | — | N/A: no PR |
-| PR task evidence verified | no | — | N/A: no PR |
-| PR proof image hosting | no | — | N/A: no PR, no images |
-| GitHub issue sync-back | no | — | N/A: sync-back is gated on a PR existing; none does, and the user preference bars creating one |
+| Commit created | yes | Stage the checkout and commit | `0521b3c2 fix(orm): read each aggregate bucket once per key tuple per transaction`, whole checkout staged |
+| PR create or update | yes | Run check, push, open PR | Branch renamed `440-task` -> `fix/orm-memoize-aggregate-bucket-reads` before first push; pushed to `origin`; https://github.com/udecode/kitcn/pull/451. `bun check` blocked only on upstream `fixtures:check` drift (`expo ~55.0.30` -> `~55.0.31`), recorded in the PR body; all other lanes pass |
+| Task-style PR body verified | yes | Verify with `gh pr view --json body` | Verified: `🐛 Fixes #440`, `🧭 Task plan:`, `🟢 95-100% confidence`, the `Phase / 🧪 Tests / 🌐 Browser` table with Reproduced and Verified rows, and bold emoji Outcome/Design/Caveat/Verified sections. No self-link |
+| PR task evidence verified | yes | Verify plan line, plan at head, exact PR | All three confirmed against PR #451 |
+| PR proof image hosting | no | — | N/A: no images in the PR body |
+| GitHub issue sync-back | yes | Post a concise QA-facing comment | Comment posted on #440 naming the PR and the verification steps |
 | Final handoff contract | yes | Fill the handoff fields | Filled below |
 | Final lint | yes | Run lint | `bun lint:fix` (fixed one formatting nit) then `bun lint` -> clean, 961 files |
 | Output budget discipline | yes | Verify scoping | All searches scoped to `packages/kitcn/src/orm` and `convex/`; the 9.5M-token audit fan-out returned schema-validated findings and was read from disk in filtered slices, never streamed whole |
@@ -314,7 +314,7 @@ Phase / pass table:
 | Intake and source read | complete | `gh issue view 440` read in full; plan created and classified | implementation |
 | Implementation | complete | RED repro, then `runtime.ts` memo with write-through + exact invalidation | verification |
 | Verification | complete | targeted suites, full vitest, bun test, typecheck, build, lint | closeout |
-| Commit / PR / GitHub sync | n/a | User explicitly declined PR creation for this session; patch left uncommitted and offered at handoff | closeout |
+| Commit / PR / GitHub sync | complete | Commit `0521b3c2`, branch `fix/orm-memoize-aggregate-bucket-reads`, PR #451, issue #440 synced | closeout |
 | Closeout | complete | autoreview clean; handoff contract filled | final response |
 
 Findings:
@@ -421,6 +421,12 @@ Verification evidence:
 - `bun lint` -> clean (`bun lint:fix` fixed one formatting nit first).
 - `bun test packages/kitcn/src/orm/transaction-cache.test.ts` -> 8 passed.
 - Autoreview `--mode local --engine claude` over the final tree -> clean.
+- `bun run test:cli` -> 124 passed. `bun run test:concave` -> smoke passed.
+- `bun run test:verify` -> exit 0. `bun run test:runtime` -> exit 0.
+- `bun check` -> blocked only at `fixtures:check` on upstream drift
+  (`expo ~55.0.30` -> `~55.0.31`). No fixture or scaffold source is in this
+  diff, and no other lane fails; recorded as a caveat in the PR body rather
+  than pulling an unrelated dependency bump into a focused ORM change.
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -434,11 +440,10 @@ Source-listed case matrix:
 | ~78 patches against one row | issue's stage (b) | N/A | 78 | unchanged | out of scope by the reporter's own split | deferred |
 
 Final handoff contract:
-- Commit line: no commit — the user preference for this session explicitly
-  declines the PR path; the verified patch sits in the `vienna-v3` worktree on
-  branch `440-task` and is offered at handoff.
-- PR line: N/A — explicit user decline.
-- Issue line: N/A — issue sync-back is gated on a PR existing.
+- Commit line: `0521b3c2 fix(orm): read each aggregate bucket once per key tuple
+  per transaction` on `fix/orm-memoize-aggregate-bucket-reads`.
+- PR line: https://github.com/udecode/kitcn/pull/451
+- Issue line: #440 synced with a QA-facing comment.
 - Confidence line: 95-100%.
 - Flow table:
   - Reproduced: tests RED (bucket probes 12 / 24 / 12 / 24), browser N/A
@@ -461,7 +466,8 @@ Final handoff contract:
 - Verified: RED baseline then GREEN on the new suite; `bun typecheck`,
   `bun test` (1400), `npx vitest run` (987), `bun --cwd packages/kitcn build`,
   `bun lint`; autoreview clean.
-- PR body verified: N/A — no PR.
+- PR body verified: `gh pr view 451 --json body` — PR #270 emoji task-style
+  format confirmed, no self-link.
 
 Task-style PR body contract:
 - Preserve any existing `<!-- auto-release:start -->` block. If a changeset is
@@ -485,9 +491,9 @@ Task-style PR body contract:
   of that output.
 
 Final handoff / sync:
-- Commit: none (explicit user decline of the PR path)
-- PR: N/A
-- Issue: N/A
+- Commit: `0521b3c2`
+- PR: https://github.com/udecode/kitcn/pull/451
+- Issue: #440 synced
 - Browser proof: N/A
 - Caveats: stage (b) patch collapsing and `aggregate_extrema` reads remain; a
   raw `ctx.runMutation` sub-transaction bypasses the memo
@@ -499,12 +505,15 @@ Timeline:
   proposed shape fixed before implementation.
 - Memo implemented, suites green, package built, lint clean.
 - Autoreview `--mode local --engine claude`: clean, no accepted findings.
+- User lifted the standing PR decline and requested a PR. Branch renamed
+  `440-task` -> `fix/orm-memoize-aggregate-bucket-reads` before the first push.
+  Commit `0521b3c2`, PR #451, issue #440 synced.
 
 Reboot status:
 | Question | Answer |
 |----------|--------|
-| Where am I? | Closeout complete; awaiting the user's call on committing |
-| Where am I going? | Nothing further unless the user asks to commit/push/PR or wants stage (b) |
+| Where am I? | Shipped: commit `0521b3c2`, PR #451, issue #440 synced |
+| Where am I going? | Nothing further unless review feedback lands or the user wants stage (b) |
 | What is the goal? | Issue #440 stage (a): one aggregate bucket read per distinct key tuple and one member read per document per transaction, with aggregate results unchanged |
 | What have I learned? | See Findings — the issue's `[delta]` root cause is only half right, and four defects in its proposed shape had to be fixed |
 | What have I done? | See Timeline and Verification evidence |
