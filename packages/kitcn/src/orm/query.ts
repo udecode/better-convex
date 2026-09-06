@@ -6832,6 +6832,36 @@ export class GelRelationalQuery<
       return this._returnSelectedRows(selectedRows);
     }
 
+    /**
+     * Everything that decides row membership after the read: the RLS select
+     * policy, then the relation part of `where`.
+     *
+     * Declared here rather than next to its cursor-path caller because the
+     * multi-probe branch below reads it too.
+     */
+    const matchesPostFetchMembership = async (row: any) => {
+      const visibleRows = await this._applyRlsSelectFilter(
+        [row],
+        this.tableConfig
+      );
+      if (visibleRows.length === 0) {
+        return false;
+      }
+      if (!whereFilter) {
+        return true;
+      }
+      const matchingRows = await this._applyRelationsFilterToRows(
+        visibleRows,
+        this.tableConfig,
+        whereFilter,
+        this.edgeMetadata,
+        0,
+        MAX_RELATION_DEPTH,
+        this.config.with as Record<string, unknown> | undefined
+      );
+      return matchingRows.length > 0;
+    };
+
     if (
       queryConfig.strategy === 'multiProbe' &&
       queryConfig.index &&
@@ -6853,15 +6883,14 @@ export class GelRelationalQuery<
       );
       const probeHasResidualFilter =
         convexProbeFilters.length !== queryConfig.postFilters.length;
-      // RLS and relation `where` run after the union is assembled and can drop
-      // rows, so a per-probe bound would under-fill the page. `mode: 'skip'`
-      // drops nothing and must not cost the bound.
+      // RLS and relation `where` run in JavaScript after the read and can drop
+      // rows, so a plain `take()` sized on scanned rows under-fills the page.
+      // `mode: 'skip'` drops nothing and must not cost the bound.
       //
-      // Only RELATION keys cost the bound. The plain-column part of `where` is
+      // Only RELATION keys count here. The plain-column part of `where` is
       // already compiled into the probes and `postFilters`, and `postFilters`
       // reaching Convex as `.filter()` is what `probeHasResidualFilter` above
-      // guarantees — so `take()` counts matching rows, not scanned ones.
-      // Testing `Boolean(whereFilter)` here would disable the bound for every
+      // guarantees. Testing `Boolean(whereFilter)` instead would trip on every
       // `in`/`ne`/`notIn` query, since those only exist inside a `where`.
       const probeHasPostFetchMembership =
         this._hasSearchDisallowedRelationFilter(
@@ -6872,22 +6901,70 @@ export class GelRelationalQuery<
           isRlsEnabled(this.tableConfig.table as any));
       // Each probe is read in its own index order. Truncating one is only sound
       // when that order is the requested order, so the global top-k is
-      // guaranteed to live inside the union of the per-probe top-k. Every probe
-      // walks the same index with the same pinned prefix the branch above
-      // already resolved, and `_indexEqPrefixCount` takes the minimum across
-      // probes — so the answer that holds for the least-pinned probe holds for
-      // all of them.
+      // guaranteed to live inside the union of the per-probe top-k: a row with
+      // fewer than k rows before it globally has fewer than k before it inside
+      // its own probe. Every probe walks the same index with the same pinned
+      // prefix the branch above already resolved, and `_indexEqPrefixCount`
+      // takes the minimum across probes — so the answer that holds for the
+      // least-pinned probe holds for all of them.
+      //
+      // This is the *only* thing that can cancel the bound. It is also strictly
+      // weaker than what the merged probe-union stream needs: that one has to
+      // commit to a single global order at read time, while truncating a probe
+      // needs order only *within* that probe, and the sort below repairs the
+      // union before it is sliced.
       const probeOrderDirection = orderPushdownDirection;
       const probeBound =
         probeLimit !== undefined &&
-        !probeHasResidualFilter &&
-        !probeHasPostFetchMembership &&
         (postFetchOrders.length === 0 || probeOrderDirection !== null)
           ? probeOffset + probeLimit
           : undefined;
+      // A plain `take()` sizes on scanned rows, so it stays reserved for reads
+      // where every filter reached Convex. A residual filter or a post-fetch
+      // membership pass does not cancel the bound — it moves the read onto a
+      // stream, where `filterWith` runs those in JavaScript as rows are pulled
+      // and `take` counts survivors instead.
+      const probeBoundedTake =
+        probeBound !== undefined &&
+        !probeHasResidualFilter &&
+        !probeHasPostFetchMembership;
+      const probeSchemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+      // Without `defineSchema()` there is no stream to read, and correctness
+      // wins over the bound: fall back to collecting the probe range.
+      const probeStreamed =
+        probeBound !== undefined &&
+        !probeBoundedTake &&
+        !!probeSchemaDefinition;
 
       const probeRows = await Promise.all(
         queryConfig.probeFilters.map(async (probeFilters) => {
+          if (probeStreamed) {
+            const probeStream = stream(
+              this.db as GenericDatabaseReader<any>,
+              probeSchemaDefinition as any
+            )
+              .query(this.tableConfig.name as any)
+              .withIndex(queryConfig.index!.name as any, (q: any) => {
+                let indexQuery = q;
+                for (const filter of probeFilters) {
+                  indexQuery = this._applyFilterToQuery(indexQuery, filter);
+                }
+                return indexQuery;
+              })
+              // Streams always need an explicit direction; the plain query below
+              // leaves Convex's default, which is ascending.
+              .order(probeOrderDirection ?? 'asc')
+              .filterWith(async (row: any) => {
+                for (const filter of queryConfig.postFilters) {
+                  if (!this._evaluatePostFetchFilter(row, filter)) {
+                    return false;
+                  }
+                }
+                return await matchesPostFetchMembership(row);
+              });
+            return await probeStream.take(probeBound as number);
+          }
+
           let probeQuery: any = this.db
             .query(queryConfig.table)
             .withIndex(queryConfig.index!.name, (q: any) => {
@@ -6898,7 +6975,7 @@ export class GelRelationalQuery<
               return indexQuery;
             });
 
-          if (probeBound !== undefined && probeOrderDirection) {
+          if (probeBoundedTake && probeOrderDirection) {
             probeQuery = probeQuery.order(probeOrderDirection);
           }
 
@@ -6913,9 +6990,9 @@ export class GelRelationalQuery<
             );
           }
 
-          return probeBound === undefined
-            ? await probeQuery.collect()
-            : await probeQuery.take(probeBound);
+          return probeBoundedTake
+            ? await probeQuery.take(probeBound as number)
+            : await probeQuery.collect();
         })
       );
 
@@ -6933,9 +7010,18 @@ export class GelRelationalQuery<
         );
       }
 
+      // Left unconditional even when the stream already applied the policy per
+      // row: it is idempotent over the memoized policy resolution, and it is
+      // the only call that reaches the policy-configuration assertion, which
+      // has to fire on an empty result too — a `filterWith` predicate that
+      // never runs never asserts.
       rows = await this._applyRlsSelectFilter(rows, this.tableConfig);
 
-      if (whereFilter) {
+      // The streamed read already ran this per row, and re-running it reloads
+      // every relation the first pass stripped — one index query per relation
+      // per surviving row, which is exactly the read bound this branch is
+      // trying to hold.
+      if (whereFilter && !probeStreamed) {
         rows = await this._applyRelationsFilterToRows(
           rows,
           this.tableConfig,
@@ -6966,29 +7052,6 @@ export class GelRelationalQuery<
       const selectedRows = await this._finalizeRows(rows);
       return this._returnSelectedRows(selectedRows);
     }
-
-    const matchesPostFetchMembership = async (row: any) => {
-      const visibleRows = await this._applyRlsSelectFilter(
-        [row],
-        this.tableConfig
-      );
-      if (visibleRows.length === 0) {
-        return false;
-      }
-      if (!whereFilter) {
-        return true;
-      }
-      const matchingRows = await this._applyRelationsFilterToRows(
-        visibleRows,
-        this.tableConfig,
-        whereFilter,
-        this.edgeMetadata,
-        0,
-        MAX_RELATION_DEPTH,
-        this.config.with as Record<string, unknown> | undefined
-      );
-      return matchingRows.length > 0;
-    };
 
     // M6.5 Phase 4: Handle cursor pagination separately
     if (isCursorPaginated) {
