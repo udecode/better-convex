@@ -29,34 +29,16 @@ const barrierUsers = convexTable(
 
 const schema = defineSchema({ wbc_users: barrierUsers });
 
-/**
- * The schema key and the Convex table name differ on purpose. Trigger
- * registration resolves the real table name, so barrier injection has to as
- * well — keying off the relations key filed both the barrier and aggregate
- * upkeep under a table the writer never looks up, and every write to an
- * aliased table sailed past both.
- */
-const aliasedUsers = convexTable(
-  'wbc_aliased_users',
-  {
-    orgId: text().notNull(),
-    score: integer().notNull(),
-  },
-  (t) => [aggregateIndex('by_org').on(t.orgId)]
-);
-
-const aliasedSchema = defineSchema({ people: aliasedUsers });
-
 const CLEARING_RE = /CLEARING/;
 
 const schedulerStub = { runAfter: vi.fn(async () => undefined) };
 const passthroughInternalMutation = ((definition: unknown) =>
   definition) as never;
 
-const createOrmClient = (activeSchema: any) =>
+const createOrmClient = () =>
   createOrm({
     capabilities: [aggregateCapability()],
-    schema: activeSchema,
+    schema,
     ormFunctions: {
       scheduledDelete: {} as any,
       scheduledMutationBatch: {} as any,
@@ -97,7 +79,7 @@ describe('aggregate write barrier fail-closed contract', () => {
 
       await markClearing(baseCtx.db, 'wbc_users');
 
-      const ctx = createOrmClient(schema).with({
+      const ctx = createOrmClient().with({
         db: baseCtx.db,
         scheduler: schedulerStub as any,
       });
@@ -119,30 +101,6 @@ describe('aggregate write barrier fail-closed contract', () => {
       // "Delete on non-existent doc" instead, which reads as a caller bug
       // rather than a transient index state.
       await expect(db.delete('wbc_users', goneId)).rejects.toThrow(CLEARING_RE);
-    });
-  });
-
-  test('a table whose schema key differs from its table name is still guarded', async () => {
-    const t = convexTest(aliasedSchema);
-
-    await t.run(async (baseCtx) => {
-      await markClearing(baseCtx.db, 'wbc_aliased_users');
-
-      const ctx = createOrmClient(aliasedSchema).with({
-        db: baseCtx.db,
-        scheduler: schedulerStub as any,
-      });
-
-      await expect(
-        ctx.orm
-          .insert(aliasedUsers)
-          .values([{ orgId: 'org-1', score: 1 }])
-          .execute()
-      ).rejects.toThrow(CLEARING_RE);
-
-      expect(
-        await baseCtx.db.query('wbc_aliased_users').collect()
-      ).toHaveLength(0);
     });
   });
 });

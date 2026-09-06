@@ -333,6 +333,7 @@ Phase / pass table:
 | Verification | complete | 1400 bun + 988 vitest pass; typecheck 5/5; build ok; new tests proven red on stock file | closeout |
 | Autoreview | complete | `--mode local --engine claude`, exit 0, no accepted findings, "patch is correct" | closeout |
 | Commit / PR / GitHub sync | complete | commit 87d37a4f, branch `fix/orm-double-pre-image-read`, PR #450 | final response |
+| PR review round 1 | complete | @chatgpt-codex-connector P1 on the alias hunk accepted and reverted; probe evidence recorded | final response |
 | Closeout | complete | | final response |
 
 High-risk note:
@@ -359,6 +360,10 @@ Follow-ups (deliberately out of scope):
   `innerWriteLock`, while `www/content/docs/orm/schema/triggers.mdx:201`
   advertises `ctx.db` as usable in every hook.
 - `fixtures/expo*` need a `bun run fixtures:sync` for the upstream expo bump.
+- Aliased schemas (`defineSchema({ key: convexTable('other', ...) })`) are
+  incoherent: Convex registers the object key, the ORM data path writes the
+  `convexTable` name, and the aggregate subsystem keys on the object key. Needs
+  its own issue — most likely the ORM should reject the mismatch outright.
 
 Findings:
 - Repro matched the issue exactly: 5-row `orm.update()` issued 10 target-table
@@ -375,12 +380,18 @@ Findings:
 - A user `before` hook can only write the row through `ctx.innerDb`. Writing
   via `ctx.db` deadlocks on the non-reentrant `innerWriteLock`, so the re-read
   protects exactly one narrow capability.
-- SECOND BUG, not in the issue: barrier injection keyed off `tableConfig.name`,
-  which is the relations/schema key, while trigger registration resolves the
-  real Convex table name. For `defineSchema({ people: convexTable('users') })`
-  the barrier and the aggregate `change` hook were filed under `people`, a
-  table `writerWithHooks` never looks up — so every write bypassed both the
-  CLEARING guard and aggregate maintenance. Measured fail-open before the fix.
+- WITHDRAWN (was "second bug"): I briefly changed barrier injection to resolve
+  the table object's own `convexTable(name)` instead of `tableConfig.name`.
+  @chatgpt-codex-connector flagged it P1 on PR #450 and was right. Probe of
+  `defineSchema({ zz_object_key: convexTable('zz_physical_name', ...) })`:
+  `defineConvexSchema` receives the object map unchanged, so Convex registers
+  `zz_object_key`; but the ORM data path writes to `zz_physical_name`, and
+  every aggregate site — backfill targets (`backfill.ts:156`), `count()`
+  (`runtime.ts:1520`), `rank()` (`rank-runtime.ts:290`), index enumeration
+  (`runtime.ts:3457`) — keys on `tableConfig.name`. So an aliased schema is
+  incoherent in BOTH directions and neither keying is right; my change merely
+  moved the incoherence somewhere worse, misaligning maintenance writes from
+  the backfill and every read. Reverted; recorded as its own follow-up.
 - THIRD BUG, not in the issue: `delete`'s `if (!oldDoc)` early return preceded
   `mergeBeforeData`, so deleting an already-deleted row never reached the
   barrier and surfaced Convex's `Delete on non-existent doc` instead of the
@@ -414,10 +425,13 @@ Decisions and tradeoffs:
   stays free of an injected internal concept.
 - Chained rather than assigned the barrier, so a schema with two keys resolving
   to one table name composes instead of dropping a guard.
-- FIXED the aliased-table-name and delete-early-return bugs in the same change:
-  both live in the exact code being restructured, both are fail-open on the very
-  guard this issue is about, and both are a few lines. Disclosed in the
-  changeset and the handoff rather than shipped silently.
+- FIXED the delete-early-return bug in the same change: it lives in the exact
+  code being restructured, it is fail-open on the very guard this issue is
+  about, and it is three lines.
+- REVERTED the aliased-table-name change after PR #450 review. Scope discipline:
+  aliased schemas are broken independently of #444 and picking either key makes
+  some path wrong. `tableName` is now a local alias for `tableConfig.name`, so
+  the injection loop is semantically identical to `main`.
 - OUT OF SCOPE, recorded as follow-ups: (1) `hookedTableNames` is table-granular,
   so a barrier-only table still suppresses post-image derivation in
   `insert.ts`/`update.ts` — a second amplification with the same root cause,
@@ -471,7 +485,7 @@ Source-listed case matrix:
 | unhooked table | 0 `db.get` | same | 0 | 0 (unchanged) | repro run: `PLAIN: 0` | reproduced |
 | rankIndex table | issue names rankIndex too | same harness with `rankIndex` | 10 | 5 | `lifecycle.read-amplification.vitest.ts` "a rankIndex table reads the pre-image once per row" | fixed |
 | user `update.before` writes the row via `innerDb` | not in issue; the invariant the re-read protects | behavior test asserting `change.newDoc` observes the hook's write | 2N reads, correct newDoc | 2N reads, correct newDoc (unchanged) | same file, "a user update.before still forces a fresh pre-image read" | preserved |
-| aliased schema key (`{ people: convexTable('users', ...) }`) | NOT in issue; found during the fix | CLEARING barrier + write attempt | barrier never fires, write lands | throws `AGGREGATE_INDEX_BUILDING` | `aggregate-index/write-barrier.vitest.ts` | fixed |
+| aliased schema key (`{ people: convexTable('users', ...) }`) | NOT in issue; chased during the fix | CLEARING barrier + write attempt | inconsistent (see below) | left unchanged | reverted after PR #450 review | withdrawn — separate bug |
 | delete of an already-deleted row while CLEARING | NOT in issue; found during the fix | CLEARING barrier + delete of a gone id | `Delete on non-existent doc` | `AGGREGATE_INDEX_BUILDING` | same file | fixed |
 
 Final handoff contract:

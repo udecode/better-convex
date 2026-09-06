@@ -752,7 +752,7 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
     tableHooks.set(tableName, hooks);
   }
 
-  for (const [schemaKey, tableConfig] of Object.entries(schema)) {
+  for (const tableConfig of Object.values(schema)) {
     if (!tableConfig?.table || !tableConfig?.name) {
       continue;
     }
@@ -762,11 +762,13 @@ export function createOrmDbLifecycle<TSchema extends TablesRelationalConfig>(
       continue;
     }
 
-    // `tableConfig.name` is the relations key, which is the Convex table name
-    // only when the two happen to match. Keying off it filed the barrier and
-    // the maintenance hook under a table `writerWithHooks` never looks up, so
-    // every write to an aliased table bypassed both.
-    const tableName = tableNameBySchemaKey.get(schemaKey) ?? tableConfig.name;
+    // Deliberately the relations key, matching `defineSchema`'s object key.
+    // Every other aggregate site keys on it too — the backfill targets in
+    // `aggregate-index/backfill.ts` and the `count()`/`rank()` read paths in
+    // `aggregate-index/runtime.ts` and `rank-runtime.ts`. Resolving the table
+    // object's own name here instead would make maintenance write buckets
+    // under a key the backfill and every read never look at.
+    const tableName = tableConfig.name;
 
     // Fail closed: writes to a table with aggregate/rank indexes must maintain
     // them, and the runtime that does so is only in the graph when the app
