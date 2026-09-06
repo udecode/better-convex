@@ -1,0 +1,496 @@
+# Sync drifted scaffold fixtures
+
+Objective:
+Regenerate drifted `fixtures/**` scaffold snapshots; done when `bun run fixtures:check` exits 0 and the only diff is dependency drift; plan docs/plans/2026-09-06-sync-drifted-scaffold-fixtures.md.
+
+Goal plan:
+docs/plans/2026-09-06-sync-drifted-scaffold-fixtures.md
+
+Template:
+docs/plans/templates/task.md
+
+Primary template:
+docs/plans/templates/task.md
+
+Applied packs:
+- none
+
+Task source:
+- type: plain task text (user prompt)
+- id / link: N/A: no GitHub issue or PR backs this task
+- title: Sync the drifted scaffold fixtures
+- acceptance criteria:
+  1. `fixtures/**` regenerated only via `bun run fixtures:sync` (never hand-edited).
+  2. `bun run fixtures:check` exits 0.
+  3. All runs prefixed with `NO_PROXY=localhost,127.0.0.1`.
+  4. Report every fixture sync actually changes, not just expo (check exits at
+     the FIRST drifted fixture, so drift may be masked).
+  5. Scope is fixture regeneration only. If sync pulls in a change that looks
+     like a real behavior/template change rather than a dependency bump, STOP
+     and report instead of committing.
+  6. No changeset (premise: touches no code under `packages/`).
+  7. Open a PR onto main.
+
+Timed checkpoint:
+- requested duration: N/A: no duration requested
+- semantics: N/A: no duration requested
+- initial confidence score: N/A: task has a binary command gate (`fixtures:check` exit 0)
+- improvement loop: N/A: no duration requested
+- final score / loop closure: N/A: no duration requested
+
+Completion threshold:
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` exits 0 with the
+  regenerated `fixtures/**` committed.
+- Every path changed by `bun run fixtures:sync` is classified as dependency
+  drift (bump) or escalated to the user as a suspected behavior/template change.
+- `git status` shows no unexplained changes outside `fixtures/**`.
+
+Threshold outcome: **partially met, then deliberately halted.**
+Criteria 1-4 and 6 are met and proven. Criterion 5 **fired**: the sync diff
+contains a real upstream template/source change, not only dependency bumps.
+The user's instruction for that case is explicit — "stop and tell me instead of
+committing it" — so criteria 7 (PR) and the commit step are intentionally not
+executed. This is instruction-following, not an unfinished task.
+
+Verification surface:
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (cwd: repo root) — the
+  named gate.
+- `git diff --stat` / `git status --porcelain` on the post-sync tree — the
+  attribution surface.
+- Exhaustive per-hunk enumeration of the full diff — the classification surface.
+- `npm view` metadata and repo-wide greps — the ownership surface (upstream vs.
+  kitcn-owned).
+
+Constraints:
+- `fixtures/**` is generated output. Never hand-edit; only regenerate.
+- Do not commit a suspected behavior/template change; stop and report it.
+- Preserve existing user-facing behavior outside the task scope.
+- When a GitHub PR is in scope, this plan owns exactly one PR. A coordinating
+  batch plan must link a separate task plan for every PR an agent processes.
+- Verified code changes must be committed and PR'd because the task skill
+  requires that path unless the user explicitly says not to, the work has no
+  local patch, or a real blocker is recorded. **Here the user explicitly
+  pre-authorized a stop for this exact condition, which is a recorded blocker.**
+- A PR created by this task must use the PR #270 emoji task-style PR body
+  contract, not a generic summary/body from a git helper skill.
+- Do not add broad ceremony when the task is trivial or docs-only.
+
+Boundaries:
+- Source of truth: the user prompt; `tooling/fixtures.ts`,
+  `tooling/dependency-pins.ts`, `tooling/template.config.ts` for mechanism.
+- Allowed edit scope: `fixtures/**` (regenerated only) and this plan file.
+- Browser surface: N/A: no browser-rendered output; fixtures are on-disk
+  scaffold snapshots verified by git diff.
+- GitHub issue sync: N/A: no GitHub issue backs this task.
+- Non-goals: upgrading pinned dependency versions, changing scaffold templates,
+  changing `packages/**`, writing a changeset, deciding whether to accept the
+  upstream shadcn migration.
+
+Output budget strategy:
+- Fixture snapshots are large generated trees. Never print full file contents.
+- Use `git status --porcelain` and `git diff --stat` for attribution first.
+- Classify via `git diff | grep '^[-+][^-+]' | sort | uniq -c` rather than
+  reading 20 files individually — the diff collapses to 5 manifest changes and
+  2 source transformations.
+- Exclude `node_modules`, `tmp/**`, and lockfiles from any search.
+- `fixtures:sync` / `fixtures:check` logs redirected to `.context/*.log`
+  (gitignored); only tails and targeted greps read.
+
+Blocked condition:
+- Sync produces a change that is a real behavior/template change rather than a
+  dependency bump — per the user's explicit instruction, stop and report rather
+  than commit. **This condition fired.**
+
+Task state:
+- task_type: chore (generated-output regeneration)
+- task_complexity: non-trivial (long-running regen + diff classification)
+- current_phase: blocked on user decision
+- current_phase_status: complete (analysis done, decision pending)
+- next_phase: user decides whether to accept the upstream shadcn migration
+- goal_status: blocked
+
+Current verdict:
+- verdict: drift confirmed and fully classified; regeneration produces a green
+  lane; **halted before commit** because the diff exceeds "dependency bump"
+- confidence: 95-100% on the classification and the green-lane result
+- next owner: user (accept / reject the upstream shadcn `cn` migration)
+- reason: user's criterion 5 explicitly pre-authorized this stop
+
+Implementation readiness:
+- verdict: ready (executed); halted at the commit boundary by instruction
+- exact owner: `fixtures/**` generated snapshots, regenerated by
+  `bun tooling/fixtures.ts sync`
+- contradiction status: none
+- source-listed cases complete: yes — see Source-listed case matrix
+
+Pre-solution issue challenge:
+- reporter claim: `bun check` fails its `fixtures:check` lane on origin/main due
+  to upstream expo dependency drift (expo@55.0.31 published 2026-08-31).
+- suggested diagnosis or fix: regenerate fixtures via `bun run fixtures:sync`.
+- repro ladder:
+  - tests / source-level repro: `NO_PROXY=... bun run fixtures:check` on the
+    pre-sync tree — reproduced `FixtureDriftError` on `expo` with the exact
+    hunk `-"expo": "~55.0.30" / +"expo": "~55.0.31"`.
+  - repo-owned automated browser or integration proof: N/A: no browser surface.
+  - Browser plugin: N/A: no browser surface.
+  - screenshot / visual proof: N/A: on-disk snapshot diff is the proof surface.
+- reproduction verdict: reproduced
+- validity verdict: **partially valid** — the reported symptom, cause, and fix
+  command are all correct, but the framing ("It's upstream dependency drift,
+  not a code bug" / "no changeset — this touches no code under `packages/`")
+  understates the diff. The fix pulls in an upstream *source* migration too.
+- best long-term fix boundary: regenerate the generated snapshot. The drift is
+  upstream; there is no repo-side defect to fix. But accepting it is a product
+  decision, not a mechanical one.
+- harsh honest feedback: the user's expo-only framing was incomplete in two
+  ways. (a) `expo` was 2 of 8 fixtures; 6 more changed. (b) More importantly,
+  the non-expo drift is not a version bump at all — it rewrites generated
+  source and swaps two runtime dependencies for one new one. A run that
+  followed the prompt's stated expectation ("boring dep bump, commit it") would
+  have silently shipped a shadcn architecture migration.
+- hard-stop decision: **hard stop taken.** Not committed, no PR.
+
+Completion rule:
+- Do not call `update_goal(status: complete)` while any required checklist item
+  remains unchecked.
+- This goal is `blocked`, not `complete`. `check-complete.mjs` is deliberately
+  not forced to pass, because forcing it would misrepresent a halted task as a
+  finished one.
+
+Start Gates:
+| Gate | Applies | Evidence |
+|------|---------|----------|
+| Timed checkpoint parsed | no | N/A: no duration requested in the prompt |
+| Walkthrough baseline for possible UI change | no | N/A: fixtures are on-disk scaffold snapshots; no UI or rendered output can change |
+| Skill analysis before edits | yes | Loaded `task` (user-invoked) + `autogoal` (measurable gate per CLAUDE.md). Declined `changeset` (no `packages/**` change), `tdd`/`testing` (no behavior change), `design`/`walkthrough` (no UI) |
+| Active goal checked or created | yes | Goal tools (`get_goal`/`create_goal`) are not exposed in this runtime; recorded degraded control state and used this plan as durable state per the autogoal fallback rule |
+| Source of truth read before edits | yes | Read user prompt, `tooling/fixtures.ts`, `tooling/dependency-pins.ts`, `tooling/template.config.ts`, `tooling/scaffold-utils.ts`, root `package.json` before any mutation |
+| Exact per-PR task ownership | yes | N/A before a new PR exists — no PR created, by instruction |
+| GitHub comments and attachments read | no | N/A: no GitHub issue or PR backs this task |
+| Video transcript evidence required | no | N/A: no video or screen recording in source |
+| Pre-solution issue challenge required | yes | Drift reproduced on the pre-sync tree before regenerating; verdict `partially valid` |
+| Reproduction verdict before implementation | yes | `fixtures:check` reproduced `FixtureDriftError` on `expo` pre-sync |
+| Repro escalation ladder selected | yes | Source-level command repro was sufficient; browser/visual rungs N/A |
+| Suggested fix reviewed against durable boundary | yes | Regeneration is the correct mechanical owner; acceptance of the upstream migration is a user decision |
+| `docs/solutions` checked for non-trivial existing-code work | no | N/A: `docs/solutions` does not exist in this repo |
+| TDD decision before behavior change or bug fix | no | N/A: generated-snapshot regeneration; no repo behavior to test |
+| Branch decision for code-changing task | yes | Already on non-`main` branch `sync-expo-fixture-drift`; would reuse it if the user accepts |
+| Release artifact decision | yes | No changeset — diff touches zero files under `packages/`; verified by `git status` after isolating the pins step |
+| Browser tool decision for browser surface | no | N/A: no browser surface |
+| Commit / PR expectation decision | yes | User asked for a PR **but** pre-authorized a stop for exactly this condition. Stop takes precedence; recorded as a blocker, not a silent omission |
+| Task-style PR body decision | yes | N/A: no PR created |
+| Task-plan PR body evidence | yes | N/A: no PR created |
+| GitHub issue sync expectation decision | no | N/A: no GitHub issue backs this task |
+| Output budget strategy recorded | yes | See Output budget strategy |
+
+Work Checklist:
+- [x] If a duration was requested, it is recorded as minimum active work.
+      N/A: no duration requested; the task has a binary command gate instead.
+- [x] Objective includes outcome, completion threshold, verification surface,
+      constraints, boundaries, and blocked condition.
+- [x] Task source classified with source type, id/link, title, task type,
+      acceptance criteria, caveats, likely files/packages, browser surface, and
+      root-cause layer.
+- [x] Every GitHub PR in scope has its own task plan. N/A: no PR created, by
+      instruction; if the user accepts the diff, this plan owns the resulting PR.
+- [x] Required video evidence cached/read. N/A: no video.
+- [x] Reporter claims challenged before implementation with a recorded verdict.
+      Verdict: `partially valid`.
+- [x] Repro escalation ladder followed. Source-level command repro sufficed.
+- [x] Hard-stop rule followed. Hard stop taken at the commit boundary per the
+      user's criterion 5.
+- [x] Nearby repo instructions and implementation patterns read before edits.
+      Read CLAUDE.md, `.agents/AGENTS.md` fixture rules, and the four tooling
+      files that own sync/check/normalization.
+- [x] Source-listed case matrix is complete and every contradiction has an
+      owner, harness, and verdict.
+- [x] Readiness classified with evidence. Verdict: `ready`, halted by instruction.
+- [x] Implementation fixes the right ownership boundary. Regenerated generated
+      output via the owning tool; no hand edits.
+- [x] Release artifact requirement recorded. N/A: no `packages/**` change,
+      proven by isolating the pins step.
+- [x] Final handoff shape decided.
+- [x] Commit/PR handling recorded: **blocker recorded** — the user's explicit
+      stop condition fired. This is a user-authorized decline, not the invalid
+      "user did not separately ask for a PR" reason.
+- [x] PR body shape recorded. N/A: no PR created.
+- [x] PR task evidence recorded. N/A: no PR created.
+- [x] Branch handling recorded: `sync-expo-fixture-drift`, non-`main`, retained
+      with the regenerated tree uncommitted so the user can inspect it.
+- [x] Local-env-rot retry policy recorded: the first `fixtures:check` failure
+      was a genuine missing build artifact (`packages/resend/dist`), fixed by
+      `bun build:pkg`, matching what CI does. Recorded in Error attempts.
+- [x] Workspace authority recorded: all proof commands run at repo root, which
+      owns `fixtures/**` and the `tooling/fixtures.ts` gate.
+- [x] Output budget discipline recorded and followed.
+- [x] High-risk note recorded. See High-risk note.
+- [x] Review/autoreview target selected. N/A: nothing is being shipped; the
+      diff is 100% machine-generated and the decision is escalated to the user.
+- [x] Agent-native review decision recorded. N/A: diff touches no
+      `.agents/**`, `.claude/**`, `.codex/**`, skills, hooks, or commands.
+
+Completion Gates:
+| Gate | Applies | Required action | Evidence |
+|------|---------|-----------------|----------|
+| Named verification threshold | yes | Run the command named in this plan | `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` exited 0; all 8 templates reported "matches fresh ... output" |
+| Exact per-PR task ownership | yes | Record the exact PR or the not-yet-created slice | Not-yet-created slice; no PR opened by instruction |
+| Pre-solution issue challenge verdict | yes | Record claim, repro verdict, validity verdict, boundary, hard-stop decision | See Pre-solution issue challenge; verdict `partially valid`, hard stop taken |
+| Repro escalation ladder | yes | Record rung outcomes | Rung 1 (source-level) reproduced; rungs 2-4 N/A (no browser surface) |
+| Bug reproduced before fix | yes | Record failing repro | Pre-sync `fixtures:check` threw `FixtureDriftError` on `expo` |
+| Targeted behavior verification | no | Run focused proof or record N/A | N/A: generated-snapshot regeneration changes no repo runtime behavior |
+| TypeScript or typed config changed | yes | Run relevant typecheck | `fixtures:sync` runs `runAppValidation` (typecheck/lint/build) inside every scaffolded app before snapshotting; all 8 passed, so the `cn` migration compiles in every template |
+| Package exports or file layout changed | no | Run the relevant package build | N/A: no `packages/**` change. `bun build:pkg` was run as a lane prerequisite, not as a source change |
+| Package manifests, lockfile, or install graph changed | no | Run `bun install` and relevant checks | N/A: root lockfile and workspace manifests unchanged; only fixture snapshot manifests changed |
+| Agent rules or skills changed | no | Run `bun install` and verify skill sync | N/A: no `.agents/**` or skills change |
+| Workspace authority proof | yes | Record cwd owning each proof | All commands run at repo root `/Users/mikey/conductor/workspaces/kitcn/colombo-v1` |
+| Browser surface changed | no | Capture Browser proof or waiver | N/A: no browser surface |
+| Browser final proof | no | Attach screenshot or caveat | N/A: no browser surface |
+| UI walkthrough | no | Run walkthrough if UI changed | N/A: no UI or rendered output changed |
+| Scaffold or fixture output changed | yes | Run `bun run fixtures:sync` and `bun run fixtures:check` | Both run with `NO_PROXY=localhost,127.0.0.1`; sync regenerated 8 templates, check exited 0 |
+| Package behavior or public API changed | no | Add a changeset or record why none applies | N/A: zero files under `packages/` in the diff; pins step proven no-op in isolation |
+| Docs and kitcn skill sync changed | no | Keep `www/**` and skills in sync | N/A: no docs or skill files in the diff |
+| Docs or content changed | no | Verify claims/links/examples | N/A: only this plan file, which is task state |
+| High-risk mini gate | yes | Record failure mode, proof plan, boundary rationale | See High-risk note |
+| Agent-native review for agent/tooling changes | no | Load agent-native-reviewer or record N/A | N/A: diff touches none of those paths |
+| Local install corruption suspected | yes | Run `bun install` once and rerun, or record N/A | Not corruption — a genuinely missing build artifact. Resolved with `bun build:pkg`, which is exactly what CI runs before this lane |
+| Commit created | no | Commit verified code-changing work | **N/A: blocker recorded.** The user's criterion 5 explicitly instructs "stop and tell me instead of committing it" when the diff is more than a dependency bump. That condition fired |
+| PR create or update | no | Run check, push, open/update PR | **N/A: blocker recorded.** Same explicit user stop condition. Also consistent with the standing user preference against unprompted PRs |
+| Task-style PR body verified | no | Verify with `gh pr view --json body` | N/A: no PR created |
+| PR task evidence verified | no | Verify plan line, plan at head, PR ownership | N/A: no PR created |
+| PR proof image hosting | no | Replace local image paths | N/A: no PR created |
+| GitHub issue sync-back | no | Post issue sync | N/A: no GitHub issue backs this task |
+| Final handoff contract | yes | Fill final handoff fields | See Final handoff contract |
+| Final lint | no | Run `bun lint:fix` or scoped equivalent | N/A: no hand-written source changed; the only modified files are generated fixtures (excluded from repo lint) and this plan |
+| Output budget discipline | yes | Verify no unbounded output streamed | Sync/check redirected to `.context/*.log`; diff classified via `uniq -c` collapse rather than reading 20 files |
+| Timed checkpoint | no | Keep improving until elapsed | N/A: no duration requested |
+| Autoreview for non-trivial implementation changes | no | Run autoreview until no accepted findings | N/A: nothing is being shipped; the diff is machine-generated and the decision is escalated |
+| Goal plan complete | no | Run `check-complete.mjs` | **N/A: goal is `blocked`, not `complete`.** Forcing this gate would misrepresent a deliberately halted task as finished |
+
+Phase / pass table:
+| Phase | Status | Evidence | Next |
+|-------|--------|----------|------|
+| Intake and source read | complete | Read prompt + 4 tooling files; created plan | implementation |
+| Implementation | complete | Pins step isolated (no-op); `fixtures.ts sync` regenerated all 8 templates | verification |
+| Verification | complete | `fixtures:check` exit 0 (8/8); full diff exhaustively enumerated and classified | escalation |
+| Commit / PR / GitHub sync | halted | User stop condition fired; no commit, no PR | user decision |
+| Closeout | complete | Findings and evidence recorded; awaiting user decision | final response |
+
+Findings:
+- **`fixtures:check` masks drift past the first template.** `checkTemplates`
+  (`tooling/fixtures.ts:533`) iterates `TEMPLATE_KEYS` sequentially and
+  `checkTemplate` throws `FixtureDriftError` on the first mismatch. `expo` is
+  first in `TEMPLATE_KEYS` (`tooling/template.config.ts`). Confirmed: sync
+  changed 8 of 8 fixtures, not just the 2 expo ones.
+- **The fixtures lane needs BOTH packages built, not just `kitcn`.** The first
+  `fixtures:check` attempt died with
+  `ENOENT: no such file or directory, lstat '.../packages/resend/dist'` before
+  comparing anything. `createPackableLocalResendPackageDir`
+  (`tooling/scaffold-utils.ts:231`) copies `packages/resend/dist`
+  unconditionally. CI never hits this because `.github/workflows/ci.yml:49`
+  runs `bun build:pkg` (kitcn **and** resend) immediately before `check:ci`.
+  Locally, `bun --cwd packages/kitcn build` alone is not enough.
+- **The pins half of `fixtures:sync` is a source-derived no-op.**
+  `bun run fixtures:sync` runs `dependency-pins.ts sync --skip-validate` first,
+  which *can* write to `packages/kitcn/package.json` (peerDependencies) and
+  `packages/kitcn/skills/kitcn/references/setup/auth.md`. Run in isolation it
+  produced zero diff, because it derives values from
+  `packages/kitcn/src/cli/supported-dependencies.ts` constants, not from npm.
+  This makes the "no changeset" premise **verified rather than assumed**.
+- **The drift is three distinct upstream changes, not one dep bump.** See the
+  classification table below. Only the expo one matches the prompt's framing.
+- **Zero changes are kitcn-owned.** `legacy-peer-deps` appears nowhere under
+  `packages/kitcn/` (including `dist`); `clsx`/`tailwind-merge`/`cn` appear
+  nowhere in `packages/kitcn/src`; no `.npmrc` is tracked anywhere in the repo.
+- **`components/ui` is written by sync but stripped by check.** In default
+  `owned` scope, `stripFixtureComparisonArtifacts` (`tooling/fixtures.ts:129`)
+  deletes `components/ui` / `src/components/ui` from both sides before diffing
+  for shadcn templates. So the `button.tsx` half of the shadcn migration is
+  **not** check-enforced — but `lib/utils.ts` is not stripped and **is**
+  enforced, which is why the lane fails until synced.
+
+Change classification (complete, exhaustively enumerated):
+| # | Change | Fixtures | Owner | Kind |
+|---|--------|----------|-------|------|
+| 1 | `expo ~55.0.30 → ~55.0.31` | expo, expo-auth | upstream npm (published 2026-08-31) | dependency bump — matches the prompt |
+| 2 | `@base-ui/react ^1.7.0 → ^1.8.0`, `lucide-react ^1.34.0 → ^1.41.0` | 6 shadcn templates | upstream shadcn registry (`shadcn: latest`, deliberately floating) | dependency bump |
+| 3 | `clsx ^2.1.1` + `tailwind-merge ^3.6.0` **removed**, `cn ^0.2.5` **added**; `lib/utils.ts` rewritten from a local `twMerge(clsx(...))` implementation to `export { cn } from "cn"`; `button.tsx` import changed from `@/lib/utils` to `cn` | 6 shadcn templates | upstream shadcn registry | **source/template change — NOT a dependency bump** |
+| 4 | new `.npmrc` containing `legacy-peer-deps=true` | start, start-auth | upstream TanStack Start scaffolder | **new generated file — NOT a dependency bump** |
+
+Provenance of the new `cn` package (verified via `npm view`):
+- name `cn`, version `0.2.5`, MIT, maintainer `shadcn <m@shadcn.com>`
+- repository `github.com/shadcn-ui/cn`
+- description: "Fast, small, compiled class-name merging for Tailwind CSS.
+  Drop-in replacement for clsx + tailwind-merge."
+- publish timeline: `0.2.1` 2026-09-01 → `0.2.5` 2026-09-04. The migration is
+  **two days old**, which is why it landed in this sync and not the last one.
+- Assessment: legitimate and first-party to shadcn, not a typosquat. But
+  adopting it is still a real change to every app kitcn scaffolds.
+
+High-risk note:
+- Realistic failure mode: a sync run silently absorbs an upstream scaffold
+  migration alongside routine dependency bumps, and it ships because
+  `fixtures:check` only proves "snapshot == freshly-generated", never "snapshot
+  is desirable". Every kitcn user who scaffolds after this would get a new
+  runtime dependency they did not choose.
+- Proof plan: classify every changed *hunk*, not the file list. Done — the full
+  non-manifest diff collapses to exactly 2 transformations and the manifest
+  diff to exactly 5 lines.
+- Why the boundary is right: regeneration is the only correct mechanical
+  response to upstream movement, but *accepting* a same-week upstream
+  architecture change is a product call the user owns, not a chore an agent
+  should auto-commit.
+
+Decisions and tradeoffs:
+- Ran `dependency-pins.ts sync --skip-validate` and `fixtures.ts sync`
+  separately before running the documented one-liner -> gives clean attribution
+  for whether the pins step wrote under `packages/` -> risk: diverges from the
+  documented path, mitigated by then running real `bun run fixtures:sync`
+  end-to-end so the tree state is produced by the documented command.
+- Classified by collapsing the whole diff with `sort | uniq -c` instead of
+  sampling files -> the stop condition keys on change *kind*, so a sample could
+  have missed a unique hunk -> confirmed the 20-file diff is only 2 distinct
+  source transformations.
+- Verified the `cn` package's provenance on npm before characterizing it ->
+  a brand-new bare-named dependency appearing in every scaffolded app warrants
+  a supply-chain check, not an assumption -> confirmed first-party to shadcn.
+- Halted before commit -> user's criterion 5 is explicit and this diff clearly
+  qualifies -> risk: the user may have wanted it committed anyway; mitigated by
+  leaving the regenerated, verified-green tree in place so accepting is one
+  command away.
+
+Implementation notes:
+- `fixtures:sync` builds `packages/kitcn`, packs it as the local CLI
+  (`getLocalInstallSpec`), scaffolds each template into a temp dir, runs
+  `kitcn add auth` for `-auth` variants, installs, validates
+  (typecheck/lint/build), normalizes, then replaces `fixtures/<key>`.
+- `normalizeTemplatePackageJson` rewrites `kitcn` to `workspace:*` and pins
+  `shadcn` to the literal `latest`, so those two never appear as drift.
+- The regenerated tree is left uncommitted on branch `sync-expo-fixture-drift`.
+  Accepting it requires only commit + push + PR; rejecting it requires
+  `git checkout -- fixtures/ && rm fixtures/start/.npmrc fixtures/start-auth/.npmrc`.
+
+Review fixes:
+- None. Nothing shipped, so no review pass was run.
+
+Error attempts:
+| Error / failed attempt | Count | Next different move | Resolution |
+|------------------------|-------|---------------------|------------|
+| `fixtures:check` aborted with `ENOENT ... packages/resend/dist` before reaching any drift comparison | 1 | Build both published packages, not just `kitcn` | Resolved by `bun build:pkg`. CI (`.github/workflows/ci.yml:49`) runs it immediately before `check:ci`, so this is a local-prerequisite gap, not a repo defect |
+| `fixtures:check` FixtureDriftError on `expo` (pre-sync) | 1 | Run `fixtures:sync` to regenerate | Resolved — this was the intended reproduction, not an unexpected failure |
+
+Verification evidence:
+- `bun tooling/dependency-pins.ts sync --skip-validate` (cwd: repo root) ->
+  exit 0, `git status --porcelain` empty. Proves the pins step writes nothing
+  under `packages/`; the "no changeset" premise holds.
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (pre-sync, attempt 1)
+  -> FAILED with `ENOENT ... packages/resend/dist` before any drift comparison.
+- `NO_PROXY=localhost,127.0.0.1 bun build:pkg` -> exit 0; both
+  `packages/kitcn/dist` and `packages/resend/dist` present.
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (pre-sync, attempt 2)
+  -> FAILED with `FixtureDriftError` on `expo`, hunk
+  `-"expo": "~55.0.30" / +"expo": "~55.0.31"`. Reproduction confirmed, and
+  direct proof the lane exits at the first drifted fixture.
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:sync` -> exit 0, 8×
+  "Synced fixtures/<key>".
+- `git status --porcelain` post-sync -> 20 modified + 2 untracked, all under
+  `fixtures/**`; zero paths under `packages/`.
+- `git diff -- '*/package.json' | grep '^[-+][^-+]' | sort | uniq -c` -> exactly
+  5 distinct manifest changes (6× four shadcn lines, 2× expo).
+- `git diff -- ':!*/package.json' | grep '^[-+]' | sort | uniq -c` -> exactly
+  2 distinct source transformations, each ×6.
+- `grep -rln "legacy-peer-deps" packages/kitcn/` -> no matches.
+  `git ls-files | grep -i npmrc` -> no matches. Proves `.npmrc` is upstream.
+- `npm view cn` -> `shadcn-ui/cn`, MIT, maintainer `shadcn <m@shadcn.com>`;
+  `0.2.5` published 2026-09-04. Proves provenance and recency.
+- `NO_PROXY=localhost,127.0.0.1 bun run fixtures:check` (post-sync) -> exit 0,
+  all 8 "matches fresh ... output". **Named threshold met.**
+
+Source-listed case matrix:
+| Case | Source claim | Harness | Before | Expected after | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1. Regenerate, never hand-edit | `fixtures/**` is generated output | `bun run fixtures:sync` | expo pinned `~55.0.30` | regenerated snapshots | Only sync wrote to `fixtures/**`; zero manual edits | complete |
+| 2. Check passes | `fixtures:check` lane fails on main | `bun run fixtures:check` | FixtureDriftError on `expo` | exit 0 | exit 0, 8/8 success messages | complete |
+| 3. NO_PROXY prefix | local proxy breaks probes | shell prefix | n/a | all runs prefixed | Every sync/check/build invoked with `NO_PROXY=localhost,127.0.0.1` | complete |
+| 4. Report all drift, not just expo | check exits at FIRST drifted fixture | `git status` + hunk enumeration | unknown beyond expo | full changed set | All 8 fixtures changed; 4 distinct change classes enumerated | complete |
+| 5. Stop if not a dep bump | scope is fixture regen only | exhaustive per-hunk classification | n/a | classify each hunk | **FIRED** — shadcn `cn` source migration + new `.npmrc` are template changes. Halted, not committed | complete (stop taken) |
+| 6. No changeset | touches no code under `packages/` | pins-step isolation + `git status` | premise unverified | 0 files under `packages/` | Verified: 0 `packages/**` files; pins step proven no-op | complete |
+| 7. Open a PR onto main | explicit user instruction | `gh pr create --base main` | no PR | PR open | **Not executed** — superseded by case 5's stop condition | halted by instruction |
+
+Final handoff contract:
+- Commit line: none — halted by the user's explicit stop condition
+- PR line: none — halted by the user's explicit stop condition
+- Issue line: N/A: no GitHub issue backs this task
+- Confidence line: 🟢 95-100% confidence in the classification and green-lane result
+- Flow table:
+  - Reproduced: tests 🔴 `fixtures:check` FixtureDriftError on `expo`, browser ➖ N/A
+  - Verified: tests 🟢 `fixtures:check` exit 0 (8/8), browser ➖ N/A
+- Browser check: N/A: no browser surface
+- Outcome: all 8 fixtures regenerated and the lane is green, but the diff
+  contains an upstream shadcn source migration and two new `.npmrc` files, so
+  it was not committed
+- Caveat: `bun check` not run end-to-end; the owning `fixtures:check` lane
+  passed. Fixture content tracks live npm, so the snapshot re-drifts on any
+  further upstream publish
+- Design:
+  - Chosen boundary: regenerate via the owning tool, then escalate the
+    accept/reject decision
+  - Why not quick patch: hand-editing `fixtures/**` is forbidden and would
+    desync the snapshot from real scaffolder output
+  - Why not broader change: the drift is upstream; no repo code is wrong, so
+    pinning or template edits would be scope creep and a separate decision
+- Verified: `fixtures:check` exit 0; exhaustive per-hunk classification;
+  pins-step isolation; npm provenance check on `cn`
+- PR body verified: N/A: no PR created
+
+Final handoff / sync:
+- Commit: none (halted by instruction)
+- PR: none (halted by instruction)
+- Issue: N/A: no GitHub issue backs this task
+- Browser proof: N/A: no browser surface
+- Caveats: regenerated tree left uncommitted on `sync-expo-fixture-drift` for
+  user inspection
+
+Timeline:
+- 2026-09-06T01:42:11.365Z Task goal plan created.
+- Read `tooling/fixtures.ts`, `dependency-pins.ts`, `template.config.ts`,
+  `scaffold-utils.ts`; established that check exits at first drift, that the
+  pins step can write under `packages/`, and that `components/ui` is stripped
+  from the owned-scope comparison.
+- Ran `dependency-pins.ts sync --skip-validate` in isolation: zero diff.
+  "No changeset" premise verified rather than assumed.
+- `fixtures:check` attempt 1 failed on missing `packages/resend/dist`; fixed
+  with `bun build:pkg` (matching CI order).
+- `fixtures:check` attempt 2 reproduced the reported `expo` drift exactly.
+- Ran `bun run fixtures:sync`: 8 templates regenerated; all 8 fixtures changed.
+- Enumerated every diff hunk. Found 4 distinct change classes; 2 of them are
+  not dependency bumps.
+- Verified `cn` provenance on npm (first-party shadcn, published 2026-09-04).
+- Ran `fixtures:check`: exit 0, 8/8. Named threshold met.
+- Halted before commit per user criterion 5; reported for a decision.
+
+Reboot status:
+| Question | Answer |
+|----------|--------|
+| Where am I? | Analysis and verification complete; halted at the commit boundary awaiting a user decision |
+| Where am I going? | User accepts (commit + PR) or rejects (revert `fixtures/**`) the upstream shadcn migration |
+| What is the goal? | Regenerate drifted `fixtures/**`; commit only if the diff is pure dependency drift |
+| What have I learned? | Check masks drift past the first template; the pins half of sync is a source-derived no-op; the lane needs `bun build:pkg` not just the kitcn build; the real drift is a 2-day-old shadcn `cn` migration plus new `.npmrc` files, not the expo bump the prompt described |
+| What have I done? | Reproduced drift, isolated the pins step, regenerated all 8 templates, exhaustively classified every hunk, verified provenance, proved the lane goes green, and stopped before committing |
+
+Open risks:
+- The regenerated tree is uncommitted. If it is neither committed nor reverted,
+  the workspace stays dirty and `bun check` stays red on `main`.
+- Accepting the diff adds `cn@^0.2.5` as a runtime dependency to every app
+  kitcn scaffolds, and adds `legacy-peer-deps=true` to start apps. The latter
+  suppresses peer-dependency conflict errors, which can mask genuine version
+  incompatibilities in generated projects.
+- `shadcn: latest` is deliberately floating, so this class of source-level
+  churn will recur on every sync. `fixtures:check` cannot distinguish it from a
+  version bump; only per-hunk review can.
+
+Hard closeout guard:
+- A local-only final response for verified code-changing work is invalid unless
+  this plan records an explicit user decline, no local patch, analytical/
+  blocked/inconclusive outcome, or a real commit/PR blocker.
+  **Satisfied:** the user's criterion 5 is an explicit, pre-authorized
+  instruction to stop and report instead of committing for exactly this case.
