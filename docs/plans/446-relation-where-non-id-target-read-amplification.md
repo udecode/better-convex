@@ -288,10 +288,17 @@ Findings:
 - `convex/orm/relation-loading.test.ts:1856` already defines a `through`
   relation joined on a non-`_id` column (`slug`), so call site 2 has existing
   coverage; it stayed green.
-- `JSON.stringify(values)` over the exact same `values` already happens
-  upstream of all three call sites (`query.ts:8201`, `:8439`, `:8746`,
-  `:9192`), so the memo key introduces no new serialization-throw surface
-  (e.g. `bigint()` columns) and no new collision class.
+- CORRECTED after PR review. The first version of the memo keyed on
+  `JSON.stringify(values)`, defended on the grounds that the same call already
+  happens upstream at `query.ts:8201`, `:8439`, `:8746`, `:9192`. That defense
+  was wrong. Those upstream maps are per-batch, and in the residual relation
+  `where` the batch is ONE row, so a map of one never compares two join values
+  and cannot alias. The execution-wide memo spans every row, which made it the
+  sole discriminator — and `JSON.stringify` renders every `ArrayBuffer` as `{}`
+  and `NaN`/`Infinity`/`-Infinity` as `null`, and throws on `int64`. So the
+  memo introduced a new collision class in exactly the path this change
+  targets. Measured: `where: { teamByToken: { name: 'Alpha' } }` returned all
+  50 members instead of Alpha's 25.
 
 Decisions and tradeoffs:
 - Memo, not batching. #420 already established the execution-scoped memo as the
@@ -303,9 +310,12 @@ Decisions and tradeoffs:
   deterministically per relation. It is what decides which row `.first()`
   returns, so keying on it makes the memo correct by construction rather than
   by an invariant a future edit could break.
-- An `undefined`-value bypass guards a collision `JSON.stringify` would
-  otherwise create (`undefined` serializes to `null`). All current callers
-  filter nullish join values first, so this only protects a future one.
+- The memo key encodes join values with `convexToJson` — the same wire
+  encoding `packages/kitcn/src/internal/query-key.ts:41` already uses for query
+  keys — so every Convex value round-trips distinctly. Key construction is
+  wrapped in try/catch: a value `convexToJson` rejects is not a Convex value,
+  and the read then runs unmemoized rather than sharing an entry. Fail-safe by
+  construction — the worst case is a missed dedup, never a wrong answer.
 - Did not sync the unrelated Expo fixture drift. It is upstream churn, not this
   task's scope, and committing it would put an unrelated dependency bump in a
   bug-fix diff.
@@ -315,11 +325,14 @@ Implementation notes:
   - Added `_firstDocumentByFieldKey: Map<string, Promise<any | null>>` beside
     `_documentByNormalizedId`, with a doc comment stating the same execution
     scope and staleness argument.
-  - Added `_firstByFields(tableName, fields, values, indexName)`: key is
-    `JSON.stringify([tableName, indexName, fields, values])`; the pending
+  - Added `_firstByFields(tableName, fields, values, indexName)`: the pending
     promise is stored before it settles so concurrent loaders share one
     in-flight read; the entry is evicted on rejection so a failure is never
     cached — identical shape to `_getById`.
+  - Added `_firstByFieldsMemoKey(...)`, which builds
+    `JSON.stringify([tableName, indexName, fields, values.map(convexToJson)])`
+    and returns `null` when encoding throws. `_firstByFields` treats `null` as
+    "read, do not memoize".
   - Rerouted `_loadOneRelation`'s non-`useGetById` branch,
     `fetchThroughTargets`, and `resolveTargetMatch`.
 - `packages/kitcn/src/orm/query.relation-where-reads.vitest.ts`
@@ -327,11 +340,23 @@ Implementation notes:
     `teamSlug`; new `teamBySlug` relation joined on `slug`.
   - The counting proxy now also splits `query` calls by table
     (`queryByTable`), so a target read is separable from the parent scan.
-  - Four new tests: read count, result correctness, cross-execution staleness,
-    and target distinctness.
+  - `rw_teams` also gained `token: bytes()` and `score: integer()` with
+    indexes, `rw_members` the matching `teamToken`/`teamScore`, and two more
+    relations joined on them.
+  - Six new tests: read count, result correctness, cross-execution staleness,
+    target distinctness, and two memo-key aliasing cases — a `bytes()` join
+    value and NaN-vs-Infinity.
 
 Review fixes:
-- None. Both review passes came back with nothing to fix.
+- Pre-PR: adversarial workflow and autoreview both came back with nothing to
+  fix. The workflow's memo-key lens did raise the NaN/Infinity collision, but
+  its refuters killed it as "pre-existing", and autoreview rated it below its
+  P0 threshold. Both were wrong, for the reason recorded under Findings.
+- On PR #448, `@chatgpt-codex-connector` filed a P2 on `query.ts:7791-7793`:
+  "Encode Convex values losslessly in memo keys". Accepted and fixed — the
+  claim was reproducible and produced wrong rows, not just extra reads. Two
+  regression tests added; discussion r3942627813 replied to.
+- Post-fix autoreview on the full branch: clean, 0.88.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -344,11 +369,13 @@ All commands run from `/Users/mikey/conductor/workspaces/kitcn/phoenix`.
 - `bunx vitest run packages/kitcn/src/orm/query.relation-where-reads.vitest.ts`
   - pre-fix: 2 failed / 5 passed — `expected 50 to be less than or equal to 2`
     and `expected 19 to be less than or equal to 2`
-  - post-fix: **7 passed**, re-run once to rule out a stale transform pass
-- `bunx vitest run packages/kitcn/src/orm` — **19 files, 157 tests passed**
+  - post-fix: **9 passed** (includes the two memo-key aliasing regressions,
+    each of which failed at "expected 50 to have a length of 25" before the
+    lossless-key fix)
+- `bunx vitest run packages/kitcn/src/orm` — **19 files, 159 tests passed**
 - `bun --cwd packages/kitcn build` — 72 files, complete
 - `bun typecheck` — 5/5 tasks green
-- `bun run test` — **1400 bun tests passed (150 files)** + **985 vitest passed,
+- `bun run test` — **1400 bun tests passed (150 files)** + **987 vitest passed,
   14 skipped (92 files)**
 - `bun lint:fix` — 960 files checked, no fixes applied
 - `bun check` — `lint`, `typecheck`, `test`, `test:cli`, `test:concave` all
@@ -359,8 +386,9 @@ All commands run from `/Users/mikey/conductor/workspaces/kitcn/phoenix`.
   survived**; every raised finding was killed as pre-existing/accepted for
   `_documentByNormalizedId` or as unreachable
 - `.agents/skills/autoreview/scripts/autoreview --mode local --engine claude` —
-  `autoreview clean: no accepted/actionable findings reported`;
-  `overall: patch is correct (0.88)`
+  clean, 0.88 (pre-PR)
+- `.agents/skills/autoreview/scripts/autoreview --mode branch --base origin/main
+  --engine claude` — clean, 0.88 (after the lossless-key fix)
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -372,6 +400,8 @@ Source-listed case matrix:
 | Two distinct non-`_id` targets in one execution | memo must not alias them | `'two non-\`_id\` targets are told apart'` | N/A (new) | each row gets its own target | vitest | passed |
 | `through` relation target, non-`_id` | same shape, not named in the issue | `convex/orm/relation-loading.test.ts:1856` (pre-existing) | N/A | unchanged | `bun run test` | passed |
 | `_count` through target, non-`_id` | same shape, not named in the issue | `returning-count.read-amplification.vitest.ts` (pre-existing) | N/A | unchanged | `bunx vitest run packages/kitcn/src/orm` | passed |
+| `bytes()` join value | PR #448 review: `JSON.stringify` renders every ArrayBuffer as `{}` | `'a bytes join value is not confused with a different bytes join value'` | 50 rows returned (both teams) | 25 rows, Alpha only | vitest | passed |
+| NaN vs Infinity join value | PR #448 review: both render as `null` | `'NaN and Infinity join values are not confused with each other'` | 50 rows returned (both teams) | 25 rows, Alpha only | vitest | passed |
 
 Final handoff contract:
 - Commit line: `fix(orm): memoize non-_id relation target reads per execution` on branch `fix/orm-non-id-relation-target-memo`
@@ -430,6 +460,9 @@ Timeline:
 - 2026-09-05T09:36Z User requested a PR, reversing the standing decline.
   Branch renamed `issue-446-task` -> `fix/orm-non-id-relation-target-memo`,
   pushed, and opened as PR #448.
+- 2026-09-05T10:1xZ PR review P2 accepted: memo key aliased bytes and special
+  floats and returned wrong rows. Reproduced, fixed with `convexToJson`, two
+  regression tests added, branch autoreview clean.
 
 Reboot status:
 | Question | Answer |
