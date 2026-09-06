@@ -91,8 +91,13 @@ Boundaries:
 - GitHub issue sync: PR #448 body carries `🐛 Fixes #446`, which closes and
   cross-links the issue on merge. No separate issue comment was authorized.
 - Non-goals: batching the residual membership predicate, changing the fan-out
-  cap, touching the `_id` memo from #420, syncing the unrelated Expo fixture
-  drift.
+  cap, syncing the unrelated Expo fixture drift, and rekeying the relation
+  loaders' own per-batch `JSON.stringify(values)` maps (a separate pre-existing
+  aliasing bug that needs its own change).
+- Scope widened once, deliberately: the `_ownedCopy` fix also lands on the `_id`
+  memo from #420. Splitting it would have left twin helpers with different
+  isolation semantics, which is the exact asymmetry this change set out to
+  remove.
 
 Output budget strategy:
 - Read `query.ts` in bounded windows around grep hits rather than whole-file.
@@ -346,6 +351,18 @@ Implementation notes:
   - Six new tests: read count, result correctness, cross-execution staleness,
     target distinctness, and two memo-key aliasing cases — a `bytes()` join
     value and NaN-vs-Infinity.
+- `packages/kitcn/src/orm/query.ts` (second review round)
+  - Added `_ownedCopy`, applied to every consumer of both
+    `_documentByNormalizedId` and `_firstDocumentByFieldKey`, including the
+    entry's creator. Relation loading writes nested `with` results and `extras`
+    onto the target it is handed and `hydrateDateFieldsForRead` copies every own
+    key, so a shared entry leaked fields between relations. The writes are all
+    top-level, so a shallow copy is exactly enough isolation.
+- `packages/kitcn/src/orm/query.relation-target-memo.vitest.ts` (new)
+  - Three tests over aliased duplicate relation pairs that resolve the same
+    target through the same memo key, one pair per memo. Each asserts the shared
+    read happened (1 read for 2 relations) before asserting isolation, so the
+    isolation claim cannot pass vacuously.
 
 Review fixes:
 - Pre-PR: adversarial workflow and autoreview both came back with nothing to
@@ -357,6 +374,16 @@ Review fixes:
   claim was reproducible and produced wrong rows, not just extra reads. Two
   regression tests added; discussion r3942627813 replied to.
 - Post-fix autoreview on the full branch: clean, 0.88.
+- Second review round on #448 filed two more findings, both accepted:
+  - P1 on `.changeset/rotten-donkeys-shave.md`: the bullet carried
+    algorithm/proof narration (the 50-row measurement, the cross-await
+    staleness sentence) against `.agents/rules/changeset.mdc`. Condensed to two
+    user-facing outcomes.
+  - P2 on `query.ts:7831-7833`: a memo entry is one object shared by every read
+    of that key, and relation loading mutates the target it is handed, so one
+    relation could publish fields another relation requested. Reproduced
+    deterministically, fixed with `_ownedCopy` on both memo twins.
+- Third autoreview on the full branch after both fixes: clean, 0.82.
 
 Error attempts:
 | Error / failed attempt | Count | Next different move | Resolution |
@@ -372,11 +399,16 @@ All commands run from `/Users/mikey/conductor/workspaces/kitcn/phoenix`.
   - post-fix: **9 passed** (includes the two memo-key aliasing regressions,
     each of which failed at "expected 50 to have a length of 25" before the
     lossless-key fix)
-- `bunx vitest run packages/kitcn/src/orm` — **19 files, 159 tests passed**
+- `bunx vitest run packages/kitcn/src/orm/query.relation-target-memo.vitest.ts`
+  — **3 passed**; with `_ownedCopy` reduced to an identity function, 2 of the 3
+  fail, which is the red-first proof. The third (sibling relations under one
+  `Promise.all`) passes either way because sibling order is a race; it is
+  labelled in-file as a shape lock, not the regression proof.
+- `bunx vitest run packages/kitcn/src/orm` — **20 files, 162 tests passed**
 - `bun --cwd packages/kitcn build` — 72 files, complete
 - `bun typecheck` — 5/5 tasks green
-- `bun run test` — **1400 bun tests passed (150 files)** + **987 vitest passed,
-  14 skipped (92 files)**
+- `bun run test` — **1400 bun tests passed (150 files)** + **990 vitest passed,
+  14 skipped (93 files)**
 - `bun lint:fix` — 960 files checked, no fixes applied
 - `bun check` — `lint`, `typecheck`, `test`, `test:cli`, `test:concave` all
   green; `fixtures:check` **fails on pre-existing upstream Expo drift**
@@ -388,7 +420,8 @@ All commands run from `/Users/mikey/conductor/workspaces/kitcn/phoenix`.
 - `.agents/skills/autoreview/scripts/autoreview --mode local --engine claude` —
   clean, 0.88 (pre-PR)
 - `.agents/skills/autoreview/scripts/autoreview --mode branch --base origin/main
-  --engine claude` — clean, 0.88 (after the lossless-key fix)
+  --engine claude` — clean, 0.88 (after the lossless-key fix), then clean, 0.82
+  (after the `_ownedCopy` isolation fix)
 
 Source-listed case matrix:
 | Case | Source claim | Harness | Before | Expected after | Evidence | Status |
@@ -402,6 +435,8 @@ Source-listed case matrix:
 | `_count` through target, non-`_id` | same shape, not named in the issue | `returning-count.read-amplification.vitest.ts` (pre-existing) | N/A | unchanged | `bunx vitest run packages/kitcn/src/orm` | passed |
 | `bytes()` join value | PR #448 review: `JSON.stringify` renders every ArrayBuffer as `{}` | `'a bytes join value is not confused with a different bytes join value'` | 50 rows returned (both teams) | 25 rows, Alpha only | vitest | passed |
 | NaN vs Infinity join value | PR #448 review: both render as `null` | `'NaN and Infinity join values are not confused with each other'` | 50 rows returned (both teams) | 25 rows, Alpha only | vitest | passed |
+| Shared memo entry, non-`_id` | PR #448 review: cached object is mutated by relation loading | `'...does not leak onto a `with` sharing its `_firstByFields` entry'` | `teamBySlugAlt` carried `membersBySlug` | only requested fields | vitest | passed |
+| Shared memo entry, `_id` (pre-existing from #420) | same class on the untouched `_getById` path | `'...does not leak onto a `with` sharing its `_getById` entry'` | `teamByIdAlt` carried `membersById` | only requested fields | vitest | passed |
 
 Final handoff contract:
 - Commit line: `fix(orm): memoize non-_id relation target reads per execution` on branch `fix/orm-non-id-relation-target-memo`
@@ -463,6 +498,10 @@ Timeline:
 - 2026-09-05T10:1xZ PR review P2 accepted: memo key aliased bytes and special
   floats and returned wrong rows. Reproduced, fixed with `convexToJson`, two
   regression tests added, branch autoreview clean.
+- 2026-09-05T12:0xZ Second review round: P1 changeset narration condensed; P2
+  shared-memo-object leak reproduced on BOTH memos and fixed with `_ownedCopy`.
+  The `_id` half is pre-existing from #420 and its regression test fails on
+  main. Branch autoreview clean again.
 
 Reboot status:
 | Question | Answer |
