@@ -619,3 +619,36 @@ test('a wide `in` beside a residual filter still compiles to its probes', async 
     expect(reads.scanned - before).toBeLessThanOrEqual(8);
   });
 });
+
+test('an index union with a residual filter sizes the read by matches', async () => {
+  const t = convexTest(schema);
+
+  await t.run(async (baseCtx) => {
+    const reads = countDocumentReads(baseCtx);
+    const ctx = await runCtx(baseCtx);
+    // Every row carries the probed status, and the first one already satisfies
+    // the residual. Collecting the probes before applying it would read the
+    // whole population to answer a one-row page.
+    for (let index = 0; index < 400; index += 1) {
+      await baseCtx.db.insert('users', {
+        name: `Dense ${String(index).padStart(3, '0')}`,
+        email: `residual-${index}@example.com`,
+        status: 'active',
+      });
+    }
+
+    for (const width of [64, 65]) {
+      const before = reads.scanned;
+      const rows = await ctx.orm.query.users.withIndex('by_status').findMany({
+        where: {
+          status: { in: wideStatusList(width) },
+          name: { contains: 'Dense' },
+        },
+        limit: 1,
+      });
+
+      expect(rows.map((row: any) => row.name)).toEqual(['Dense 000']);
+      expect(reads.scanned - before).toBeLessThanOrEqual(4);
+    }
+  });
+});

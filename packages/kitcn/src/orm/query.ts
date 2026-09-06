@@ -3091,6 +3091,47 @@ export class GelRelationalQuery<
   }
 
   /**
+   * The first `limit` rows of a compiled union that also carries a residual
+   * filter, or null when the union cannot be streamed in the order asked for.
+   *
+   * The residual runs inside `filterWith`, so `take` sizes the read by matching
+   * rows rather than by how many rows carry a probed value. That is the whole
+   * difference between reading a page and reading every row with a common
+   * status; the caller falls back to collecting each probe when this returns
+   * null.
+   */
+  private async _takeResidualProbeUnion(params: {
+    limit: number;
+    order: 'asc' | 'desc';
+    orderField: string;
+    queryConfig: CompiledQueryPlan;
+  }): Promise<any[] | null> {
+    const schemaDefinition = (this.schema as any)[OrmSchemaDefinition];
+    if (!schemaDefinition || !params.queryConfig.index) {
+      return null;
+    }
+
+    const union = this._buildProbeUnionStream({
+      schemaDefinition,
+      indexName: params.queryConfig.index.name,
+      probeFilters: params.queryConfig.probeFilters,
+      order: params.order,
+      orderField: params.orderField,
+    });
+    if (!union) {
+      return null;
+    }
+
+    return await union
+      .filterWith(async (row: any) =>
+        params.queryConfig.postFilters.every((filter) =>
+          this._evaluatePostFetchFilter(row, filter)
+        )
+      )
+      .take(params.limit);
+  }
+
+  /**
    * `probeFilters` in the order a scan of `indexField` reaches them, or null
    * when they cannot be proven to be pairwise-disjoint ranges on that field.
    *
@@ -3122,18 +3163,26 @@ export class GelRelationalQuery<
           usable = false;
           break;
         }
-        const [field, value] = (filter as BinaryExpression).operands;
+        const [field, rawValue] = (filter as BinaryExpression).operands;
         // A probe that constrains anything but the leading field bounds a
         // deeper key, and two such probes can share leading values.
         if (
           !isFieldReference(field) ||
           field.fieldName !== params.indexField ||
-          value === undefined ||
-          isFieldReference(value)
+          rawValue === undefined ||
+          isFieldReference(rawValue)
         ) {
           usable = false;
           break;
         }
+        // Sort on what the index actually holds, the way `_applyFilterToQuery`
+        // does when it turns the same bound into a range. Operands arrive
+        // normalized today — `_buildColumnFilterExpression` does it at build
+        // time — so this is alignment rather than a repair, but the ordering
+        // proof should not depend on a caller three layers up: `compareValues`
+        // reports any two `Date`s as equal, so a raw temporal bound would make
+        // every probe look like it overlapped its neighbour.
+        const value = this._normalizeComparableValue(field.fieldName, rawValue);
         switch (filter.operator) {
           case 'eq':
             usable = lower === null && upper === null;
@@ -7014,38 +7063,63 @@ export class GelRelationalQuery<
           ? probeOffset + probeLimit
           : undefined;
 
-      const probeRows = await Promise.all(
-        queryConfig.probeFilters.map(async (probeFilters) => {
-          let probeQuery: any = this.db
-            .query(queryConfig.table)
-            .withIndex(queryConfig.index!.name, (q: any) => {
-              let indexQuery = q;
-              for (const filter of probeFilters) {
-                indexQuery = this._applyFilterToQuery(indexQuery, filter);
+      // A residual filter is the one reason to lose the bound that the union
+      // itself can still answer: read it as one ordered stream and the residual
+      // runs while rows are pulled, so `take` counts matches instead of the
+      // whole probed population. Collecting every probe first would read every
+      // row carrying a probed value — for a common value that is most of the
+      // table, however small the `limit`.
+      //
+      // The other two reasons stay unbounded here. Post-fetch membership drops
+      // rows after the union is assembled, and a sort the index cannot serve
+      // needs every row before the top-k is known.
+      const residualProbeRows =
+        probeBound === undefined &&
+        probeLimit !== undefined &&
+        !probeHasPostFetchMembership &&
+        (postFetchOrders.length === 0 || probeOrderDirection !== null)
+          ? await this._takeResidualProbeUnion({
+              limit: probeOffset + probeLimit,
+              order: probeOrderDirection ?? primaryOrder?.direction ?? 'asc',
+              orderField: primaryOrder?.field ?? queryConfig.index.fields[0]!,
+              queryConfig,
+            })
+          : null;
+
+      const probeRows = residualProbeRows
+        ? [residualProbeRows]
+        : await Promise.all(
+            queryConfig.probeFilters.map(async (probeFilters) => {
+              let probeQuery: any = this.db
+                .query(queryConfig.table)
+                .withIndex(queryConfig.index!.name, (q: any) => {
+                  let indexQuery = q;
+                  for (const filter of probeFilters) {
+                    indexQuery = this._applyFilterToQuery(indexQuery, filter);
+                  }
+                  return indexQuery;
+                });
+
+              if (probeBound !== undefined && probeOrderDirection) {
+                probeQuery = probeQuery.order(probeOrderDirection);
               }
-              return indexQuery;
-            });
 
-          if (probeBound !== undefined && probeOrderDirection) {
-            probeQuery = probeQuery.order(probeOrderDirection);
-          }
+              if (convexProbeFilters.length > 0) {
+                probeQuery = probeQuery.filter((q: any) =>
+                  convexAnd(
+                    q,
+                    convexProbeFilters.map((filter) =>
+                      this._toConvexExpression(filter)(q)
+                    )
+                  )
+                );
+              }
 
-          if (convexProbeFilters.length > 0) {
-            probeQuery = probeQuery.filter((q: any) =>
-              convexAnd(
-                q,
-                convexProbeFilters.map((filter) =>
-                  this._toConvexExpression(filter)(q)
-                )
-              )
-            );
-          }
-
-          return probeBound === undefined
-            ? await probeQuery.collect()
-            : await probeQuery.take(probeBound);
-        })
-      );
+              return probeBound === undefined
+                ? await probeQuery.collect()
+                : await probeQuery.take(probeBound);
+            })
+          );
 
       let rows = Array.from(
         new Map(

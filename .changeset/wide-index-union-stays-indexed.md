@@ -29,4 +29,5 @@ const page = await db.query.users.withIndex("by_status").findMany({
 
 - Fix `select()` reading the whole table when its `where` compiled to an index union of more than 64 values. On a 120-row table with a single match, `select().where({ status: { in: [...65 values] } }).limit(1)` read 120 documents where the equivalent `findMany` read 1. Both read 1.
 - Fix an `in` next to another condition — `where: { status: { in: [...] }, name: { contains: 'x' } }` — falling back to a table scan once the list passed 64 values.
+- Fix a `limit` on that same shape reading every row carrying a probed value before applying the other condition. On 400 rows sharing one status where the first row already matched, `limit: 1` read 400 documents; it reads 1.
 - Lengthening an `in` list no longer changes which plan it gets. Up to 64 values the ranges are read as one merged stream, and past that they are read one after another, so the read stays index-bounded at any length. An `orderBy` that sorts across values, such as `createdAt`, still needs a merge and so still asks for `maxScan` past 64 values.
